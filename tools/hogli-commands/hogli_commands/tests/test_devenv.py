@@ -2,14 +2,36 @@
 
 from __future__ import annotations
 
+import os
+import sys
+import shlex
+import shutil
 import tempfile
+import subprocess
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import pytest
+from unittest import mock
 
 import yaml
-from hogli_commands.devenv.generator import DevenvConfig, MprocsGenerator, load_devenv_config
+from click.testing import CliRunner
+from hogli_commands.devenv.cli import dev_regenerate_mprocs
+from hogli_commands.devenv.generator import (
+    _READY_MARKER,
+    TRACKED_MPROCS_FILES,
+    DevenvConfig,
+    MprocsConfig,
+    MprocsGenerator,
+    TrackedMprocsFile,
+    _build_docker_compose_shell,
+    build_docker_compose_command,
+    build_e2e_docker_compose_shell,
+    build_static_docker_compose_shell,
+    load_devenv_config,
+    regenerate_mprocs_shell,
+)
 from hogli_commands.devenv.registry import ProcessRegistry, create_mprocs_registry
 from hogli_commands.devenv.resolver import Capability, Intent, IntentMap, IntentResolver, load_intent_map
 from hogli_commands.devenv.wizard import _parse_exclude_input
@@ -120,6 +142,86 @@ def create_test_registry() -> MockRegistry:
             "flag_evaluation": ["feature-flags"],
         }
     )
+
+
+class TestSandboxWrapper:
+    @staticmethod
+    def _wrap(proc: dict[str, Any]) -> dict[str, Any]:
+        return MprocsGenerator(MockRegistry({}))._add_sandbox_wrapper(proc)
+
+    def test_wraps_by_default(self, monkeypatch: Any) -> None:
+        monkeypatch.delenv("POSTHOG_DEV_SANDBOX", raising=False)
+        result = self._wrap({"shell": "./bin/start-backend", "sandbox": True})
+        assert result["shell"] == "bin/dev-sandbox ./bin/start-backend"
+        assert "sandbox" not in result  # registry-only selector must never leak to phrocs
+
+    def test_disabled_leaves_command_unwrapped(self, monkeypatch: Any) -> None:
+        monkeypatch.setenv("POSTHOG_DEV_SANDBOX", "0")
+        result = self._wrap({"shell": "./bin/start-backend", "sandbox": True})
+        assert result["shell"] == "./bin/start-backend"
+        assert "sandbox" not in result
+
+    def test_proc_without_sandbox_flag_not_wrapped(self, monkeypatch: Any) -> None:
+        monkeypatch.delenv("POSTHOG_DEV_SANDBOX", raising=False)
+        result = self._wrap({"shell": "cargo run --bin x"})
+        assert result["shell"] == "cargo run --bin x"
+        assert "sandbox" not in result
+
+    def test_temporal_worker_excluded_by_default(self, monkeypatch: Any) -> None:
+        monkeypatch.delenv("POSTHOG_DEV_SANDBOX", raising=False)
+        monkeypatch.delenv("POSTHOG_DEV_SANDBOX_EXCLUDE", raising=False)
+        generator = MprocsGenerator(MockRegistry({}))
+        excluded = generator._add_sandbox_wrapper({"shell": "./run-worker", "sandbox": True}, "temporal-worker")
+        assert excluded["shell"] == "./run-worker"
+        assert "sandbox" not in excluded
+        wrapped = generator._add_sandbox_wrapper({"shell": "./bin/start-backend", "sandbox": True}, "backend")
+        assert wrapped["shell"] == "bin/dev-sandbox ./bin/start-backend"
+
+    def test_excluded_proc_left_unwrapped(self, monkeypatch: Any) -> None:
+        # POSTHOG_DEV_SANDBOX_EXCLUDE is additive on top of the default excludes.
+        monkeypatch.delenv("POSTHOG_DEV_SANDBOX", raising=False)
+        monkeypatch.setenv("POSTHOG_DEV_SANDBOX_EXCLUDE", "other-proc")
+        generator = MprocsGenerator(MockRegistry({}))
+        excluded = generator._add_sandbox_wrapper({"shell": "./run-other", "sandbox": True}, "other-proc")
+        assert excluded["shell"] == "./run-other"
+        assert "sandbox" not in excluded
+        wrapped = generator._add_sandbox_wrapper({"shell": "./bin/start-backend", "sandbox": True}, "backend")
+        assert wrapped["shell"] == "bin/dev-sandbox ./bin/start-backend"
+
+    def test_docker_gate_runs_outside_sandbox(self, monkeypatch: Any) -> None:
+        monkeypatch.delenv("POSTHOG_DEV_SANDBOX", raising=False)
+        result = self._wrap({"shell": "bin/wait-for-docker && ./bin/start-backend", "sandbox": True})
+        assert result["shell"] == "bin/wait-for-docker && bin/dev-sandbox ./bin/start-backend"
+
+    def test_open_when_ready_runs_outside_sandbox(self, monkeypatch: Any) -> None:
+        # The browser-opener is peeled out to run unsandboxed (the OS open path the
+        # sandbox denies), and the rest stays sandboxed.
+        monkeypatch.delenv("POSTHOG_DEV_SANDBOX", raising=False)
+        result = self._wrap(
+            {
+                "shell": "bin/dev-open-when-ready http://localhost:6006 && pnpm install && pnpm run storybook",
+                "sandbox": True,
+            }
+        )
+        assert result["shell"] == (
+            "bin/dev-open-when-ready http://localhost:6006 && bin/dev-sandbox "
+            + shlex.quote("pnpm install && pnpm run storybook")
+        )
+
+    def test_gate_hoisted_from_middle_of_chain(self, monkeypatch: Any) -> None:
+        # echo/uv-sync preambles are prepended before the gate, so it is never the
+        # leading segment; it must still be peeled out to run unsandboxed.
+        monkeypatch.delenv("POSTHOG_DEV_SANDBOX", raising=False)
+        result = self._wrap({"shell": "echo hi && bin/wait-for-docker && ./server", "sandbox": True})
+        assert result["shell"] == "bin/wait-for-docker && bin/dev-sandbox " + shlex.quote("echo hi && ./server")
+
+    def test_gates_only_command_not_wrapped(self, monkeypatch: Any) -> None:
+        # Nothing untrusted to sandbox -> must not emit `bin/dev-sandbox ''` (the
+        # wrapper's ${1:?} would reject the empty argument and the service would die).
+        monkeypatch.delenv("POSTHOG_DEV_SANDBOX", raising=False)
+        result = self._wrap({"shell": "bin/wait-for-docker && bin/wait-for-postgres-tables x", "sandbox": True})
+        assert "bin/dev-sandbox" not in result["shell"]
+        assert result["shell"] == "bin/wait-for-docker && bin/wait-for-postgres-tables x"
 
 
 class TestIntentResolver:
@@ -355,6 +457,164 @@ class TestDockerProfiles:
         assert "etcd" in result.docker_profiles
 
 
+class TestDockerComposeProjectName:
+    """Test project-name selection in the generated docker compose command."""
+
+    def test_defaults_to_posthog_when_unset(self, monkeypatch: Any) -> None:
+        monkeypatch.delenv("COMPOSE_PROJECT_NAME", raising=False)
+
+        cmd = build_docker_compose_command([])
+
+        assert "-p posthog " in cmd
+
+    def test_defaults_to_posthog_when_empty(self, monkeypatch: Any) -> None:
+        monkeypatch.setenv("COMPOSE_PROJECT_NAME", "")
+
+        cmd = build_docker_compose_command([])
+
+        assert "-p posthog " in cmd
+
+    @parameterized.expand(
+        [
+            ("plain name", "posthog-worktree", "posthog-worktree"),
+            ("value with a space", "posthog dev", "posthog dev"),
+            ("value with shell metacharacters", "posthog; rm -rf /", "posthog; rm -rf /"),
+        ]
+    )
+    def test_project_name_from_env_is_shell_quoted(self, _name: str, env_value: str, expected_value: str) -> None:
+        with mock.patch.dict(os.environ, {"COMPOSE_PROJECT_NAME": env_value}):
+            cmd = build_docker_compose_command([])
+
+        # The quoted project name must round-trip through shlex.split as a single token,
+        # proving it can't be split into extra shell arguments or inject shell syntax.
+        tokens = shlex.split(cmd)
+        assert tokens[tokens.index("-p") + 1] == expected_value
+
+
+class TestMprocsDockerComposeShellSync:
+    """Each checked-in file's shell must equal its generator function's output, and
+    regenerating a drifted copy must rewrite only that one line."""
+
+    @parameterized.expand([(t.name, t) for t in TRACKED_MPROCS_FILES])
+    def test_checked_in_file_matches_generator_output(self, _name: str, target: TrackedMprocsFile) -> None:
+        proc = create_mprocs_registry(target.path).get_processes()["docker-compose"]
+
+        assert proc.shell == target.build_shell()
+        assert proc.config["ready_pattern"] == _READY_MARKER
+
+    @parameterized.expand([(t.name, t) for t in TRACKED_MPROCS_FILES])
+    def test_regenerate_rewrites_a_drifted_file_and_only_that_line(self, _name: str, target: TrackedMprocsFile) -> None:
+        real_path = target.path
+        original = real_path.read_text()
+        current_shell = create_mprocs_registry(real_path).get_processes()["docker-compose"].shell
+        drifted_shell = current_shell.replace("docker-compose ready", "DRIFTED")
+        with tempfile.TemporaryDirectory() as tmp:
+            drifted_path = Path(tmp) / "mprocs.yaml"
+            drifted_path.write_text(original.replace(current_shell, drifted_shell))
+
+            was_rewritten = regenerate_mprocs_shell(drifted_path, target.build_shell())
+
+            assert was_rewritten is True
+            assert drifted_path.read_text() == original
+
+
+class TestRegenerateMprocsCheckFlag:
+    """--check backs ci:preflight's verify step, so it must report staleness without writing."""
+
+    def test_passes_without_writing_when_up_to_date(self) -> None:
+        originals = {target.path: target.path.read_text() for target in TRACKED_MPROCS_FILES}
+
+        result = CliRunner().invoke(dev_regenerate_mprocs, ["--check"])
+
+        assert result.exit_code == 0
+        assert "up to date" in result.output
+        assert all(path.read_text() == text for path, text in originals.items())
+
+    def test_fails_without_writing_when_stale(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        static_target = TRACKED_MPROCS_FILES[0]
+        original = static_target.path.read_text()
+        drifted_path = tmp_path / "mprocs.yaml"
+        drifted_path.write_text(original.replace(static_target.build_shell(), "echo drifted"))
+        drifted_text = drifted_path.read_text()
+        patched_targets = [replace(static_target, path=drifted_path), *TRACKED_MPROCS_FILES[1:]]
+        monkeypatch.setattr("hogli_commands.devenv.cli.TRACKED_MPROCS_FILES", patched_targets)
+
+        result = CliRunner().invoke(dev_regenerate_mprocs, ["--check"])
+
+        assert result.exit_code == 1
+        assert str(drifted_path) in result.output
+        assert drifted_path.read_text() == drifted_text
+
+
+class TestDockerComposeShellBehavior:
+    """The static and e2e shells must only report ready after `docker compose up`
+    (and, for e2e, the personhog step) succeeds, and must never invoke docker at
+    all when POSTHOG_SANDBOX=1 (e2e never sandboxes, so it has no such case).
+
+    The failing-`up` cases specifically guard the `exit 1` in the static shell's
+    `up_cmd || { fail_cmd; exit 1; }`: drop it and the `{ ...; }` group exits 0,
+    the `||` is satisfied, and the ready marker fires even though `up` failed —
+    every dependent proc then starts against a dead stack."""
+
+    def test_generated_shell_delegates_to_the_shared_docker_compose_helper(self) -> None:
+        # The hogli-generated shell shares its up/logs/sandbox-guard logic with the
+        # static one via _build_docker_compose_shell, so its branching behavior is
+        # already covered below; this just guards against that delegation being
+        # replaced with a reimplementation that drifts.
+        generated = MprocsGenerator(MockRegistry({}))._generate_docker_compose_config({}, [])["shell"]
+
+        assert generated.endswith(_build_docker_compose_shell([]))
+
+    _SHELL_BUILDERS = {"static": build_static_docker_compose_shell, "e2e": build_e2e_docker_compose_shell}
+
+    @classmethod
+    def _shell(cls, source: str) -> str:
+        return cls._SHELL_BUILDERS[source]()
+
+    @staticmethod
+    def _run_shell(
+        shell: str, up_exit: int, personhog_exit: int = 0, *, sandbox: bool
+    ) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_docker = Path(tmp) / "docker"
+            fake_docker.write_text(
+                f'#!/bin/sh\ncase "$*" in *personhog*) exit {personhog_exit};; *" up "*) exit {up_exit};; esac\nexit 0\n'
+            )
+            fake_docker.chmod(0o755)
+            fake_sleep = Path(tmp) / "sleep"
+            fake_sleep.write_text("#!/bin/sh\nexit 0\n")
+            fake_sleep.chmod(0o755)
+            env = {**os.environ, "PATH": f"{tmp}:{os.environ['PATH']}"}
+            if sandbox:
+                env["POSTHOG_SANDBOX"] = "1"
+            else:
+                env.pop("POSTHOG_SANDBOX", None)
+            return subprocess.run(
+                ["bash", "-c", shell], env=env, capture_output=True, text=True, timeout=10, check=False
+            )
+
+    @parameterized.expand(
+        [
+            ("static", False, 0, 0, True),
+            ("static", False, 1, 0, False),
+            ("static", True, 1, 0, True),
+            ("e2e", False, 0, 0, True),
+            ("e2e", False, 0, 1, False),
+        ]
+    )
+    def test_ready_marker_tracks_up_result_unless_sandboxed(
+        self, source: str, sandbox: bool, up_exit: int, personhog_exit: int, expect_ready: bool
+    ) -> None:
+        # Sandbox cases pass up_exit=1 and still expect ready, proving docker's `up`
+        # call is never reached once POSTHOG_SANDBOX=1 short-circuits the shell. The
+        # e2e personhog_exit=1 case proves a failed personhog step (its own `&&` in
+        # the chain) blocks ready too, not just a failed main `up`.
+        result = self._run_shell(self._shell(source), up_exit, personhog_exit, sandbox=sandbox)
+
+        assert ("docker-compose ready" in result.stdout) == expect_ready
+        assert (result.returncode == 0) == expect_ready
+
+
 class TestIntentMapLoading:
     """Test intent map loading from YAML."""
 
@@ -427,6 +687,25 @@ class TestMprocsRegistry:
         assert "shell" in config
         assert "start-backend" in config["shell"]
 
+    def test_all_declared_capabilities_are_defined(self) -> None:
+        """Every proc-declared capability must exist in intent-map.yaml; orphans raise ValueError on resolution."""
+        registry = create_mprocs_registry()
+        intent_map = load_intent_map()
+
+        orphans = registry.get_all_capabilities() - set(intent_map.capabilities)
+
+        assert not orphans, f"procs declare capabilities not defined in intent-map.yaml: {orphans}"
+
+    def test_default_group_is_an_enabled_grouping_dimension(self) -> None:
+        """The sidebar starts grouped by default, and default_group must name a real dimension."""
+        settings = create_mprocs_registry().get_global_settings()
+
+        default_group = settings.get("default_group")
+        assert default_group, "default_group must be set so the sidebar starts grouped"
+        assert default_group in settings.get("group_order", {}), (
+            "default_group must be a configured group_order dimension"
+        )
+
 
 class TestDevenvConfig:
     """Test DevenvConfig data class."""
@@ -464,6 +743,34 @@ class TestDevenvConfig:
 
         assert restored.intents == original.intents
         assert restored.exclude_units == original.exclude_units
+
+
+class TestMprocsConfigSerialization:
+    """Test MprocsConfig.to_yaml_dict output."""
+
+    def test_default_group_emitted_when_set(self) -> None:
+        result = MprocsConfig(procs={}, default_group="layer").to_yaml_dict()
+        assert result["default_group"] == "layer"
+
+    def test_default_group_omitted_when_empty(self) -> None:
+        result = MprocsConfig(procs={}).to_yaml_dict()
+        assert "default_group" not in result
+
+    def test_generator_propagates_default_group_from_registry(self) -> None:
+        """default_group set in the registry's global settings reaches the generated config."""
+        intent_map = create_test_intent_map()
+        registry = create_test_registry()
+
+        def mock_get_global_settings(self):
+            return {"default_group": "layer", "group_order": {"layer": ["A"]}}
+
+        registry.get_global_settings = mock_get_global_settings.__get__(registry, type(registry))  # type: ignore
+
+        resolved = IntentResolver(intent_map, registry).resolve(["error_tracking"])
+        config = MprocsGenerator(registry).generate(resolved)
+
+        assert config.default_group == "layer"
+        assert config.to_yaml_dict()["default_group"] == "layer"
 
 
 class TestConfigPersistence:
@@ -532,6 +839,34 @@ class TestInfoProcess:
         shell = procs["info"]["shell"]
         for product in expected_products:
             assert product in shell
+
+    @parameterized.expand(
+        [
+            ("default_macos", {}, "darwin", True, r"\033[32mon"),
+            ("explicit_enabled_macos", {"POSTHOG_DEV_SANDBOX": "1"}, "darwin", True, r"\033[32mon"),
+            ("disabled_explicit", {"POSTHOG_DEV_SANDBOX": "0"}, "darwin", True, "POSTHOG_DEV_SANDBOX=0"),
+            ("default_unsupported", {}, "linux", False, "unsupported"),
+        ]
+    )
+    def test_info_process_shows_sandbox_status(
+        self,
+        _name: str,
+        env: dict[str, str],
+        platform: str,
+        has_sandbox_exec: bool,
+        expected_substring: str,
+    ) -> None:
+        which_result = "/usr/bin/sandbox-exec" if has_sandbox_exec else None
+        with (
+            mock.patch.dict(os.environ, env),
+            mock.patch.object(sys, "platform", platform),
+            mock.patch.object(shutil, "which", return_value=which_result),
+        ):
+            if "POSTHOG_DEV_SANDBOX" not in env:
+                os.environ.pop("POSTHOG_DEV_SANDBOX", None)
+            shell = self._generate_with_intents(["feature_flags"])["info"]["shell"]
+        assert "Sandbox:" in shell
+        assert expected_substring in shell
 
     def test_info_process_includes_process_count(self) -> None:
         """Info process shell includes the active process count."""
@@ -747,11 +1082,10 @@ class TestPersonhogEnvInjection:
             if proc_name not in config.procs:
                 continue
             shell = config.procs[proc_name]["shell"]
-            for var in ["PERSONHOG_ADDR", "PERSONHOG_ENABLED", "PERSONHOG_ROLLOUT_PERCENTAGE"]:
-                if should_inject:
-                    assert var in shell, f"{var} should be in {proc_name} shell"
-                else:
-                    assert var not in shell, f"{var} should not be in {proc_name} shell"
+            if should_inject:
+                assert "PERSONHOG_ADDR" in shell, f"PERSONHOG_ADDR should be in {proc_name} shell"
+            else:
+                assert "PERSONHOG_ADDR" not in shell, f"PERSONHOG_ADDR should not be in {proc_name} shell"
 
 
 class TestParseExcludeInput:

@@ -99,3 +99,42 @@ class Distributed:
             return f"Distributed('{cluster}', '{database}', '{self.data_table}')"
 
         return f"Distributed('{cluster}', '{database}', '{self.data_table}', {self.sharding_key})"
+
+
+class Buffer:
+    """Buffer engine: accumulates inserts in memory and flushes them to a destination
+    table in batches. Flushes when any of the max_* thresholds is exceeded, or once
+    all of the min_* thresholds are met. See
+    https://clickhouse.com/docs/en/engines/table-engines/special/buffer.
+    """
+
+    def __init__(
+        self,
+        destination_table: str,
+        num_layers: int,
+        min_time: int,
+        max_time: int,
+        min_rows: int,
+        max_rows: int,
+        min_bytes: int,
+        max_bytes: int,
+        database: str | None = None,
+    ):
+        self.destination_table = destination_table
+        self.num_layers = num_layers
+        self.min_time = min_time
+        self.max_time = max_time
+        self.min_rows = min_rows
+        self.max_rows = max_rows
+        self.min_bytes = min_bytes
+        self.max_bytes = max_bytes
+        self.database = database
+
+    def __str__(self):
+        # Evaluate database at call time, not at module import time (mirrors Distributed).
+        database = self.database if self.database is not None else settings.CLICKHOUSE_DATABASE
+        return (
+            f"Buffer('{database}', '{self.destination_table}', "
+            f"{self.num_layers}, {self.min_time}, {self.max_time}, "
+            f"{self.min_rows}, {self.max_rows}, {self.min_bytes}, {self.max_bytes})"
+        )

@@ -4,7 +4,6 @@ from typing import Any
 
 from django.db import models
 
-from posthog.models import Cohort
 from posthog.models.resource_transfer.types import ResourcePayload, ResourceTransferEdge
 from posthog.models.resource_transfer.visitors.base import ResourceTransferVisitor
 from posthog.models.resource_transfer.visitors.common import (
@@ -12,6 +11,8 @@ from posthog.models.resource_transfer.visitors.common import (
     collect_cohort_ids_from_properties,
     rewrite_cohort_id_in_properties,
 )
+
+from products.cohorts.backend.models.cohort import Cohort
 
 
 class ExperimentHoldoutVisitor(

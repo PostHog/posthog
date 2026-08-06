@@ -16,22 +16,26 @@ export const PropertyGroupOperatorApi = {
 
 /**
  * * `exact` - exact
- * `is_not` - is_not
- * `icontains` - icontains
- * `not_icontains` - not_icontains
- * `regex` - regex
- * `not_regex` - not_regex
- * `gt` - gt
- * `lt` - lt
- * `gte` - gte
- * `lte` - lte
- * `is_set` - is_set
- * `is_not_set` - is_not_set
- * `is_date_exact` - is_date_exact
- * `is_date_after` - is_date_after
- * `is_date_before` - is_date_before
- * `in` - in
- * `not_in` - not_in
+ * * `is_not` - is_not
+ * * `icontains` - icontains
+ * * `not_icontains` - not_icontains
+ * * `starts_with` - starts_with
+ * * `not_starts_with` - not_starts_with
+ * * `ends_with` - ends_with
+ * * `not_ends_with` - not_ends_with
+ * * `regex` - regex
+ * * `not_regex` - not_regex
+ * * `gt` - gt
+ * * `lt` - lt
+ * * `gte` - gte
+ * * `lte` - lte
+ * * `is_set` - is_set
+ * * `is_not_set` - is_not_set
+ * * `is_date_exact` - is_date_exact
+ * * `is_date_after` - is_date_after
+ * * `is_date_before` - is_date_before
+ * * `in` - in
+ * * `not_in` - not_in
  */
 export type PropertyItemOperatorEnumApi = (typeof PropertyItemOperatorEnumApi)[keyof typeof PropertyItemOperatorEnumApi]
 
@@ -40,6 +44,10 @@ export const PropertyItemOperatorEnumApi = {
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
     Regex: 'regex',
     NotRegex: 'not_regex',
     Gt: 'gt',
@@ -63,32 +71,35 @@ export const BlankEnumApi = {
 
 /**
  * * `event` - event
- * `event_metadata` - event_metadata
- * `feature` - feature
- * `person` - person
- * `cohort` - cohort
- * `element` - element
- * `static-cohort` - static-cohort
- * `dynamic-cohort` - dynamic-cohort
- * `precalculated-cohort` - precalculated-cohort
- * `group` - group
- * `recording` - recording
- * `log_entry` - log_entry
- * `behavioral` - behavioral
- * `session` - session
- * `hogql` - hogql
- * `data_warehouse` - data_warehouse
- * `data_warehouse_person_property` - data_warehouse_person_property
- * `error_tracking_issue` - error_tracking_issue
- * `log` - log
- * `log_attribute` - log_attribute
- * `log_resource_attribute` - log_resource_attribute
- * `span` - span
- * `span_attribute` - span_attribute
- * `span_resource_attribute` - span_resource_attribute
- * `revenue_analytics` - revenue_analytics
- * `flag` - flag
- * `workflow_variable` - workflow_variable
+ * * `event_metadata` - event_metadata
+ * * `feature` - feature
+ * * `person` - person
+ * * `person_metadata` - person_metadata
+ * * `cohort` - cohort
+ * * `element` - element
+ * * `static-cohort` - static-cohort
+ * * `dynamic-cohort` - dynamic-cohort
+ * * `precalculated-cohort` - precalculated-cohort
+ * * `group` - group
+ * * `recording` - recording
+ * * `log_entry` - log_entry
+ * * `behavioral` - behavioral
+ * * `session` - session
+ * * `hogql` - hogql
+ * * `data_warehouse` - data_warehouse
+ * * `data_warehouse_person_property` - data_warehouse_person_property
+ * * `error_tracking_issue` - error_tracking_issue
+ * * `log` - log
+ * * `log_attribute` - log_attribute
+ * * `log_resource_attribute` - log_resource_attribute
+ * * `metric_attribute` - metric_attribute
+ * * `span` - span
+ * * `span_attribute` - span_attribute
+ * * `span_resource_attribute` - span_resource_attribute
+ * * `revenue_analytics` - revenue_analytics
+ * * `account_custom_property` - account_custom_property
+ * * `flag` - flag
+ * * `workflow_variable` - workflow_variable
  */
 export type PropertyFilterTypeEnumApi = (typeof PropertyFilterTypeEnumApi)[keyof typeof PropertyFilterTypeEnumApi]
 
@@ -97,6 +108,7 @@ export const PropertyFilterTypeEnumApi = {
     EventMetadata: 'event_metadata',
     Feature: 'feature',
     Person: 'person',
+    PersonMetadata: 'person_metadata',
     Cohort: 'cohort',
     Element: 'element',
     StaticCohort: 'static-cohort',
@@ -114,10 +126,12 @@ export const PropertyFilterTypeEnumApi = {
     Log: 'log',
     LogAttribute: 'log_attribute',
     LogResourceAttribute: 'log_resource_attribute',
+    MetricAttribute: 'metric_attribute',
     Span: 'span',
     SpanAttribute: 'span_attribute',
     SpanResourceAttribute: 'span_resource_attribute',
     RevenueAnalytics: 'revenue_analytics',
+    AccountCustomProperty: 'account_custom_property',
     Flag: 'flag',
     WorkflowVariable: 'workflow_variable',
 } as const
@@ -134,48 +148,48 @@ export interface PropertyItemApi {
 
 export interface PropertyApi {
     /**
-   You can use a simplified version:
-  ```json
-  {
-      "properties": [
-          {
-              "key": "email",
-              "value": "x@y.com",
-              "operator": "exact",
-              "type": "event"
-          }
-      ]
-  }
-  ```
-
-  Or you can create more complicated queries with AND and OR:
-  ```json
-  {
-      "properties": {
-          "type": "AND",
-          "values": [
-              {
-                  "type": "OR",
-                  "values": [
-                      {"key": "email", ...},
-                      {"key": "email", ...}
-                  ]
-              },
-              {
-                  "type": "AND",
-                  "values": [
-                      {"key": "email", ...},
-                      {"key": "email", ...}
-                  ]
-              }
-          ]
-      ]
-  }
-  ```
-
-
-  * `AND` - AND
-  * `OR` - OR */
+     *  You can use a simplified version:
+     * ```json
+     * {
+     *     "properties": [
+     *         {
+     *             "key": "email",
+     *             "value": "x@y.com",
+     *             "operator": "exact",
+     *             "type": "event"
+     *         }
+     *     ]
+     * }
+     * ```
+     *
+     * Or you can create more complicated queries with AND and OR:
+     * ```json
+     * {
+     *     "properties": {
+     *         "type": "AND",
+     *         "values": [
+     *             {
+     *                 "type": "OR",
+     *                 "values": [
+     *                     {"key": "email", ...},
+     *                     {"key": "email", ...}
+     *                 ]
+     *             },
+     *             {
+     *                 "type": "AND",
+     *                 "values": [
+     *                     {"key": "email", ...},
+     *                     {"key": "email", ...}
+     *                 ]
+     *             }
+     *         ]
+     *     ]
+     * }
+     * ```
+     *
+     *
+     * * `AND` - AND
+     * * `OR` - OR */
     type?: PropertyGroupOperatorApi
     values: PropertyItemApi[]
 }
@@ -228,8 +242,53 @@ export interface PatchedPersonRecordApi {
 }
 
 export interface PersonDeletePropertyRequestApi {
-    /** The property key to remove from this person. */
-    $unset: string
+    /** A property key, or a list of property keys, to remove from this person. */
+    $unset: string | string[]
+}
+
+export interface MessageAssetApi {
+    /** The workflow run this email was sent in. */
+    invocation_id: string
+    /** The email step (action node) within the workflow that sent this email. */
+    action_id: string
+    /** The workflow id that sent this email — used to navigate from a person's Emails tab back into the originating workflow. */
+    function_id: string
+    /** Human-readable workflow name for display. Empty when the workflow has been deleted; clients should fall back to function_id in that case. */
+    function_name: string
+    /** The batch run this email belongs to, for batch-triggered workflows. Empty for event-triggered runs. */
+    parent_run_id: string
+    /** Message channel this asset was sent on: 'email' or 'push'. The per-person endpoints return one channel each. */
+    kind: string
+    /** The recipient's distinct_id. */
+    distinct_id: string
+    /** The recipient's person UUID, if resolved. */
+    person_id: string
+    /** Who the message went to: the email address for 'email', or the recipient's distinct ID for 'push'. */
+    recipient: string
+    /** The email subject line, or the push notification title. */
+    subject: string
+    /** Delivery status at capture time. Currently always 'sent' - only delivered messages are captured. */
+    status: string
+    /** When the message was sent. */
+    sent_at: string
+}
+
+export interface PersonSplitRequestApi {
+    /**
+     * The distinct_id to **keep** on this person; every *other* distinct_id is moved to its own new single-id person. If omitted, the first distinct_id on the person is kept. The original person always retains its properties; to clear individual properties afterward, use the delete_property endpoint. To surgically *remove* one or more distinct_ids while leaving the merge intact, use `distinct_ids_to_split` instead — these parameters are inverses of each other and cannot be combined.
+     * @nullable
+     */
+    main_distinct_id?: string | null
+    /**
+     * List of distinct_ids to **move off** this person onto new single-id persons. The original person keeps every other distinct_id and its properties. New persons are created with deterministic UUIDs derived from `(team_id, distinct_id)`. Cannot be combined with `main_distinct_id`.
+     * @nullable
+     */
+    distinct_ids_to_split?: string[] | null
+}
+
+export interface PersonSplitResponseApi {
+    /** Always `true` when the split task was enqueued. The split itself runs asynchronously — a 201 response means the task was accepted, not that the merge state has already been updated. */
+    success: boolean
 }
 
 export interface PersonUpdatePropertyRequestApi {
@@ -438,6 +497,38 @@ export const PersonsDeletePropertyCreateFormat = {
     Json: 'json',
 } as const
 
+export type PersonsEmailsListParams = {
+    /**
+     * Start of the time range, matched on sent time. Relative ('-30d', '-24h') or ISO 8601. Defaults to -30d (the retention window) — bounds the ClickHouse partition scan.
+     * @minLength 1
+     */
+    after?: string
+    /**
+     * End of the time range, matched on sent time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string
+    format?: PersonsEmailsListFormat
+    /**
+     * Maximum number of assets to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of assets to skip, for pagination.
+     * @minimum 0
+     */
+    offset?: number
+}
+
+export type PersonsEmailsListFormat = (typeof PersonsEmailsListFormat)[keyof typeof PersonsEmailsListFormat]
+
+export const PersonsEmailsListFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
 export type PersonsPropertiesTimelineRetrieveParams = {
     format?: PersonsPropertiesTimelineRetrieveFormat
 }
@@ -446,6 +537,39 @@ export type PersonsPropertiesTimelineRetrieveFormat =
     (typeof PersonsPropertiesTimelineRetrieveFormat)[keyof typeof PersonsPropertiesTimelineRetrieveFormat]
 
 export const PersonsPropertiesTimelineRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsPushNotificationsListParams = {
+    /**
+     * Start of the time range, matched on sent time. Relative ('-30d', '-24h') or ISO 8601. Defaults to -30d (the retention window) — bounds the ClickHouse partition scan.
+     * @minLength 1
+     */
+    after?: string
+    /**
+     * End of the time range, matched on sent time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string
+    format?: PersonsPushNotificationsListFormat
+    /**
+     * Maximum number of assets to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of assets to skip, for pagination.
+     * @minimum 0
+     */
+    offset?: number
+}
+
+export type PersonsPushNotificationsListFormat =
+    (typeof PersonsPushNotificationsListFormat)[keyof typeof PersonsPushNotificationsListFormat]
+
+export const PersonsPushNotificationsListFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const
@@ -574,64 +698,6 @@ export const PersonsDeletionStatusListStatus = {
     Pending: 'pending',
 } as const
 
-export type PersonsFunnelRetrieveParams = {
-    format?: PersonsFunnelRetrieveFormat
-}
-
-export type PersonsFunnelRetrieveFormat = (typeof PersonsFunnelRetrieveFormat)[keyof typeof PersonsFunnelRetrieveFormat]
-
-export const PersonsFunnelRetrieveFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
-export type PersonsFunnelCreateParams = {
-    format?: PersonsFunnelCreateFormat
-}
-
-export type PersonsFunnelCreateFormat = (typeof PersonsFunnelCreateFormat)[keyof typeof PersonsFunnelCreateFormat]
-
-export const PersonsFunnelCreateFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
-export type PersonsFunnelCorrelationRetrieveParams = {
-    format?: PersonsFunnelCorrelationRetrieveFormat
-}
-
-export type PersonsFunnelCorrelationRetrieveFormat =
-    (typeof PersonsFunnelCorrelationRetrieveFormat)[keyof typeof PersonsFunnelCorrelationRetrieveFormat]
-
-export const PersonsFunnelCorrelationRetrieveFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
-export type PersonsFunnelCorrelationCreateParams = {
-    format?: PersonsFunnelCorrelationCreateFormat
-}
-
-export type PersonsFunnelCorrelationCreateFormat =
-    (typeof PersonsFunnelCorrelationCreateFormat)[keyof typeof PersonsFunnelCorrelationCreateFormat]
-
-export const PersonsFunnelCorrelationCreateFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
-export type PersonsLifecycleRetrieveParams = {
-    format?: PersonsLifecycleRetrieveFormat
-}
-
-export type PersonsLifecycleRetrieveFormat =
-    (typeof PersonsLifecycleRetrieveFormat)[keyof typeof PersonsLifecycleRetrieveFormat]
-
-export const PersonsLifecycleRetrieveFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
 export type PersonsPropertiesAtTimeRetrieveParams = {
     /**
      * The distinct_id of the person (mutually exclusive with person_id)
@@ -668,17 +734,6 @@ export type PersonsResetPersonDistinctIdCreateFormat =
     (typeof PersonsResetPersonDistinctIdCreateFormat)[keyof typeof PersonsResetPersonDistinctIdCreateFormat]
 
 export const PersonsResetPersonDistinctIdCreateFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
-export type PersonsTrendsRetrieveParams = {
-    format?: PersonsTrendsRetrieveFormat
-}
-
-export type PersonsTrendsRetrieveFormat = (typeof PersonsTrendsRetrieveFormat)[keyof typeof PersonsTrendsRetrieveFormat]
-
-export const PersonsTrendsRetrieveFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

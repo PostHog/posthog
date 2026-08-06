@@ -11,9 +11,9 @@ import * as zod from 'zod'
 
 /**
  * CRUD operations for Core Events.
-
-Core events are reusable event definitions that can be shared across
-Marketing analytics, Customer analytics, and Revenue analytics.
+ *
+ * Core events are reusable event definitions that can be shared across
+ * Marketing analytics, Customer analytics, and Revenue analytics.
  */
 export const coreEventsCreateBodyNameMax = 255
 
@@ -42,9 +42,9 @@ export const CoreEventsCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * CRUD operations for Core Events.
-
-Core events are reusable event definitions that can be shared across
-Marketing analytics, Customer analytics, and Revenue analytics.
+ *
+ * Core events are reusable event definitions that can be shared across
+ * Marketing analytics, Customer analytics, and Revenue analytics.
  */
 export const coreEventsUpdateBodyNameMax = 255
 
@@ -73,9 +73,9 @@ export const CoreEventsUpdateBody = /* @__PURE__ */ zod.object({
 
 /**
  * CRUD operations for Core Events.
-
-Core events are reusable event definitions that can be shared across
-Marketing analytics, Customer analytics, and Revenue analytics.
+ *
+ * Core events are reusable event definitions that can be shared across
+ * Marketing analytics, Customer analytics, and Revenue analytics.
  */
 export const coreEventsPartialUpdateBodyNameMax = 255
 

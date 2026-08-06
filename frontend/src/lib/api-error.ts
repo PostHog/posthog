@@ -1,5 +1,10 @@
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
+
+/** A 403 with DRF's `permission_denied` code — the user lacks access to the resource itself. */
+export function isAccessDeniedError(error: { status?: number; code?: string | null }): boolean {
+    return error.status === 403 && error.code === 'permission_denied'
+}
 
 export class ApiError extends Error {
     /** Django REST Framework `detail` - used in downstream error handling. */
@@ -27,6 +32,25 @@ export class ApiError extends Error {
         this.code = data?.code || null
         this.link = data?.link || null
         this.attr = data?.attr || null
+    }
+
+    static async fromResponse(response: Response, fallbackMessage?: string): Promise<ApiError> {
+        let data: unknown = null
+
+        try {
+            data = await response.json()
+        } catch (error) {
+            if ((error as { name?: string } | null)?.name === 'AbortError') {
+                throw error
+            }
+        }
+
+        const errorData = data && typeof data === 'object' ? (data as Record<string, unknown>) : null
+        const responseMessage = [errorData?.error, errorData?.detail, errorData?.message].find(
+            (value): value is string => typeof value === 'string'
+        )
+
+        return new ApiError(responseMessage || fallbackMessage, response.status, response.headers, data)
     }
 
     /**

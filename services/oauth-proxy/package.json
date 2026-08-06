@@ -17,14 +17,13 @@
         "cf-typegen": "wrangler types",
         "test": "vitest",
         "test:watch": "vitest watch",
-        "typecheck": "tsc --noEmit",
-        "typecheck:tsgo": "tsgo --noEmit"
+        "typecheck": "tsgo --noEmit"
     },
     "devDependencies": {
         "@cloudflare/workers-types": "^4.20260120.0",
         "typescript": "catalog:",
         "vite-tsconfig-paths": "^5.1.4",
-        "vitest": "^3.2.4",
-        "wrangler": "^4.59.0"
+        "vitest": "^4.1.0",
+        "wrangler": "^4.98.0"
     }
 }

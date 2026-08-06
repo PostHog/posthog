@@ -1,6 +1,6 @@
 """Unit tests for visual_review facade API."""
 
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from unittest.mock import patch
@@ -109,7 +109,9 @@ class TestRunAPI:
     def test_create_run_strips_reserved_metadata_keys(self, mock_presigned, repo):
         # Clients must not be able to seed server-owned metadata keys —
         # otherwise they could target arbitrary GitHub comments for PATCH
-        # or spoof baseline commit SHAs in the audit trail.
+        # or spoof baseline commit SHAs in the audit trail. github_check_run_id
+        # is NOT reserved: the CI runner is its only source, and the rerun it
+        # enables is guarded by a head_sha match in _rerun_github_job.
         mock_presigned.return_value = {"url": "https://s3.example.com/upload", "fields": {}}
 
         result = api.create_run(
@@ -131,7 +133,28 @@ class TestRunAPI:
         )
 
         run = Run.objects.get(id=result.run_id)
-        assert run.metadata == {"pr_title": "kept"}
+        assert run.metadata == {"pr_title": "kept", "github_check_run_id": "72855643533"}
+
+    @patch("products.visual_review.backend.storage.ArtifactStorage.get_presigned_upload_url")
+    def test_create_run_normalizes_github_ids_to_strings(self, mock_presigned, repo):
+        # GitHub IDs can arrive as JSON numbers; rerun logic calls .isdigit(),
+        # so they must be stored as strings.
+        mock_presigned.return_value = {"url": "https://s3.example.com/upload", "fields": {}}
+
+        result = api.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                snapshots=[],
+                metadata={"github_check_run_id": 72855643533, "github_run_id": 98765},
+            ),
+            team_id=repo.team_id,
+        )
+
+        run = Run.objects.get(id=result.run_id)
+        assert run.metadata == {"github_check_run_id": "72855643533", "github_run_id": "98765"}
 
     def test_get_run_returns_dto(self, repo):
         create_result = api.create_run(
@@ -166,12 +189,55 @@ class TestRunAPI:
             team_id=repo.team_id,
         )
 
-        snapshots = api.get_run_snapshots(create_result.run_id)
+        snapshots = api.get_run_snapshots(create_result.run_id).snapshots
 
         assert len(snapshots) == 2
         assert all(isinstance(s.id, UUID) for s in snapshots)
         identifiers = {s.identifier for s in snapshots}
         assert identifiers == {"Button", "Card"}
+
+    @pytest.mark.parametrize(
+        ("include_quarantined", "expected_identifiers"),
+        [
+            (True, {"Button", "Card"}),
+            (False, {"Card"}),
+        ],
+    )
+    def test_get_run_snapshots_filters_quarantined_but_always_counts(
+        self, repo, user, include_quarantined, expected_identifiers
+    ):
+        create_result = api.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                snapshots=[
+                    SnapshotManifestItem(identifier="Button", content_hash="hash1"),
+                    SnapshotManifestItem(identifier="Card", content_hash="hash2"),
+                ],
+            ),
+            team_id=repo.team_id,
+        )
+        logic.quarantine_identifier(
+            repo_id=repo.id,
+            identifier="Button",
+            run_type=RunType.STORYBOOK,
+            reason="flaky",
+            user_id=user.id,
+            team_id=repo.team_id,
+        )
+
+        result = api.get_run_snapshots(
+            create_result.run_id, team_id=repo.team_id, include_quarantined=include_quarantined
+        )
+
+        assert {s.identifier for s in result.snapshots} == expected_identifiers
+        assert result.quarantined_count == 1
+
+    def test_get_run_snapshots_excluding_quarantined_requires_team_id(self):
+        with pytest.raises(ValueError):
+            api.get_run_snapshots(uuid4(), include_quarantined=False)
 
     @pytest.mark.parametrize(
         ("filters", "expected_commits"),
@@ -214,8 +280,9 @@ class TestRunAPI:
 
         assert {r.commit_sha for r in runs} == expected_commits
 
+    @patch("products.visual_review.backend.tasks.tasks.emit_run_processing_metrics.delay")
     @patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
-    def test_complete_run_no_changes_skips_task(self, mock_delay, repo):
+    def test_complete_run_no_changes_skips_task(self, mock_diff_delay, mock_metrics_delay, repo):
         """Runs with no changes complete immediately without triggering diff task."""
         create_result = api.create_run(
             CreateRunInput(
@@ -231,7 +298,35 @@ class TestRunAPI:
         result = api.complete_run(create_result.run_id)
 
         assert result.status == "completed"
-        mock_delay.assert_not_called()
+        mock_diff_delay.assert_not_called()
+        mock_metrics_delay.assert_called_once_with(repo.team_id, str(create_result.run_id), "completed", 0)
+
+    @patch("products.visual_review.backend.tasks.tasks.emit_run_processing_metrics.delay")
+    @patch(
+        "products.visual_review.backend.logic.verify_uploads_and_create_artifacts",
+        side_effect=logic.HashIntegrityError("hash mismatch"),
+    )
+    @patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+    def test_complete_run_hash_integrity_failure_emits_terminal_metrics(
+        self, mock_diff_delay, _mock_verify, mock_metrics_delay, repo
+    ):
+        create_result = api.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                snapshots=[],
+            ),
+            team_id=repo.team_id,
+        )
+
+        result = api.complete_run(create_result.run_id)
+
+        assert result.status == "failed"
+        assert result.error_message == "hash mismatch"
+        mock_diff_delay.assert_not_called()
+        mock_metrics_delay.assert_called_once_with(repo.team_id, str(create_result.run_id), "hash_integrity_failed", 0)
 
     @patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
     def test_complete_run_with_changes_triggers_task(self, mock_delay, repo):
@@ -307,7 +402,7 @@ class TestApproveRunAPI:
         assert result.approved_at is None
 
         # Snapshot-level approval fields were set, result preserved
-        snapshots = api.get_run_snapshots(create_result.run_id)
+        snapshots = api.get_run_snapshots(create_result.run_id).snapshots
         button_snap = next(s for s in snapshots if s.identifier == "Button")
         assert button_snap.result == SnapshotResult.CHANGED
         assert button_snap.approved_hash == "new_hash"

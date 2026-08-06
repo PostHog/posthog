@@ -70,6 +70,8 @@ from posthog.temporal.session_replay.session_summary_group.workflow import (
 )
 from posthog.temporal.tests.session_replay.session_summary.conftest import AsyncRedisTestContext
 
+from products.replay.backend.models.session_summaries import SessionGroupSummary, SingleSessionSummary
+
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_MODEL
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.prompt_data import SessionSummaryPromptData
@@ -80,7 +82,6 @@ from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPatternStats,
     RawSessionGroupSummaryPatternsList,
 )
-from ee.models.session_summaries import SessionGroupSummary, SingleSessionSummary
 
 pytestmark = pytest.mark.django_db
 
@@ -362,7 +363,7 @@ async def test_assign_events_to_patterns_activity_standalone(
         # Verify the activity completed successfully - now returns just the summary id
         assert isinstance(result, str)
         # Verify the summary was stored in DB
-        from ee.models.session_summaries import SessionGroupSummary
+        from products.replay.backend.models.session_summaries import SessionGroupSummary
 
         session_group_summary = await SessionGroupSummary.objects.aget(id=result)
         assert session_group_summary is not None
@@ -393,7 +394,7 @@ async def test_assign_events_to_patterns_activity_standalone(
 
 
 @pytest.mark.asyncio
-async def test_assign_events_to_patterns_threshold_check(
+async def test_assign_events_to_patterns_enrichment_outcomes(
     mock_session_id: str,
     mock_session_summary_serializer: SessionSummarySerializer,
     mock_single_session_summary_inputs: Callable,
@@ -402,7 +403,6 @@ async def test_assign_events_to_patterns_threshold_check(
     auser: User,
     ateam: Team,
 ):
-    """Test that assign_events_to_patterns_activity fails when too few patterns get events assigned"""
     # Prepare input data
     session_ids = [f"{mock_session_id}-1", f"{mock_session_id}-2"]
     single_session_inputs = [
@@ -465,7 +465,7 @@ async def test_assign_events_to_patterns_threshold_check(
     )
     redis_test_setup.keys_to_cleanup.append(patterns_key)
 
-    # Test 1: Should fail when only 2 out of 4 patterns get events (50% < 75% threshold)
+    # Case 1: only 2 out of 4 patterns get events - the enriched subset is returned instead of failing
     with (
         patch("ee.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
         patch("temporalio.activity.info") as mock_activity_info,
@@ -483,20 +483,21 @@ async def test_assign_events_to_patterns_threshold_check(
         mock_client.get_workflow_handle = MagicMock(return_value=mock_workflow_handle)
         mock_async_connect.return_value = mock_client
         # Mock LLM response that only assigns events to 2 patterns
-        patterns_assignment_fail = """patterns:
+        patterns_assignment_partial = """patterns:
   - pattern_id: 1
     event_ids: ["abcd1234"]
   - pattern_id: 2
     event_ids: ["ghij7890"]
 """
-        mock_llm_response = _build_openai_response(patterns_assignment_fail)
+        mock_llm_response = _build_openai_response(patterns_assignment_partial)
         mock_call_llm.return_value = mock_llm_response
 
-        # Should raise ApplicationError due to threshold failure
-        with pytest.raises(ApplicationError, match="Too many patterns failed to enrich with session meta"):
-            await assign_events_to_patterns_activity(activity_input)
+        summary_id = await assign_events_to_patterns_activity(activity_input)
+        session_group_summary = await SessionGroupSummary.objects.aget(id=summary_id)
+        result = EnrichedSessionGroupSummaryPatternsList.model_validate_json(session_group_summary.summary)
+        assert sorted(pattern.pattern_id for pattern in result.patterns) == [1, 2]
 
-    # Test 2: Should succeed when 3 out of 4 patterns get events (75% == 75% threshold)
+    # Case 2: no assigned event id resolves to a known event - nothing can be enriched, so the activity fails
     with (
         patch("ee.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
         patch("temporalio.activity.info") as mock_activity_info,
@@ -513,26 +514,58 @@ async def test_assign_events_to_patterns_threshold_check(
         mock_client = MagicMock()
         mock_client.get_workflow_handle = MagicMock(return_value=mock_workflow_handle)
         mock_async_connect.return_value = mock_client
-        # Mock LLM response that assigns events to 3 patterns
-        patterns_assignment_success = """patterns:
+        # Mock LLM response that assigns only event ids that don't exist in any session summary
+        patterns_assignment_unmappable = """patterns:
   - pattern_id: 1
-    event_ids: ["abcd1234"]
+    event_ids: ["zzzz0001"]
   - pattern_id: 2
-    event_ids: ["ghij7890"]
-  - pattern_id: 3
-    event_ids: ["mnop3456"]
+    event_ids: ["zzzz0002"]
 """
-        mock_llm_response = _build_openai_response(patterns_assignment_success)
+        mock_llm_response = _build_openai_response(patterns_assignment_unmappable)
         mock_call_llm.return_value = mock_llm_response
 
-        # Should succeed - now returns just the summary id
+        with pytest.raises(ApplicationError, match="No patterns could be enriched with session meta"):
+            await assign_events_to_patterns_activity(activity_input)
+
+
+@pytest.mark.asyncio
+async def test_assign_events_to_patterns_stores_empty_summary_when_no_patterns_extracted(
+    mock_session_id: str,
+    mock_single_session_summary_inputs: Callable,
+    mock_session_group_summary_of_summaries_inputs: Callable,
+    redis_test_setup: AsyncRedisTestContext,
+    auser: User,
+    ateam: Team,
+):
+    session_ids = [f"{mock_session_id}-1", f"{mock_session_id}-2"]
+    single_session_inputs = [
+        mock_single_session_summary_inputs(session_id, ateam.id, auser.id) for session_id in session_ids
+    ]
+    activity_input = mock_session_group_summary_of_summaries_inputs(single_session_inputs, auser.id, ateam.id)
+    redis_client = get_async_client()
+
+    # Store an extraction result with no patterns, as the LLM found nothing in common between sessions
+    patterns_key = generate_state_key(
+        key_base=activity_input.redis_key_base,
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        state_id=generate_state_id_from_session_ids(session_ids),
+    )
+    await store_data_in_redis(
+        redis_client=redis_client,
+        redis_key=patterns_key,
+        data=RawSessionGroupSummaryPatternsList(patterns=[]).model_dump_json(exclude_none=True),
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+    )
+    redis_test_setup.keys_to_cleanup.append(patterns_key)
+
+    with patch("ee.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm:
         summary_id = await assign_events_to_patterns_activity(activity_input)
-        assert isinstance(summary_id, str)
-        # Fetch the result from DB
-        session_group_summary = await SessionGroupSummary.objects.aget(id=summary_id)
-        result = EnrichedSessionGroupSummaryPatternsList.model_validate_json(session_group_summary.summary)
-        assert isinstance(result, EnrichedSessionGroupSummaryPatternsList)
-        assert len(result.patterns) == 3  # Should have 3 patterns with events
+
+    # An empty summary is stored without any LLM calls, instead of failing the activity
+    mock_call_llm.assert_not_called()
+    session_group_summary = await SessionGroupSummary.objects.aget(id=summary_id)
+    result = EnrichedSessionGroupSummaryPatternsList.model_validate_json(session_group_summary.summary)
+    assert result.patterns == []
 
 
 @pytest.mark.asyncio
@@ -921,7 +954,7 @@ class TestSummarizeSessionGroupWorkflow:
         mock_patterns_assignment_yaml_response: str,
         mock_cached_session_batch_events_query_response_factory: Callable,
         custom_content: str | None = None,  # noqa: ARG002
-    ) -> AsyncGenerator[tuple[WorkflowEnvironment, Worker], None]:
+    ) -> AsyncGenerator[tuple[WorkflowEnvironment, Worker]]:
         """Test environment for Temporal workflow"""
         with self.execute_test_environment(
             session_ids,
@@ -1172,7 +1205,7 @@ class TestSummarizeSessionGroupWorkflow:
             # Verify the result is of the correct type (now returns just summary_id)
             assert isinstance(result, str)
             # Verify the summary was stored in DB and can be fetched
-            from ee.models.session_summaries import SessionGroupSummary
+            from products.replay.backend.models.session_summaries import SessionGroupSummary
 
             session_group_summary = await SessionGroupSummary.objects.aget(id=result)
             patterns_result = EnrichedSessionGroupSummaryPatternsList.model_validate_json(session_group_summary.summary)
@@ -1879,8 +1912,9 @@ async def test_combine_patterns_from_chunks_activity_fails_when_no_chunks(
 
 
 def test_get_persons_for_sessions_from_distinct_ids_maps_session_to_person():
+    from products.replay.backend.models.session_summaries import SingleSessionSummary
+
     from ee.hogai.session_summaries.session_group.patterns import get_persons_for_sessions_from_distinct_ids
-    from ee.models.session_summaries import SingleSessionSummary
 
     person = MagicMock()
     person.uuid = "person-uuid-1"
@@ -1902,8 +1936,9 @@ def test_get_persons_for_sessions_from_distinct_ids_maps_session_to_person():
 
 
 def test_get_persons_for_sessions_from_distinct_ids_handles_multiple_sessions_same_distinct_id():
+    from products.replay.backend.models.session_summaries import SingleSessionSummary
+
     from ee.hogai.session_summaries.session_group.patterns import get_persons_for_sessions_from_distinct_ids
-    from ee.models.session_summaries import SingleSessionSummary
 
     person = MagicMock()
     person.uuid = "person-uuid-shared"
@@ -1927,8 +1962,9 @@ def test_get_persons_for_sessions_from_distinct_ids_handles_multiple_sessions_sa
 
 
 def test_get_persons_for_sessions_from_distinct_ids_excludes_sessions_with_no_distinct_id():
+    from products.replay.backend.models.session_summaries import SingleSessionSummary
+
     from ee.hogai.session_summaries.session_group.patterns import get_persons_for_sessions_from_distinct_ids
-    from ee.models.session_summaries import SingleSessionSummary
 
     person = MagicMock()
     person.uuid = "person-uuid-1"
@@ -1960,8 +1996,9 @@ def test_get_persons_for_sessions_from_distinct_ids_excludes_sessions_with_no_di
 
 
 def test_get_persons_for_sessions_from_distinct_ids_returns_empty_when_all_sessions_lack_distinct_id():
+    from products.replay.backend.models.session_summaries import SingleSessionSummary
+
     from ee.hogai.session_summaries.session_group.patterns import get_persons_for_sessions_from_distinct_ids
-    from ee.models.session_summaries import SingleSessionSummary
 
     summary = MagicMock(spec=SingleSessionSummary)
     summary.distinct_id = None
@@ -1980,8 +2017,9 @@ def test_get_persons_for_sessions_from_distinct_ids_returns_empty_when_all_sessi
 
 
 def test_get_persons_for_sessions_from_distinct_ids_deduplicates_distinct_ids_sent_to_rpc():
+    from products.replay.backend.models.session_summaries import SingleSessionSummary
+
     from ee.hogai.session_summaries.session_group.patterns import get_persons_for_sessions_from_distinct_ids
-    from ee.models.session_summaries import SingleSessionSummary
 
     person = MagicMock()
     summaries: dict[str, SingleSessionSummary] = {}
@@ -2007,8 +2045,9 @@ def test_get_persons_for_sessions_from_distinct_ids_deduplicates_distinct_ids_se
 
 def test_get_persons_for_sessions_from_distinct_ids_handles_db_failure():
     """Test that get_persons_for_sessions_from_distinct_ids returns empty dict on DB failure."""
+    from products.replay.backend.models.session_summaries import SingleSessionSummary
+
     from ee.hogai.session_summaries.session_group.patterns import get_persons_for_sessions_from_distinct_ids
-    from ee.models.session_summaries import SingleSessionSummary
 
     mock_summary = MagicMock(spec=SingleSessionSummary)
     mock_summary.distinct_id = "test-distinct-id"

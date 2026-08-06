@@ -1,4 +1,4 @@
-from posthog.schema import FilterLogicalOperator, PropertyGroupFilterValue, RecordingsQuery
+from posthog.schema import PropertyGroupFilterValue, RecordingsQuery
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -31,14 +31,7 @@ class PersonsPropertiesSubQuery(SessionRecordingsListingBaseQuery):
     @property
     def person_properties(self) -> PropertyGroupFilterValue | None:
         person_property_groups = [g for g in (self._query.properties or []) if is_person_property(g)]
-        return (
-            PropertyGroupFilterValue(
-                type=FilterLogicalOperator.AND_ if self.property_operand == "AND" else FilterLogicalOperator.OR_,
-                values=person_property_groups,
-            )
-            if person_property_groups
-            else None
-        )
+        return self.property_group_with_operand(person_property_groups) if person_property_groups else None
 
     @property
     def _where_predicates(self) -> ast.Expr:

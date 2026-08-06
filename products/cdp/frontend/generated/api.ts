@@ -13,13 +13,21 @@ import type {
     AppMetricsTotalsResponseApi,
     HogFunctionApi,
     HogFunctionInvocationApi,
+    HogFunctionPublishRequestApi,
+    HogFunctionPublishResponseApi,
+    HogFunctionRevisionApi,
+    HogFunctionRevisionRestoreRequestApi,
     HogFunctionTemplateApi,
     HogFunctionTemplatesListParams,
     HogFunctionsListParams,
     HogFunctionsLogsRetrieveParams,
     HogFunctionsMetricsRetrieveParams,
     HogFunctionsMetricsTotalsRetrieveParams,
+    HogFunctionsRevisionsListParams,
+    HogInvocationRerunRequestApi,
+    HogInvocationRerunResponseApi,
     PaginatedHogFunctionMinimalListApi,
+    PaginatedHogFunctionRevisionBasicListApi,
     PaginatedHogFunctionTemplateListApi,
     PaginatedPluginLogEntryListApi,
     PatchedHogFunctionApi,
@@ -50,7 +58,7 @@ export const getHogFunctionTemplatesListUrl = (projectId: string, params?: HogFu
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -92,7 +100,7 @@ export const getHogFunctionsListUrl = (projectId: string, params?: HogFunctionsL
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -196,6 +204,21 @@ export const hogFunctionsDestroy = async (projectId: string, id: string, options
     })
 }
 
+export const getHogFunctionsDiscardDraftCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_functions/${id}/discard_draft/`
+}
+
+export const hogFunctionsDiscardDraftCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<HogFunctionApi> => {
+    return apiMutator<HogFunctionApi>(getHogFunctionsDiscardDraftCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getHogFunctionsEnableBackfillsCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_functions/${id}/enable_backfills/`
 }
@@ -221,7 +244,7 @@ export const getHogFunctionsInvocationsCreateUrl = (projectId: string, id: strin
 export const hogFunctionsInvocationsCreate = async (
     projectId: string,
     id: string,
-    hogFunctionInvocationApi: NonReadonly<HogFunctionInvocationApi>,
+    hogFunctionInvocationApi?: NonReadonly<HogFunctionInvocationApi>,
     options?: RequestInit
 ): Promise<HogFunctionInvocationApi> => {
     return apiMutator<HogFunctionInvocationApi>(getHogFunctionsInvocationsCreateUrl(projectId, id), {
@@ -241,7 +264,7 @@ export const getHogFunctionsLogsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -273,7 +296,7 @@ export const getHogFunctionsMetricsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -305,7 +328,7 @@ export const getHogFunctionsMetricsTotalsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -325,6 +348,132 @@ export const hogFunctionsMetricsTotalsRetrieve = async (
     return apiMutator<AppMetricsTotalsResponseApi>(getHogFunctionsMetricsTotalsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getHogFunctionsPublishCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_functions/${id}/publish/`
+}
+
+export const hogFunctionsPublishCreate = async (
+    projectId: string,
+    id: string,
+    hogFunctionPublishRequestApi?: HogFunctionPublishRequestApi,
+    options?: RequestInit
+): Promise<HogFunctionPublishResponseApi> => {
+    return apiMutator<HogFunctionPublishResponseApi>(getHogFunctionsPublishCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFunctionPublishRequestApi),
+    })
+}
+
+export const getHogFunctionsRerunCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_functions/${id}/rerun/`
+}
+
+/**
+ * Rerun past invocations of this hog function from their stored payloads.
+ *
+ * The CDP worker reads matching rows from the `hog_invocation_results`
+ * ClickHouse table, rehydrates the invocation from the stored
+ * `invocation_globals`, and re-enqueues onto cyclotron. Each rerun
+ * run reuses the original `invocation_id` with `is_retry=1` set on the
+ * new lifecycle row so the UI can surface that it was a rerun.
+ *
+ * Only types a cyclotron worker executes (`TYPES_THAT_CAN_RERUN`) can be
+ * rerun: rerun re-enqueues onto the cyclotron hog queue, and other types
+ * run elsewhere (source webhooks inline in the cdp-api HTTP handler,
+ * transformations during ingestion, `site_*` transpiled to client-side
+ * JS). A re-enqueued invocation of one of those would never drain and
+ * wedges the partition, so a rerun of a non-rerunnable type is rejected
+ * with a 400 here.
+ *
+ * Because rerun replays historical event/person/group data, it requires
+ * `person:read` and `group:read` on top of `hog_function:write`.
+ */
+export const hogFunctionsRerunCreate = async (
+    projectId: string,
+    id: string,
+    hogInvocationRerunRequestApi: HogInvocationRerunRequestApi,
+    options?: RequestInit
+): Promise<HogInvocationRerunResponseApi> => {
+    return apiMutator<HogInvocationRerunResponseApi>(getHogFunctionsRerunCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogInvocationRerunRequestApi),
+    })
+}
+
+export const getHogFunctionsRevisionsListUrl = (
+    projectId: string,
+    id: string,
+    params?: HogFunctionsRevisionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_functions/${id}/revisions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_functions/${id}/revisions/`
+}
+
+export const hogFunctionsRevisionsList = async (
+    projectId: string,
+    id: string,
+    params?: HogFunctionsRevisionsListParams,
+    options?: RequestInit
+): Promise<PaginatedHogFunctionRevisionBasicListApi> => {
+    return apiMutator<PaginatedHogFunctionRevisionBasicListApi>(
+        getHogFunctionsRevisionsListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getHogFunctionsRevisionsRetrieveUrl = (projectId: string, id: string, version: number) => {
+    return `/api/projects/${projectId}/hog_functions/${id}/revisions/${version}/`
+}
+
+export const hogFunctionsRevisionsRetrieve = async (
+    projectId: string,
+    id: string,
+    version: number,
+    options?: RequestInit
+): Promise<HogFunctionRevisionApi> => {
+    return apiMutator<HogFunctionRevisionApi>(getHogFunctionsRevisionsRetrieveUrl(projectId, id, version), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFunctionsRevisionsRestoreCreateUrl = (projectId: string, id: string, version: number) => {
+    return `/api/projects/${projectId}/hog_functions/${id}/revisions/${version}/restore/`
+}
+
+export const hogFunctionsRevisionsRestoreCreate = async (
+    projectId: string,
+    id: string,
+    version: number,
+    hogFunctionRevisionRestoreRequestApi?: HogFunctionRevisionRestoreRequestApi,
+    options?: RequestInit
+): Promise<HogFunctionApi> => {
+    return apiMutator<HogFunctionApi>(getHogFunctionsRevisionsRestoreCreateUrl(projectId, id, version), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFunctionRevisionRestoreRequestApi),
     })
 }
 
@@ -379,7 +528,7 @@ export const getPluginConfigsLogsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -407,7 +556,7 @@ export const getPublicHogFunctionTemplatesListUrl = (params?: PublicHogFunctionT
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

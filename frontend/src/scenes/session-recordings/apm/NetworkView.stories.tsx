@@ -6,7 +6,7 @@ import { useCallback, useRef, useState } from 'react'
 import { LemonTable } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { humanFriendlyMilliseconds } from 'lib/utils'
+import { humanFriendlyMilliseconds } from 'lib/utils/durations'
 import { initiatorTypeToColor } from 'scenes/session-recordings/apm/performance-event-utils'
 import { MethodTag, StatusTag } from 'scenes/session-recordings/apm/playerInspector/ItemPerformanceEvent'
 

@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { PROPERTIES_ICON_MAP, PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { PropertyIconProps } from 'lib/components/PropertyIcon/types'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
+import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/country'
 
 type Story = StoryObj<PropertyIconProps>
 const meta: Meta<PropertyIconProps> = {

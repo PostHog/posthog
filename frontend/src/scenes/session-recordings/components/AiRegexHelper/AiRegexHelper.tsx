@@ -31,7 +31,7 @@ export function AiRegexHelper({ onApply }: AiRegexHelperProps): JSX.Element {
           ? dataProcessingApprovalDisabledReason || 'You must accept the data processing agreement to use AI features'
           : isLoading
             ? 'Generating...'
-            : !input.length
+            : !input.trim().length
               ? 'Provide a prompt first'
               : null
 

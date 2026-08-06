@@ -12,6 +12,7 @@ export type PluginConfig = {
     suffix: string
     parameters: string
     alwaysJson: 'true' | 'false'
+    customNames?: Record<string, string>
 }
 
 export type LocalMeta = LegacyTransformationPluginMeta & {
@@ -39,6 +40,11 @@ export const setupPlugin = (meta: LocalMeta): void => {
     global.parameters = new Set(
         config.parameters ? config.parameters.split(',').map((parameter) => parameter.trim()) : null
     )
+    for (const parameter of Object.keys(config.customNames ?? {})) {
+        if (parameter.trim()) {
+            global.parameters.add(parameter.trim())
+        }
+    }
 }
 
 export const processEvent = (event: PluginEvent, meta: LocalMeta): PluginEvent => {
@@ -62,7 +68,8 @@ export const processEvent = (event: PluginEvent, meta: LocalMeta): PluginEvent =
             }
 
             if (value.length > 0) {
-                const key = `${meta.config.prefix}${name}${meta.config.suffix}`
+                const customName = meta.config.customNames?.[name]
+                const key = customName || `${meta.config.prefix}${name}${meta.config.suffix}`
 
                 // if we've only got one, then just store the first string as a string
                 // unless we want them all JSON-ified

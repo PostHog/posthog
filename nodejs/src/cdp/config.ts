@@ -1,19 +1,17 @@
-import { ClickhouseConfig, getDefaultClickhouseConfig } from '../common/clickhouse-config'
 import {
     KAFKA_APP_METRICS_2,
-    KAFKA_CDP_BATCH_HOGFLOW_REQUESTS,
-    KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
-    KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
     KAFKA_EVENTS_JSON,
     KAFKA_HOG_INVOCATION_RESULTS,
     KAFKA_LOG_ENTRIES,
+    KAFKA_MESSAGE_ASSETS,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
-} from '../config/kafka-topics'
-import { isDevEnv, isProdEnv, isTestEnv } from '../utils/env-utils'
+} from '~/common/config/kafka-topics'
+import { isDevEnv, isProdEnv, isTestEnv } from '~/common/utils/env-utils'
+
+import { ClickhouseConfig, getDefaultClickhouseConfig } from '../common/clickhouse-config'
 import {
     CdpProducerName,
     WAREHOUSE_PRODUCER,
-    WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from './outputs/producers'
@@ -55,6 +53,7 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_LEGACY_EVENT_CONSUMER_INCLUDE_WEBHOOKS: boolean
 
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
+    CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: number
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
     CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: boolean
     CDP_CYCLOTRON_COMPRESS_VM_STATE: boolean
@@ -67,18 +66,26 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_REDIS_READER_HOST: string
     CDP_REDIS_READER_PORT: number
 
-    // Shadow Valkey pool for dual-write/read load testing. When CDP_VALKEY_DUAL_ENABLED
-    // is true and CDP_VALKEY_HOST is set, every Redis call also runs against this pool;
-    // shadow results are discarded, errors/timeouts logged + counted but never affect
-    // the primary code path.
+    // Shadow Valkey pool for dual-write/read. CDP_VALKEY_HOST is required: every CDP
+    // Redis call also runs against this pool, and a process without it is misconfigured
+    // rather than degraded. Shadow results are discarded, and errors/timeouts are logged
+    // and counted but never affect the primary code path.
     CDP_VALKEY_HOST: string
     CDP_VALKEY_PORT: number
     CDP_VALKEY_PASSWORD: string
     CDP_VALKEY_READER_HOST: string
     CDP_VALKEY_READER_PORT: number
-    CDP_VALKEY_DUAL_ENABLED: boolean
     // AWS ElastiCache Valkey Serverless requires TLS; toggle off only for local non-TLS test setups.
     CDP_VALKEY_TLS: boolean
+
+    SES_RATE_LIMITER_VALKEY_HOST: string
+    SES_RATE_LIMITER_VALKEY_PORT: number
+    SES_RATE_LIMITER_VALKEY_PASSWORD: string
+    SES_RATE_LIMITER_VALKEY_TLS: boolean
+
+    CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: number
+    CDP_SES_RATE_LIMIT_CAPACITY: number
+    CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: number
 
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
@@ -93,16 +100,15 @@ export type CdpConfig = ClickhouseConfig & {
     HOG_INVOCATION_RESULTS_TOPIC: string
     HOG_INVOCATION_RESULTS_PRODUCER: CdpProducerName
     HOG_INVOCATION_RESULTS_ENABLED: boolean
+    // Message assets: rendered emails snapshotted to object storage + a metadata
+    // row in the message_assets ClickHouse table, surfaced in the workflow
+    // "Assets" tab.
+    MESSAGE_ASSETS_TOPIC: string
+    MESSAGE_ASSETS_PRODUCER: CdpProducerName
     HOG_INVOCATION_RERUN_MAX_COUNT: number
     // How many rerun wrapper jobs the worker dequeues per cyclotron-v2 poll.
     // Kept small by default — each job runs a full ClickHouse query per page.
     CDP_RERUN_WORKER_BATCH_SIZE: number
-    CDP_PREFILTERED_EVENTS_TOPIC: string
-    CDP_PREFILTERED_EVENTS_PRODUCER: CdpProducerName
-    CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC: string
-    CDP_PRECALCULATED_PERSON_PROPERTIES_PRODUCER: CdpProducerName
-    CDP_BATCH_HOGFLOW_REQUESTS_TOPIC: string
-    CDP_BATCH_HOGFLOW_REQUESTS_PRODUCER: CdpProducerName
     CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC: string
     CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER: CdpProducerName
 
@@ -117,11 +123,26 @@ export type CdpConfig = ClickhouseConfig & {
     SES_ACCESS_KEY_ID: string
     SES_SECRET_ACCESS_KEY: string
     SES_REGION: string
+    // Configuration set with ESP-level open/click tracking enabled, used for sends with engagement tracking on.
+    SES_TRACKED_CONFIGURATION_SET: string
+    // Configuration set without open/click tracking (same delivery/bounce/complaint event destination).
+    // Empty means not provisioned: tracking-off sends fall back to the tracked set with a warning.
+    SES_UNTRACKED_CONFIGURATION_SET: string
+    // Comma-separated allowlist of SNS Topic ARNs the SES webhook accepts events from. Empty string
+    // means no restriction (dev/test); production should set this to the workflow SES topic ARN(s).
+    SES_ALLOWED_SNS_TOPIC_ARNS: string
+    // When true, sends carry TenantName (team-<team_id>) so SES attributes reputation per team
+    // and its Standard reputation policy can pause a single tenant instead of the shared account.
+    // Off by default: a send naming a tenant whose identity association is missing fails, so this
+    // flips on only after tenant coverage is verified (migrate_ses_tenants --dry-run comes back empty).
+    EMAIL_SES_TENANT_ATTRIBUTION_ENABLED: boolean
+
+    // Consecutive soft bounces before an address is auto-suppressed. Tunable without a deploy.
+    EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: number
 
     // Destination migration diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
 
-    CDP_BATCH_WORKFLOW_PRODUCER_BATCH_SIZE: number
     CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: number
 
     // Cyclotron Node (node postgres job queue)
@@ -132,6 +153,33 @@ export type CdpConfig = ClickhouseConfig & {
     CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: number
     CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT: number
     CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS: number
+    // Kill-switch for poison-pill recovery. When false the janitor reverts to
+    // master's pre-recovery behavior — mark poison pills failed with no replay
+    // record (a give-up is lost, exactly as before this change). Flip to false to
+    // roll back the recovery machinery instantly without a redeploy. Default true.
+    CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED: boolean
+    // Backoff on a stalled job's next scheduled time per janitor reset, keyed on
+    // janitor_touch_count. The first stall retries within seconds (so a transient
+    // stall / worker restart recovers fast); repeat stalls back off exponentially —
+    // at the defaults roughly ~30-60s, then ~1.5-3min, before give-up. Jittered
+    // throughout to de-sync a fleet-wide herd. Base 0 disables it (immediate retry);
+    // max caps the per-strike wait.
+    CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_BASE_MS: number
+    CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS: number
+    // Timing-edit reschedule sweep (CyclotronV2Manager.rescheduleParkedJobs)
+    // Scoped JWT keys authenticating Django's calls to the reschedule_parked route — comma-separated,
+    // newest first (first signs, all verify). Deliberately NOT the fleet-wide INTERNAL_API_SECRET
+    // (see .agents/security.md): empty in prod means the route fails closed until provisioned.
+    WORKFLOWS_RESCHEDULE_JWT_SECRET: string
+    CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: number
+    CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: number
+    CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: number
+    CYCLOTRON_NODE_RESCHEDULE_MAX_WINDOW_SECONDS: number
+    CYCLOTRON_NODE_RESCHEDULE_CHUNK_SIZE: number
+    CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL: number
+    CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: number
+
+    // Email reputation evaluator (daily Temporal-scheduled bounce/complaint snapshots for workflows email)
 }
 
 export function getDefaultCdpConfig(): CdpConfig {
@@ -169,6 +217,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_LEGACY_EVENT_CONSUMER_INCLUDE_WEBHOOKS: false,
 
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
+        CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 10000,
         CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
         CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: true,
         CDP_CYCLOTRON_COMPRESS_VM_STATE: isProdEnv() ? false : true,
@@ -180,13 +229,23 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_REDIS_READER_HOST: '',
         CDP_REDIS_READER_PORT: 6379,
 
-        CDP_VALKEY_HOST: '',
-        CDP_VALKEY_PORT: 6379,
+        // Points at the `valkey-cluster` compose service, which publishes on 6390 to stay
+        // clear of the 6379 the primary CDP Redis already uses.
+        CDP_VALKEY_HOST: isTestEnv() || isDevEnv() ? '127.0.0.1' : '',
+        CDP_VALKEY_PORT: isTestEnv() || isDevEnv() ? 6390 : 6379,
         CDP_VALKEY_PASSWORD: '',
         CDP_VALKEY_READER_HOST: '',
         CDP_VALKEY_READER_PORT: 6379,
-        CDP_VALKEY_DUAL_ENABLED: false,
         CDP_VALKEY_TLS: false,
+
+        SES_RATE_LIMITER_VALKEY_HOST: '',
+        SES_RATE_LIMITER_VALKEY_PORT: 6379,
+        SES_RATE_LIMITER_VALKEY_PASSWORD: '',
+        SES_RATE_LIMITER_VALKEY_TLS: false,
+
+        CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: 100,
+        CDP_SES_RATE_LIMIT_CAPACITY: 50,
+        CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: 250,
 
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
@@ -206,18 +265,16 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Off by default — flip to true once the table is migrated and we want to start writing.
         // Per-team rollout still happens at the call site.
         HOG_INVOCATION_RESULTS_ENABLED: isDevEnv() ? true : false,
+        MESSAGE_ASSETS_TOPIC: KAFKA_MESSAGE_ASSETS,
+        // Same cyclotron Warpstream cluster as hog_invocation_results — ClickHouse
+        // consumes message_assets from the warpstream_cyclotron named collection.
+        MESSAGE_ASSETS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
         // Hard cap on rows a single rerun wrapper job will drain. Mirrors the
         // Django serializer's HOG_INVOCATION_RERUN_MAX_COUNT (same env var).
         HOG_INVOCATION_RERUN_MAX_COUNT: 10000,
         // Small by default — rerun jobs are heavy (a full ClickHouse query per
         // page), so a replica drains one wrapper job at a time unless tuned up.
         CDP_RERUN_WORKER_BATCH_SIZE: 1,
-        CDP_PREFILTERED_EVENTS_TOPIC: KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
-        CDP_PREFILTERED_EVENTS_PRODUCER: WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
-        CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC: KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
-        CDP_PRECALCULATED_PERSON_PROPERTIES_PRODUCER: WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
-        CDP_BATCH_HOGFLOW_REQUESTS_TOPIC: KAFKA_CDP_BATCH_HOGFLOW_REQUESTS,
-        CDP_BATCH_HOGFLOW_REQUESTS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
         CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC: KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
         CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER: WAREHOUSE_PRODUCER,
 
@@ -239,12 +296,20 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_ACCESS_KEY_ID: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_REGION: isTestEnv() || isDevEnv() ? 'us-east-1' : '',
+        SES_TRACKED_CONFIGURATION_SET: 'posthog-messaging',
+        SES_UNTRACKED_CONFIGURATION_SET: '',
+        SES_ALLOWED_SNS_TOPIC_ARNS: '',
+        EMAIL_SES_TENANT_ATTRIBUTION_ENABLED: false,
+        EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: 5,
 
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
 
-        CDP_BATCH_WORKFLOW_PRODUCER_BATCH_SIZE: 1,
-        CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: 5000,
+        // Fallback cap used only when a batch-resolve API caller does not pass max_audience_size.
+        // Django's batch-job model always passes get_hogflow_batch_trigger_limit(team_id), so
+        // production batches use the per-team value from settings; this is only a safety net for
+        // direct callers (tests, admin tools). Match the fleet-wide default in settings.web.py.
+        CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: 50000,
 
         // Cyclotron Node
         CYCLOTRON_NODE_MAX_CONNECTIONS: 10,
@@ -254,5 +319,21 @@ export function getDefaultCdpConfig(): CdpConfig {
         CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: 30000,
         CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT: 3,
         CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS: 10000,
+        CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED: true,
+        CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_BASE_MS: 60000,
+        CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS: 600000,
+        // Floor > the hog flow cache's worst-case staleness (~6 min), so swept jobs
+        // always wake against post-edit config. Rate sized well under hogflow worker
+        // steady-state throughput: the past incident class here is an instantaneous
+        // mass wake, so wakes are trickled (500k parked @ 200/s ≈ 42 min spread).
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        WORKFLOWS_RESCHEDULE_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflows-reschedule-jwt' : '',
+        CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: 600,
+        CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: 200,
+        CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: 300,
+        CYCLOTRON_NODE_RESCHEDULE_MAX_WINDOW_SECONDS: 14400,
+        CYCLOTRON_NODE_RESCHEDULE_CHUNK_SIZE: 5000,
+        CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL: 20,
+        CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: 100,
     }
 }

@@ -1,8 +1,13 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+
+from parameterized import parameterized
 
 from posthog.api.project_secret_api_key import MAX_PROJECT_SECRET_API_KEYS_PER_TEAM
 from posthog.models import Organization, OrganizationMembership, Team
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.utils import generate_random_token_personal, generate_random_token_secret, hash_key_value
 
 
 class TestProjectSecretAPIKeysAPIMember(APIBaseTest):
@@ -71,6 +76,14 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert data["last_used_at"] is None
         assert data["value"].startswith("phs_")
 
+    def test_create_feature_flag_read_scope(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "local eval key", "scopes": ["feature_flag:read"]},
+        )
+        assert response.status_code == 201
+        assert response.json()["scopes"] == ["feature_flag:read"]
+
     def test_create_too_many_api_keys(self):
         for i in range(0, MAX_PROJECT_SECRET_API_KEYS_PER_TEAM):
             self.client.post(
@@ -121,6 +134,97 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         )
         assert response.status_code == 400
         assert "Invalid scope" in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("blocked_when_flag_disabled", False, 400),
+            ("allowed_when_flag_enabled", True, 201),
+        ]
+    )
+    @patch("posthog.api.project_secret_api_key.posthoganalytics.feature_enabled")
+    def test_create_llm_gateway_scope_gated_on_flag(self, _name, flag_enabled, expected_status, mock_feature_enabled):
+        mock_feature_enabled.return_value = flag_enabled
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "my key", "scopes": ["llm_gateway:read"]},
+        )
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 201:
+            assert response.json()["scopes"] == ["llm_gateway:read"]
+        else:
+            assert "LLM gateway scope is not available" in response.json()["detail"]
+        mock_feature_enabled.assert_called_once()
+
+    @patch("posthog.api.project_secret_api_key.posthoganalytics.feature_enabled")
+    def test_update_keeps_existing_llm_gateway_scope_when_flag_disabled(self, mock_feature_enabled):
+        mock_feature_enabled.return_value = False
+
+        key = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="existing",
+            secure_value=hash_key_value(generate_random_token_secret()),
+            scopes=["llm_gateway:read"],
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
+            {"label": "renamed", "scopes": ["llm_gateway:read"]},
+        )
+        assert response.status_code == 200
+        assert response.json()["label"] == "renamed"
+        assert response.json()["scopes"] == ["llm_gateway:read"]
+        mock_feature_enabled.assert_not_called()
+
+    @patch("posthog.api.project_secret_api_key.posthoganalytics.feature_enabled")
+    def test_update_adding_llm_gateway_scope_blocked_when_flag_disabled(self, mock_feature_enabled):
+        mock_feature_enabled.return_value = False
+
+        key = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="existing",
+            secure_value=hash_key_value(generate_random_token_secret()),
+            scopes=["endpoint:read"],
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
+            {"scopes": ["endpoint:read", "llm_gateway:read"]},
+        )
+        assert response.status_code == 400
+        assert "LLM gateway scope is not available" in response.json()["detail"]
+        mock_feature_enabled.assert_called_once()
+
+    @patch("posthog.api.project_secret_api_key.posthoganalytics.feature_enabled")
+    def test_update_adding_llm_gateway_scope_to_key_with_null_scopes(self, mock_feature_enabled):
+        mock_feature_enabled.return_value = True
+
+        key = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="existing",
+            secure_value=hash_key_value(generate_random_token_secret()),
+            scopes=None,
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
+            {"scopes": ["llm_gateway:read"]},
+        )
+        assert response.status_code == 200
+        assert response.json()["scopes"] == ["llm_gateway:read"]
+
+    @patch("posthog.api.project_secret_api_key.posthoganalytics.feature_enabled")
+    def test_non_gateway_scope_unaffected_by_flag(self, mock_feature_enabled):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "my key", "scopes": ["endpoint:read"]},
+        )
+        assert response.status_code == 201
+        assert response.json()["scopes"] == ["endpoint:read"]
+        mock_feature_enabled.assert_not_called()
 
     def test_update_label(self):
         create_response = self.client.post(
@@ -331,3 +435,123 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert logs[0].detail is not None
         assert logs[0].detail["name"] == "delete me"
         assert logs[0].team_id == self.team.id
+
+
+class TestProjectSecretAPIKeysViaPersonalAPIKey(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.client.logout()
+
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="pat-with-project-write",
+            user=self.user,
+            scopes=["project:write", "project:read"],
+            secure_value=hash_key_value(token),
+        )
+        self.token = token
+
+    def _auth(self):
+        return {"HTTP_AUTHORIZATION": f"Bearer {self.token}"}
+
+    def _create_key(self) -> str:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/",
+            data={"label": "rollable", "scopes": ["endpoint:read"]},
+            content_type="application/json",
+            **self._auth(),
+        )
+        assert response.status_code == 201, response.content
+        return response.json()["id"]
+
+    def test_roll_works_via_pat_with_project_write(self):
+        key_id = self._create_key()
+        original = ProjectSecretAPIKey.objects.get(id=key_id)
+        original_secure_value = original.secure_value
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key_id}/roll/",
+            **self._auth(),
+        )
+
+        assert response.status_code == 200, response.content
+        rolled = response.json()
+        assert rolled["value"] is not None
+        assert rolled["value"].startswith("phs_")
+
+        original.refresh_from_db()
+        assert original.secure_value != original_secure_value
+        assert original.secure_value == hash_key_value(rolled["value"])
+
+    def test_roll_rejected_for_pat_without_project_write(self):
+        key_id = self._create_key()
+
+        readonly_token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="pat-readonly",
+            user=self.user,
+            scopes=["project:read"],
+            secure_value=hash_key_value(readonly_token),
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key_id}/roll/",
+            HTTP_AUTHORIZATION=f"Bearer {readonly_token}",
+        )
+        assert response.status_code == 403, response.content
+
+    def test_destroy_works_via_pat(self):
+        key_id = self._create_key()
+
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key_id}/",
+            **self._auth(),
+        )
+        assert response.status_code == 204, response.content
+        assert not ProjectSecretAPIKey.objects.filter(id=key_id).exists()
+
+    def test_update_label_via_pat_with_project_write(self):
+        key_id = self._create_key()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key_id}/",
+            data={"label": "renamed"},
+            content_type="application/json",
+            **self._auth(),
+        )
+        assert response.status_code == 200, response.content
+        assert ProjectSecretAPIKey.objects.get(id=key_id).label == "renamed"
+
+    def test_update_via_pat_rejected_without_project_write(self):
+        key_id = self._create_key()
+
+        readonly_token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="pat-readonly-update",
+            user=self.user,
+            scopes=["project:read"],
+            secure_value=hash_key_value(readonly_token),
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key_id}/",
+            data={"label": "should-fail"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {readonly_token}",
+        )
+        assert response.status_code == 403, response.content
+        assert ProjectSecretAPIKey.objects.get(id=key_id).label == "rollable"
+
+    def test_full_update_via_pat_with_project_write(self):
+        key_id = self._create_key()
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key_id}/",
+            data={"label": "via-put", "scopes": ["endpoint:read"]},
+            content_type="application/json",
+            **self._auth(),
+        )
+        assert response.status_code == 200, response.content
+        assert ProjectSecretAPIKey.objects.get(id=key_id).label == "via-put"

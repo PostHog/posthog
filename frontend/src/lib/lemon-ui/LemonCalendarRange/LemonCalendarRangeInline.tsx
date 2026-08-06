@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { useEffect, useState } from 'react'
 
 import { dayjs } from 'lib/dayjs'
@@ -96,35 +95,11 @@ export function LemonCalendarRangeInline({
             leftmostMonth={leftmostMonth}
             onLeftmostMonthChanged={setLeftmostMonth}
             months={shownMonths}
-            getLemonButtonProps={({ date, props, dayIndex }) => {
-                if (date.isSame(rangeStart, 'd') || date.isSame(rangeEnd, 'd')) {
-                    return {
-                        ...props,
-                        className:
-                            date.isSame(rangeStart, 'd') && date.isSame(rangeEnd, 'd')
-                                ? props.className
-                                : clsx(
-                                      props.className,
-                                      {
-                                          'rounded-r-none': date.isSame(rangeStart, 'd') && dayIndex < 6,
-                                          'rounded-l-none': date.isSame(rangeEnd, 'd') && dayIndex > 0,
-                                      },
-                                      'LemonCalendar__range--boundary'
-                                  ),
-                        type: 'primary',
-                    }
-                } else if (rangeStart && rangeEnd && date > rangeStart && date < rangeEnd) {
-                    return {
-                        ...props,
-                        className: clsx(
-                            props.className,
-                            dayIndex === 0 ? 'rounded-r-none' : dayIndex === 6 ? 'rounded-l-none' : 'rounded-none'
-                        ),
-                        active: true,
-                    }
-                }
-                return props
-            }}
+            getDateState={({ date }) => ({
+                isStart: date.isSame(rangeStart, 'd'),
+                isEnd: date.isSame(rangeEnd, 'd'),
+                isBetween: !!(rangeStart && rangeEnd && date > rangeStart && date < rangeEnd),
+            })}
         />
     )
 }

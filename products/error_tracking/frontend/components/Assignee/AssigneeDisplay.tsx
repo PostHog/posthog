@@ -5,8 +5,9 @@ import { match } from 'ts-pattern'
 import { IconPerson } from '@posthog/icons'
 import { ProfilePicture } from '@posthog/lemon-ui'
 
-import { UnexpectedNeverError, fullName } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { UnexpectedNeverError } from 'lib/utils/guards'
+import { fullName } from 'lib/utils/strings'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 

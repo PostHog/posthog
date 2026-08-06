@@ -1,9 +1,10 @@
-import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+import { MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { Meta, StoryFn } from '@storybook/react'
 import { useMountedLogic } from 'kea'
 import { useEffect } from 'react'
 
+import { activeCloudRunLogic } from 'scenes/onboarding/shared/wizard-sync/activeCloudRunLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -125,6 +126,14 @@ const INVITED_USER: UserType = {
     is_organization_first_user: false,
 }
 
+// A partner-provisioned account: no inviter (first org user), onboarding skipped as 'provisioned'.
+const PROVISIONED_USER: UserType = {
+    ...MOCK_DEFAULT_USER,
+    first_name: 'Robin',
+    is_organization_first_user: true,
+    onboarding_skipped_reason: 'provisioned',
+}
+
 const meta: Meta = {
     title: 'Scenes-Other/Welcome Dialog',
     component: WelcomeDialog,
@@ -170,5 +179,29 @@ export const NoInviter: StoryFn = () => <Template />
 NoInviter.decorators = [
     mswDecorator({
         get: { '/api/organizations/@current/welcome/current/': { ...FULL_PAYLOAD, inviter: null } },
+    }),
+]
+
+// Partner-provisioned account: the dialog leads with the background-install card and the flagship
+// product tour (a different card order than invited users get).
+function ProvisionedTemplate(): JSX.Element {
+    useMountedLogic(userLogic)
+    useMountedLogic(activeCloudRunLogic)
+    useEffect(() => {
+        welcomeDialogLogic.mount()
+        // Seed an active cloud run so the "we're setting up PostHog in your repo" card shows
+        // (storybook app context sets current_project to MOCK_TEAM_ID).
+        activeCloudRunLogic.actions.setActiveCloudRun('task-1', 'run-1', new Date().toISOString(), MOCK_TEAM_ID)
+    }, [])
+    return <WelcomeDialog />
+}
+
+export const Provisioned: StoryFn = () => <ProvisionedTemplate />
+Provisioned.decorators = [
+    mswDecorator({
+        get: {
+            '/api/users/@me/': PROVISIONED_USER,
+            '/api/organizations/@current/welcome/current/': { ...FULL_PAYLOAD, inviter: null },
+        },
     }),
 ]

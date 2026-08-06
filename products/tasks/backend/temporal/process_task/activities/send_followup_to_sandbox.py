@@ -1,31 +1,57 @@
 import json
 import time
+import threading
+import contextvars
 from dataclasses import dataclass
 from typing import Any
 
 import structlog
-from django_redis import get_redis_connection
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
+from posthog.models.integration import Integration
+from posthog.models.user_integration import ReauthorizationRequired, UserIntegration
+from posthog.temporal.common.utils import close_db_connections
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.models import TaskRun
-from products.tasks.backend.services.agent_command import (
+from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.logic.services.agent_command import (
     FOLLOWUP_TIMEOUT_SECONDS,
     REFRESH_TIMEOUT_SECONDS,
     CommandResult,
     send_refresh_session,
     send_user_message,
+    user_facing_agent_error,
 )
-from products.tasks.backend.services.connection_token import create_sandbox_connection_token
-from products.tasks.backend.services.staged_artifacts import get_task_run_artifacts_by_id
-from products.tasks.backend.stream.redis_stream import get_task_run_stream_key
-from products.tasks.backend.temporal.oauth import create_oauth_access_token
+from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
+from products.tasks.backend.logic.services.run_actor import slack_actor_state_updates
+from products.tasks.backend.logic.services.staged_artifacts import get_task_run_artifacts_by_id
+from products.tasks.backend.logic.stream.redis_stream import get_task_run_stream_key
+from products.tasks.backend.models import TaskRun
+from products.tasks.backend.redis import get_tasks_stream_redis_sync, run_uses_dedicated_stream
+from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
+from products.tasks.backend.temporal.process_task.sandbox_credentials import (
+    apply_github_credentials_to_sandbox,
+    clear_github_credentials_from_sandbox,
+    sandbox_credential_lock,
+)
 from products.tasks.backend.temporal.process_task.utils import (
+    PrAuthorshipMode,
+    get_actor_distinct_id,
+    get_imported_mcp_server_configs,
+    get_pr_authorship_mode,
+    get_sandbox_github_identity_user,
+    get_sandbox_github_token,
+    get_sandbox_mcp_session_user,
     get_sandbox_ph_mcp_configs,
+    get_task_run_credential_user,
     get_user_mcp_server_configs,
-    mark_mcp_token_issued,
-    should_refresh_mcp_token,
+    is_slack_interaction_state,
+    loop_mcp_installation_allowlist,
+    mark_sandbox_github_identity,
+    mark_sandbox_mcp_session,
+    record_message_actor,
+    sandbox_identity_scope,
 )
 
 from ee.hogai.sandbox import STOP_REASON_END_TURN, TURN_COMPLETE_METHOD
@@ -34,6 +60,13 @@ logger = structlog.get_logger(__name__)
 
 REFRESH_RETRY_DELAY_SECONDS = 0.5
 
+# Retries exist for attempt-level deaths (worker restart kills the in-flight
+# attempt, detected via heartbeat timeout) and for delivery-unknown failures.
+# Application failures that write an error sentinel raise non-retryable.
+SEND_FOLLOWUP_MAX_ATTEMPTS = 3
+SEND_FOLLOWUP_HEARTBEAT_INTERVAL_SECONDS = 15
+STEER_DECLINED_OUTCOME = "steer_declined"
+
 
 @dataclass
 class SendFollowupToSandboxInput:
@@ -41,44 +74,170 @@ class SendFollowupToSandboxInput:
     message: str | None = None
     posthog_mcp_scopes: PosthogMcpScopes = "read_only"
     artifact_ids: list[str] | None = None
+    message_id: str | None = None
+    # Sender of this message; None (older senders, pre-rollout histories)
+    # falls back to the run-state actor.
+    actor_user_id: int | None = None
+    # Signal context, passed through from PendingFollowup.
+    context: dict[str, Any] | None = None
+    steer: bool = False
+    max_attempts: int = SEND_FOLLOWUP_MAX_ATTEMPTS
 
 
 @activity.defn
-def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
+@close_db_connections
+def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> str | None:
     """Send a follow-up user message to the sandbox and write result markers to Redis.
 
     Called by the workflow when it receives a send_followup_message signal from the
     web layer. Writes turn_complete on success or an error event on failure so the
     SSE stream terminates cleanly.
+
+    Heartbeats from a side thread while the delivery call blocks (the sync
+    /command response can legitimately take up to FOLLOWUP_TIMEOUT_SECONDS),
+    so a worker restart is detected within the heartbeat timeout instead of
+    the 35-minute start_to_close.
     """
+    stop_heartbeat = threading.Event()
+    heartbeat_ctx = contextvars.copy_context()
+
+    def _heartbeat_loop() -> None:
+        while not stop_heartbeat.wait(SEND_FOLLOWUP_HEARTBEAT_INTERVAL_SECONDS):
+            try:
+                activity.heartbeat()
+            except Exception:
+                return
+
+    heartbeat_thread = threading.Thread(target=lambda: heartbeat_ctx.run(_heartbeat_loop), daemon=True)
+    heartbeat_thread.start()
     try:
-        task_run = TaskRun.objects.select_related("task__created_by").get(id=input.run_id)
+        return _deliver_followup(input)
+    finally:
+        stop_heartbeat.set()
+        heartbeat_thread.join(timeout=2)
+
+
+def _current_attempt() -> int:
+    try:
+        return activity.info().attempt
+    except Exception:
+        return 1
+
+
+def _is_duplicate_delivery(result_data: dict[str, Any] | None) -> bool:
+    if not isinstance(result_data, dict):
+        return False
+    result = result_data.get("result")
+    return isinstance(result, dict) and result.get("duplicate") is True
+
+
+def _is_steered(result_data: dict[str, Any] | None) -> bool:
+    if not isinstance(result_data, dict):
+        return False
+    result = result_data.get("result")
+    return isinstance(result, dict) and result.get("steered") is True
+
+
+def _is_steer_declined(result_data: dict[str, Any] | None) -> bool:
+    if not isinstance(result_data, dict):
+        return False
+    result = result_data.get("result")
+    return isinstance(result, dict) and result.get("steered") is False
+
+
+def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
+    try:
+        task_run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=input.run_id)
     except TaskRun.DoesNotExist:
         error_msg = "Task run not found"
         logger.warning("send_followup_run_not_found", run_id=input.run_id)
         _write_error_and_complete(input.run_id, error_msg)
         # Raise so the workflow can mark the run as failed. Without this,
         # background-mode runs hang until the inactivity timeout because
+        raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
+
+    # Resolve credentials against this message's sender, not the run-state
+    # actor a concurrent follow-up may have overwritten since queueing. Local
+    # overlay; the resolver still enforces team access (see run_actor.py).
+    raw_actor_slack_user_id = (input.context or {}).get("actor_slack_user_id")
+    actor_slack_user_id = raw_actor_slack_user_id if isinstance(raw_actor_slack_user_id, str) else None
+
+    state = task_run.state
+    if input.actor_user_id is not None:
+        state = {**(state or {}), "slack_actor_user_id": input.actor_user_id}
+
+    actor_user = get_task_run_credential_user(task_run.task, state)
+    if is_slack_interaction_state(state) and actor_user is None:
+        error_msg = "Slack actor unavailable for this run"
+        _write_error_and_complete(input.run_id, error_msg, run_uses_dedicated_stream(task_run.state))
         raise RuntimeError(f"send_followup failed: {error_msg}")
 
-    auth_token = None
-    created_by = task_run.task.created_by
-    if created_by and created_by.id:
-        distinct_id = created_by.distinct_id or f"user_{created_by.id}"
-        auth_token = create_sandbox_connection_token(task_run, user_id=created_by.id, distinct_id=distinct_id)
+    if input.steer:
+        bound_user_id = get_sandbox_mcp_session_user(sandbox_identity_scope(str(task_run.id), task_run.state))
+        if (
+            input.actor_user_id is None
+            or actor_user is None
+            or actor_user.id != input.actor_user_id
+            or bound_user_id != input.actor_user_id
+        ):
+            logger.info(
+                "send_followup_steer_actor_mismatch",
+                run_id=input.run_id,
+                actor_user_id=input.actor_user_id,
+                resolved_user_id=actor_user.id if actor_user is not None else None,
+                bound_user_id=bound_user_id,
+            )
+            return STEER_DECLINED_OUTCOME
 
-    # Push a fresh MCP config before the turn so the agent-server rebinds its
-    # ACP session to a non-stale OAuth token. Non-fatal: if refresh fails we
-    # still deliver the follow-up with the existing (possibly stale) creds.
-    _refresh_sandbox_mcp(task_run, input.posthog_mcp_scopes, auth_token)
+    if input.actor_user_id is not None and is_slack_interaction_state(state):
+        # Deliveries are serialized by the workflow, so stamping here moves
+        # the durable actor only after an active steer passes its identity gate.
+        updates = slack_actor_state_updates(user_id=input.actor_user_id, slack_user_id=actor_slack_user_id)
+        current = task_run.state or {}
+        if any(current.get(key) != value for key, value in updates.items()):
+            try:
+                TaskRun.update_state_atomic(task_run.id, updates=updates)
+            except Exception:
+                logger.warning("send_followup_actor_stamp_failed", run_id=input.run_id, exc_info=True)
+
+    auth_token = None
+    if actor_user and actor_user.id:
+        auth_token = create_sandbox_connection_token(
+            task_run, user_id=actor_user.id, distinct_id=get_actor_distinct_id(actor_user)
+        )
+
+    # Rebind the sandbox's MCP session to this actor before the turn. On an
+    # actor transition this must rebind or clear the prior session; if it can't,
+    # fail closed rather than run the turn under the previous actor's creds.
+    # A steer joins the active turn, so it cannot interrupt that turn with a
+    # session refresh.
+    if not input.steer and not _refresh_sandbox_mcp(
+        task_run,
+        input.posthog_mcp_scopes,
+        auth_token,
+        actor_user=actor_user,
+        state=state,
+    ):
+        error_msg = "Could not rebind sandbox MCP credentials for the follow-up actor"
+        raise RuntimeError(f"send_followup failed: {error_msg}")
+
+    # Bind the sandbox's GitHub credentials to this actor: rebind if they have
+    # access, otherwise log out so the previous actor's identity can't be used.
+    # Fail closed only if we can't even clear the prior credentials.
+    if not _refresh_sandbox_github(task_run, actor_user, state):
+        error_msg = "Could not rebind or clear sandbox GitHub credentials for the follow-up actor"
+        raise RuntimeError(f"send_followup failed: {error_msg}")
     artifacts = None
     artifact_ids = input.artifact_ids or []
     if artifact_ids:
         artifacts, missing_artifact_ids = get_task_run_artifacts_by_id(task_run, artifact_ids)
         if missing_artifact_ids:
             error_msg = f"Artifacts not found on this run: {', '.join(missing_artifact_ids)}"
-            _write_error_and_complete(input.run_id, error_msg)
-            raise RuntimeError(f"send_followup failed: {error_msg}")
+            _write_error_and_complete(input.run_id, error_msg, run_uses_dedicated_stream(task_run.state))
+            raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
+
+    if input.message_id and actor_slack_user_id:
+        record_message_actor(input.run_id, input.message_id, actor_slack_user_id)
 
     result = send_user_message(
         task_run,
@@ -86,6 +245,8 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
         artifacts=artifacts,
         auth_token=auth_token,
         timeout=FOLLOWUP_TIMEOUT_SECONDS,
+        message_id=input.message_id,
+        steer=input.steer,
     )
     logger.info(
         "send_followup_to_sandbox_attempted",
@@ -95,8 +256,59 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
     )
 
     if result.success:
-        _write_turn_complete(input.run_id, _get_stop_reason(result.data))
+        if _is_duplicate_delivery(result.data):
+            logger.info(
+                "send_followup_duplicate_delivery",
+                run_id=input.run_id,
+                attempt=_current_attempt(),
+            )
+            return None
+        if _is_steered(result.data):
+            logger.info("send_followup_steered", run_id=input.run_id)
+            return None
+        if input.steer and _is_steer_declined(result.data):
+            logger.info("send_followup_steer_declined", run_id=input.run_id)
+            return STEER_DECLINED_OUTCOME
+        _write_turn_complete(input.run_id, _get_stop_reason(result.data), run_uses_dedicated_stream(task_run.state))
         logger.info("send_followup_delivered", run_id=input.run_id)
+    elif result.turn_in_flight:
+        # A read timeout means the message reached the sandbox and the turn is
+        # simply still running — FOLLOWUP_TIMEOUT_SECONDS caps how long this
+        # activity waits for the synchronous ack, not how long a turn may
+        # take. Don't fail the run or write a sentinel: the sandbox broadcasts
+        # _posthog/turn_complete through the event stream when the turn
+        # actually ends, and run liveness stays governed by heartbeats plus the
+        # workflow inactivity timeout. Failing here used to destroy healthy
+        # sandboxes mid-work on any turn longer than 30 minutes.
+        logger.info(
+            "send_followup_turn_still_running",
+            run_id=input.run_id,
+            timeout_seconds=FOLLOWUP_TIMEOUT_SECONDS,
+        )
+    elif result.retryable and input.message_id:
+        # Retry transport failures and known transient agent errors. message_id
+        # prevents duplicate turns when delivery is uncertain, and the agent-server
+        # releases the id when a delivered turn fails before completion.
+        attempt = _current_attempt()
+        failure_kind = "delivery unknown" if result.status_code == 504 else "retryable failure"
+        if attempt < input.max_attempts:
+            logger.warning(
+                "send_followup_retrying",
+                run_id=input.run_id,
+                attempt=attempt,
+                error=result.error,
+                status_code=result.status_code,
+            )
+            raise ApplicationError(f"send_followup {failure_kind}: {result.error}")
+        error_msg = user_facing_agent_error(result.error)
+        logger.warning(
+            "send_followup_failed",
+            run_id=input.run_id,
+            error=result.error,
+            status_code=result.status_code,
+        )
+        _write_error_and_complete(input.run_id, error_msg, run_uses_dedicated_stream(task_run.state))
+        raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
     else:
         logger.warning(
             "send_followup_failed",
@@ -104,56 +316,103 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
             error=result.error,
             status_code=result.status_code,
         )
-        error_msg = result.error or "Failed to send message to sandbox"
-        _write_error_and_complete(input.run_id, error_msg)
+        error_msg = user_facing_agent_error(result.error)
+        _write_error_and_complete(input.run_id, error_msg, run_uses_dedicated_stream(task_run.state))
         # Propagate failure to the workflow.
-        raise RuntimeError(f"send_followup failed: {error_msg}")
+        raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
+
+    return None
 
 
 def _refresh_sandbox_mcp(
     task_run: TaskRun,
     scopes: PosthogMcpScopes,
     auth_token: str | None,
-) -> None:
-    """Mint a fresh OAuth token and push updated MCP configs to the sandbox.
+    *,
+    actor_user: Any,
+    state: dict[str, Any] | None,
+) -> bool:
+    """Rebind the sandbox's MCP session to this message's actor.
 
-    Best-effort: retries once on failure, then logs and returns. Never raises
-    — a failed refresh should not block an otherwise-valid follow-up.
-
-    Skipped entirely if a token was issued for this run within the last
-    MCP_TOKEN_REFRESH_INTERVAL_SECONDS — the in-sandbox token is still fresh.
+    Returns ``True`` when the session is safe to use (unchanged actor or a
+    successful rebind) and ``False`` when a rebind could not be confirmed — the
+    caller then fails the follow-up closed. A rebind is unconfirmed whenever the
+    mint or refresh fails and the binding is not known to be this actor's,
+    including an *unknown* binding: the marker self-expires at half the token
+    lifetime, so an absent marker can mean the previous actor's session is still
+    live, not that the sandbox is fresh. Retries the refresh once before giving
+    up.
     """
     run_id = str(task_run.id)
-    if not should_refresh_mcp_token(run_id):
-        logger.info("refresh_mcp_skipped_within_interval", run_id=run_id)
-        return
+    if actor_user is None:
+        # Without a credential user the mint is guaranteed to fail; skip
+        # quietly rather than warn on every message.
+        return True
 
-    task = task_run.task
+    scope = sandbox_identity_scope(run_id, state)
+    bound_user_id = get_sandbox_mcp_session_user(scope)
+    is_built_in_agent_task = task_run.task.mcp_builtin_agent_key is not None
+    if bound_user_id == actor_user.id and not is_built_in_agent_task:
+        logger.info("refresh_mcp_skipped_within_interval", run_id=run_id, user_id=actor_user.id)
+        return True
+    is_transition = bound_user_id is not None and bound_user_id != actor_user.id
+    if is_transition:
+        logger.info(
+            "refresh_mcp_identity_transition",
+            run_id=run_id,
+            previous_user_id=bound_user_id,
+            user_id=actor_user.id,
+        )
+
     try:
-        access_token = create_oauth_access_token(task, scopes=scopes)
+        access_token = create_oauth_access_token_for_run(task_run.task, state, scopes=scopes)
     except Exception as e:
         logger.warning("refresh_mcp_token_mint_failed", run_id=run_id, error=str(e))
-        return
+        return False  # rebind unconfirmed → fail closed (unknown binding may hide a live session)
 
     mcp_configs = get_sandbox_ph_mcp_configs(
         token=access_token,
         project_id=task_run.team_id,
         scopes=scopes,
-        interaction_origin=(task_run.state or {}).get("interaction_origin"),
+        interaction_origin=(state or {}).get("interaction_origin"),
+        task_id=str(task_run.task_id),
     )
-    if task.created_by_id:
-        user_mcp_configs = get_user_mcp_server_configs(
-            token=access_token,
-            team_id=task_run.team_id,
-            user_id=task.created_by_id,
-            interaction_origin=(task_run.state or {}).get("interaction_origin"),
-        )
-        if user_mcp_configs:
-            mcp_configs = mcp_configs + user_mcp_configs
+    user_mcp_configs = get_user_mcp_server_configs(
+        token=access_token,
+        team_id=task_run.team_id,
+        user_id=actor_user.id,
+        include_personal=not task_run.task.internal,
+        interaction_origin=(state or {}).get("interaction_origin"),
+        allowed_installation_ids=loop_mcp_installation_allowlist(state),
+        origin_product=task_run.task.origin_product,
+        task_agent_key=task_run.task.mcp_builtin_agent_key,
+    )
+    if user_mcp_configs:
+        mcp_configs = mcp_configs + user_mcp_configs
+
+    # refresh_session replaces the session's server list wholesale, so the
+    # run's imported servers must ride along or they vanish mid-run.
+    imported_mcp_configs = get_imported_mcp_server_configs(task_run, {config.name for config in mcp_configs})
+    if imported_mcp_configs:
+        mcp_configs = mcp_configs + imported_mcp_configs
 
     if not mcp_configs:
+        if is_transition:
+            # A prior actor holds the live session and this actor resolves no MCP
+            # configs, so an empty-list refresh (a no-op on the agent-server)
+            # can neither rebind it nor tear it down. Fail closed rather than run
+            # the turn against the previous actor's retained session.
+            logger.info(
+                "refresh_mcp_no_configs_on_transition_fail_closed", run_id=run_id, previous_user_id=bound_user_id
+            )
+            return False
+        # No recorded prior actor and no MCP configs to establish a session:
+        # there is nothing to leak, so let the turn run rather than block the
+        # agent just because MCP is unavailable. Record the binding so a later
+        # actor transition is still detected.
+        mark_sandbox_mcp_session(scope, actor_user.id)
         logger.info("refresh_mcp_skipped_no_configs", run_id=run_id)
-        return
+        return True
 
     mcp_servers = [config.to_dict() for config in mcp_configs]
 
@@ -164,9 +423,9 @@ def _refresh_sandbox_mcp(
         timeout=REFRESH_TIMEOUT_SECONDS,
     )
     if result.success:
-        mark_mcp_token_issued(run_id)
+        mark_sandbox_mcp_session(scope, actor_user.id)
         logger.info("refresh_mcp_delivered", run_id=run_id, attempts=1)
-        return
+        return True
 
     logger.info(
         "refresh_mcp_retrying",
@@ -182,9 +441,9 @@ def _refresh_sandbox_mcp(
         timeout=REFRESH_TIMEOUT_SECONDS,
     )
     if retry.success:
-        mark_mcp_token_issued(run_id)
+        mark_sandbox_mcp_session(scope, actor_user.id)
         logger.info("refresh_mcp_delivered", run_id=run_id, attempts=2)
-        return
+        return True
 
     logger.warning(
         "refresh_mcp_failed",
@@ -192,6 +451,145 @@ def _refresh_sandbox_mcp(
         error=retry.error,
         status_code=retry.status_code,
     )
+    return False  # rebind never confirmed → fail closed (unknown binding may hide a live session)
+
+
+def _resolve_live_sandbox(state: dict[str, Any] | None) -> Any:
+    """The running Sandbox handle for a run's state, or None when unavailable.
+
+    GitHub credentials are written into the sandbox directly (git remote + env
+    file), so the gate needs the handle. Absent/dead sandbox → None; the
+    periodic credential-refresh loop reconciles identity in that case.
+    """
+    sandbox_id = (state or {}).get("sandbox_id")
+    if not sandbox_id:
+        return None
+    from products.tasks.backend.logic.services.sandbox import (
+        Sandbox,  # noqa: PLC0415 — keep the sandbox service off the import path
+    )
+
+    try:
+        sandbox = Sandbox.get_by_id(sandbox_id)
+        return sandbox if sandbox.is_running() else None
+    except Exception:
+        # This None drives a fail-closed follow-up rejection, so keep the cause: it
+        # distinguishes a genuinely dead sandbox from a transient control-plane lookup
+        # error, which have different remediation.
+        logger.warning("resolve_live_sandbox_failed", sandbox_id=sandbox_id, exc_info=True)
+        return None
+
+
+def _refresh_sandbox_github(task_run: TaskRun, actor_user: Any, state: dict[str, Any] | None) -> bool:
+    """Bind the sandbox's in-place GitHub credentials to this message's actor.
+
+    On an actor transition: re-inject the new actor's token if they have usable
+    access, otherwise log the sandbox out (strip the token from the git remote
+    and env) so the previous actor's GitHub identity can never be used by a
+    follow-up actor who lacks access. Reauthorization for that actor is surfaced
+    by the existing credential-refresh path, unchanged.
+
+    Only USER-authored runs carry per-actor identity — BOT runs share one
+    installation token, so every actor is already the same identity. This
+    enforces the transition boundary; the periodic credential-refresh loop
+    keeps a continuous actor's token rotated between transitions.
+
+    Returns ``True`` when the sandbox safely reflects this actor (rebound, logged
+    out, or nothing to do) and ``False`` only when we could neither rebind nor
+    even clear — the previous actor's credentials may still be live, so the
+    caller fails the follow-up closed.
+    """
+    if actor_user is None:
+        return True
+
+    run_id = str(task_run.id)
+    scope = sandbox_identity_scope(run_id, state)
+    if get_sandbox_github_identity_user(scope) == actor_user.id:
+        return True  # sandbox already reflects this actor — cheapest check first
+
+    task = task_run.task
+    if get_pr_authorship_mode(task, state) != PrAuthorshipMode.USER:
+        return True
+
+    sandbox = _resolve_live_sandbox(state)
+    if sandbox is None:
+        # We are past the same-actor fast path, so this is an unconfirmed transition. The
+        # follow-up can still reach a live agent through the saved sandbox URL, so proceeding
+        # would run it under the prior actor's retained credentials. A missing handle (dead
+        # sandbox, or a transient control-plane lookup failure) is not proof the sandbox is
+        # safe, so fail closed rather than deliver without a confirmed rebind or clear.
+        logger.info("refresh_github_no_sandbox_handle_fail_closed", run_id=run_id, user_id=actor_user.id)
+        return False
+
+    repository = task.repository
+    token: str | None = None
+    try:
+        token = get_sandbox_github_token(
+            task.github_integration_id,
+            run_id=run_id,
+            state=state,
+            task=task,
+            actor_user=actor_user,
+            repository=repository,
+        )
+    except (
+        ReauthorizationRequired,
+        CredentialUnavailableError,
+        Integration.DoesNotExist,
+        UserIntegration.DoesNotExist,
+    ) as e:
+        # The new actor has no usable GitHub credential for this repo: needs reauthorization,
+        # no repo access, or the integration was disconnected mid-run. Log the sandbox out
+        # rather than run under the prior actor's creds, matching the scheduled refresh's
+        # handling. A transient error (network, timeout) is deliberately not caught here so it
+        # propagates and the activity retries.
+        logger.info(
+            "refresh_github_actor_credential_unavailable",
+            run_id=run_id,
+            user_id=actor_user.id,
+            repository=repository,
+            error_type=type(e).__name__,
+            reason=str(e),
+        )
+        token = None
+
+    # Hold the per-sandbox lock across the write and the marker update so a concurrent owner-scoped
+    # refresh or propagation cannot interleave and land the owner's token after this actor's — the
+    # owner writers acquire the same lock and re-check the marker this block advances.
+    with sandbox_credential_lock(sandbox.id) as acquired:
+        if not acquired:
+            logger.warning("refresh_github_lock_unavailable_fail_closed", run_id=run_id, user_id=actor_user.id)
+            return False
+
+        if token:
+            applied = False
+            try:
+                applied = apply_github_credentials_to_sandbox(sandbox, repository, token)
+            except Exception:
+                logger.warning("refresh_github_apply_failed", run_id=run_id, exc_info=True)
+            if applied:
+                # Record the new actor only on a fully-confirmed rebind. A partial write leaves one
+                # credential location on the prior actor's token, so fall through to logout instead.
+                mark_sandbox_github_identity(scope, actor_user.id)
+                logger.info("refresh_github_rebound", run_id=run_id, user_id=actor_user.id)
+                return True
+            logger.warning("refresh_github_apply_incomplete", run_id=run_id, user_id=actor_user.id)
+
+        # No usable rebind (no token, or the rebind write could not be confirmed): log the sandbox
+        # out. Fail closed only if even the clear can't be confirmed — the previous actor's
+        # credentials might still be live. The sandbox exec can raise (it stopped between the
+        # is_running() check and here, or timed out), so guard it like the rebind above and fail
+        # closed on the exception rather than letting it escape uncontrolled.
+        try:
+            cleared = clear_github_credentials_from_sandbox(sandbox, repository)
+        except Exception:
+            logger.warning("refresh_github_logout_failed", run_id=run_id, user_id=actor_user.id, exc_info=True)
+            return False
+        if cleared:
+            mark_sandbox_github_identity(scope, actor_user.id)
+            logger.info("refresh_github_logged_out", run_id=run_id, user_id=actor_user.id)
+            return True
+        logger.warning("refresh_github_logout_failed", run_id=run_id, user_id=actor_user.id)
+        return False
 
 
 def _get_stop_reason(result_data: dict[str, Any] | None) -> str:
@@ -206,7 +604,7 @@ def _get_stop_reason(result_data: dict[str, Any] | None) -> str:
     return stop_reason if isinstance(stop_reason, str) and stop_reason else STOP_REASON_END_TURN
 
 
-def _write_turn_complete(run_id: str, stop_reason: str = STOP_REASON_END_TURN) -> None:
+def _write_turn_complete(run_id: str, stop_reason: str = STOP_REASON_END_TURN, use_dedicated: bool = False) -> None:
     """Write a synthetic turn_complete event to the Redis stream."""
     stream_key = get_task_run_stream_key(run_id)
     event = {
@@ -216,14 +614,14 @@ def _write_turn_complete(run_id: str, stop_reason: str = STOP_REASON_END_TURN) -
             "params": {"source": "posthog", "stopReason": stop_reason},
         },
     }
-    conn = get_redis_connection("default")
+    conn = get_tasks_stream_redis_sync(use_dedicated)
     conn.xadd(stream_key, {"data": json.dumps(event)}, maxlen=2000)
 
 
-def _write_error_and_complete(run_id: str, error_message: str) -> None:
+def _write_error_and_complete(run_id: str, error_message: str, use_dedicated: bool = False) -> None:
     """Write an error event followed by turn_complete to the Redis stream."""
     stream_key = get_task_run_stream_key(run_id)
-    conn = get_redis_connection("default")
+    conn = get_tasks_stream_redis_sync(use_dedicated)
 
     error_event = {
         "type": "notification",
@@ -233,4 +631,4 @@ def _write_error_and_complete(run_id: str, error_message: str) -> None:
         },
     }
     conn.xadd(stream_key, {"data": json.dumps(error_event)}, maxlen=2000)
-    _write_turn_complete(run_id)
+    _write_turn_complete(run_id, use_dedicated=use_dedicated)

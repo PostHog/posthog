@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "fromDashboardId": {
+            "description": "Dashboard id the tile currently belongs to.",
+            "type": "number"
+        },
+        "id": {
+            "description": "A unique integer value identifying this dashboard.",
+            "type": "number"
+        },
+        "tileId": {
+            "description": "Dashboard tile id to copy.",
+            "type": "number"
+        }
+    },
+    "required": ["id", "fromDashboardId", "tileId"],
+    "type": "object"
+}

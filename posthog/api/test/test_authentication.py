@@ -16,7 +16,7 @@ from django.core import mail
 from django.core.asgi import get_asgi_application
 from django.core.cache import cache
 from django.http import HttpResponse
-from django.test import RequestFactory, override_settings
+from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
@@ -33,14 +33,17 @@ from rest_framework.test import APIRequestFactory
 from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
 
-from posthog.api.authentication import password_reset_token_generator, post_login, social_login_notification
-from posthog.api.oauth.test_dcr import generate_rsa_key
+from posthog.api.authentication import password_reset_token_generator, social_login_notification
 from posthog.auth import (
     InternalAPIUser,
     OAuthAccessTokenAuthentication,
     ProjectSecretAPIKeyAuthentication,
     ProjectSecretAPIKeyUser,
+    TeamSecretTokenAuthentication,
+    TeamSecretTokenUser,
+    _extract_phs_token,
 )
+from posthog.clickhouse.query_tagging import AccessMethod
 from posthog.helpers.user_devices import (
     KNOWN_DEVICE_COOKIE,
     build_known_device_cookie_value,
@@ -48,11 +51,13 @@ from posthog.helpers.user_devices import (
 )
 from posthog.middleware import KnownLoginDeviceCookieMiddleware
 from posthog.models import User
+from posthog.models.activity_logging.signal_handlers import post_login
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -83,7 +88,14 @@ class TestLoginPrecheckAPI(APIBaseTest):
         response = self.client.post("/api/login/precheck", {"email": "any_user_name_here@witw.app"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.json(), {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
+            response.json(),
+            {
+                "sso_enforcement": None,
+                "saml_available": False,
+                "webauthn_credentials": [],
+                "password_login_available": True,
+                "social_providers": [],
+            },
         )
 
     def test_login_precheck_with_sso_enforced_with_invalid_license(self):
@@ -99,7 +111,14 @@ class TestLoginPrecheckAPI(APIBaseTest):
         response = self.client.post("/api/login/precheck", {"email": "spain@witw.app"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.json(), {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
+            response.json(),
+            {
+                "sso_enforcement": None,
+                "saml_available": False,
+                "webauthn_credentials": [],
+                "password_login_available": True,
+                "social_providers": [],
+            },
         )
 
     def test_login_precheck_returns_webauthn_credentials_for_user_with_verified_passkey(self):
@@ -186,6 +205,134 @@ class TestLoginPrecheckAPI(APIBaseTest):
 
         self.assertEqual(len(response_data["webauthn_credentials"]), 2)
 
+    def test_login_precheck_reports_password_login_available_for_user_with_password(self):
+        User.objects.create_and_join(self.organization, "with_password@posthog.com", self.CONFIG_PASSWORD)
+
+        response = self.client.post("/api/login/precheck", {"email": "with_password@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["password_login_available"], True)
+
+    def test_login_precheck_reports_password_login_unavailable_for_passwordless_user(self):
+        User.objects.create_and_join(self.organization, "no_password@posthog.com", None)
+
+        response = self.client.post("/api/login/precheck", {"email": "no_password@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json(),
+            {
+                "sso_enforcement": None,
+                "saml_available": False,
+                "webauthn_credentials": [],
+                "password_login_available": False,
+                "social_providers": [],
+            },
+        )
+
+    def test_login_precheck_reports_password_login_unavailable_for_blank_password(self):
+        # `has_usable_password()` is True for an empty password, so this exercises the `bool(...)` half
+        # of the check — a blank password is not something anyone can log in with.
+        user = User.objects.create_and_join(self.organization, "blank_password@posthog.com", None)
+        User.objects.filter(pk=user.pk).update(password="")
+
+        response = self.client.post("/api/login/precheck", {"email": "blank_password@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["password_login_available"], False)
+
+    def test_login_precheck_returns_linked_social_provider_configured_on_instance(self):
+        user = User.objects.create_and_join(self.organization, "github_user@posthog.com", None)
+        UserSocialAuth.objects.create(user=user, provider="github", uid="12345")
+
+        with self.settings(SOCIAL_AUTH_GITHUB_KEY="key", SOCIAL_AUTH_GITHUB_SECRET="secret"):
+            response = self.client.post("/api/login/precheck", {"email": "github_user@posthog.com"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["password_login_available"], False)
+        self.assertEqual(response.json()["social_providers"], ["github"])
+
+    def test_login_precheck_omits_linked_social_provider_not_configured_on_instance(self):
+        # Offering this provider would render a button that can't work.
+        user = User.objects.create_and_join(self.organization, "github_user@posthog.com", None)
+        UserSocialAuth.objects.create(user=user, provider="github", uid="12345")
+
+        with self.settings(SOCIAL_AUTH_GITHUB_KEY=None, SOCIAL_AUTH_GITHUB_SECRET=None):
+            response = self.client.post("/api/login/precheck", {"email": "github_user@posthog.com"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["social_providers"], [])
+
+    def test_login_precheck_treats_unknown_email_as_password_login_available(self):
+        # An unknown email must be indistinguishable from a user who has a password, so a typo is
+        # never a dead end and we don't leak which addresses have accounts.
+        response = self.client.post("/api/login/precheck", {"email": "nobody@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["password_login_available"], True)
+        self.assertEqual(response.json()["social_providers"], [])
+
+    def test_login_precheck_treats_inactive_passwordless_user_as_unknown(self):
+        user = User.objects.create_and_join(self.organization, "deactivated@posthog.com", None)
+        user.is_active = False
+        user.save()
+
+        response = self.client.post("/api/login/precheck", {"email": "deactivated@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["password_login_available"], True)
+
+    def test_login_precheck_is_rate_limited_by_ip(self):
+        cache.clear()
+        # Don't leave 30 throttle entries behind for whatever test runs next.
+        self.addCleanup(cache.clear)
+        with self.settings(E2E_TESTING=False):
+            for i in range(30):
+                response = self.client.post("/api/login/precheck", {"email": f"enumerate-{i}@posthog.com"})
+                self.assertEqual(response.status_code, status.HTTP_200_OK, f"request {i} was throttled early")
+
+            response = self.client.post("/api/login/precheck", {"email": "enumerate-30@posthog.com"})
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_login_precheck_is_not_rate_limited_for_the_callers_own_email(self):
+        # The time-sensitive re-auth modal prechecks the logged-in user's own email on a timer, and it
+        # tells them nothing they don't already have.
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.client.force_login(self.user)
+
+        with self.settings(E2E_TESTING=False):
+            for i in range(35):
+                response = self.client.post("/api/login/precheck", {"email": self.user.email.upper()})
+                self.assertEqual(response.status_code, status.HTTP_200_OK, f"request {i} was throttled")
+
+    def test_login_precheck_is_rate_limited_for_an_authenticated_caller_probing_other_emails(self):
+        # Being signed in with any account must not buy unlimited enumeration of other people's
+        # sign-in methods — the endpoint is `AllowAny` and has no ownership check.
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.client.force_login(self.user)
+
+        with self.settings(E2E_TESTING=False):
+            for i in range(30):
+                response = self.client.post("/api/login/precheck", {"email": f"victim-{i}@posthog.com"})
+                self.assertEqual(response.status_code, status.HTTP_200_OK, f"request {i} was throttled early")
+
+            response = self.client.post("/api/login/precheck", {"email": "victim-30@posthog.com"})
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_login_precheck_prefers_the_exact_case_match_like_login_does(self):
+        # `User.email` is only unique case-*sensitively*, so variations can coexist. Precheck must
+        # describe the same account login would authenticate — an exact-case match wins.
+        User.objects.create_and_join(self.organization, "casey@posthog.com", None)
+        with_password = User.objects.create_and_join(self.organization, "casey-alt@posthog.com", self.CONFIG_PASSWORD)
+        # `create_user` normalizes the address to lowercase, so write the variation in directly — the
+        # accounts this guards against predate that normalization.
+        User.objects.filter(pk=with_password.pk).update(email="Casey@posthog.com")
+
+        response = self.client.post("/api/login/precheck", {"email": "Casey@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["password_login_available"], True)
+
+        response = self.client.post("/api/login/precheck", {"email": "casey@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["password_login_available"], False)
+
 
 class TestLoginAPI(APIBaseTest):
     """
@@ -220,6 +367,166 @@ class TestLoginAPI(APIBaseTest):
             },
         )
 
+    def test_login_refused_for_blocked_member_when_org_requires_verified_domain(self):
+        # A blocked member has no recovery action a session would enable, so they get a clear
+        # refusal instead of a fully gated app.
+        self.user.is_email_verified = True
+        self.user.save()
+        self.organization.enforce_verified_domains = True
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "verified_domain_required")
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_blocked_admin_can_log_in_gated_and_recover_via_the_escape_hatch(self):
+        # The full recovery loop: a blocked admin whose session expired logs back in (gated to the
+        # whitelist), disables the setting through the escape hatch, and regains full access.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.user.is_email_verified = True
+        self.user.save()
+        self.organization.enforce_verified_domains = True
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_200_OK)  # whitelisted
+        gated = self.client.get(f"/api/projects/{self.team.id}/")
+        self.assertEqual(gated.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(gated.json()["code"], "verified_domain_required")
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_verified_domains": False})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.get(f"/api/projects/{self.team.id}/").status_code, status.HTTP_200_OK)
+
+    def test_login_moves_user_to_an_organization_that_admits_them(self):
+        # A contractor in several orgs must not be locked out of all of them because one turned the
+        # setting on — they land in an org that still admits them instead of being refused.
+        self.user.is_email_verified = True
+        self.user.save()
+        permitted_org = Organization.objects.create(name="Permitted org")
+        Team.objects.create(organization=permitted_org, name="Permitted project")
+        OrganizationMembership.objects.create(organization=permitted_org, user=self.user)
+        self.organization.enforce_verified_domains = True
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.current_organization, permitted_org)
+
+    def test_live_session_is_cut_off_when_domain_enforcement_is_enabled(self):
+        # Enforcement is re-checked per request, like 2FA, so flipping the setting on takes effect for
+        # members who are already logged in and can't be walked around by switching organization.
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(f"/api/projects/{self.team.id}/").status_code, status.HTTP_200_OK)
+
+        self.organization.enforce_verified_domains = True
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "verified_domain_required")
+
+    def _second_org_with_team(self) -> tuple[Organization, Team]:
+        org = Organization.objects.create(name="Permitted org")
+        team = Team.objects.create(organization=org, name="Permitted project")
+        OrganizationMembership.objects.create(organization=org, user=self.user)
+        return org, team
+
+    def _enforce_current_test_org(self) -> None:
+        self.organization.enforce_verified_domains = True
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+    def test_cross_org_member_cannot_reach_enforced_org_via_direct_api_access(self):
+        # The current organization is a UI preference routing never validates, so enforcement must
+        # hold against the URL-resolved organization — otherwise a member of a permitted org keeps
+        # full API access to the enforcing one by simply not making it current.
+        permitted_org, permitted_team = self._second_org_with_team()
+        self.user.current_organization = permitted_org
+        self.user.current_team = permitted_team
+        self.user.save()
+        self._enforce_current_test_org()
+        self.client.force_login(self.user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "verified_domain_required")
+
+        response = self.client.get(f"/api/projects/{permitted_team.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_personal_api_key_cannot_reach_enforced_org(self):
+        # Personal API keys never pass through session authentication, so this exercises the
+        # permission-layer gate: the same key works against a permitted org and not the enforcing one.
+        _, permitted_team = self._second_org_with_team()
+        self._enforce_current_test_org()
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test key", user=self.user, secure_value=hash_key_value(key_value), scopes=["*"]
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/", HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "verified_domain_required")
+
+        response = self.client.get(f"/api/projects/{permitted_team.id}/", HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def _blocked_admin_parked_in_permitted_org(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        permitted_org, permitted_team = self._second_org_with_team()
+        self.user.current_organization = permitted_org
+        self.user.current_team = permitted_team
+        self.user.save()
+        self._enforce_current_test_org()
+        self.client.force_login(self.user)
+
+    def test_cross_org_admin_permission_chain_enforced_except_the_escape_hatch(self):
+        # OrganizationViewSet's update chain comes from dangerously_get_permissions, which must not
+        # skip domain enforcement — but the escape hatch (disabling the setting) must work through
+        # it, or a blocked admin could never recover the organization.
+        self._blocked_admin_parked_in_permitted_org()
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"name": "New name"})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "verified_domain_required")
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_verified_domains": False})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertFalse(self.organization.enforce_verified_domains)
+
+    def test_cross_org_admin_cannot_create_invites_for_enforcing_org(self):
+        # Invite creation also runs on a custom permission chain; a member the org no longer admits
+        # must not be able to act in it, even when inviting a verified-domain email.
+        self._blocked_admin_parked_in_permitted_org()
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/", {"target_email": "new@hogflix.com"}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "verified_domain_required")
+
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
     def test_email_unverified_user_cant_log_in_if_email_available(
@@ -238,7 +545,29 @@ class TestLoginAPI(APIBaseTest):
         mock_is_email_available.assert_called_once()
 
         # Assert the email was sent.
-        mock_send_email_verification.assert_called_once_with(self.user)
+        mock_send_email_verification.assert_called_once_with(self.user, None)
+
+    @parameterized.expand(
+        [
+            # A relative `next` (e.g. an /oauth/authorize continuation) must be forwarded so the
+            # verification link can resume the flow.
+            ("safe_relative_next", "/oauth/authorize/?client_id=x", "/oauth/authorize/?client_id=x"),
+            # An off-origin `next` must be dropped.
+            ("unsafe_off_origin_next", "https://evil.example.com/steal", None),
+        ]
+    )
+    @patch("posthog.api.authentication.is_email_available", return_value=True)
+    @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
+    def test_email_verification_link_carries_safe_next(
+        self, _name, next_input, expected, mock_send_email_verification, mock_is_email_available
+    ):
+        self.user.is_email_verified = False
+        self.user.save()
+        self.client.post(
+            "/api/login",
+            {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD, "next": next_input},
+        )
+        mock_send_email_verification.assert_called_once_with(self.user, expected)
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
@@ -278,7 +607,7 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_is_email_available.assert_called_once()
         # Assert the email was sent.
-        mock_send_email_verification.assert_called_once_with(self.user)
+        mock_send_email_verification.assert_called_once_with(self.user, None)
 
     @patch("posthoganalytics.capture")
     def test_user_cant_login_with_incorrect_password(self, mock_capture):
@@ -413,12 +742,61 @@ class TestDevLoginAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"success": True})
 
+    @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=True)
+    def test_dev_login_list_puts_seeded_then_recently_used_accounts_first(self):
+        User.objects.create_and_join(self.organization, "aaa-never@posthog.com", None)
+        recently_used = User.objects.create_and_join(self.organization, "zzz-recent@posthog.com", None)
+        recently_used.last_login = timezone.now()
+        recently_used.save()
+        # Seeded by setup_dev, and never logged in as — it still belongs on top.
+        User.objects.create_and_join(self.organization, "test@posthog.com", None)
+
+        response = self.client.get("/api/login/dev")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        emails = [user["email"] for user in response.json()["users"]]
+        self.assertEqual(emails[:2], ["test@posthog.com", "zzz-recent@posthog.com"])
+
     @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=False)
     def test_dev_login_hidden_when_allow_dev_login_disabled(self):
         response = self.client.get("/api/login/dev")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
         response = self.client.post("/api/login/dev", {"email": self.user.email})
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=True)
+    def test_dev_login_create_fresh_account(self):
+        user_count = User.objects.count()
+        organization_count = Organization.objects.count()
+
+        response = self.client.post("/api/login/dev", {"create_fresh_account": True})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+
+        self.assertEqual(User.objects.count(), user_count + 1)
+        self.assertEqual(Organization.objects.count(), organization_count + 1)
+
+        new_user = User.objects.latest("id")
+        self.assertTrue(new_user.is_email_verified)
+        self.assertTrue(new_user.check_password("12345678"))
+        self.assertIsNotNone(new_user.organization)
+
+        # Logged in as the fresh user
+        response = self.client.get("/api/users/@me")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["email"], new_user.email)
+
+    @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=False)
+    def test_dev_login_create_fresh_account_hidden_when_not_allowed(self):
+        response = self.client.post("/api/login/dev", {"create_fresh_account": True})
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=False)
+    def test_dev_login_disabled_returns_404_regardless_of_body(self):
+        # A body that would normally fail field validation (no email, no
+        # create_fresh_account) must still surface as 404, not a 400, so the
+        # endpoint's existence isn't leaked by request-shape differences.
+        response = self.client.post("/api/login/dev", {})
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     @override_settings(DEBUG=False, ALLOW_DEV_LOGIN=True)
@@ -1912,7 +2290,7 @@ class TestTimeSensitivePermissions(APIBaseTest):
             assert res.status_code == 200
 
 
-class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
+class TestTeamSecretTokenAuthentication(APIBaseTest):
     def setUp(self):
         super().setUp()  # Call the setup from APIBaseTest
         self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
@@ -1920,7 +2298,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         self.factory = APIRequestFactory()  # Use APIRequestFactory instead of RequestFactory
 
     def test_authenticate_with_valid_secret_api_key_in_header(self):
-        # Simulate a request with a valid secret API key
+        # Simulate a request with a valid team secret token
         wsgi_request = self.factory.get(
             "/",
             data=None,
@@ -1929,17 +2307,29 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         )
         request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
 
-        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator = TeamSecretTokenAuthentication()
         result = authenticator.authenticate(request)
         assert result is not None
         user, _ = result
 
         self.assertIsNotNone(user)
-        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
+        self.assertIsInstance(user, TeamSecretTokenUser)
         self.assertEqual(user.team, self.team)
 
-    def test_authenticate_with_valid_secret_api_key_in_body(self):
-        # Simulate a request with a valid secret API key
+    def test_authenticate_tags_queries_with_team_secret_token_access_method(self):
+        wsgi_request = self.factory.get("/", headers={"AUTHORIZATION": f"Bearer {self.team.secret_api_token}"})
+        request = Request(wsgi_request)
+        authenticator = TeamSecretTokenAuthentication()
+        with patch("posthog.auth.tag_authentication") as mock_tag_authentication:
+            authenticator.authenticate(request)
+        mock_tag_authentication.assert_called_once_with(
+            user_id=None,
+            team_id=self.team.id,
+            access_method=AccessMethod.TEAM_SECRET_TOKEN,
+        )
+
+    def test_authenticate_with_valid_secret_api_key_in_body_not_supported(self):
+        # Body tokens were removed after the audit in #66176: even a valid token must not authenticate.
         wsgi_request = self.factory.post(
             "/",
             data=f'{{"secret_api_key": "{self.team.secret_api_token}"}}',
@@ -1948,41 +2338,37 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
         request.parsers = [JSONParser()]  # Explicitly set JSONParser
 
-        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator = TeamSecretTokenAuthentication()
         result = authenticator.authenticate(request)
-        assert result is not None
-        user, _ = result
 
-        self.assertIsNotNone(user)
-        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
-        self.assertEqual(user.team, self.team)
+        self.assertIsNone(result)
 
     def test_authenticate_with_secret_api_key_in_query_string_not_supported(self):
         # Query string authentication should not be supported for security reasons
         wsgi_request = self.factory.get(f"/?secret_api_key={self.team.secret_api_token}")
         request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
 
-        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator = TeamSecretTokenAuthentication()
         result = authenticator.authenticate(request)
 
         self.assertIsNone(result)
 
     def test_authenticate_with_invalid_secret_api_key(self):
-        # Simulate a request with an invalid secret API key
+        # Simulate a request with an invalid team secret token
         wsgi_request = self.factory.get("/", HTTP_AUTHORIZATION="Bearer phs_NOT_A_VALID_KEY")
         request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
 
-        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator = TeamSecretTokenAuthentication()
         result = authenticator.authenticate(request)
 
         self.assertIsNone(result)
 
     def test_authenticate_without_secret_api_key(self):
-        # Simulate a request without a secret API key
+        # Simulate a request without a team secret token
         wsgi_request = self.factory.get("/")
         request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
 
-        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator = TeamSecretTokenAuthentication()
         result = authenticator.authenticate(request)
 
         self.assertIsNone(result)
@@ -1998,12 +2384,12 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         request = Request(wsgi_request)
         request.parsers = [JSONParser()]
 
-        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator = TeamSecretTokenAuthentication()
         result = authenticator.authenticate(request)
 
         assert result is not None
         user, _ = result
-        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
+        self.assertIsInstance(user, TeamSecretTokenUser)
         self.assertEqual(user.team, self.team)
 
     def test_authenticate_with_no_project_api_key_in_body_passes(self):
@@ -2017,25 +2403,135 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         request = Request(wsgi_request)
         request.parsers = [JSONParser()]
 
-        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator = TeamSecretTokenAuthentication()
         result = authenticator.authenticate(request)
+
+        assert result is not None
+        user, _ = result
+        self.assertIsInstance(user, TeamSecretTokenUser)
+        self.assertEqual(user.team, self.team)
+
+
+class TestSyntheticUser(SimpleTestCase):
+    def _team(self, team_id=42):
+        return type("FakeTeam", (), {"id": team_id})()
+
+    def test_base_class_requires_distinct_id(self):
+        from posthog.synthetic_user import SyntheticUser
+
+        with self.assertRaises(TypeError):
+            SyntheticUser(self._team())  # type: ignore[call-arg]
+
+    def test_team_secret_token_user_distinct_id_includes_team_id(self):
+        user = TeamSecretTokenUser(self._team(team_id=42))
+        self.assertEqual(user.distinct_id, "team-secret-token-42")
+        self.assertEqual(user.current_team_id, 42)
+        self.assertTrue(user.is_authenticated)
+        self.assertIsNone(user.id)
+
+    def test_project_secret_api_key_user_carries_psak_and_distinct_id(self):
+        team = self._team(team_id=7)
+        fake_psak = type(
+            "FakePSAK",
+            (),
+            {"team": team, "team_id": team.id, "id": 99, "scopes": ["endpoint:read"]},
+        )()
+        user = ProjectSecretAPIKeyUser(fake_psak)
+        self.assertEqual(user.distinct_id, "psak-7-99")
+        self.assertIs(user.project_secret_api_key, fake_psak)
+        self.assertIsNone(user.id)
+
+    def test_isinstance_check_recognises_both_subclasses(self):
+        from posthog.synthetic_user import SyntheticUser
+
+        team = self._team()
+        fake_psak = type("FakePSAK", (), {"team": team, "team_id": team.id, "id": 1, "scopes": []})()
+        self.assertIsInstance(TeamSecretTokenUser(team), SyntheticUser)
+        self.assertIsInstance(ProjectSecretAPIKeyUser(fake_psak), SyntheticUser)
+
+    def test_mutable_attrs_are_isolated_per_instance(self):
+        a = TeamSecretTokenUser(self._team(team_id=1))
+        b = TeamSecretTokenUser(self._team(team_id=2))
+
+        a.groups.append("x")
+        a.user_permissions.append("y")
+
+        self.assertEqual(b.groups, [])
+        self.assertEqual(b.user_permissions, [])
+
+
+class TestExtractPhsToken(SimpleTestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+
+    def test_valid_token_in_header_returned(self):
+        token = "phs_" + "x" * 35
+        wsgi_request = self.factory.get("/", HTTP_AUTHORIZATION=f"Bearer {token}")
+        self.assertEqual(_extract_phs_token(Request(wsgi_request)), token)
+
+    def test_body_token_ignored(self):
+        token = "phs_" + "y" * 35
+        wsgi_request = self.factory.post(
+            "/",
+            data=json.dumps({"secret_api_key": token}),
+            content_type="application/json",
+        )
+        request = Request(wsgi_request)
+        request.parsers = [JSONParser()]
+        self.assertIsNone(_extract_phs_token(request))
+
+    def test_no_token_anywhere_returns_none(self):
+        wsgi_request = self.factory.get("/")
+        self.assertIsNone(_extract_phs_token(Request(wsgi_request)))
+
+
+class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.factory = APIRequestFactory()
+        self.token = "phs_" + "a" * 35
+        self.psak = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="psak-test",
+            mask_value="phs_...aaaa",
+            secure_value=hash_key_value(self.token),
+            scopes=["endpoint:read"],
+        )
+
+    def _request_with_header(self, token):
+        wsgi_request = self.factory.get("/", HTTP_AUTHORIZATION=f"Bearer {token}")
+        return Request(wsgi_request)
+
+    def test_authenticate_with_valid_psak_in_header(self):
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(self._request_with_header(self.token))
 
         assert result is not None
         user, _ = result
         self.assertIsInstance(user, ProjectSecretAPIKeyUser)
         self.assertEqual(user.team, self.team)
+        self.assertEqual(user.project_secret_api_key.pk, self.psak.pk)
+        self.assertEqual(authenticator.project_secret_api_key.pk, self.psak.pk)
 
-    @parameterized.expand(
-        [
-            ("public_token", "phc_test_public_token"),
-            ("non_prefixed_token", "some_random_token_without_prefix"),
-            ("empty_string", ""),
-            ("integer_value", 12345),
-        ]
-    )
-    def test_authenticate_with_invalid_token_in_body_rejected(self, _name, token_value):
-        data = json.dumps({"secret_api_key": token_value})
-        wsgi_request = self.factory.post("/", data=data, content_type="application/json")
+    def test_authenticate_tags_queries_with_psak_access_method(self):
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        with patch("posthog.auth.tag_authentication") as mock_tag_authentication:
+            authenticator.authenticate(self._request_with_header(self.token))
+        mock_tag_authentication.assert_called_once_with(
+            user_id=None,
+            team_id=self.team.id,
+            access_method=AccessMethod.PROJECT_SECRET_API_KEY,
+            api_key_mask=self.psak.mask_value,
+            api_key_label=self.psak.label,
+        )
+
+    def test_authenticate_with_psak_in_body_returns_none(self):
+        # PSAK auth is header-only: a token in the request body must not authenticate.
+        wsgi_request = self.factory.post(
+            "/",
+            data=json.dumps({"secret_api_key": self.token}),
+            content_type="application/json",
+        )
         request = Request(wsgi_request)
         request.parsers = [JSONParser()]
 
@@ -2044,13 +2540,73 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
 
         self.assertIsNone(result)
 
+    def test_authenticate_with_unknown_token_returns_none(self):
+        unknown_token = "phs_" + "z" * 35
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(self._request_with_header(unknown_token))
+        self.assertIsNone(result)
 
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
+    def test_does_not_fall_back_to_team_secret_api_token(self):
+        # Set Team.secret_api_token to a legacy token; PSAK auth should ignore it.
+        legacy_token = "phs_" + "b" * 35
+        self.team.secret_api_token = legacy_token
+        self.team.save()
+
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(self._request_with_header(legacy_token))
+        self.assertIsNone(result)
+
+    def test_authenticate_without_token_returns_none(self):
+        wsgi_request = self.factory.get("/")
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(Request(wsgi_request))
+        self.assertIsNone(result)
+
+    @parameterized.expand(
+        [
+            ("public_token", "phc_test_public_token"),
+            ("unprefixed", "some_random_token"),
+            ("empty", ""),
+        ]
+    )
+    def test_authenticate_with_wrong_prefix_returns_none(self, _name, token):
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(self._request_with_header(token))
+        self.assertIsNone(result)
+
+    def test_last_used_at_updates_on_first_use(self):
+        assert self.psak.last_used_at is None
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator.authenticate(self._request_with_header(self.token))
+
+        self.psak.refresh_from_db()
+        self.assertIsNotNone(self.psak.last_used_at)
+
+    def test_last_used_at_hourly_throttle_skips_recent(self):
+        recent = timezone.now() - timedelta(minutes=30)
+        ProjectSecretAPIKey.objects.filter(pk=self.psak.pk).update(last_used_at=recent)
+
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator.authenticate(self._request_with_header(self.token))
+
+        self.psak.refresh_from_db()
+        # Should not update if less than 1 hour has passed
+        assert self.psak.last_used_at is not None
+        assert abs((self.psak.last_used_at - recent).total_seconds()) < 1
+
+    def test_last_used_at_updates_after_one_hour(self):
+        old = timezone.now() - timedelta(hours=2)
+        ProjectSecretAPIKey.objects.filter(pk=self.psak.pk).update(last_used_at=old)
+
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator.authenticate(self._request_with_header(self.token))
+
+        self.psak.refresh_from_db()
+        assert self.psak.last_used_at is not None
+        # Should have updated to a recent timestamp
+        self.assertGreater(self.psak.last_used_at, old + timedelta(hours=1))
+
+
 class TestOAuthAccessTokenAuthentication(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -2153,8 +2709,8 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
 
         self.assertIsNone(result)
 
-    @patch("posthog.auth.tag_queries")
-    def test_authenticate_tags_queries_correctly(self, mock_tag_queries):
+    @patch("posthog.auth.tag_authentication")
+    def test_authenticate_tags_queries_correctly(self, mock_tag_authentication):
         wsgi_request = self.factory.get(
             "/",
             headers={"AUTHORIZATION": f"Bearer {self.access_token.token}"},
@@ -2166,7 +2722,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
 
         self.assertIsNotNone(result)
 
-        mock_tag_queries.assert_called_once_with(
+        mock_tag_authentication.assert_called_once_with(
             user_id=self.user.pk,
             team_id=self.team.pk,
             access_method="oauth",
@@ -2260,7 +2816,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
 
     def test_oauth_access_token_calls_tag_queries_with_correct_parameters(self):
         """Test that tag_queries is called with the correct user_id and team_id."""
-        with patch("posthog.auth.tag_queries") as mock_tag_queries:
+        with patch("posthog.auth.tag_authentication") as mock_tag_authentication:
             wsgi_request = self.factory.get(
                 "/",
                 headers={"AUTHORIZATION": f"Bearer {self.access_token.token}"},
@@ -2275,7 +2831,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
             self.assertIsInstance(self.user.current_team_id, int)
 
             # Verify tag_queries was called with correct parameters
-            mock_tag_queries.assert_called_once_with(
+            mock_tag_authentication.assert_called_once_with(
                 user_id=self.user.pk,
                 team_id=self.user.current_team_id,
                 access_method="oauth",

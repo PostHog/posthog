@@ -30,12 +30,13 @@ import {
     LemonDivider,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { humanFriendlyDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -43,11 +44,11 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { AIObservabilityRenameBanner } from '../AIObservabilityRenameBanner'
 import { JSONEditor } from '../components/JSONEditor'
 import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'
-import { getModelPickerFooterLink, ModelPicker, parseTrialProviderKeyId } from '../ModelPicker'
+import { getModelPickerFooterLink, ModelPicker, parsePlaygroundProviderKeyId } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import {
@@ -105,19 +106,18 @@ export const scene: SceneExport = {
     productKey: ProductKey.AI_OBSERVABILITY,
 }
 
-export function AIObservabilityPlaygroundScene({ tabId }: { tabId?: string }): JSX.Element {
-    const promptsLogic = llmPlaygroundPromptsLogic({ tabId })
-    const modelLogic = llmPlaygroundModelLogic({ tabId })
-    const runLogic = llmPlaygroundRunLogic({ tabId })
+export function AIObservabilityPlaygroundScene(): JSX.Element {
+    const promptsLogic = llmPlaygroundPromptsLogic()
+    const modelLogic = llmPlaygroundModelLogic()
+    const runLogic = llmPlaygroundRunLogic()
 
-    // Attach child logics to the prompts logic so they persist across tab switches
     useAttachedLogic(modelLogic, promptsLogic)
     useAttachedLogic(runLogic, promptsLogic)
 
     return (
-        <BindLogic logic={llmPlaygroundPromptsLogic} props={{ tabId }}>
-            <BindLogic logic={llmPlaygroundModelLogic} props={{ tabId }}>
-                <BindLogic logic={llmPlaygroundRunLogic} props={{ tabId }}>
+        <BindLogic logic={llmPlaygroundPromptsLogic} props={{}}>
+            <BindLogic logic={llmPlaygroundModelLogic} props={{}}>
+                <BindLogic logic={llmPlaygroundRunLogic} props={{}}>
                     <SceneContent className="h-full">
                         <SceneTitleSection
                             name={sceneConfigurations[Scene.AIObservabilityPlayground].name}
@@ -127,7 +127,6 @@ export function AIObservabilityPlaygroundScene({ tabId }: { tabId?: string }): J
                             }}
                             actions={<PlaygroundHeaderActions />}
                         />
-                        <AIObservabilityRenameBanner />
                         <div className="flex h-full flex-1 flex-col min-h-0">
                             <PlaygroundLayout />
                         </div>
@@ -166,23 +165,28 @@ function PlaygroundHeaderActions(): JSX.Element {
             >
                 Add prompt
             </LemonButton>
-            <LemonButton
-                type={playgroundSubmitting ? 'secondary' : 'primary'}
-                size="small"
-                icon={playgroundSubmitting ? <Spinner textColored /> : <IconPlay />}
-                status={playgroundSubmitting ? 'danger' : undefined}
-                onClick={() => (playgroundSubmitting ? abortRun() : submitPrompt())}
-                disabledReason={
-                    playgroundSubmitting
-                        ? undefined
-                        : !hasRunnablePrompts
-                          ? 'Add messages to at least one prompt'
-                          : undefined
-                }
-                data-attr="llma-playground-run-button"
+            <AccessControlAction
+                resourceType={AccessControlResourceType.LlmPlayground}
+                minAccessLevel={AccessControlLevel.Editor}
             >
-                {playgroundSubmitting ? 'Stop' : 'Run'}
-            </LemonButton>
+                <LemonButton
+                    type={playgroundSubmitting ? 'secondary' : 'primary'}
+                    size="small"
+                    icon={playgroundSubmitting ? <Spinner textColored /> : <IconPlay />}
+                    status={playgroundSubmitting ? 'danger' : undefined}
+                    onClick={() => (playgroundSubmitting ? abortRun() : submitPrompt())}
+                    disabledReason={
+                        playgroundSubmitting
+                            ? undefined
+                            : !hasRunnablePrompts
+                              ? 'Add messages to at least one prompt'
+                              : undefined
+                    }
+                    data-attr="llma-playground-run-button"
+                >
+                    {playgroundSubmitting ? 'Stop' : 'Run'}
+                </LemonButton>
+            </AccessControlAction>
         </>
     )
 }
@@ -458,7 +462,7 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
     )
 }
 
-function getTrialModelsErrorMessage(errorStatus: number | null): string | null {
+function getPlaygroundModelsErrorMessage(errorStatus: number | null): string | null {
     if (errorStatus === null) {
         return null
     }
@@ -470,16 +474,16 @@ function getTrialModelsErrorMessage(errorStatus: number | null): string | null {
 
 function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
-    const { effectiveModelOptions, trialModelsErrorStatus } = useValues(llmPlaygroundModelLogic)
+    const { effectiveModelOptions, playgroundModelsErrorStatus } = useValues(llmPlaygroundModelLogic)
     const {
         hasByokKeys,
         providerModelGroups,
-        trialProviderModelGroups,
+        playgroundProviderModelGroups,
         byokModelsLoading,
-        trialModelsLoading,
+        playgroundModelsLoading,
         providerKeysLoading,
     } = useValues(modelPickerLogic)
-    const { loadTrialModels } = useActions(modelPickerLogic)
+    const { loadPlaygroundModels } = useActions(modelPickerLogic)
     const { setModel } = useActions(llmPlaygroundPromptsLogic)
 
     if (!prompt) {
@@ -487,10 +491,10 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
     }
 
     const selectedModel = effectiveModelOptions.find((m) => m.id === prompt.model)
-    const groups = hasByokKeys ? providerModelGroups : trialProviderModelGroups
-    const loading = hasByokKeys ? byokModelsLoading || providerKeysLoading : trialModelsLoading
-    const errorMessage = !hasByokKeys ? getTrialModelsErrorMessage(trialModelsErrorStatus) : null
-    const showError = !hasByokKeys && effectiveModelOptions.length === 0 && !trialModelsLoading
+    const groups = hasByokKeys ? providerModelGroups : playgroundProviderModelGroups
+    const loading = hasByokKeys ? byokModelsLoading || providerKeysLoading : playgroundModelsLoading
+    const errorMessage = !hasByokKeys ? getPlaygroundModelsErrorMessage(playgroundModelsErrorStatus) : null
+    const showError = !hasByokKeys && effectiveModelOptions.length === 0 && !playgroundModelsLoading
 
     return (
         <>
@@ -498,12 +502,12 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
                 model={prompt.model}
                 selectedProviderKeyId={prompt.selectedProviderKeyId}
                 onSelect={(modelId, providerKeyId) => {
-                    const trialProvider = parseTrialProviderKeyId(providerKeyId)
+                    const playgroundProvider = parsePlaygroundProviderKeyId(providerKeyId)
                     posthog.capture('llma playground model changed', {
                         model: modelId,
-                        is_byok: !trialProvider,
+                        is_byok: !playgroundProvider,
                     })
-                    setModel(modelId, trialProvider ? undefined : providerKeyId, promptId)
+                    setModel(modelId, playgroundProvider ? undefined : providerKeyId, promptId)
                 }}
                 groups={groups}
                 loading={loading}
@@ -517,7 +521,7 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
                     <button
                         type="button"
                         className="text-xs text-link mt-1 underline"
-                        onClick={() => loadTrialModels()}
+                        onClick={() => loadPlaygroundModels()}
                     >
                         Retry
                     </button>
@@ -855,6 +859,19 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
     )
 }
 
+function getRoleDotClass(role: string): string {
+    switch (role) {
+        case 'user':
+            return 'bg-[var(--color-blue-500)]'
+        case 'assistant':
+            return 'bg-[var(--color-green-500)]'
+        case 'system':
+            return 'bg-[var(--color-purple-500)]'
+        default:
+            return 'bg-muted'
+    }
+}
+
 function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
     const { promptConfigs, editModal, collapsedSections, linkedSource } = useValues(llmPlaygroundPromptsLogic)
@@ -888,7 +905,7 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
 
     return (
         <>
-            <div className="border rounded p-4 py-2 relative group border-l-4 border-l-[var(--color-purple-500)]">
+            <div className="border rounded p-4 py-2 relative group">
                 <div className="absolute top-2 right-2 flex items-center gap-1">
                     <PlaygroundSaveMenu prompt={prompt} />
                     <LemonDivider vertical className="h-5 mx-0.5" />
@@ -928,7 +945,8 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                     onClick={() => toggleCollapsed(`system:${promptId}`)}
                 >
                     <CollapsibleChevron collapsed={collapsed} />
-                    <LemonTag type="completion" size="small">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${getRoleDotClass('system')}`} />
+                    <LemonTag type="default" size="small">
                         System
                     </LemonTag>
                     {linkedContextLabel ? (
@@ -1021,38 +1039,12 @@ function MessageDisplay({
         { label: 'Assistant', value: 'assistant' },
     ]
 
-    const getRoleBorderClass = (role: MessageRole): string => {
-        switch (role) {
-            case 'user':
-                return 'border-l-4 border-l-[var(--color-blue-500)]'
-            case 'assistant':
-                return 'border-l-4 border-l-[var(--color-green-500)]'
-            case 'system':
-                return 'border-l-4 border-l-[var(--color-purple-500)]'
-            default:
-                return ''
-        }
-    }
-
-    const getRoleDotClass = (role: MessageRole): string => {
-        switch (role) {
-            case 'user':
-                return 'bg-[var(--color-blue-500)]'
-            case 'assistant':
-                return 'bg-[var(--color-green-500)]'
-            case 'system':
-                return 'bg-[var(--color-purple-500)]'
-            default:
-                return 'bg-muted'
-        }
-    }
-
     const trimmedContent = message.content.trim()
     const useJsonEditor = trimmedContent.startsWith('{') || trimmedContent.startsWith('[')
 
     return (
         <>
-            <div className={`border rounded p-4 py-2 relative group ${getRoleBorderClass(message.role)}`}>
+            <div className="border rounded p-4 py-2 relative group">
                 <div className="absolute top-4 right-4 flex items-center gap-1">
                     <LemonButton
                         size="small"

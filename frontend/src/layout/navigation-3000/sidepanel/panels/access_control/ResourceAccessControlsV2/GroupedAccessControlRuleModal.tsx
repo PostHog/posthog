@@ -3,8 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconHome, IconInfo, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonDropdown, LemonModal, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { toSentenceCase } from 'lib/utils'
 import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
+import { toSentenceCase } from 'lib/utils/strings'
 
 import { accessControlsLogic } from './accessControlsLogic'
 import { groupedAccessControlRuleModalLogic } from './groupedAccessControlRuleModalLogic'
@@ -68,7 +68,7 @@ function GroupedAccessControlRuleModalContent(props: {
         projectDisabledReason,
         projectInheritedReasonTooltip,
         projectLevelOptions,
-        featuresDisabledReason,
+        toolsDisabledReason,
         isResourceLevelShowingInherited,
         resourceInheritedReasonTooltip,
         resourceLevelOptions,
@@ -107,17 +107,17 @@ function GroupedAccessControlRuleModalContent(props: {
 
             <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                    <h5 className="mb-2">Features</h5>
+                    <h5 className="mb-2">Tools</h5>
                     <Link
                         to="#"
                         onClick={(e) => {
                             e.preventDefault()
-                            if (!loading && !featuresDisabledReason) {
+                            if (!loading && !toolsDisabledReason) {
                                 clearResourceOverrides()
                             }
                         }}
                         className={
-                            loading || featuresDisabledReason
+                            loading || toolsDisabledReason
                                 ? 'cursor-not-allowed opacity-50 pointer-events-none'
                                 : 'cursor-pointer'
                         }
@@ -167,7 +167,7 @@ function GroupedAccessControlRuleModalContent(props: {
                                             type="tertiary"
                                             icon={<IconPlus />}
                                             sideIcon={null}
-                                            disabledReason={featuresDisabledReason}
+                                            disabledReason={toolsDisabledReason}
                                             className="ml-auto w-36"
                                         >
                                             Add override
@@ -178,7 +178,7 @@ function GroupedAccessControlRuleModalContent(props: {
                                         className="w-36"
                                         size="small"
                                         value={formResourceLevels[resource.key]}
-                                        disabledReason={featuresDisabledReason}
+                                        disabledReason={toolsDisabledReason}
                                         tooltip={resourceInheritedReasonTooltip(resource.key)}
                                         renderButtonContent={(leaf) => {
                                             const level = formResourceLevels[resource.key]

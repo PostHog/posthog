@@ -17,7 +17,6 @@ function expectNodesToMatch(actual: PathNode[], expected: { name: string; count:
 }
 
 test.describe('User Paths insights', () => {
-    test.setTimeout(60_000)
     let workspace: PlaywrightWorkspaceSetupResult | null = null
 
     test.beforeAll(async ({ playwrightSetup }) => {

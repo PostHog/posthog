@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -11,6 +11,7 @@ from posthog.models.person.util import (
     get_persons_mapped_by_distinct_id,
 )
 from posthog.personhog_client.fake_client import fake_personhog_client
+from posthog.personhog_client.proto import ReadOptions
 from posthog.personhog_client.proto.generated.personhog.types.v1 import person_pb2
 
 
@@ -80,7 +81,7 @@ class TestBatchedGetPersonsByUuids(SimpleTestCase):
 
         assert len(result) == 2
         assert mock_metric.labels.call_count == 2
-        mock_metric.labels.assert_any_call(operation="test_op", client_name="posthog-django")
+        mock_metric.labels.assert_any_call(operation="test_op", client_name=ANY)
 
     @patch("posthog.models.person.util.PERSONHOG_BATCH_SIZE", 2)
     def test_preserves_order_across_batches(self):
@@ -100,6 +101,56 @@ class TestBatchedGetPersonsByUuids(SimpleTestCase):
 
             assert len(result) == 1
             assert result[0].uuid == "uuid-1"
+
+    @patch("posthog.models.person.util.TEST", False)
+    @patch("posthog.models.person.util.PERSONHOG_BATCH_SIZE", 2)
+    def test_parallel_fan_out_returns_all_batches_in_order(self):
+        with fake_personhog_client() as fake:
+            for i in range(9):
+                fake.add_person(team_id=1, person_id=i + 1, uuid=f"uuid-{i}", distinct_ids=[f"d{i}"])
+
+            result = _batched_get_persons_by_uuids(1, [f"uuid-{i}" for i in range(9)], "test", concurrency=4)
+
+            assert [p.uuid for p in result] == [f"uuid-{i}" for i in range(9)]
+            fake.assert_called("get_persons_by_uuids", times=5)
+
+    @patch("posthog.models.person.util.TEST", False)
+    @patch("posthog.models.person.util.PERSONHOG_BATCH_SIZE", 2)
+    def test_parallel_fan_out_propagates_batch_failure(self):
+        # A failing batch must fail the whole call — collecting only the successful futures
+        # would hand callers (e.g. the freeze-exposure guard) a silently partial result.
+        with fake_personhog_client() as fake:
+            for i in range(6):
+                fake.add_person(team_id=1, person_id=i + 1, uuid=f"uuid-{i}", distinct_ids=[f"d{i}"])
+
+            original_get = fake.get_persons_by_uuids
+
+            def fail_second_batch(request):
+                if "uuid-2" in request.uuids:
+                    raise RuntimeError("batch failed")
+                return original_get(request)
+
+            with (
+                patch.object(fake, "get_persons_by_uuids", side_effect=fail_second_batch),
+                self.assertRaises(RuntimeError),
+            ):
+                _batched_get_persons_by_uuids(1, [f"uuid-{i}" for i in range(6)], "test", concurrency=4)
+
+    @patch("posthog.models.person.util.TEST", False)
+    @patch("posthog.models.person.util.PERSONHOG_BATCH_SIZE", 2)
+    def test_default_concurrency_stays_sequential(self):
+        # The fan-out is opt-in: without an explicit concurrency, even a multi-batch call must
+        # not spawn threads — most callers are small or background lookups whose load on the
+        # personhog bulk pools must not silently multiply.
+        with fake_personhog_client() as fake:
+            for i in range(6):
+                fake.add_person(team_id=1, person_id=i + 1, uuid=f"uuid-{i}", distinct_ids=[f"d{i}"])
+
+            with patch("posthog.models.person.util.ThreadPoolExecutor") as mock_executor:
+                result = _batched_get_persons_by_uuids(1, [f"uuid-{i}" for i in range(6)], "test")
+
+            assert [p.uuid for p in result] == [f"uuid-{i}" for i in range(6)]
+            mock_executor.assert_not_called()
 
 
 class TestBatchedGetPersonsByDistinctIds(SimpleTestCase):
@@ -180,6 +231,38 @@ class TestBatchedGetPersonsByDistinctIds(SimpleTestCase):
 
             assert len(result) == 1
 
+    def test_forwards_read_options_to_request(self):
+        opts = ReadOptions(field_mask=["uuid", "id", "team_id"])
+        with fake_personhog_client() as fake:
+            fake.add_person(team_id=1, person_id=1, uuid="uuid-1", distinct_ids=["did-1"])
+
+            _batched_get_persons_by_distinct_ids(1, ["did-1"], "test", read_options=opts)
+
+            calls = fake.assert_called("get_persons_by_distinct_ids_in_team", times=1)
+            assert list(calls[0].request.read_options.field_mask) == ["uuid", "id", "team_id"]
+
+    def test_no_read_options_by_default(self):
+        with fake_personhog_client() as fake:
+            fake.add_person(team_id=1, person_id=1, uuid="uuid-1", distinct_ids=["did-1"])
+
+            _batched_get_persons_by_distinct_ids(1, ["did-1"], "test")
+
+            calls = fake.assert_called("get_persons_by_distinct_ids_in_team", times=1)
+            assert list(calls[0].request.read_options.field_mask) == []
+
+    @patch("posthog.models.person.util.PERSONHOG_BATCH_SIZE", 2)
+    def test_read_options_forwarded_to_all_batches(self):
+        opts = ReadOptions(field_mask=["uuid"])
+        with fake_personhog_client() as fake:
+            for i in range(3):
+                fake.add_person(team_id=1, person_id=i + 1, uuid=f"uuid-{i}", distinct_ids=[f"did-{i}"])
+
+            _batched_get_persons_by_distinct_ids(1, ["did-0", "did-1", "did-2"], "test", read_options=opts)
+
+            calls = fake.assert_called("get_persons_by_distinct_ids_in_team", times=2)
+            for call in calls:
+                assert list(call.request.read_options.field_mask) == ["uuid"]
+
 
 class TestBatchedGetDistinctIdsForPersons(SimpleTestCase):
     @parameterized.expand(
@@ -198,7 +281,7 @@ class TestBatchedGetDistinctIdsForPersons(SimpleTestCase):
 
                 assert len(result) == n_persons
                 for i in range(n_persons):
-                    assert result[i + 1] == [f"d{i}"]
+                    assert [d.id for d in result[i + 1]] == [f"d{i}"]
                 fake.assert_called("get_distinct_ids_for_persons", times=expected_calls)
 
     def test_empty_input(self):
@@ -239,7 +322,7 @@ class TestBatchedGetDistinctIdsForPersons(SimpleTestCase):
 
             result = _batched_get_distinct_ids_for_persons(1, [1, 999])
 
-            assert result[1] == ["d1"]
+            assert [d.id for d in result[1]] == ["d1"]
             assert result[999] == []
 
 

@@ -39,9 +39,9 @@ import {
 import type { StepDefinition } from '@posthog/shared-onboarding/steps'
 
 import { Link } from 'lib/lemon-ui/Link'
-import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import SetupWizardBanner from 'scenes/onboarding/sdks/sdk-install-instructions/components/SetupWizardBanner'
-import { JS_WEB_SNIPPETS } from 'scenes/onboarding/sdks/shared/jsWebSnippets'
+import { JS_WEB_SNIPPETS } from 'scenes/onboarding/shared/jsWebSnippets'
+import { OnboardingDocsContentWrapper } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
+import SetupWizardBanner from 'scenes/onboarding/shared/SetupWizardBanner'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SDKKey } from '~/types'
@@ -321,6 +321,10 @@ export function buildSDKSelectOptions(categories?: SDKCategory[]): LemonSelectSe
     return groups
 }
 
+// Derived purely from the static SDK_CONFIGS, so compute once at module scope rather than rebuilding
+// a fresh options array (new identity) on every render.
+const ALL_SDK_SELECT_OPTIONS = buildSDKSelectOptions()
+
 export function SDKSetupInstructions(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const [selectedSDK, setSelectedSDK] = useState<SDKKey>(SDKKey.JS_WEB)
@@ -352,7 +356,7 @@ export function SDKSetupInstructions(): JSX.Element {
                     setSelectedSDK(value)
                     setShowFullSetup(false)
                 }}
-                options={buildSDKSelectOptions()}
+                options={ALL_SDK_SELECT_OPTIONS}
                 className="max-w-80"
             />
             <OnboardingDocsContentWrapper snippets={snippets} minimal useReverseProxy={isClientSideSDK}>

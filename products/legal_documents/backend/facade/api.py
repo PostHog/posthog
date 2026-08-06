@@ -10,10 +10,15 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from django.db import transaction
+
 from posthog.models.organization import Organization
 
 from .. import logic
-from ..logic.pandadoc import verify_webhook_signature as _verify_pandadoc_webhook_signature
+from ..logic.pandadoc import (
+    PandaDocError,
+    verify_webhook_signature as _verify_pandadoc_webhook_signature,
+)
 from ..models import LegalDocument
 from . import contracts
 from .enums import LegalDocumentStatus
@@ -77,6 +82,78 @@ def verify_pandadoc_webhook_signature(*, secret: str, body: bytes, signature: st
 
 def exists_for_organization_and_type(organization_id: UUID, document_type: str) -> bool:
     return logic.exists_for_organization_and_type(organization_id, document_type)
+
+
+class LegalDocumentNotFound(Exception):
+    """Raised when a delete targets a row that doesn't exist (or belongs to a different org)."""
+
+
+class LegalDocumentAlreadySigned(Exception):
+    """Raised when a delete targets a row in `signed` state, which is admin-only."""
+
+
+class LegalDocumentVoidFailed(Exception):
+    """
+    Raised when the PandaDoc envelope void during a self-serve delete fails.
+    The row was not deleted (the surrounding transaction rolled back). The
+    caller should surface a retriable error to the user so they don't end up
+    in the broken state where the row is gone but the envelope is still
+    signable.
+    """
+
+
+def delete_document(document_id: UUID, organization_id: UUID) -> None:
+    """
+    Self-serve deletion entry point for org admins.
+
+    Wrapped in a transaction with `select_for_update` so we can't race a
+    concurrent `document.completed` webhook flipping status to signed
+    between the gate check and the delete. The lock is held for the
+    duration of the PandaDoc void (normally subsecond, up to a 30s timeout
+    in the worst case). Webhooks landing concurrently either lose the race
+    and see the row gone (404 → no-op in the webhook handler) or win and
+    flip status before our `select_for_update` resolves; in that second
+    case our re-check raises LegalDocumentAlreadySigned and rolls back.
+
+    PandaDoc void runs in strict mode here: a PandaDoc error rolls back the
+    whole transaction (row stays, frontend retries). Better than telling
+    the user the envelope was cancelled when it wasn't and leaving the
+    original signer with a still-completable document.
+
+    Refuses signed documents — those are completed legal artifacts and stay
+    admin-only (Django admin bypasses this guard by calling
+    `logic.delete_document` directly with `strict_pandadoc=False`).
+
+    Raises:
+        LegalDocumentNotFound: row doesn't exist or belongs to a different org.
+        LegalDocumentAlreadySigned: row is signed at lock time.
+        LegalDocumentVoidFailed: PandaDoc void failed; row was not deleted.
+    """
+    try:
+        with transaction.atomic():
+            try:
+                document = LegalDocument.objects.select_for_update().get(
+                    id=document_id, organization_id=organization_id
+                )
+            except LegalDocument.DoesNotExist:
+                raise LegalDocumentNotFound(
+                    f"Legal document {document_id} not found for organization {organization_id}"
+                )
+            if document.status == LegalDocumentStatus.SIGNED:
+                raise LegalDocumentAlreadySigned(
+                    f"Legal document {document_id} is already signed and can't be deleted from the self-serve UI"
+                )
+            # The PandaDoc void runs inside the row lock on purpose: if it
+            # ran after commit, a void failure would leave the row deleted
+            # but the envelope still signable. Holding the lock through a
+            # (rare, slow-path) HTTP call is the deliberate trade for
+            # making the row delete and the void atomic from the user's
+            # perspective.
+            logic.delete_document(document, strict_pandadoc=True)
+    except PandaDocError as exc:
+        raise LegalDocumentVoidFailed(
+            f"Failed to cancel the PandaDoc envelope for legal document {document_id}: {exc}"
+        ) from exc
 
 
 def create_document(data: contracts.CreateLegalDocumentInput) -> contracts.LegalDocumentDTO:

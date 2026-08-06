@@ -1,12 +1,12 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { ComponentProps, CSSProperties, useMemo } from 'react'
+import { ComponentProps, CSSProperties, useId } from 'react'
 
 import { IconPencil, IconPlus } from '@posthog/icons'
 import { LemonInputSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { objectTagsLogic } from 'lib/components/ObjectTags/objectTagsLogic'
-import { colorForString } from 'lib/utils'
+import { colorForString } from 'lib/utils/colors'
 
 interface ObjectTagsPropsBase {
     tags: string[]
@@ -16,6 +16,8 @@ interface ObjectTagsPropsBase {
     className?: string
     actionButtonSize?: ComponentProps<typeof LemonTag>['size']
     'data-attr'?: string
+    /** Makes each displayed tag clickable, e.g. to filter by it. */
+    onTagClick?: (tag: string) => void
 }
 
 export type ObjectTagsProps =
@@ -42,8 +44,6 @@ const COLOR_OVERRIDES: Record<string, LemonTagType> = {
     deprecated: 'danger',
 }
 
-let uniqueMemoizedIndex = 1
-
 export function ObjectTags({
     tags,
     onChange, // Required unless `staticOnly`
@@ -55,8 +55,9 @@ export function ObjectTags({
     className,
     actionButtonSize = 'small',
     'data-attr': dataAttr,
+    onTagClick,
 }: ObjectTagsProps): JSX.Element {
-    const objectTagId = useMemo(() => uniqueMemoizedIndex++, [])
+    const objectTagId = useId()
     const logic = objectTagsLogic({ id: objectTagId, onChange })
     const { editingTags } = useValues(logic)
     const { setEditingTags, setTags } = useActions(logic)
@@ -101,7 +102,11 @@ export function ObjectTags({
                               .filter((t) => !!t)
                               .map((tag, index) => {
                                   return (
-                                      <LemonTag key={index} type={COLOR_OVERRIDES[tag] || colorForString(tag)}>
+                                      <LemonTag
+                                          key={index}
+                                          type={COLOR_OVERRIDES[tag] || colorForString(tag)}
+                                          onClick={onTagClick ? () => onTagClick(tag) : undefined}
+                                      >
                                           {tag}
                                       </LemonTag>
                                   )

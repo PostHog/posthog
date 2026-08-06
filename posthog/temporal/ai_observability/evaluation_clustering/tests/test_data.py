@@ -1,6 +1,7 @@
 """Tests for Stage B data access — embeddings fetch + eval→generation metadata join."""
 
 from datetime import UTC
+from types import SimpleNamespace
 
 import pytest
 from unittest.mock import patch
@@ -15,14 +16,12 @@ from posthog.temporal.ai_observability.evaluation_clustering.data import (
     fetch_evaluation_metadata,
 )
 
+_VALID_GENERATION_ID = "12345678-1234-1234-1234-123456789abc"
+
 
 @pytest.fixture
-def mock_team(db):
-    from posthog.models.organization import Organization
-    from posthog.models.team import Team
-
-    org = Organization.objects.create(name="Eval Data Test Org")
-    return Team.objects.create(organization=org, name="Eval Data Test Team")
+def mock_team():
+    return SimpleNamespace(id=1)
 
 
 class TestCoerceBool:
@@ -46,7 +45,6 @@ class TestCoerceBool:
 
 
 class TestFetchEvaluationEmbeddings:
-    @pytest.mark.django_db
     def test_filters_by_doc_type_and_job_suffix(self, mock_team):
         with patch("posthog.temporal.ai_observability.evaluation_clustering.data.execute_hogql_query") as mock_execute:
             mock_execute.return_value.results = [
@@ -69,7 +67,6 @@ class TestFetchEvaluationEmbeddings:
             assert placeholders["job_id_suffix"].value == "_job-abc"
             assert placeholders["max_samples"].value == 100
 
-    @pytest.mark.django_db
     def test_empty_results(self, mock_team):
         with patch("posthog.temporal.ai_observability.evaluation_clustering.data.execute_hogql_query") as mock_execute:
             mock_execute.return_value.results = []
@@ -77,9 +74,36 @@ class TestFetchEvaluationEmbeddings:
             assert eval_ids == []
             assert embeddings == {}
 
+    def test_strips_job_suffix_from_document_id(self, mock_team):
+        # Stage A writes document_id as `{event_uuid}::{job_id}`; the read must recover the bare
+        # event uuid so the downstream metadata join keys on the real $ai_evaluation uuid.
+        with patch("posthog.temporal.ai_observability.evaluation_clustering.data.execute_hogql_query") as mock_execute:
+            mock_execute.return_value.results = [
+                ["event-uuid-1::job-abc", [0.1, 0.2]],
+                ["event-uuid-2::job-abc", [0.3, 0.4]],
+            ]
+
+            eval_ids, embeddings = fetch_evaluation_embeddings(team=mock_team, job_id="job-abc", max_samples=100)
+
+            assert eval_ids == ["event-uuid-1", "event-uuid-2"]
+            assert embeddings == {"event-uuid-1": [0.1, 0.2], "event-uuid-2": [0.3, 0.4]}
+
+    def test_dedupes_bare_and_suffixed_rows_for_same_event(self, mock_team):
+        # During the transition a bare-uuid (pre-fix) row and a suffixed row can both match; they
+        # strip to the same event uuid and must collapse to one entry.
+        with patch("posthog.temporal.ai_observability.evaluation_clustering.data.execute_hogql_query") as mock_execute:
+            mock_execute.return_value.results = [
+                ["event-uuid-1", [0.1, 0.2]],
+                ["event-uuid-1::job-abc", [0.1, 0.2]],
+            ]
+
+            eval_ids, embeddings = fetch_evaluation_embeddings(team=mock_team, job_id="job-abc", max_samples=100)
+
+            assert eval_ids == ["event-uuid-1"]
+            assert embeddings == {"event-uuid-1": [0.1, 0.2]}
+
 
 class TestFetchEvaluationMetadata:
-    @pytest.mark.django_db
     def test_empty_input_returns_empty(self, mock_team):
         from datetime import datetime
 
@@ -91,7 +115,6 @@ class TestFetchEvaluationMetadata:
         )
         assert result == {}
 
-    @pytest.mark.django_db
     def test_populates_all_fields_when_generation_present(self, mock_team):
         """Two-query metadata fetch: eval rows, then a second query for linked generations."""
         from datetime import datetime
@@ -107,11 +130,11 @@ class TestFetchEvaluationMetadata:
             "llm_judge",
             "The answer was correct.",
             0.0012,
-            "gen-1",
+            _VALID_GENERATION_ID,
             "trace-1",
         ]
         # Row shape mirrors _fetch_linked_generations SELECT
-        gen_row = ["gen-1", 0.035, 450.0, 500, 150, "gpt-4o", "false"]
+        gen_row = [_VALID_GENERATION_ID, 0.035, 450.0, 500, 150, "gpt-4o", "false"]
 
         with patch("posthog.temporal.ai_observability.evaluation_clustering.data.execute_hogql_query") as mock_execute:
             # First call returns eval rows, second call returns linked generations
@@ -134,14 +157,13 @@ class TestFetchEvaluationMetadata:
             assert meta.evaluation_applicable is None
             assert meta.evaluation_runtime == "llm_judge"
             assert meta.judge_cost_usd == 0.0012
-            assert meta.target_generation_id == "gen-1"
+            assert meta.target_generation_id == _VALID_GENERATION_ID
             assert meta.target_trace_id == "trace-1"
             assert meta.generation_cost_usd == 0.035
             assert meta.generation_latency_ms == 450.0
             assert meta.generation_model == "gpt-4o"
             assert meta.generation_is_error is False
 
-    @pytest.mark.django_db
     def test_degrades_when_linked_generation_missing(self, mock_team):
         """Missing generation (second query returns no rows) → None operational fields."""
         from datetime import datetime
@@ -155,7 +177,7 @@ class TestFetchEvaluationMetadata:
             "llm_judge",
             "Hallucinated the citation.",
             0.0012,
-            "gen-1",
+            _VALID_GENERATION_ID,
             "trace-1",
         ]
         with patch("posthog.temporal.ai_observability.evaluation_clustering.data.execute_hogql_query") as mock_execute:
@@ -177,3 +199,32 @@ class TestFetchEvaluationMetadata:
             assert meta.generation_latency_ms is None
             assert meta.generation_model is None
             assert meta.generation_is_error is None
+
+    def test_skips_malformed_target_generation_ids(self, mock_team):
+        from datetime import datetime
+
+        eval_row = [
+            "eval-1",
+            "cfg-accuracy",
+            "Accuracy",
+            "false",
+            None,
+            "llm_judge",
+            "Bad target id.",
+            0.0012,
+            "not-a-uuid",
+            "trace-1",
+        ]
+        with patch("posthog.temporal.ai_observability.evaluation_clustering.data.execute_hogql_query") as mock_execute:
+            mock_execute.return_value.results = [eval_row]
+            result = fetch_evaluation_metadata(
+                team=mock_team,
+                eval_event_ids=["eval-1"],
+                window_start=datetime(2026, 4, 15, tzinfo=UTC),
+                window_end=datetime(2026, 4, 16, tzinfo=UTC),
+            )
+
+            meta = result["eval-1"]
+            assert meta.target_generation_id is None
+            assert meta.generation_cost_usd is None
+            assert mock_execute.call_count == 1

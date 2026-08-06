@@ -38,8 +38,18 @@ capabilities:
         requires: [event_ingestion]
         docker_profiles: [replay]
 
+    browser_rendering:
+        description: 'Browserless container for heatmap screenshots and image exports'
+        requires: [core_infra]
+        docker_profiles: [browserless]
+
     error_symbolication:
         description: 'Error stack trace symbolication service'
+        requires: [event_ingestion]
+        docker_profiles: []
+
+    error_notifications:
+        description: 'Error tracking ingestion notifications consumer'
         requires: [event_ingestion]
         docker_profiles: []
 
@@ -83,9 +93,14 @@ capabilities:
         requires: [core_infra]
         docker_profiles: []
 
+    agent_proxy:
+        description: 'Agent proxy streaming service for live task-run streaming (Tasks product)'
+        requires: [core_infra]
+        docker_profiles: []
+
     ai_capture:
         description: 'AI event capture service'
-        requires: [event_ingestion, llm_gateway]
+        requires: [event_ingestion, llm_gateway, personhog]
         docker_profiles: []
 
     embedding_service:
@@ -114,6 +129,11 @@ capabilities:
         requires: [core_infra]
         docker_profiles: []
 
+    ai_gateway:
+        description: 'Local Go ai-gateway (sibling ~/Development/ai-gateway) - routes model calls'
+        requires: [core_infra]
+        docker_profiles: []
+
     # Node.js capability groups - control which consumers run to reduce event loop contention
     nodejs_cdp:
         description: 'Node.js CDP - destinations, webhooks, and realtime alerts'
@@ -126,7 +146,7 @@ capabilities:
         docker_profiles: []
 
     nodejs_realtime_cohorts:
-        description: 'Node.js Realtime Cohorts - precalculated filters and cohort membership'
+        description: 'Node.js Realtime Cohorts - cohort membership persistence'
         requires: [event_ingestion]
         docker_profiles: []
 
@@ -210,6 +230,11 @@ capabilities:
         requires: [core_infra]
         docker_profiles: [duckgres]
 
+    desktop_app:
+        description: 'PostHog Desktop app (Electron) and its package watchers'
+        requires: [core_infra]
+        docker_profiles: []
+
 # Intents map to products/features developers work on
 intents:
     product_analytics:
@@ -222,6 +247,7 @@ intents:
             [
                 event_ingestion,
                 error_symbolication,
+                error_notifications,
                 embedding_service,
                 property_definitions,
                 property_values,
@@ -283,7 +309,8 @@ intents:
 
     web_analytics:
         description: 'Web analytics, traffic analysis, and heatmaps'
-        capabilities: [event_ingestion, replay_storage, property_definitions, property_values, livestream]
+        capabilities:
+            [event_ingestion, replay_storage, property_definitions, property_values, livestream, browser_rendering]
 
     surveys:
         description: 'User surveys and feedback collection'
@@ -338,7 +365,12 @@ intents:
                 property_definitions,
                 property_values,
                 temporal_workflows,
+                agent_proxy,
             ]
+
+    tasks:
+        description: 'Tasks: agent task runs and orchestration'
+        capabilities: [event_ingestion, llm_gateway, celery_workers, celery_scheduler, temporal_workflows, agent_proxy]
 
     logs:
         description: 'Log aggregation and viewing'
@@ -394,6 +426,10 @@ intents:
     dagster:
         description: 'Dagster for clickhouse maintenance, system workflows'
         capabilities: [dagster_pipelines]
+
+    desktop:
+        description: 'PostHog Desktop app (Electron) with local task runs'
+        capabilities: [desktop_app, temporal_workflows, agent_proxy, llm_gateway]
 
 # Always-required processes regardless of intent
 # This is the core stack needed for any development

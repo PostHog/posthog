@@ -13,7 +13,6 @@ import temporalio.common
 import temporalio.exceptions
 from asgiref.sync import sync_to_async
 
-from posthog.batch_exports.models import BatchExportBackfill
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
     adelete_batch_export,
@@ -21,6 +20,7 @@ from posthog.temporal.tests.utils.models import (
     afetch_batch_export_backfills,
 )
 
+from products.batch_exports.backend.models.batch_export import BatchExportBackfill
 from products.batch_exports.backend.temporal.backfill_batch_export import (
     BackfillBatchExportInputs,
     BackfillBatchExportWorkflow,
@@ -145,8 +145,8 @@ def bucket_name() -> str:
 
 
 @pytest_asyncio.fixture
-async def minio_client(bucket_name):
-    """Manage a MinIO S3 client, creating and cleaning up a test bucket."""
+async def object_storage_client(bucket_name):
+    """Manage an S3 client for local object storage, creating and cleaning up a test bucket."""
     async with create_test_client(
         "s3",
         aws_access_key_id="object_storage_root_user",
@@ -161,7 +161,7 @@ async def minio_client(bucket_name):
 
 
 @pytest_asyncio.fixture
-async def events_batch_export(temporal_client, ateam, clickhouse_client, bucket_name, minio_client):
+async def events_batch_export(temporal_client, ateam, clickhouse_client, bucket_name, object_storage_client):
     """Create a batch export for testing backfill info (defaults to events model)."""
     await truncate_events(clickhouse_client)
 
@@ -437,7 +437,7 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted_after_
     )
 
     # Wait for at least one workflow to start running before deleting the schedule
-    await wait_for_workflows(temporal_client, desc.id, expected_count=1, timeout=10)
+    await wait_for_workflows(temporal_client, desc.id, expected_count=1, assert_exact=False, timeout=10)
 
     await temporal_schedule_every_5_minutes.delete()
 

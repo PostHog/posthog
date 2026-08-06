@@ -1,12 +1,6 @@
-import random
-
 import pytest
 from unittest.mock import patch
 
-import pytest_asyncio
-from asgiref.sync import sync_to_async
-
-from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalReport
@@ -22,27 +16,9 @@ from products.signals.backend.temporal.summary import (
     mark_report_ready_activity,
     reset_report_to_potential_activity,
 )
+from products.signals.backend.temporal.types import RERESEARCH_MAX_SIGNALS
 
 PIPELINE_MODULE_PATH = "products.signals.backend.temporal.summary"
-
-
-@pytest_asyncio.fixture
-async def aorganization():
-    organization = await sync_to_async(Organization.objects.create)(
-        name=f"SignalsTelemetryOrg-{random.randint(1, 99999)}",
-    )
-    yield organization
-    await sync_to_async(organization.delete)()
-
-
-@pytest_asyncio.fixture
-async def ateam(aorganization):
-    team = await sync_to_async(Team.objects.create)(
-        organization=aorganization,
-        name=f"SignalsTelemetryTeam-{random.randint(1, 99999)}",
-    )
-    yield team
-    await sync_to_async(team.delete)()
 
 
 @pytest.mark.asyncio
@@ -77,7 +53,9 @@ async def test_started_and_ready_fire_expected_captures(ateam):
             )
         )
 
-    events = [call.kwargs for call in capture.call_args_list]
+    # Model-level signal_report_status_changed labels ride the same analytics client; this test
+    # asserts the pipeline's own telemetry only.
+    events = [call.kwargs for call in capture.call_args_list if call.kwargs["event"] != "signal_report_status_changed"]
     assert [e["event"] for e in events] == ["signal_report_started", "signal_report_completed"]
     for e in events:
         assert e["distinct_id"] == str(ateam.uuid)
@@ -113,8 +91,9 @@ async def test_failed_fires_completed_with_failure_reason(ateam):
             )
         )
 
-    capture.assert_called_once()
-    kwargs = capture.call_args.kwargs
+    pipeline_calls = [call for call in capture.call_args_list if call.kwargs["event"] != "signal_report_status_changed"]
+    assert len(pipeline_calls) == 1
+    kwargs = pipeline_calls[0].kwargs
     assert kwargs["event"] == "signal_report_completed"
     assert kwargs["properties"]["result"] == "failed"
     assert kwargs["properties"]["failure_reason"] == "safety_judge_rejected"
@@ -225,6 +204,41 @@ async def test_ready_is_idempotent_after_partial_commit(ateam, preexisting_statu
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "pending_reason",
+    ["repo_selection_required", "agent_requested"],
+)
+async def test_pending_input_fires_completed_and_status_changed_with_pending_reason(ateam, pending_reason):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=3,
+        total_weight=2.0,
+    )
+    report_id = str(report.id)
+
+    with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture:
+        await mark_report_pending_input_activity(
+            MarkReportPendingInput(
+                team_id=ateam.id,
+                report_id=report_id,
+                title="title",
+                summary="summary",
+                reason="Requires human input: some reason",
+                signal_count=3,
+                source_products=["zendesk"],
+                pending_reason=pending_reason,
+            )
+        )
+
+    calls_by_event = {call.kwargs["event"]: call.kwargs for call in capture.call_args_list}
+    assert calls_by_event["signal_report_completed"]["properties"]["result"] == "pending_input"
+    assert calls_by_event["signal_report_completed"]["properties"]["pending_reason"] == pending_reason
+    assert calls_by_event["signal_report_status_changed"]["properties"]["pending_reason"] == pending_reason
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_pending_input_is_idempotent_when_already_pending_input(ateam):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
@@ -286,3 +300,62 @@ async def test_reset_to_potential_is_idempotent_when_already_potential(ateam):
     assert refreshed.status == SignalReport.Status.POTENTIAL
     assert refreshed.error == "Original reset reason"
     assert refreshed.total_weight == 0.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_ready_loops_when_new_signals_within_cap(ateam):
+    """New signals arrived mid-run and the report is within the cap: re-promote to CANDIDATE and loop."""
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=RERESEARCH_MAX_SIGNALS,
+        total_weight=2.0,
+    )
+    report_id = str(report.id)
+
+    with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture"):
+        has_new_signals = await mark_report_ready_activity(
+            MarkReportReadyInput(
+                team_id=ateam.id,
+                report_id=report_id,
+                title="title",
+                summary="summary",
+                processed_signal_count=1,
+                source_products=["zendesk"],
+            )
+        )
+
+    assert has_new_signals is True
+    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report_id)
+    assert refreshed.status == SignalReport.Status.CANDIDATE
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_ready_does_not_loop_when_new_signals_past_cap(ateam):
+    """New signals arrived mid-run but the report is past the cap: stay READY rather than looping
+    into another full research run."""
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=RERESEARCH_MAX_SIGNALS + 5,
+        total_weight=2.0,
+    )
+    report_id = str(report.id)
+
+    with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture"):
+        has_new_signals = await mark_report_ready_activity(
+            MarkReportReadyInput(
+                team_id=ateam.id,
+                report_id=report_id,
+                title="title",
+                summary="summary",
+                processed_signal_count=RERESEARCH_MAX_SIGNALS,
+                source_products=["zendesk"],
+            )
+        )
+
+    assert has_new_signals is False
+    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report_id)
+    assert refreshed.status == SignalReport.Status.READY

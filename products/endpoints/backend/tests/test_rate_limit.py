@@ -6,18 +6,20 @@ from django.test import TestCase
 
 from parameterized import parameterized
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.endpoints.backend.models import Endpoint
-from products.endpoints.backend.rate_limit import (
+from products.endpoints.backend.presentation.throttles import (
     EndpointBurstThrottle,
     EndpointSustainedThrottle,
-    _check_and_cache_materialization_status,
     _is_materialized_endpoint_request,
+)
+from products.endpoints.backend.rate_limit import (
+    _check_and_cache_materialization_status,
     clear_endpoint_materialization_cache,
     is_endpoint_materialization_ready,
     set_endpoint_materialization_ready,
 )
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 class TestMaterializationCache(TestCase):
@@ -39,6 +41,23 @@ class TestMaterializationCache(TestCase):
         set_endpoint_materialization_ready(123, "test_endpoint", True)
         clear_endpoint_materialization_cache(123, "test_endpoint")
         self.assertIsNone(is_endpoint_materialization_ready(123, "test_endpoint"))
+
+    def test_version_keys_are_independent(self):
+        set_endpoint_materialization_ready(123, "test_endpoint", True, version=2)
+        self.assertTrue(is_endpoint_materialization_ready(123, "test_endpoint", version=2))
+        self.assertIsNone(is_endpoint_materialization_ready(123, "test_endpoint"))
+        self.assertIsNone(is_endpoint_materialization_ready(123, "test_endpoint", version=1))
+
+    def test_clear_cache_with_versions_clears_version_and_current_keys(self):
+        set_endpoint_materialization_ready(123, "test_endpoint", True)
+        set_endpoint_materialization_ready(123, "test_endpoint", True, version=1)
+        set_endpoint_materialization_ready(123, "test_endpoint", True, version=2)
+
+        clear_endpoint_materialization_cache(123, "test_endpoint", versions=[1])
+
+        self.assertIsNone(is_endpoint_materialization_ready(123, "test_endpoint"))
+        self.assertIsNone(is_endpoint_materialization_ready(123, "test_endpoint", version=1))
+        self.assertTrue(is_endpoint_materialization_ready(123, "test_endpoint", version=2))
 
 
 class TestCheckAndCacheMaterializationStatus(APIBaseTest):
@@ -119,6 +138,82 @@ class TestCheckAndCacheMaterializationStatus(APIBaseTest):
         self.assertEqual(result, expected_ready)
         self.assertEqual(is_endpoint_materialization_ready(self.team.id, f"endpoint_{status}"), expected_ready)
 
+    def _create_endpoint_with_materialized_v1_and_inline_v2(self, name="versioned_endpoint"):
+        from products.endpoints.backend.models import EndpointVersion
+
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name=f"{name}_v1",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            is_materialized=True,
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+            origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+        )
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name=f"{name}_table",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern=f"s3://test-bucket/{name}",
+        )
+        saved_query.table = table
+        saved_query.save()
+        endpoint = Endpoint.objects.create(
+            name=name,
+            team=self.team,
+            created_by=self.user,
+            is_active=True,
+            current_version=2,
+        )
+        v1 = EndpointVersion.objects.create(
+            endpoint=endpoint,
+            team=self.team,
+            version=1,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+            saved_query=saved_query,
+        )
+        v2 = EndpointVersion.objects.create(
+            endpoint=endpoint,
+            team=self.team,
+            version=2,
+            query={"kind": "HogQLQuery", "query": "SELECT 2"},
+            created_by=self.user,
+        )
+        return endpoint, v1, v2, saved_query
+
+    def test_explicit_version_checked_independently_of_current(self):
+        self._create_endpoint_with_materialized_v1_and_inline_v2()
+
+        # Current version (v2) is not materialized; v1 is.
+        self.assertFalse(_check_and_cache_materialization_status(self.team.id, "versioned_endpoint"))
+        self.assertTrue(_check_and_cache_materialization_status(self.team.id, "versioned_endpoint", version=1))
+        self.assertFalse(_check_and_cache_materialization_status(self.team.id, "versioned_endpoint", version=2))
+
+    def test_nonexistent_version_returns_false_and_caches(self):
+        self._create_endpoint_with_materialized_v1_and_inline_v2(name="versioned_endpoint2")
+
+        self.assertFalse(_check_and_cache_materialization_status(self.team.id, "versioned_endpoint2", version=99))
+        self.assertFalse(is_endpoint_materialization_ready(self.team.id, "versioned_endpoint2", version=99))
+
+    def test_update_materialization_ready_for_saved_query_updates_version_key(self):
+        from products.endpoints.backend.rate_limit import update_materialization_ready_for_saved_query
+
+        endpoint, v1, v2, saved_query = self._create_endpoint_with_materialized_v1_and_inline_v2(
+            name="versioned_endpoint3"
+        )
+
+        # v1 is not the current version: only its own key is updated.
+        update_materialization_ready_for_saved_query(self.team.id, saved_query, True)
+        self.assertTrue(is_endpoint_materialization_ready(self.team.id, "versioned_endpoint3", version=1))
+        self.assertIsNone(is_endpoint_materialization_ready(self.team.id, "versioned_endpoint3"))
+
+        # Make v1 the current version: the "current" key is updated too.
+        endpoint.current_version = 1
+        endpoint.save()
+        update_materialization_ready_for_saved_query(self.team.id, saved_query, False)
+        self.assertFalse(is_endpoint_materialization_ready(self.team.id, "versioned_endpoint3", version=1))
+        self.assertFalse(is_endpoint_materialization_ready(self.team.id, "versioned_endpoint3"))
+
 
 class TestIsMaterializedEndpointRequest(APIBaseTest):
     def setUp(self):
@@ -147,6 +242,8 @@ class TestIsMaterializedEndpointRequest(APIBaseTest):
         set_endpoint_materialization_ready(123, "test", True)
 
         request = MagicMock()
+        request.data = {}
+        request.query_params = {}
         view = MagicMock()
         view.team_id = 123
         view.kwargs = {"name": "test"}
@@ -191,12 +288,45 @@ class TestIsMaterializedEndpointRequest(APIBaseTest):
         self.assertIsNone(is_endpoint_materialization_ready(self.team.id, "lazy_endpoint"))
 
         request = MagicMock()
+        request.data = {}
+        request.query_params = {}
         view = MagicMock()
         view.team_id = self.team.id
         view.kwargs = {"name": "lazy_endpoint"}
 
         self.assertTrue(_is_materialized_endpoint_request(request, view))
         self.assertTrue(is_endpoint_materialization_ready(self.team.id, "lazy_endpoint"))
+
+    @parameterized.expand(
+        [
+            ("body", {"version": 2}, {}),
+            ("query_param", {}, {"version": "2"}),
+        ]
+    )
+    def test_requested_version_drives_classification(self, _name, body, query_params):
+        set_endpoint_materialization_ready(123, "test", True)  # current version is ready
+        set_endpoint_materialization_ready(123, "test", False, version=2)  # v2 is not
+
+        request = MagicMock()
+        request.data = body
+        request.query_params = query_params
+        view = MagicMock()
+        view.team_id = 123
+        view.kwargs = {"name": "test"}
+
+        self.assertFalse(_is_materialized_endpoint_request(request, view))
+
+    def test_invalid_version_param_falls_back_to_current(self):
+        set_endpoint_materialization_ready(123, "test", True)
+
+        request = MagicMock()
+        request.data = {}
+        request.query_params = {"version": "not-a-number"}
+        view = MagicMock()
+        view.team_id = 123
+        view.kwargs = {"name": "test"}
+
+        self.assertTrue(_is_materialized_endpoint_request(request, view))
 
 
 class TestEndpointThrottles(APIBaseTest):
@@ -230,6 +360,8 @@ class TestEndpointThrottles(APIBaseTest):
         ]:
             throttle = throttle_class()
             request = MagicMock()
+            request.data = {}
+            request.query_params = {}
             view = MagicMock()
             view.team_id = self.team.id
             view.kwargs = {"name": "mat_endpoint"}

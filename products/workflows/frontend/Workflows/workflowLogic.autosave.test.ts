@@ -71,7 +71,7 @@ describe('workflowLogic auto-save', () => {
     describe('debouncing existing workflow', () => {
         beforeEach(async () => {
             initKeaTests()
-            logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+            logic = workflowLogic({ id: WORKFLOW_ID })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
         })
@@ -122,7 +122,7 @@ describe('workflowLogic auto-save', () => {
             ['template editing', { id: WORKFLOW_ID, editTemplateId: 'tpl-1' }],
         ])('does not auto-save for %s', async (_label, props) => {
             initKeaTests()
-            logic = workflowLogic({ ...props, tabId: 'default' })
+            logic = workflowLogic({ ...props })
             logic.mount()
 
             jest.useFakeTimers()
@@ -134,7 +134,7 @@ describe('workflowLogic auto-save', () => {
 
         it('does not auto-save when there are validation errors', async () => {
             initKeaTests()
-            logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+            logic = workflowLogic({ id: WORKFLOW_ID })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
 
@@ -149,7 +149,7 @@ describe('workflowLogic auto-save', () => {
 
         it('does not auto-save when nothing has changed', async () => {
             initKeaTests()
-            logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+            logic = workflowLogic({ id: WORKFLOW_ID })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
 
@@ -162,7 +162,7 @@ describe('workflowLogic auto-save', () => {
 
         it('clears isAutoSavePending when auto-save is skipped', async () => {
             initKeaTests()
-            logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+            logic = workflowLogic({ id: WORKFLOW_ID })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
 
@@ -193,7 +193,7 @@ describe('workflowLogic auto-save', () => {
             })
 
             initKeaTests()
-            logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+            logic = workflowLogic({ id: WORKFLOW_ID })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
 
@@ -208,7 +208,7 @@ describe('workflowLogic auto-save', () => {
     describe('auto-save toggle', () => {
         beforeEach(async () => {
             initKeaTests()
-            logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+            logic = workflowLogic({ id: WORKFLOW_ID })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
         })
@@ -259,7 +259,7 @@ describe('workflowLogic auto-save', () => {
     describe('navigation guard', () => {
         it('does not fire save on unmount (no silent flush)', async () => {
             initKeaTests()
-            logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+            logic = workflowLogic({ id: WORKFLOW_ID })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
 
@@ -275,7 +275,7 @@ describe('workflowLogic auto-save', () => {
             // The beforeUnload guard skips when id is 'new', even if
             // the form has unsaved changes (e.g. freshly created draft).
             initKeaTests()
-            logic = workflowLogic({ id: 'new', tabId: 'default' })
+            logic = workflowLogic({ id: 'new' })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
 

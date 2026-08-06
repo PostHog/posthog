@@ -4,8 +4,8 @@ import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -29,7 +29,7 @@ export function WebScriptsScene(): JSX.Element {
     const { setActiveTab } = useActions(webScriptsSceneLogic)
 
     const action = (
-        <AppShortcut
+        <Shortcut
             name="NewPipelineApp"
             keybind={[keyBinds.new]}
             intent="New JS snippet"
@@ -46,7 +46,7 @@ export function WebScriptsScene(): JSX.Element {
             >
                 New web script
             </LemonButton>
-        </AppShortcut>
+        </Shortcut>
     )
 
     const tabs = [

@@ -53,7 +53,7 @@ func NewSessionRecordingKafkaConsumer(
 }
 
 func (c *SessionRecordingKafkaConsumer) Consume(ctx context.Context) {
-	if err := c.consumer.SubscribeTopics([]string{c.topic}, nil); err != nil {
+	if err := c.consumer.SubscribeTopics(splitTopics(c.topic), nil); err != nil {
 		log.Fatalf("Failed to subscribe to session recording topic: %v", err)
 	}
 	log.Printf("Session recording consumer subscribed to topic: %s", c.topic)

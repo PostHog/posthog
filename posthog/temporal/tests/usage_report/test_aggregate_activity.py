@@ -23,7 +23,7 @@ from posthog.storage import object_storage
 from posthog.tasks.usage_report import InstanceMetadata
 from posthog.temporal.usage_report import storage
 from posthog.temporal.usage_report.activities import aggregate_and_chunk_org_reports
-from posthog.temporal.usage_report.queries import QUERIES
+from posthog.temporal.usage_report.queries import QUERIES, QUERY_INDEX
 from posthog.temporal.usage_report.storage import queries_key, write_json
 from posthog.temporal.usage_report.types import AggregateInputs, RunQueryToS3Result, WorkflowContext
 
@@ -45,7 +45,7 @@ def _make_team(organization: Organization, name: str) -> Team:
 
 def _canned_query_payload(query_name: str, team_a_id: int, team_b_id: int, *extra_team_ids: int) -> Any:
     """Default payload per query — uses team rows where it makes sense, and
-    multi-key dicts for the three multi-output specs.
+    multi-key dicts for the multi-output specs.
 
     `extra_team_ids` lets callers seed billable events for additional teams
     so the orgs they belong to survive the upstream `has_non_zero_usage`
@@ -64,6 +64,7 @@ def _canned_query_payload(query_name: str, team_a_id: int, team_b_id: int, *extr
             "web_events": [(team_a_id, 7), (team_b_id, 11), *extra_event_rows],
             "web_lite_events": [],
             "node_events": [],
+            "mcp_tool_call_events": [(team_a_id, 2), (team_b_id, 3)],
             "android_events": [],
             "flutter_events": [],
             "ios_events": [],
@@ -98,10 +99,25 @@ def _canned_query_payload(query_name: str, team_a_id: int, team_b_id: int, *extr
         return {"count": [(team_b_id, 100)], "read_bytes": [(team_b_id, 5_000_000)]}
     if query_name == "sdk_logs_records":
         return {
+            "web": [(team_a_id, 3)],
             "ios": [(team_a_id, 4)],
             "react_native": [(team_b_id, 6)],
             "android": [],
             "flutter": [],
+            "ruby": [(team_a_id, 7)],
+        }
+    if query_name == "logs_retention_bytes":
+        return {
+            "14d": [(team_a_id, 1_000)],
+            "30d": [(team_b_id, 2_000)],
+            "90d": [],
+        }
+    if query_name == "apm_tracing_usage":
+        # Distinct bytes/spans values so a bytes<->spans mapping swap fails the
+        # assertions instead of passing silently. 2_500_000 bytes floors to 2 MB.
+        return {
+            "bytes": [(team_a_id, 2_500_000)],
+            "spans": [(team_a_id, 42)],
         }
 
     if query_name == "teams_with_event_count_in_period":
@@ -117,6 +133,11 @@ def _canned_query_payload(query_name: str, team_a_id: int, team_b_id: int, *extr
         "teams_with_group_types_total",
     ):
         return [{"team_id": team_a_id, "total": 2}, {"team_id": team_b_id, "total": 1}]
+
+    # Multi specs need a dict shape even when out of focus, or the aggregator's
+    # fan-out breaks on `.get` — empty rows per source key.
+    if QUERY_INDEX[query_name].output == "multi":
+        return {source_key: [] for source_key in QUERY_INDEX[query_name].multi_keys_mapping}
 
     # Everything else gets an empty result list — keeps the test focused on
     # the few interesting metrics above.
@@ -172,7 +193,7 @@ def _read_json(key: str) -> Any:
     return json.loads(body)
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_aggregate_writes_chunks_and_manifest(minio_workflow_ctx: WorkflowContext, activity_environment) -> None:
     org_a = await _make_org("Org A")
@@ -220,6 +241,8 @@ async def test_aggregate_writes_chunks_and_manifest(minio_workflow_ctx: Workflow
     # destination key on each org's report.
     assert by_org[str(org_a.id)]["web_events_count_in_period"] == 7
     assert by_org[str(org_b.id)]["web_events_count_in_period"] == 11
+    assert by_org[str(org_a.id)]["mcp_tool_call_events_count_in_period"] == 2
+    assert by_org[str(org_b.id)]["mcp_tool_call_events_count_in_period"] == 3
 
     # exceptions_captured "total" maps to the flat counter on the org's report.
     assert by_org[str(org_a.id)]["exceptions_captured_in_period"] == 5
@@ -229,6 +252,20 @@ async def test_aggregate_writes_chunks_and_manifest(minio_workflow_ctx: Workflow
     assert by_org[str(org_b.id)]["api_queries_query_count"] == 100
     assert by_org[str(org_b.id)]["api_queries_bytes_read"] == 5_000_000
 
+    # sdk_logs_records multi-key fan-out reaches the per-SDK log counters.
+    assert by_org[str(org_a.id)]["web_logs_records_in_period"] == 3
+    assert by_org[str(org_a.id)]["ios_logs_records_in_period"] == 4
+    assert by_org[str(org_a.id)]["ruby_logs_records_in_period"] == 7
+
+    # apm_tracing_usage multi-key fan-out: bytes and spans land in their own
+    # destination counters (a bytes<->spans swap would fail here), and MB is
+    # the floored bytes total.
+    assert by_org[str(org_a.id)]["apm_tracing_bytes_in_period"] == 2_500_000
+    assert by_org[str(org_a.id)]["apm_tracing_spans_in_period"] == 42
+    assert by_org[str(org_a.id)]["apm_tracing_mb_in_period"] == 2
+    assert by_org[str(org_b.id)]["apm_tracing_bytes_in_period"] == 0
+    assert by_org[str(org_b.id)]["apm_tracing_spans_in_period"] == 0
+
     # has_non_zero_usage is computed and present on every line.
     assert by_org[str(org_a.id)]["has_non_zero_usage"] is True
     assert by_org[str(org_b.id)]["has_non_zero_usage"] is True
@@ -237,7 +274,7 @@ async def test_aggregate_writes_chunks_and_manifest(minio_workflow_ctx: Workflow
     assert by_org[str(org_a.id)]["teams"][str(team_a.id)]["event_count_in_period"] == 100
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_aggregate_chunks_into_batches_of_ten_thousand(
     minio_workflow_ctx: WorkflowContext, activity_environment
@@ -291,7 +328,7 @@ async def test_aggregate_chunks_into_batches_of_ten_thousand(
     assert manifest["chunk_keys"] == result.chunk_keys
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_aggregate_drops_orgs_with_no_usage_from_chunks(
     minio_workflow_ctx: WorkflowContext, activity_environment
@@ -345,7 +382,7 @@ async def test_aggregate_drops_orgs_with_no_usage_from_chunks(
     assert {row["organization_id"] for row in rows} == {str(org_with_usage.id)}
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_aggregate_filters_by_organization_ids(minio_workflow_ctx: WorkflowContext, activity_environment) -> None:
     org_a = await _make_org("A")

@@ -1,8 +1,10 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
@@ -26,7 +28,9 @@ jest.mock('./traceReviewsApi', () => ({
     },
 }))
 jest.mock('../generated/api', () => ({
-    aiObservabilityScoreDefinitionsList: jest
+    ...jest.requireActual('../generated/api'),
+    // The logic imports this under the alias aiObservabilityScoreDefinitionsList.
+    llmAnalyticsScoreDefinitionsList: jest
         .fn()
         .mockResolvedValue({ results: [], count: 0, next: null, previous: null }),
 }))
@@ -55,7 +59,7 @@ describe('aiObservabilityReviewsLogic.copyReviewsToClipboard', () => {
     beforeEach(() => {
         initKeaTests()
         jest.clearAllMocks()
-        logic = aiObservabilityReviewsLogic({ tabId: 'test-tab' })
+        logic = aiObservabilityReviewsLogic()
         // Stub the initial mount load so afterMount doesn't interfere with our test mocks.
         mockTraceReviewsList.mockResolvedValue({ results: [], count: 0 })
         logic.mount()
@@ -112,6 +116,41 @@ describe('aiObservabilityReviewsLogic.copyReviewsToClipboard', () => {
         }).toFinishAllListeners()
 
         expect(mockLemonToastError).toHaveBeenCalledWith('Copy failed!')
+    })
+
+    it('ignores bare aliases on the shared URL — they belong to the Scorers sub-tab', () => {
+        // The Scorers sub-tab writes a bare `search` to this shared URL; it rides
+        // along when we pass URL params through but must never seed the review filters.
+        router.actions.push(urls.aiObservabilityReviews(), {
+            search: 'from-scorers',
+            human_reviews_tab: 'reviews',
+        })
+        expect(logic.values.filters.search).toBe('')
+
+        logic.actions.setFilters({ search: 'my-review-query' }, true, false)
+
+        expect(logic.values.filters.search).toBe('my-review-query')
+        // We preserved the bare alias on the URL rather than stripping it...
+        expect(router.values.searchParams.search).toBe('from-scorers')
+        // ...and the edit lives in the namespaced param.
+        expect(router.values.searchParams.review_search).toBe('my-review-query')
+    })
+
+    it('keeps a review filter cleared instead of resurrecting a stale bare alias', () => {
+        router.actions.push(urls.aiObservabilityReviews(), {
+            search: 'from-scorers',
+            human_reviews_tab: 'reviews',
+        })
+        logic.actions.setFilters({ search: 'my-review-query' }, true, false)
+        expect(logic.values.filters.search).toBe('my-review-query')
+
+        // Clearing back to the default drops review_search from the URL; the
+        // lingering bare `search` must not leak back in on the urlToAction pass.
+        logic.actions.setFilters({ search: '' }, true, false)
+
+        expect(logic.values.filters.search).toBe('')
+        expect(router.values.searchParams.review_search).toBeUndefined()
+        expect(router.values.searchParams.search).toBe('from-scorers')
     })
 
     it('cancels an earlier invocation when called twice in quick succession', async () => {

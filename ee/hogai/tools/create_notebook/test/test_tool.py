@@ -4,11 +4,11 @@ from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 
 from products.notebooks.backend.models import Notebook
+from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.tools.create_notebook.tool import CreateNotebookTool
 from ee.hogai.utils.types.base import AssistantState, NodePath
-from ee.models.assistant import Conversation
 
 
 class TestCreateNotebookTool(BaseTest):
@@ -139,7 +139,7 @@ class TestCreateNotebookTool(BaseTest):
         )
 
         assert artifact is not None
-        from ee.models.assistant import AgentArtifact
+        from products.posthog_ai.backend.models.assistant import AgentArtifact
 
         agent_artifact = AgentArtifact.objects.filter(team=self.team).last()
         notebook = Notebook.objects.filter(team=self.team).first()

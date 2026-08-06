@@ -1,6 +1,7 @@
 import { Layout } from 'react-grid-layout'
 
 import {
+    DASHBOARD_WIDGET_CATALOG,
     getDashboardWidgetCatalogEntry,
     type DashboardWidgetCatalogEntry,
 } from '@posthog/products-dashboards/frontend/widget_types/catalog'
@@ -20,8 +21,11 @@ export interface TileLayout {
 
 const MIN_TILE_HEIGHT_ROWS = 2
 const MIN_TEXT_TILE_HEIGHT_ROWS = 1
-const MIN_WIDGET_TILE_WIDTH_COLS = 6
+const MIN_WIDGET_TILE_WIDTH_COLS = 3
 const MIN_WIDGET_TILE_HEIGHT_ROWS = 4
+
+/** Fallback tile dimensions (half-width, standard height) when a tile has no known layout yet. */
+export const DEFAULT_INSERTED_TILE_SIZE = { w: 6, h: 5 } as const
 
 type WidgetCatalogLayout = DashboardWidgetCatalogEntry['defaultLayout']
 
@@ -31,10 +35,10 @@ type WidgetCatalogLayout = DashboardWidgetCatalogEntry['defaultLayout']
  * (default size 6×5, mins `MIN_WIDGET_TILE_WIDTH_COLS` / `MIN_WIDGET_TILE_HEIGHT_ROWS`).
  */
 function getWidgetCatalogLayout(widgetType: string | undefined): WidgetCatalogLayout | undefined {
-    if (!widgetType) {
+    if (!widgetType || !(widgetType in DASHBOARD_WIDGET_CATALOG)) {
         return undefined
     }
-    return getDashboardWidgetCatalogEntry(widgetType)?.defaultLayout
+    return getDashboardWidgetCatalogEntry(widgetType).defaultLayout
 }
 
 function getTileMinDimensions({
@@ -71,7 +75,7 @@ export function calculateDuplicateLayout(
 ): DuplicateLayoutResult {
     const result: DuplicateLayoutResult = { duplicateLayouts: {}, tilesToUpdate: [] }
 
-    const originalSmLayout = currentLayouts?.sm?.find((l) => String(l.i) === String(tileId))
+    const originalSmLayout = currentLayouts?.sm?.find((l) => l.i === `${tileId}`)
 
     if (!originalSmLayout) {
         return result
@@ -97,12 +101,59 @@ export function calculateDuplicateLayout(
     // shift down any tiles that would overlap with the new placement
     for (const smLayout of currentLayouts?.sm || []) {
         // ignore the duplicated tile and tiles above the insertion point
-        if (String(smLayout.i) === String(tileId) || smLayout.y < insertY) {
+        if (smLayout.i === `${tileId}` || smLayout.y < insertY) {
             continue
         }
 
         result.tilesToUpdate.push({
-            id: parseInt(smLayout.i),
+            id: Number(smLayout.i),
+            layouts: {
+                sm: { x: smLayout.x, y: smLayout.y + h, w: smLayout.w, h: smLayout.h },
+            },
+        })
+    }
+
+    return result
+}
+
+export interface InsertionLayoutResult {
+    newTileLayout: { sm: TileLayout }
+    tilesToUpdate: Array<{ id: number; layouts: { sm?: TileLayout } }>
+}
+
+/**
+ * Layout for inserting a tile at a given grid slot: the new tile lands at (`targetX`, `targetY`) and
+ * only tiles sharing its column span (those horizontally overlapping the new tile) that sit at or
+ * below `targetY` are pushed down by `h` rows. Tiles in other columns stay put, so inserting into the
+ * right column doesn't shove the left one. Mirrors `calculateDuplicateLayout`'s `tilesToUpdate` shape
+ * so persistence is shared.
+ */
+export function calculateInsertionLayout(
+    currentSmLayout: Layout | undefined,
+    newTileId: number,
+    targetY: number,
+    targetX: number,
+    w: number,
+    h: number
+): InsertionLayoutResult {
+    const result: InsertionLayoutResult = {
+        newTileLayout: { sm: { x: targetX, y: targetY, w, h } },
+        tilesToUpdate: [],
+    }
+
+    for (const smLayout of currentSmLayout || []) {
+        // leave the new tile and anything above the insertion point untouched
+        if (smLayout.i === `${newTileId}` || smLayout.y < targetY) {
+            continue
+        }
+        // only push tiles that share horizontal space with the inserted tile's column span
+        const overlapsColumn = smLayout.x < targetX + w && smLayout.x + smLayout.w > targetX
+        if (!overlapsColumn) {
+            continue
+        }
+
+        result.tilesToUpdate.push({
+            id: Number(smLayout.i),
             layouts: {
                 sm: { x: smLayout.x, y: smLayout.y + h, w: smLayout.w, h: smLayout.h },
             },
@@ -127,7 +178,7 @@ function canPlaceToRight(
     }
 
     return !layouts.some((l) => {
-        if (String(l.i) === String(excludeTileId)) {
+        if (l.i === `${excludeTileId}`) {
             return false
         }
         const overlapsX = l.x < rightX + w && l.x + l.w > rightX
@@ -205,6 +256,9 @@ export const calculateLayouts = (
             } else if (isTrendsQuery(query) && query.trendsFilter?.display === ChartDisplayType.BoldNumber) {
                 defaultW = 2
                 defaultH = 2
+            } else if (isTrendsQuery(query) && query.trendsFilter?.display === ChartDisplayType.Metric) {
+                defaultW = 3
+                defaultH = 3
             }
             // Single-column layout width override
             if (breakpoint === 'xs') {
@@ -299,7 +353,7 @@ export const calculateLayouts = (
         if (breakpoint === 'sm') {
             referenceOrder = [...cleanLayouts]
                 .sort((a, b) => (a.y === b.y ? a.x - b.x : a.y - b.y))
-                .map((l) => parseInt(l.i))
+                .map((l) => Number(l.i))
         }
 
         allLayouts[breakpoint] = cleanLayouts

@@ -1,4 +1,4 @@
-import { hexToRGB } from 'lib/utils'
+import { hexToRGB } from 'lib/utils/colors'
 
 type ReferenceColor = { name: string; group: string }
 

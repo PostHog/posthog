@@ -1,12 +1,31 @@
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from datetime import datetime
+from typing import cast
+from zoneinfo import ZoneInfo
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
-from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery, HogQLRealtimeCohortQuery
-from posthog.models import Cohort
+from posthog.clickhouse.client import sync_execute
+from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
+
+from products.cohorts.backend.models.cohort import Cohort
 
 
 class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
     """Tests for HogQLCohortQuery, particularly the optimization for multiple person property filters."""
+
+    def test_dynamic_cohort_id_is_not_injectable(self) -> None:
+        # A static/dynamic-cohort property whose value is an arbitrary string (e.g. smuggled through
+        # the unvalidated legacy `groups` field) must be rejected, not interpolated into the query.
+        for cohort_type in ("dynamic-cohort", "static-cohort"):
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name=f"malicious-{cohort_type}",
+                groups=[{"properties": [{"key": "id", "type": cohort_type, "value": "0 OR 1=1"}]}],
+            )
+            with self.assertRaises(ValueError):
+                HogQLCohortQuery(cohort=cohort).get_query()
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_multiple_person_properties_optimization(self, mock_feature_enabled: MagicMock) -> None:
@@ -399,6 +418,219 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         # Should not use the OR optimization (which would create a single query with OR logic)
         self.assertNotIn("or(", query_str)
 
+    def test_person_metadata_created_at_cohort(self) -> None:
+        cohort_filters = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "created_at",
+                            "type": "person_metadata",
+                            "value": "2024-01-01",
+                            "operator": "is_date_after",
+                        }
+                    ],
+                }
+            ],
+        }
+        cohort = Cohort.objects.create(
+            team=self.team, name="created after 2024", filters={"properties": cohort_filters}
+        )
+
+        hogql_query = HogQLCohortQuery(cohort=cohort)
+        query_str = hogql_query.query_str("clickhouse")
+
+        self.assertIn("created_at", query_str)
+        # Should compare against the persons table column, not the properties JSON blob
+        self.assertNotIn("properties___created_at", query_str)
+
+    def test_person_metadata_cohort_membership_end_to_end(self) -> None:
+        # Persons need a deterministic created_at in BOTH Postgres and ClickHouse.
+        # _create_person with immediate=True under freeze_time writes both stores; we also
+        # pass created_at explicitly so the assertion stays valid even if Postgres stops
+        # using auto_now_add or default=timezone.now in a future migration.
+        utc = ZoneInfo("UTC")
+        old_dt = datetime(2023, 1, 1, tzinfo=utc)
+        new_dt = datetime(2025, 1, 1, tzinfo=utc)
+        with freeze_time(old_dt):
+            old_person = _create_person(
+                team=self.team,
+                distinct_ids=["old"],
+                properties={"name": "old user"},
+                created_at=old_dt,
+                immediate=True,
+            )
+        with freeze_time(new_dt):
+            new_person = _create_person(
+                team=self.team,
+                distinct_ids=["new"],
+                properties={"name": "new user"},
+                created_at=new_dt,
+                immediate=True,
+            )
+        flush_persons_and_events()
+
+        cohort = cast(
+            Cohort,
+            Cohort.objects.create(
+                team=self.team,
+                name="created after 2024",
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "created_at",
+                                        "type": "person_metadata",
+                                        "value": "2024-06-01",
+                                        "operator": "is_date_after",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            ),
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        rows = sync_execute(
+            "SELECT person_id FROM cohortpeople WHERE cohort_id = %(cohort_id)s AND team_id = %(team_id)s "
+            "GROUP BY person_id, cohort_id, team_id, version HAVING sum(sign) > 0",
+            {"cohort_id": cohort.pk, "team_id": self.team.pk},
+        )
+        member_ids = {str(row[0]) for row in rows}
+        self.assertIn(str(new_person.uuid), member_ids)
+        self.assertNotIn(str(old_person.uuid), member_ids)
+
+    def _cohort_member_ids(self, cohort: Cohort, version: int) -> set[str]:
+        rows = sync_execute(
+            "SELECT person_id FROM cohortpeople WHERE cohort_id = %(cohort_id)s AND team_id = %(team_id)s "
+            "AND version = %(version)s GROUP BY person_id, cohort_id, team_id, version HAVING sum(sign) > 0",
+            {"cohort_id": cohort.pk, "team_id": self.team.pk, "version": version},
+        )
+        return {str(row[0]) for row in rows}
+
+    def test_filter_test_accounts_excludes_person_matches_and_tracks_team_settings(self) -> None:
+        internal = _create_person(
+            team=self.team,
+            distinct_ids=["internal"],
+            properties={"email": "employee@posthog.com", "plan": "paid"},
+            immediate=True,
+        )
+        external = _create_person(
+            team=self.team,
+            distinct_ids=["external"],
+            properties={"email": "customer@example.com", "plan": "paid"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        self.team.test_account_filters = [
+            {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+        ]
+        self.team.save()
+
+        cohort = cast(
+            Cohort,
+            Cohort.objects.create(
+                team=self.team,
+                name="paid users",
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [{"key": "plan", "type": "person", "value": "paid", "operator": "exact"}],
+                            }
+                        ],
+                    },
+                    "filterTestAccounts": True,
+                },
+            ),
+        )
+
+        cohort.calculate_people_ch(pending_version=0)
+        members = self._cohort_member_ids(cohort, version=0)
+        self.assertIn(str(external.uuid), members)
+        self.assertNotIn(str(internal.uuid), members)
+
+        # The team's filters are read at calculation time, not copied into the cohort, so clearing
+        # them re-includes the internal person on the next recalculation.
+        self.team.test_account_filters = []
+        self.team.save()
+        cohort.calculate_people_ch(pending_version=1)
+        members = self._cohort_member_ids(cohort, version=1)
+        self.assertIn(str(external.uuid), members)
+        self.assertIn(str(internal.uuid), members)
+
+    def test_person_metadata_cohort_membership_negated_end_to_end(self) -> None:
+        # Mirror of the is_date_after test with is_date_before, so membership inverts: the OLD
+        # person should be in the cohort and the NEW person should not. Covers the operator whose
+        # missing-value default differs in the Rust matcher (the silent-grant class).
+        utc = ZoneInfo("UTC")
+        old_dt = datetime(2023, 1, 1, tzinfo=utc)
+        new_dt = datetime(2025, 1, 1, tzinfo=utc)
+        with freeze_time(old_dt):
+            old_person = _create_person(
+                team=self.team,
+                distinct_ids=["old_neg"],
+                properties={"name": "old user"},
+                created_at=old_dt,
+                immediate=True,
+            )
+        with freeze_time(new_dt):
+            new_person = _create_person(
+                team=self.team,
+                distinct_ids=["new_neg"],
+                properties={"name": "new user"},
+                created_at=new_dt,
+                immediate=True,
+            )
+        flush_persons_and_events()
+
+        cohort = cast(
+            Cohort,
+            Cohort.objects.create(
+                team=self.team,
+                name="created before 2024",
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "created_at",
+                                        "type": "person_metadata",
+                                        "value": "2024-06-01",
+                                        "operator": "is_date_before",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            ),
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        rows = sync_execute(
+            "SELECT person_id FROM cohortpeople WHERE cohort_id = %(cohort_id)s AND team_id = %(team_id)s "
+            "GROUP BY person_id, cohort_id, team_id, version HAVING sum(sign) > 0",
+            {"cohort_id": cohort.pk, "team_id": self.team.pk},
+        )
+        member_ids = {str(row[0]) for row in rows}
+        self.assertIn(str(old_person.uuid), member_ids)
+        self.assertNotIn(str(new_person.uuid), member_ids)
+
     def test_static_cohort_condition_rejects_cross_project_cohort(self) -> None:
         from posthog.models.organization import Organization
 
@@ -425,1204 +657,3 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         hogql_query = HogQLCohortQuery(cohort=cohort)
         with self.assertRaises(Cohort.DoesNotExist):
             hogql_query.query_str("clickhouse")
-
-
-class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
-    """Tests for HogQLRealtimeCohortQuery which uses precalculated_events for behavioral filters."""
-
-    def test_person_property_query(self) -> None:
-        """
-        Test that person property filters work correctly in realtime cohorts.
-        """
-        cohort_filters = {
-            "type": "AND",
-            "values": [
-                {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "@posthog.com",
-                            "negation": False,
-                            "operator": "icontains",
-                            "conditionHash": "test123abc456",
-                            "bytecode": ["_H", 1, 32, "email", 32, "@posthog.com", 2, "icontains", 2],
-                        }
-                    ],
-                }
-            ],
-        }
-
-        cohort = Cohort.objects.create(
-            team=self.team, name="Test Realtime Person Property", filters={"properties": cohort_filters}
-        )
-
-        hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
-        query_str = hogql_query.query_str("clickhouse")
-
-        # Should query precalculated_person_properties table for person properties
-        self.assertIn("precalculated_person_properties", query_str)
-        # Should have condition hash filter
-        self.assertIn("condition", query_str)
-
-    def test_behavioral_performed_event_pageview(self) -> None:
-        """
-        Test that a simple behavioral performed_event filter works with conditionHash.
-        """
-        cohort_filters = {
-            "type": "AND",
-            "values": [
-                {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "type": "behavioral",
-                            "value": "performed_event",
-                            "negation": False,
-                            "event_type": "events",
-                            "time_value": 7,
-                            "time_interval": "day",
-                            "conditionHash": "abc123def456",
-                        }
-                    ],
-                }
-            ],
-        }
-
-        cohort = Cohort.objects.create(
-            team=self.team, name="Test Behavioral Pageview", filters={"properties": cohort_filters}
-        )
-
-        hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
-
-        query_str = hogql_query.query_str("clickhouse")
-
-        # Should query precalculated_events table
-        self.assertIn("precalculated_events", query_str)
-        # Should have condition field (conditionHash is parameterized)
-        self.assertIn("precalculated_events.condition", query_str)
-        # Should use person_id directly from precalculated_events
-        self.assertIn("person_id", query_str)
-        # Should have date filtering with toDate
-        self.assertIn("toDate", query_str)
-
-    def test_cohort_membership_in_cohort_direct(self) -> None:
-        """
-        Test that get_dynamic_cohort_condition generates correct query for cohort membership.
-        """
-        from posthog.models.property import Property
-
-        # Create a target cohort
-        target_cohort = Cohort.objects.create(
-            team=self.team, name="Target Cohort", filters={"properties": {"type": "AND", "values": []}}
-        )
-
-        # Create a simple cohort for the query object
-        cohort = Cohort.objects.create(
-            team=self.team, name="Test Cohort", filters={"properties": {"type": "AND", "values": []}}
-        )
-
-        hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
-
-        # Create a dynamic-cohort property (this is what unwrap_cohort would create)
-        prop = Property(type="dynamic-cohort", key="id", value=target_cohort.id, negation=False)
-
-        # Call get_dynamic_cohort_condition directly
-        query_ast = hogql_query.get_dynamic_cohort_condition(prop)
-
-        # Print the AST to string
-        from posthog.hogql.printer import prepare_and_print_ast
-
-        query_str = prepare_and_print_ast(query_ast, hogql_query.hogql_context, "clickhouse", pretty=True)[0]
-
-        # Should query cohort_membership table
-        self.assertIn("cohort_membership", query_str)
-        # Should have cohort_id filter
-        self.assertIn("cohort_membership.cohort_id", query_str)
-        # Should check status field and use argMax for latest status
-        self.assertIn("cohort_membership.status", query_str)
-        self.assertIn("argmax", query_str.lower())
-        # Should filter by person_id and use HAVING clause for status check
-        self.assertIn("person_id", query_str.lower())
-        self.assertIn("having", query_str.lower())
-
-    def test_cohort_membership_not_in_cohort_direct(self) -> None:
-        """
-        Test that negated cohort membership uses EXCEPT to exclude cohort members.
-        """
-        from posthog.hogql.printer import prepare_and_print_ast
-
-        from posthog.models.property import Property
-
-        # Create a target cohort
-        target_cohort = Cohort.objects.create(
-            team=self.team, name="Target Cohort", filters={"properties": {"type": "AND", "values": []}}
-        )
-
-        # Create a simple cohort for the query object
-        cohort = Cohort.objects.create(
-            team=self.team, name="Test Cohort", filters={"properties": {"type": "AND", "values": []}}
-        )
-
-        hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
-
-        # Create a negated dynamic-cohort property
-        prop = Property(type="dynamic-cohort", key="id", value=target_cohort.id, negation=True)
-
-        # When negation=True, the property is handled through build_conditions with EXCEPT
-        # We need to test through _get_condition_for_property
-        query_ast = hogql_query._get_condition_for_property(prop)
-
-        # Print the AST to string
-        query_str = prepare_and_print_ast(query_ast, hogql_query.hogql_context, "clickhouse", pretty=True)[0]
-
-        # Should still query cohort_membership table
-        self.assertIn("cohort_membership", query_str)
-        # Should have cohort_id filter
-        self.assertIn("cohort_membership.cohort_id", query_str)
-
-    def test_behavioral_performed_event_multiple(self) -> None:
-        """
-        Test that performed_event_multiple queries precalculated_events with count aggregation.
-        """
-        cohort_filters = {
-            "type": "AND",
-            "values": [
-                {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "type": "behavioral",
-                            "value": "performed_event_multiple",
-                            "negation": False,
-                            "operator": "gte",
-                            "event_type": "events",
-                            "operator_value": 5,
-                            "time_value": 30,
-                            "time_interval": "day",
-                            "conditionHash": "xyz789abc123",
-                        }
-                    ],
-                }
-            ],
-        }
-
-        cohort = Cohort.objects.create(
-            team=self.team, name="Test Behavioral Multiple", filters={"properties": cohort_filters}
-        )
-
-        hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
-        query_str = hogql_query.query_str("clickhouse")
-
-        # Should query precalculated_events
-        self.assertIn("precalculated_events", query_str)
-        # Should have count aggregation
-        self.assertIn("count()", query_str)
-        # Should have HAVING clause for count filtering
-        self.assertIn("HAVING", query_str)
-        # Should use person_id directly from precalculated_events
-        self.assertIn("person_id", query_str)
-        # Should group by person_id
-        self.assertIn("GROUP BY", query_str)
-
-    def test_behavioral_performed_event_with_date_range(self) -> None:
-        """performed_event with explicit_datetime + explicit_datetime_to bounds both ends of the window."""
-        cohort_filters = {
-            "type": "AND",
-            "values": [
-                {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "type": "behavioral",
-                            "value": "performed_event",
-                            "negation": False,
-                            "event_type": "events",
-                            "explicit_datetime": "-30d",
-                            "explicit_datetime_to": "-7d",
-                            "conditionHash": "range_hash_1",
-                        }
-                    ],
-                }
-            ],
-        }
-
-        cohort = Cohort.objects.create(
-            team=self.team, name="Test Behavioral Range", filters={"properties": cohort_filters}
-        )
-        query_str = HogQLRealtimeCohortQuery(cohort=cohort).query_str("clickhouse")
-
-        self.assertIn("precalculated_events", query_str)
-        # Both sides of the window should be emitted. HogQL prints `>=`/`<=` as
-        # `greaterOrEquals(...)` / `lessOrEquals(...)` function calls for ClickHouse.
-        self.assertEqual(query_str.count("toDate("), 2)
-        self.assertIn("greaterOrEquals", query_str)
-        self.assertIn("lessOrEquals", query_str)
-
-    def test_behavioral_performed_event_multiple_with_date_range(self) -> None:
-        """performed_event_multiple with a bounded window still aggregates counts."""
-        cohort_filters = {
-            "type": "AND",
-            "values": [
-                {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "type": "behavioral",
-                            "value": "performed_event_multiple",
-                            "negation": False,
-                            "operator": "gte",
-                            "event_type": "events",
-                            "operator_value": 3,
-                            "explicit_datetime": "-30d",
-                            "explicit_datetime_to": "-7d",
-                            "conditionHash": "range_hash_2",
-                        }
-                    ],
-                }
-            ],
-        }
-
-        cohort = Cohort.objects.create(
-            team=self.team, name="Test Behavioral Multiple Range", filters={"properties": cohort_filters}
-        )
-        query_str = HogQLRealtimeCohortQuery(cohort=cohort).query_str("clickhouse")
-
-        self.assertIn("precalculated_events", query_str)
-        self.assertIn("count()", query_str)
-        self.assertIn("HAVING", query_str)
-        self.assertEqual(query_str.count("toDate("), 2)
-
-    def test_behavioral_performed_event_without_date_range_omits_upper_bound(self) -> None:
-        """When only explicit_datetime is set, only the lower bound shows up."""
-        cohort_filters = {
-            "type": "AND",
-            "values": [
-                {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "type": "behavioral",
-                            "value": "performed_event",
-                            "negation": False,
-                            "event_type": "events",
-                            "explicit_datetime": "-30d",
-                            "conditionHash": "range_hash_3",
-                        }
-                    ],
-                }
-            ],
-        }
-
-        cohort = Cohort.objects.create(
-            team=self.team, name="Test Behavioral Lower Bound", filters={"properties": cohort_filters}
-        )
-        query_str = HogQLRealtimeCohortQuery(cohort=cohort).query_str("clickhouse")
-
-        self.assertEqual(query_str.count("toDate("), 1)
-        self.assertNotIn("lessOrEquals", query_str)
-
-    def test_static_cohort_raises_error(self) -> None:
-        """
-        Test that static cohort filters raise an error for realtime cohorts.
-        Static cohorts are not supported in realtime calculation.
-        """
-        # First create a static cohort
-        static_cohort = Cohort.objects.create(
-            team=self.team, name="Static Cohort", is_static=True, is_calculating=False
-        )
-
-        cohort_filters = {
-            "type": "AND",
-            "values": [
-                {
-                    "type": "AND",
-                    "values": [{"key": "id", "type": "static-cohort", "value": static_cohort.id, "negation": False}],
-                }
-            ],
-        }
-
-        cohort = Cohort.objects.create(
-            team=self.team, name="Test Static Cohort Error", filters={"properties": cohort_filters}
-        )
-
-        hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
-
-        # Should raise ValueError when trying to generate query
-        with self.assertRaises(ValueError) as context:
-            hogql_query.query_str("clickhouse")
-
-        self.assertIn("static cohort", str(context.exception).lower())
-
-    def test_or_group_with_same_key_operator_merges(self) -> None:
-        """
-        Test that OR groups with same key and operator are merged with OR semantics.
-
-        For example: email contains "@gmail.com" OR email contains "@yahoo.com"
-        This should find users whose email contains ANY of these strings (at least one).
-
-        Also tests that properties with different operators or keys are NOT merged.
-        """
-        cohort_filters = {
-            "type": "OR",
-            "values": [
-                {
-                    "type": "OR",
-                    "values": [
-                        # These 3 should merge (same key, operator, not negated)
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "@gmail.com",
-                            "bytecode": [
-                                "_H",
-                                1,
-                                32,
-                                "%@gmail.com%",
-                                32,
-                                "email",
-                                32,
-                                "properties",
-                                32,
-                                "person",
-                                1,
-                                3,
-                                2,
-                                "toString",
-                                1,
-                                18,
-                            ],
-                            "negation": False,
-                            "operator": "icontains",
-                            "conditionHash": "a5c1c77ac5bfac89",
-                        },
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": ["@yahoo.com"],
-                            "bytecode": [
-                                "_H",
-                                1,
-                                32,
-                                "%@yahoo.com%",
-                                32,
-                                "email",
-                                32,
-                                "properties",
-                                32,
-                                "person",
-                                1,
-                                3,
-                                2,
-                                "toString",
-                                1,
-                                18,
-                            ],
-                            "negation": False,
-                            "operator": "icontains",
-                            "conditionHash": "102924b91ae29fc8",
-                        },
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "@live.com",
-                            "bytecode": [
-                                "_H",
-                                1,
-                                32,
-                                "%@live.com%",
-                                32,
-                                "email",
-                                32,
-                                "properties",
-                                32,
-                                "person",
-                                1,
-                                3,
-                                2,
-                                "toString",
-                                1,
-                                18,
-                            ],
-                            "negation": False,
-                            "operator": "icontains",
-                            "conditionHash": "e849069d7a368305",
-                        },
-                        # Different operator - should NOT merge
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "admin@company.com",
-                            "bytecode": [
-                                "_H",
-                                1,
-                                32,
-                                "admin@company.com",
-                                32,
-                                "email",
-                                32,
-                                "properties",
-                                32,
-                                "person",
-                                1,
-                                3,
-                                2,
-                                "toString",
-                                1,
-                                15,
-                            ],
-                            "negation": False,
-                            "operator": "exact",
-                            "conditionHash": "different_operator_hash",
-                        },
-                        # Different operator (negated version) - should NOT merge
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "@hotmail.com",
-                            "bytecode": [
-                                "_H",
-                                1,
-                                32,
-                                "%@hotmail.com%",
-                                32,
-                                "email",
-                                32,
-                                "properties",
-                                32,
-                                "person",
-                                1,
-                                3,
-                                2,
-                                "toString",
-                                1,
-                                18,
-                            ],
-                            "negation": False,
-                            "operator": "not_icontains",
-                            "conditionHash": "271b98d7d31ca2ce",
-                        },
-                        # Different key - should NOT merge
-                        {
-                            "key": "name",
-                            "type": "person",
-                            "value": "John",
-                            "bytecode": [
-                                "_H",
-                                1,
-                                32,
-                                "%John%",
-                                32,
-                                "name",
-                                32,
-                                "properties",
-                                32,
-                                "person",
-                                1,
-                                3,
-                                2,
-                                "toString",
-                                1,
-                                18,
-                            ],
-                            "negation": False,
-                            "operator": "icontains",
-                            "conditionHash": "different_key_hash",
-                        },
-                    ],
-                }
-            ],
-        }
-
-        cohort = Cohort.objects.create(
-            team=self.team, name="Test OR Group Merge", filters={"properties": cohort_filters}
-        )
-
-        hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
-        query_str = hogql_query.query_str("clickhouse")
-
-        # The 3 mergeable email icontains should be in a single merged query with IN clause
-        # Looking at the IN clause specifically
-        in_clause_count = query_str.lower().count("in(precalculated_person_properties.condition,")
-
-        # Should have exactly 1 IN clause for the merged conditions
-        self.assertEqual(in_clause_count, 1, "Should have exactly 1 IN clause for merged conditions")
-
-        # Should have exactly 3 single condition checks (one for each non-mergeable property)
-        single_condition_count = query_str.lower().count("equals(precalculated_person_properties.condition,")
-        self.assertEqual(single_condition_count, 3, "Should have exactly 3 single condition checks")
-
-        # Should use IN clause for merged conditions
-        self.assertIn("in(precalculated_person_properties.condition,", query_str.lower())
-
-        # The merged query should check for at least 1 match using countIf
-        self.assertIn("countif", query_str.lower())
-
-        # Should have UNION DISTINCT since we have non-mergeable properties too
-        self.assertIn("UNION DISTINCT", query_str)
-
-    def test_or_group_with_nested_single_property_groups_merges(self) -> None:
-        """
-        Test that nested OR groups with single properties get merged.
-
-        For example:
-        OR:
-          - Group 1: [email contains "@gmail.com"]
-          - Group 2: [email contains "@yahoo.com"]
-          - Group 3: [email contains "@live.com"]
-
-        These should be unwrapped and merged into a single query.
-        """
-        cohort_filters = {
-            "type": "OR",
-            "values": [
-                # Each of these is a separate OR group with a single property
-                {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "@gmail.com",
-                            "bytecode": [
-                                "_H",
-                                1,
-                                32,
-                                "%@gmail.com%",
-                                32,
-                                "email",
-                                32,
-                                "properties",
-                                32,
-                                "person",
-                                1,
-                                3,
-                                2,
-                                "toString",
-                                1,
-                                18,
-                            ],
-                            "negation": False,
-                            "operator": "icontains",
-                            "conditionHash": "nested1_gmail",
-                        },
-                    ],
-                },
-                {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "@yahoo.com",
-                            "bytecode": [
-                                "_H",
-                                1,
-                                32,
-                                "%@yahoo.com%",
-                                32,
-                                "email",
-                                32,
-                                "properties",
-                                32,
-                                "person",
-                                1,
-                                3,
-                                2,
-                                "toString",
-                                1,
-                                18,
-                            ],
-                            "negation": False,
-                            "operator": "icontains",
-                            "conditionHash": "nested2_yahoo",
-                        },
-                    ],
-                },
-                {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "@live.com",
-                            "bytecode": [
-                                "_H",
-                                1,
-                                32,
-                                "%@live.com%",
-                                32,
-                                "email",
-                                32,
-                                "properties",
-                                32,
-                                "person",
-                                1,
-                                3,
-                                2,
-                                "toString",
-                                1,
-                                18,
-                            ],
-                            "negation": False,
-                            "operator": "icontains",
-                            "conditionHash": "nested3_live",
-                        },
-                    ],
-                },
-            ],
-        }
-
-        cohort = Cohort.objects.create(
-            team=self.team, name="Test Nested OR Groups Merge", filters={"properties": cohort_filters}
-        )
-
-        hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
-        query_str = hogql_query.query_str("clickhouse")
-
-        # All 3 nested single-property groups should be unwrapped and merged
-        # Should have exactly 1 IN clause for all 3 conditions
-        in_clause_count = query_str.lower().count("in(precalculated_person_properties.condition,")
-        self.assertEqual(in_clause_count, 1, "Should have exactly 1 IN clause for merged conditions")
-
-        # Should have no single condition checks (all merged)
-        single_condition_count = query_str.lower().count("equals(precalculated_person_properties.condition,")
-        self.assertEqual(single_condition_count, 0, "Should have no single condition checks (all merged)")
-
-        # Should NOT use UNION DISTINCT since all properties are merged
-        self.assertNotIn("UNION DISTINCT", query_str)
-
-    def test_and_group_with_same_key_operator_merges(self) -> None:
-        """
-        Test that AND groups with same key and operator are merged with AND semantics.
-
-        For example: email contains "@gmail" AND email contains ".com"
-        This should find users whose email contains ALL of these strings (all conditions must match).
-        """
-        cohort_filters = {
-            "type": "AND",
-            "values": [
-                {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "@gmail",
-                            "bytecode": [
-                                "_H",
-                                1,
-                                32,
-                                "%@gmail%",
-                                32,
-                                "email",
-                                32,
-                                "properties",
-                                32,
-                                "person",
-                                1,
-                                3,
-                                2,
-                                "toString",
-                                1,
-                                18,
-                            ],
-                            "negation": False,
-                            "operator": "icontains",
-                            "conditionHash": "hash1_gmail",
-                        },
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": ".com",
-                            "bytecode": [
-                                "_H",
-                                1,
-                                32,
-                                "%.com%",
-                                32,
-                                "email",
-                                32,
-                                "properties",
-                                32,
-                                "person",
-                                1,
-                                3,
-                                2,
-                                "toString",
-                                1,
-                                18,
-                            ],
-                            "negation": False,
-                            "operator": "icontains",
-                            "conditionHash": "hash2_dotcom",
-                        },
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "test",
-                            "bytecode": [
-                                "_H",
-                                1,
-                                32,
-                                "%test%",
-                                32,
-                                "email",
-                                32,
-                                "properties",
-                                32,
-                                "person",
-                                1,
-                                3,
-                                2,
-                                "toString",
-                                1,
-                                18,
-                            ],
-                            "negation": False,
-                            "operator": "icontains",
-                            "conditionHash": "hash3_test",
-                        },
-                    ],
-                }
-            ],
-        }
-
-        cohort = Cohort.objects.create(
-            team=self.team, name="Test AND Group Merge", filters={"properties": cohort_filters}
-        )
-
-        hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
-        query_str = hogql_query.query_str("clickhouse")
-
-        # Should use IN clause to fetch all conditions at once
-        self.assertIn("in(precalculated_person_properties.condition,", query_str.lower())
-        # Should use countIf for counting matches
-        self.assertIn("countif", query_str.lower())
-        # For AND semantics, should check that ALL 3 conditions matched
-        self.assertIn(", 3)", query_str)  # equals(countIf(...), 3)
-        # Should NOT use UNION DISTINCT since properties are merged
-        self.assertNotIn("UNION DISTINCT", query_str)
-
-    def test_sibling_single_property_groups_under_or_merge(self) -> None:
-        """
-        Test that sibling single-property groups under a top-level OR are merged together
-        when they have the same key and operator, including already-merged groups.
-
-        For example:
-        OR:
-          - AND: [email icontains @gmail.com, name icontains John]  # can't merge (different keys)
-          - OR: [email icontains yahoo.com]  # single property
-          - OR: [email icontains @protonmail.com, email icontains @live.com]  # already merged within group
-
-        The last two groups should ALL be merged together (yahoo + protonmail + live = 3 hashes).
-        """
-        cohort_filters = {
-            "type": "OR",
-            "values": [
-                {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "@gmail.com",
-                            "bytecode": [
-                                "_H",
-                                1,
-                                32,
-                                "%@gmail.com%",
-                                32,
-                                "email",
-                                32,
-                                "properties",
-                                32,
-                                "person",
-                                1,
-                                3,
-                                2,
-                                "toString",
-                                1,
-                                18,
-                            ],
-                            "negation": False,
-                            "operator": "icontains",
-                            "conditionHash": "hash1_gmail",
-                        },
-                        {
-                            "key": "name",
-                            "type": "person",
-                            "value": "John",
-                            "bytecode": [
-                                "_H",
-                                1,
-                                32,
-                                "%John%",
-                                32,
-                                "name",
-                                32,
-                                "properties",
-                                32,
-                                "person",
-                                1,
-                                3,
-                                2,
-                                "toString",
-                                1,
-                                18,
-                            ],
-                            "negation": False,
-                            "operator": "icontains",
-                            "conditionHash": "hash2_john",
-                        },
-                    ],
-                },
-                {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "yahoo.com",
-                            "bytecode": [
-                                "_H",
-                                1,
-                                32,
-                                "%yahoo.com%",
-                                32,
-                                "email",
-                                32,
-                                "properties",
-                                32,
-                                "person",
-                                1,
-                                3,
-                                2,
-                                "toString",
-                                1,
-                                18,
-                            ],
-                            "negation": False,
-                            "operator": "icontains",
-                            "conditionHash": "hash3_yahoo",
-                        },
-                    ],
-                },
-                {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "@protonmail.com",
-                            "bytecode": [
-                                "_H",
-                                1,
-                                32,
-                                "%@protonmail.com%",
-                                32,
-                                "email",
-                                32,
-                                "properties",
-                                32,
-                                "person",
-                                1,
-                                3,
-                                2,
-                                "toString",
-                                1,
-                                18,
-                            ],
-                            "negation": False,
-                            "operator": "icontains",
-                            "conditionHash": "hash4_protonmail",
-                        },
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "@live.com",
-                            "bytecode": [
-                                "_H",
-                                1,
-                                32,
-                                "%@live.com%",
-                                32,
-                                "email",
-                                32,
-                                "properties",
-                                32,
-                                "person",
-                                1,
-                                3,
-                                2,
-                                "toString",
-                                1,
-                                18,
-                            ],
-                            "negation": False,
-                            "operator": "icontains",
-                            "conditionHash": "hash5_live",
-                        },
-                    ],
-                },
-            ],
-        }
-
-        cohort = Cohort.objects.create(
-            team=self.team, name="Test Sibling Single Property Groups Merge", filters={"properties": cohort_filters}
-        )
-
-        hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
-        query_str = hogql_query.query_str("clickhouse")
-
-        # Should have 1 IN clause for ALL merged email properties (yahoo + protonmail + live = 3 hashes)
-        in_clause_count = query_str.lower().count("in(precalculated_person_properties.condition,")
-        self.assertEqual(in_clause_count, 1, "Should have exactly 1 IN clause for all merged email properties")
-
-        # Verify the IN clause has a tuple with 3 values (all 3 hashes merged)
-        # The pattern will be: tuple(%(hogql_val_X)s, %(hogql_val_Y)s, %(hogql_val_Z)s)
-
-        # Match tuple with exactly 3 comma-separated parameter placeholders
-        tuple_pattern = r"tuple\(%\(hogql_val_\d+\)s,\s*%\(hogql_val_\d+\)s,\s*%\(hogql_val_\d+\)s\)"
-        self.assertRegex(query_str, tuple_pattern, "IN clause should have tuple with 3 values")
-
-        # Should use UNION DISTINCT since we have multiple top-level groups
-        self.assertIn("UNION DISTINCT", query_str)
-
-        # Should have INTERSECT DISTINCT for the AND group (email + name)
-        self.assertIn("INTERSECT DISTINCT", query_str)
-
-    def test_properties_without_condition_hash_are_not_merged(self) -> None:
-        """
-        Test that properties without conditionHash are not merged and don't cause empty IN clauses.
-
-        This tests the edge case where multiple properties have the same key and operator
-        but none of them have conditionHash set. The validation should prevent creating
-        a merged property with empty hashes.
-        """
-        cohort_filters = {
-            "type": "AND",
-            "values": [
-                {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "@gmail.com",
-                            "negation": False,
-                            "operator": "icontains",
-                            # Note: No conditionHash
-                        },
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "@yahoo.com",
-                            "negation": False,
-                            "operator": "icontains",
-                            # Note: No conditionHash
-                        },
-                    ],
-                }
-            ],
-        }
-
-        cohort = Cohort.objects.create(
-            team=self.team, name="Test Properties Without Hash", filters={"properties": cohort_filters}
-        )
-
-        hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
-
-        # Should raise ValueError because realtime cohorts require conditionHash
-        with self.assertRaises(ValueError) as context:
-            hogql_query.query_str("clickhouse")
-
-        self.assertIn("conditionhash", str(context.exception).lower())
-
-    def test_merged_property_with_empty_hashes_raises_error(self) -> None:
-        """
-        Test that attempting to query a merged property with empty hashes raises a clear error.
-
-        This tests the defensive validation in get_person_condition that prevents
-        generating invalid SQL with empty IN clauses.
-        """
-        from posthog.models.property import Property
-
-        cohort = Cohort.objects.create(
-            team=self.team, name="Test Empty Hashes", filters={"properties": {"type": "AND", "values": []}}
-        )
-
-        hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
-
-        # Create a property with empty _merged_condition_hashes (simulating a bug)
-        prop = Property(
-            key="email",
-            type="person",
-            value="@gmail.com",
-            negation=False,
-            operator="icontains",
-            conditionHash="test_hash",
-        )
-        # Simulate a bug where _merged_condition_hashes is set to empty list
-        prop._merged_condition_hashes = []  # type: ignore[attr-defined]
-        prop._is_or_group = True  # type: ignore[attr-defined]
-
-        # Should raise ValueError about empty condition hashes
-        with self.assertRaises(ValueError) as context:
-            hogql_query.get_person_condition(prop)
-
-        error_msg = str(context.exception).lower()
-        self.assertIn("empty condition hashes", error_msg)
-        self.assertIn("invalid sql", error_msg)
-
-    def test_create_merged_property_with_empty_hashes_raises_error(self) -> None:
-        """
-        Test that _create_merged_property raises an error when called with empty unique_hashes.
-
-        This ensures the method is defensive and validates its inputs.
-        """
-        from posthog.models.property import Property
-
-        cohort = Cohort.objects.create(
-            team=self.team, name="Test Create Merged Property", filters={"properties": {"type": "AND", "values": []}}
-        )
-
-        hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
-
-        template = Property(
-            key="email",
-            type="person",
-            value="@gmail.com",
-            negation=False,
-            operator="icontains",
-            conditionHash="test_hash",
-        )
-
-        # Should raise ValueError when unique_hashes is empty
-        with self.assertRaises(ValueError) as context:
-            hogql_query._create_merged_property(template, [], is_or_group=True)
-
-        error_msg = str(context.exception).lower()
-        self.assertIn("empty unique_hashes", error_msg)
-
-    def test_duplicate_condition_hashes_deduplicated_correctly(self) -> None:
-        """
-        Test that duplicate condition hashes are deduplicated when merging properties.
-
-        This tests the edge case where a user accidentally adds the same filter multiple times
-        (e.g., "email contains @gmail.com" appears twice). The deduplication ensures that
-        the count matches the distinct conditions in the GROUP BY query.
-        """
-        cohort_filters = {
-            "type": "AND",
-            "values": [
-                {
-                    "type": "AND",
-                    "values": [
-                        # Same condition hash appears 3 times (simulating accidental duplicates)
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "@gmail.com",
-                            "bytecode": [
-                                "_H",
-                                1,
-                                32,
-                                "%@gmail.com%",
-                                32,
-                                "email",
-                                32,
-                                "properties",
-                                32,
-                                "person",
-                                1,
-                                3,
-                                2,
-                                "toString",
-                                1,
-                                18,
-                            ],
-                            "negation": False,
-                            "operator": "icontains",
-                            "conditionHash": "duplicate_hash_123",
-                        },
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "@gmail.com",  # Same filter again
-                            "bytecode": [
-                                "_H",
-                                1,
-                                32,
-                                "%@gmail.com%",
-                                32,
-                                "email",
-                                32,
-                                "properties",
-                                32,
-                                "person",
-                                1,
-                                3,
-                                2,
-                                "toString",
-                                1,
-                                18,
-                            ],
-                            "negation": False,
-                            "operator": "icontains",
-                            "conditionHash": "duplicate_hash_123",  # Same hash
-                        },
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "@gmail.com",  # Same filter third time
-                            "bytecode": [
-                                "_H",
-                                1,
-                                32,
-                                "%@gmail.com%",
-                                32,
-                                "email",
-                                32,
-                                "properties",
-                                32,
-                                "person",
-                                1,
-                                3,
-                                2,
-                                "toString",
-                                1,
-                                18,
-                            ],
-                            "negation": False,
-                            "operator": "icontains",
-                            "conditionHash": "duplicate_hash_123",  # Same hash again
-                        },
-                    ],
-                }
-            ],
-        }
-
-        cohort = Cohort.objects.create(
-            team=self.team, name="Test Duplicate Hashes", filters={"properties": cohort_filters}
-        )
-
-        hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
-        query_str = hogql_query.query_str("clickhouse")
-
-        # Should have been deduplicated to a single condition
-        # The IN clause should contain only one hash, not three
-        in_clause_count = query_str.lower().count("in(precalculated_person_properties.condition,")
-        self.assertEqual(in_clause_count, 1, "Should have exactly 1 IN clause after deduplication")
-
-        # Should have HAVING countIf(...) = 1 (not 3) because duplicates were removed
-        self.assertIn(", 1)", query_str)  # countIf(...), 1) in equals function
-
-        # Should NOT use INTERSECT since all properties merged into one
-        self.assertNotIn("INTERSECT DISTINCT", query_str)

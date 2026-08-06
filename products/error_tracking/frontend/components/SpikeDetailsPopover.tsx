@@ -6,7 +6,7 @@ import { LemonBanner, LemonSkeleton, Popover } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { ErrorTrackingSpikeEvent } from 'lib/components/Errors/types'
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyLargeNumber } from 'lib/utils'
+import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 

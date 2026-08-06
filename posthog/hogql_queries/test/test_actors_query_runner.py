@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -145,6 +146,60 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )
         self.assertEqual(len(runner.calculate().results), 2)
+
+    def _create_internal_and_external_persons(self) -> None:
+        for index in range(3):
+            _create_person(
+                properties={"email": f"employee{index}@posthog.com"},
+                team=self.team,
+                distinct_ids=[f"internal-{index}"],
+                is_identified=True,
+            )
+        for index in range(2):
+            _create_person(
+                properties={"email": f"customer{index}@example.com"},
+                team=self.team,
+                distinct_ids=[f"external-{index}"],
+                is_identified=True,
+            )
+        flush_persons_and_events()
+
+    @parameterized.expand(
+        [
+            # Person-scoped filter applied: the 3 internal persons are excluded, leaving 2.
+            (
+                "person_filter_on_excludes_internal",
+                True,
+                [{"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}],
+                2,
+            ),
+            # Flag off: the filter is not applied, so all 5 persons are returned.
+            (
+                "person_filter_off_keeps_all",
+                False,
+                [{"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}],
+                5,
+            ),
+            # Event-scoped filters have no meaning on a persons query. They must be skipped, not raise.
+            (
+                "event_scoped_filter_is_ignored",
+                True,
+                [{"key": "$host", "value": "localhost", "operator": "is_not", "type": "event"}],
+                5,
+            ),
+            # No configured filters means the flag is a no-op.
+            ("empty_test_account_filters_is_noop", True, [], 5),
+        ]
+    )
+    def test_filter_test_accounts_applies_only_person_scoped_filters(
+        self, _name: str, filter_test_accounts: bool, test_account_filters: list, expected_count: int
+    ) -> None:
+        self._create_internal_and_external_persons()
+        self.team.test_account_filters = test_account_filters
+        self.team.save()
+
+        runner = self._create_runner(ActorsQuery(filterTestAccounts=filter_test_accounts))
+        self.assertEqual(len(runner.calculate().results), expected_count)
 
     def test_persons_query_search_email(self):
         self.random_uuid = self._create_random_persons()
@@ -765,6 +820,57 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.calculate()
         display_names = [row[0]["display_name"] for row in response.results]
         assert set(display_names) == {"Test User With Spaces"}
+
+    @parameterized.expand(
+        [
+            (
+                "empty_first_prop_falls_through",
+                ["name", "email"],
+                {"name": "", "email": "user@email.com"},
+                "user@email.com",
+            ),
+            (
+                "non_empty_value_still_wins",
+                ["name", "email"],
+                {"name": "Test User", "email": "user@email.com"},
+                "Test User",
+            ),
+        ]
+    )
+    def test_person_display_name_empty_string_fallthrough(
+        self, _name, display_name_properties, person_properties, expected_display_name
+    ):
+        # An empty-string property should fall through to the next configured property.
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_email", "id_anon"],
+            properties=person_properties,
+        )
+        self.team.person_display_name_properties = display_name_properties
+        self.team.save()
+        self.team.refresh_from_db()
+        flush_persons_and_events()
+        query = ActorsQuery(select=["person_display_name"])
+        runner = self._create_runner(query)
+        response = runner.calculate()
+        display_names = [row[0]["display_name"] for row in response.results]
+        assert set(display_names) == {expected_display_name}
+
+    def test_person_display_name_all_empty_strings_falls_back_to_id(self):
+        person = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_email", "id_anon"],
+            properties={"name": "", "email": ""},
+        )
+        self.team.person_display_name_properties = ["name", "email"]
+        self.team.save()
+        self.team.refresh_from_db()
+        flush_persons_and_events()
+        query = ActorsQuery(select=["person_display_name"])
+        runner = self._create_runner(query)
+        response = runner.calculate()
+        display_names = [row[0]["display_name"] for row in response.results]
+        assert set(display_names) == {str(person.uuid)}
 
     def test_select_property_name_with_spaces(self):
         _create_person(

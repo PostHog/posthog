@@ -1,10 +1,13 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
-import { IconPlusSmall, IconRefresh, IconX } from '@posthog/icons'
+import { IconPlusSmall, IconRefresh } from '@posthog/icons'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { UsageMetricsConfig, UsageMetricsModal } from 'scenes/settings/environment/UsageMetricsConfig'
 import { usageMetricsConfigLogic } from 'scenes/settings/environment/usageMetricsConfigLogic'
 
@@ -16,15 +19,15 @@ import {
     UsageMetricCardSkeleton,
 } from 'products/customer_analytics/frontend/components/UsageMetricCard'
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
-import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
+import { getCustomerProfileRemoveMenuItem } from './customerProfileNotebookNodeMenu'
 import { createPostHogWidgetNode } from './NodeWrapper'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAttributes>): JSX.Element | null => {
     const { expanded, notebookLogic } = useValues(notebookNodeLogic)
-    const { setActions, setMenuItems } = useActions(notebookNodeLogic)
+    const { setMenuItems } = useActions(notebookNodeLogic)
     const { personId, groupKey, groupTypeIndex, tabId } = attributes
     const dataNodeLogicProps = personId
         ? {
@@ -50,43 +53,38 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
     useAttachedLogic(logic, notebookLogic)
     const { response, responseLoading, responseError } = useValues(logic)
     const { loadData } = useActions(logic)
-    const usageMetricsConfigLogicProps = { logicKey: attributes.nodeId }
+    const usageMetricsConfigLogicProps = { logicKey: attributes.nodeId, onMetricsChanged: loadData }
     const { openModal } = useActions(usageMetricsConfigLogic(usageMetricsConfigLogicProps))
-    const { removeNode } = useActions(customerProfileLogic)
-
-    useOnMountEffect(() => {
-        setActions([
-            {
-                text: 'Add metric',
-                icon: <IconPlusSmall />,
-                onClick: openModal,
-            },
-            {
-                text: 'Refresh',
-                icon: <IconRefresh />,
-                onClick: loadData,
-            },
-        ])
-
-        setMenuItems([
-            {
-                label: 'Add metric',
-                sideIcon: <IconPlusSmall />,
-                onClick: openModal,
-            },
-            {
-                label: 'Refresh',
-                sideIcon: <IconRefresh />,
-                onClick: () => loadData(),
-            },
-            {
-                label: 'Remove',
-                onClick: () => removeNode(NotebookNodeType.UsageMetrics),
-                sideIcon: <IconX />,
-                status: 'danger',
-            },
-        ])
+    const { reportUsageMetricsCreateButtonClicked } = useActions(eventUsageLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+
+    useEffect(() => {
+        const removeMenuItem = getCustomerProfileRemoveMenuItem(NotebookNodeType.UsageMetrics)
+        const addMetricMenuItem = {
+            label: 'Add metric',
+            sideIcon: <IconPlusSmall />,
+            disabledReason: restrictedReason ?? undefined,
+            'data-attr': 'usage-metrics-node-add-metric',
+            onClick: () => {
+                reportUsageMetricsCreateButtonClicked()
+                openModal()
+            },
+        }
+        const refreshMenuItem = {
+            label: 'Refresh',
+            sideIcon: <IconRefresh />,
+            onClick: () => loadData(),
+        }
+        if (removeMenuItem) {
+            setMenuItems([addMetricMenuItem, refreshMenuItem, removeMenuItem])
+            return
+        }
+        setMenuItems([addMetricMenuItem, refreshMenuItem])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [restrictedReason])
 
     if (!expanded) {
         return null
@@ -129,6 +127,10 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
 
 function UsageMetricsEmptyState(): JSX.Element {
     const { openModal } = useActions(usageMetricsConfigLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
     return (
         <ProductIntroduction
             productName="Customer analytics"
@@ -138,6 +140,7 @@ function UsageMetricsEmptyState(): JSX.Element {
             productKey={ProductKey.CUSTOMER_ANALYTICS}
             className="border-none"
             action={() => openModal()}
+            disabledReason={restrictedReason ?? undefined}
         />
     )
 }

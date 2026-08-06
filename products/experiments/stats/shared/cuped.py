@@ -177,7 +177,7 @@ def cuped_adjust(
     Raises:
         StatisticError: If inputs are invalid (mismatched n, unsupported types).
     """
-    if isinstance(treatment_post, RatioStatistic) or isinstance(control_post, RatioStatistic):
+    if isinstance(treatment_post, RatioStatistic) or isinstance(control_post, RatioStatistic):  # type: ignore[unreachable]
         raise StatisticError("CUPED adjustment for ratio metrics is not yet supported")
 
     if type(treatment_post) is not type(control_post):

@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import { createRef } from 'react'
 
 import { LemonTree, LemonTreeRef, TreeDataItem } from './LemonTree'
@@ -41,6 +41,7 @@ describe('LemonTree virtualization', () => {
     })
 
     afterEach(() => {
+        cleanup()
         requestAnimationFrameSpy.mockRestore()
         cancelAnimationFrameSpy.mockRestore()
     })
@@ -139,6 +140,52 @@ describe('LemonTree virtualization', () => {
         expect(document.activeElement).toBe(grandchild)
     })
 
+    it('scrolls an imperatively focused item to the top third after its folder expands', async () => {
+        const treeRef = createRef<LemonTreeRef>()
+        const data: TreeDataItem[] = [
+            {
+                id: 'root',
+                name: 'root',
+                children: [{ id: 'target', name: 'target' }],
+            },
+        ]
+        const boundsSpy = jest
+            .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+            .mockImplementation(function (this: HTMLElement) {
+                const element = this
+                const top = element.dataset.id === 'target' ? 260 : 0
+                const height = element.dataset.id === 'target' ? 31 : 300
+                return {
+                    x: 0,
+                    y: top,
+                    top,
+                    bottom: top + height,
+                    left: 0,
+                    right: 100,
+                    width: 100,
+                    height,
+                    toJSON: () => ({}),
+                }
+            })
+
+        const { container, rerender } = render(<LemonTree ref={treeRef} data={data} expandedItemIds={[]} />)
+        const viewport = setViewportHeight(container, 300)
+        const scrollTo = jest.fn()
+        Object.defineProperty(viewport, 'scrollTo', { value: scrollTo, configurable: true })
+
+        act(() => {
+            treeRef.current?.focusItem('target', { scrollPosition: 'top-third', behavior: 'smooth' })
+        })
+        rerender(<LemonTree ref={treeRef} data={data} expandedItemIds={['root']} />)
+
+        await waitFor(() => {
+            expect(scrollTo).toHaveBeenCalledWith({ top: 160, behavior: 'smooth' })
+        })
+        expect(document.activeElement).toBe(screen.getByLabelText('tree item: target'))
+
+        boundsSpy.mockRestore()
+    })
+
     it('virtualizes against an outer scroll container when provided', async () => {
         const outerScrollRef = createRef<HTMLDivElement>()
         const data: TreeDataItem[] = [
@@ -199,7 +246,7 @@ describe('LemonTree virtualization', () => {
         await waitFor(() => {
             expect(within(container).getByLabelText('tree item: child-40')).toBeInTheDocument()
         })
-    }, 10000)
+    })
 
     it('supports an overridden virtualized row height', async () => {
         const data: TreeDataItem[] = [
@@ -224,7 +271,7 @@ describe('LemonTree virtualization', () => {
             expect(within(container).getByLabelText('tree item: child-30')).toBeInTheDocument()
         })
         expect(within(container).queryByLabelText('tree item: child-0')).not.toBeInTheDocument()
-    }, 10000)
+    })
 
     it('supports an overridden virtualization overscan', async () => {
         const data: TreeDataItem[] = [
@@ -255,5 +302,5 @@ describe('LemonTree virtualization', () => {
             expect(within(container).getByLabelText('tree item: child-0')).toBeInTheDocument()
         })
         expect(within(container).queryByLabelText('tree item: child-1')).not.toBeInTheDocument()
-    }, 10000)
+    })
 })

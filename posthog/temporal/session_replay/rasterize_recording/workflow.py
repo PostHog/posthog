@@ -10,6 +10,20 @@ from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_
 with wf.unsafe.imports_passed_through():
     from django.conf import settings
 
+    from prometheus_client import Counter
+
+    RASTERIZATION_COMPLETED_COUNTER = Counter(
+        "posthog_rasterization_completed",
+        "Rasterization completions by product and task queue",
+        ["product", "task_queue"],
+    )
+
+    RASTERIZATION_FAILED_COUNTER = Counter(
+        "posthog_rasterization_failed",
+        "Rasterization workflow failures by product and task queue",
+        ["product", "task_queue"],
+    )
+
 from .activities import (
     BumpStuckCounterInput,
     build_rasterization_input,
@@ -23,6 +37,12 @@ from .types import (
     RasterizationActivityOutput,
     RasterizeRecordingInputs,
 )
+
+
+def _record_outcome(counter: Counter, inputs: RasterizeRecordingInputs) -> None:
+    if wf.unsafe.is_replaying():
+        return
+    counter.labels(product=inputs.product, task_queue=wf.info().task_queue).inc()
 
 
 @wf.defn(name="rasterize-recording")
@@ -42,10 +62,21 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
         try:
             result = await self._run(inputs)
         except Exception:
+            # Count runs, not attempts: only the final scheduled attempt is a failed run.
+            if self._is_final_attempt():
+                _record_outcome(RASTERIZATION_FAILED_COUNTER, inputs)
             await self._maybe_bump_stuck_counter()
             raise
         await self._maybe_clear_stuck_counter()
+        _record_outcome(RASTERIZATION_COMPLETED_COUNTER, inputs)
         return result
+
+    @staticmethod
+    def _is_final_attempt() -> bool:
+        info = wf.info()
+        retry_policy = info.retry_policy
+        max_attempts = retry_policy.maximum_attempts if retry_policy else 1
+        return max_attempts is not None and 0 < max_attempts <= info.attempt
 
     async def _maybe_bump_stuck_counter(self) -> None:
         info = wf.info()

@@ -12,6 +12,7 @@ import type {
     AlertApi,
     AlertSimulateApi,
     AlertSimulateResponseApi,
+    AlertTestDeliveryResponseApi,
     AlertsListParams,
     AlertsRetrieveParams,
     InsightsThresholdsListParams,
@@ -43,7 +44,7 @@ export const getAlertsListUrl = (projectId: string, params?: AlertsListParams) =
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -87,7 +88,7 @@ export const getAlertsRetrieveUrl = (projectId: string, id: string, params?: Ale
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -157,6 +158,24 @@ export const alertsDestroy = async (projectId: string, id: string, options?: Req
     })
 }
 
+export const getAlertsTestDeliveryCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/alerts/${id}/test-delivery/`
+}
+
+/**
+ * Send a synthetic test notification to subscribed users and every active destination on this alert.
+ */
+export const alertsTestDeliveryCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AlertTestDeliveryResponseApi> => {
+    return apiMutator<AlertTestDeliveryResponseApi>(getAlertsTestDeliveryCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getAlertsSimulateCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/alerts/simulate/`
 }
@@ -186,7 +205,7 @@ export const getInsightsThresholdsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

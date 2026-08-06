@@ -4,6 +4,7 @@ import { expectLogic, partial } from 'kea-test-utils'
 
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { Experiment } from '~/types'
@@ -71,11 +72,11 @@ describe('variantsPanelLogic', () => {
         },
     ]
 
-    beforeEach(() => {
+    beforeEach(async () => {
         useMocks({
             get: {
-                [`/api/projects/${MOCK_TEAM_ID}/feature_flags/`]: (req) => {
-                    const url = new URL(req.url)
+                [`/api/projects/${MOCK_TEAM_ID}/feature_flags/`]: ({ request }) => {
+                    const url = new URL(request.url)
                     const search = url.searchParams.get('search')
 
                     if (search) {
@@ -107,6 +108,11 @@ describe('variantsPanelLogic', () => {
 
         experimentsLogic.mount()
         experimentsLogic.actions.loadExperiments()
+
+        // Let the mount-time loads settle: afterEach unmounts these logics, and an
+        // in-flight loader settling after unmount errors with "[KEA] Can not find path"
+        await expectLogic(featureFlagsLogic).toFinishAllListeners()
+        await expectLogic(experimentsLogic).toFinishAllListeners()
 
         logic = variantsPanelLogic({ experiment: mockExperiment, disabled: false })
         logic.mount()
@@ -285,6 +291,10 @@ describe('variantsPanelLogic', () => {
     })
 
     describe('error handling', () => {
+        // Deliberate loader failure — kea-loaders would log it
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
         it('handles validation errors gracefully', async () => {
             useMocks({
                 get: {

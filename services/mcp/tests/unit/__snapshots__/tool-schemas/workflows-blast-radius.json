@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "workflow_id": {
+            "description": "ID of the workflow whose batch-trigger audience to size.",
+            "type": "string"
+        }
+    },
+    "required": ["workflow_id"],
+    "type": "object"
+}

@@ -4,6 +4,7 @@ import { Link } from '@posthog/lemon-ui'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
+import { EmailViewerChip } from '../EmailViewerModal'
 import { getHogFlowStep } from '../hogflows/steps/HogFlowSteps'
 import { HogFlow } from '../hogflows/types'
 
@@ -15,6 +16,7 @@ const ACTION_REGEX = /\[Action:([a-zA-Z0-9_-]+)\]/
 const PERSON_REGEX = /\[Person:([a-zA-Z0-9_-]+)\|(.*?)\]/
 const EVENT_REGEX = /\[Event:([a-zA-Z0-9_-]+)\|(.*?)\|(.*?)\]/
 const ACTOR_REGEX = /\[Actor:(.*?)\]/
+const EMAIL_REGEX = /\[Email:([a-zA-Z0-9_-]+):([a-zA-Z0-9_-]*)\]/
 
 export const renderWorkflowLogMessage = (workflow: HogFlow, message: string): JSX.Element => {
     // Modifies the rendered log message to auto-detect action or person parts and replace them with a link
@@ -69,6 +71,16 @@ export const renderWorkflowLogMessage = (workflow: HogFlow, message: string): JS
 
             elements.push(
                 <PersonDisplay key={part} displayName={actorEmail} className="mt-1" withIcon="sm" inline noPopover />
+            )
+            continue
+        }
+
+        const matchesEmailRegex = EMAIL_REGEX.exec(part)
+        if (matchesEmailRegex) {
+            const invocationId = matchesEmailRegex[1]
+            const actionId = matchesEmailRegex[2]
+            elements.push(
+                <EmailViewerChip key={part} workflowId={workflow.id} invocationId={invocationId} actionId={actionId} />
             )
             continue
         }

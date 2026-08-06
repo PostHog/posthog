@@ -9,7 +9,7 @@ import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import { range } from 'lib/utils'
+import { range } from 'lib/utils/arrays'
 import { teamLogic } from 'scenes/teamLogic'
 
 export interface LemonCalendarProps {
@@ -19,10 +19,10 @@ export interface LemonCalendarProps {
     leftmostMonth?: dayjs.Dayjs
     /** Called if the user changed the month in the calendar */
     onLeftmostMonthChanged?: (date: dayjs.Dayjs) => void
-    /** Use custom LemonButton properties for each date */
-    getLemonButtonProps?: (opts: GetLemonButtonPropsOpts) => LemonButtonProps
-    /** Use custom LemonButton properties for each date */
-    getLemonButtonTimeProps?: (opts: GetLemonButtonTimePropsOpts) => LemonButtonProps
+    /** Describe the selection state of each date; the calendar owns the resulting styling */
+    getDateState?: (opts: GetDateStateOpts) => LemonCalendarDateState
+    /** Describe the selection state of each time cell; the calendar owns the resulting styling */
+    getTimeState?: (opts: GetTimeStateOpts) => LemonCalendarTimeState
     /** Number of months */
     months?: number
     /** 0 or unset for Sunday, 1 for Monday. */
@@ -33,15 +33,98 @@ export interface LemonCalendarProps {
     use24HourFormat?: boolean
 }
 
-export interface GetLemonButtonPropsOpts {
+export interface GetDateStateOpts {
     date: dayjs.Dayjs
-    props: LemonButtonProps
     dayIndex: number
     weekIndex: number
 }
-export interface GetLemonButtonTimePropsOpts {
+
+/**
+ * A decoupled description of how a single date should render, mirroring Quill's calendar vocabulary.
+ * `selected` takes precedence: when set, the range flags (`isStart`/`isEnd`/`isBetween`) are ignored.
+ */
+export interface LemonCalendarDateState {
+    /** Disable the date and explain why on hover */
+    disabledReason?: string
+    /** Render as a selected single date; wins over the range flags below */
+    selected?: boolean
+    /** Render as the start boundary of a range */
+    isStart?: boolean
+    /** Render as the end boundary of a range */
+    isEnd?: boolean
+    /** Render as a date sitting between the range boundaries */
+    isBetween?: boolean
+}
+
+export interface GetTimeStateOpts {
     unit: 'h' | 'm' | 'a'
     value: number | string
+}
+
+/** A decoupled description of how a single time cell should render. */
+export interface LemonCalendarTimeState {
+    active?: boolean
+    disabledReason?: string
+    onClick?: () => void
+}
+
+export function timeDataAttr({ unit, value }: GetTimeStateOpts): string {
+    return `${value}-${unit}`
+}
+
+function timeStateToButtonProps(state: LemonCalendarTimeState, opts: GetTimeStateOpts): LemonButtonProps {
+    return {
+        active: state.active,
+        disabledReason: state.disabledReason,
+        onClick: state.onClick,
+        className: 'rounded-none',
+        'data-attr': timeDataAttr(opts),
+    }
+}
+
+function dateStateToButtonProps(
+    state: LemonCalendarDateState,
+    defaultProps: LemonButtonProps,
+    dayIndex: number
+): LemonButtonProps {
+    const props: LemonButtonProps = { ...defaultProps, disabledReason: state.disabledReason }
+    const isFirstDayOfWeek = dayIndex === 0
+    const isLastDayOfWeek = dayIndex === 6
+
+    if (state.selected) {
+        return { ...props, status: 'default', type: 'primary' }
+    }
+
+    if (state.isStart || state.isEnd) {
+        return {
+            ...props,
+            className:
+                state.isStart && state.isEnd
+                    ? props.className
+                    : clsx(
+                          props.className,
+                          {
+                              'rounded-r-none': state.isStart && !isLastDayOfWeek,
+                              'rounded-l-none': state.isEnd && !isFirstDayOfWeek,
+                          },
+                          'LemonCalendar__range--boundary'
+                      ),
+            type: 'primary',
+        }
+    }
+
+    if (state.isBetween) {
+        return {
+            ...props,
+            className: clsx(
+                props.className,
+                isFirstDayOfWeek ? 'rounded-r-none' : isLastDayOfWeek ? 'rounded-l-none' : 'rounded-none'
+            ),
+            active: true,
+        }
+    }
+
+    return props
 }
 
 const dayLabels = ['su', 'mo', 'tu', 'we', 'th', 'fr', 'sa']
@@ -64,6 +147,11 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
             setLeftmostMonth(props.leftmostMonth)
         }
     }, [props.leftmostMonth]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    const timeButtonProps = (opts: GetTimeStateOpts): LemonButtonProps | undefined => {
+        const timeState = props.getTimeState?.(opts)
+        return timeState ? timeStateToButtonProps(timeState, opts) : undefined
+    }
 
     return (
         <div
@@ -147,13 +235,14 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                                             }),
                                         }
 
-                                        const buttonProps =
-                                            props.getLemonButtonProps?.({
-                                                dayIndex: day,
-                                                weekIndex: week,
-                                                date,
-                                                props: defaultProps,
-                                            }) ?? defaultProps
+                                        const dateState = props.getDateState?.({
+                                            dayIndex: day,
+                                            weekIndex: week,
+                                            date,
+                                        })
+                                        const buttonProps = dateState
+                                            ? dateStateToButtonProps(dateState, defaultProps, day)
+                                            : defaultProps
                                         return (
                                             <td key={day}>
                                                 <LemonButton
@@ -178,10 +267,7 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                 <div className="LemonCalendar__time absolute top-0 bottom-0 right-0 flex divide-x border-l">
                     <ScrollableShadows direction="vertical">
                         {(use24HourFormat ? range(0, 24) : [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]).map((hour) => {
-                            const buttonProps = props.getLemonButtonTimeProps?.({
-                                unit: 'h',
-                                value: hour,
-                            })
+                            const buttonProps = timeButtonProps({ unit: 'h', value: hour })
 
                             return (
                                 <LemonButton fullWidth key={hour} {...buttonProps}>
@@ -194,10 +280,7 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                     {granularity === 'minute' && (
                         <ScrollableShadows direction="vertical">
                             {range(0, 60).map((minute) => {
-                                const buttonProps = props.getLemonButtonTimeProps?.({
-                                    unit: 'm',
-                                    value: minute,
-                                })
+                                const buttonProps = timeButtonProps({ unit: 'm', value: minute })
                                 return (
                                     <LemonButton fullWidth key={minute} {...buttonProps}>
                                         <span className="w-full text-center px-2">
@@ -211,10 +294,10 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                     )}
                     {!use24HourFormat && (
                         <div>
-                            <LemonButton fullWidth {...props.getLemonButtonTimeProps?.({ unit: 'a', value: 'am' })}>
+                            <LemonButton fullWidth {...timeButtonProps({ unit: 'a', value: 'am' })}>
                                 <span className="w-full text-center">AM</span>
                             </LemonButton>
-                            <LemonButton fullWidth {...props.getLemonButtonTimeProps?.({ unit: 'a', value: 'pm' })}>
+                            <LemonButton fullWidth {...timeButtonProps({ unit: 'a', value: 'pm' })}>
                                 <span className="w-full text-center">PM</span>
                             </LemonButton>
                         </div>

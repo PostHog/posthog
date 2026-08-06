@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-const fs = require('fs')
+const { spawnSync } = require('child_process')
+const { pathMatchesPattern } = require('./codeowners')
 
 // Tunable knobs for how aggressively we trim the reviewer list. Kept in one
 // place so adjusting noise levels doesn't require re-reading the logic. All
@@ -20,6 +21,9 @@ const CONFIG = {
         '**/*.lock',
         '**/*.snap',
         '**/*.ambr',
+        // Regenerated wholesale by `pnpm update-ai-costs` from the OpenRouter API.
+        'nodejs/src/ingestion/pipelines/ai/costs/providers/canonical-providers.ts',
+        'nodejs/src/ingestion/pipelines/ai/costs/providers/llm-costs.json',
     ],
     // An owner is formally requested for review only if their footprint clears
     // one of these bars; otherwise they are demoted to the explanation comment
@@ -34,136 +38,65 @@ const CONFIG = {
     commentMarker: '<!-- auto-assign-reviewers -->',
 }
 
-function parseCodeowners(codeownersPath) {
-    if (!fs.existsSync(codeownersPath)) {
-        throw new Error(`No CODEOWNERS file found at "${codeownersPath}"`)
+// Ownership is resolved by the shared hogli resolver (distributed owners.yaml +
+// product.yaml aliases), never re-parsed here — one semantics, many consumers.
+// We shell out to its dependency-light JSON entrypoint: pipe the changed
+// filenames in, get back `{path: {owners, status, slack, source}}`. The workflow
+// provides python3 + pyyaml and checks out master, so the resolver reads the same
+// owners.yaml tree CI enforces.
+function resolveOwners(filenames) {
+    if (filenames.length === 0) {
+        return {}
     }
-
-    const content = fs.readFileSync(codeownersPath, 'utf8')
-    const rules = []
-
-    for (const line of content.split('\n')) {
-        const trimmed = line.trim()
-
-        if (!trimmed || trimmed.startsWith('#')) {
-            continue
-        }
-
-        const tokens = trimmed.split(/\s+/)
-        if (tokens.length < 2) {
-            continue
-        }
-
-        const pattern = tokens[0]
-        const owners = tokens.slice(1)
-
-        rules.push({ pattern, owners })
+    const python = process.env.OWNERS_RESOLVER_PYTHON || 'python3'
+    // Insert the package dir on sys.path *after* interpreter startup instead of
+    // via PYTHONPATH: a PYTHONPATH entry is scanned by the `site` module at
+    // startup, so an unprotected sitecustomize.py/usercustomize.py added there
+    // later would execute in this pull_request_target context. Post-startup
+    // insertion never triggers those hooks; stdlib-shadow modules in that dir
+    // are blocked by the CODEOWNERS entry on tools/owners. -I (isolated mode)
+    // additionally drops the implicit CWD sys.path entry, so an unprotected
+    // repo-root yaml.py can't shadow PyYAML either; the setup-python
+    // interpreter's site-packages (where the workflow installs pyyaml) stays
+    // importable.
+    const launcher =
+        "import sys, runpy; sys.path.insert(0, 'tools/owners'); runpy.run_module('posthog_owners', run_name='__main__')"
+    const result = spawnSync(python, ['-I', '-c', launcher], {
+        input: filenames.join('\n'),
+        encoding: 'utf8',
+        maxBuffer: 64 * 1024 * 1024,
+    })
+    if (result.error) {
+        throw new Error(`Could not run owners resolver: ${result.error.message}`)
     }
-
-    return rules
+    if (result.status !== 0) {
+        throw new Error(`owners resolver exited ${result.status}:\n${result.stderr || result.stdout}`)
+    }
+    return JSON.parse(result.stdout)
 }
 
-// Minimal parser for the `owners:` list in products/<name>/product.yaml.
-// We don't depend on a YAML library because this script runs from a bare CI
-// checkout; the schema is simple and validated elsewhere by hogli.
-function parseOwnersFromProductYaml(content) {
-    const owners = []
-    let inOwners = false
-
-    for (const rawLine of content.split('\n')) {
-        const line = rawLine.replace(/\s+#.*$/, '').trimEnd()
-
-        // Skip blank lines and full-line comments; neither should terminate the
-        // owners block. Inline comments are already stripped above; the regex
-        // requires preceding whitespace, so we handle column-0 comments here.
-        if (!line.trim() || /^\s*#/.test(rawLine)) {
-            continue
-        }
-
-        if (/^owners\s*:\s*$/.test(line)) {
-            inOwners = true
-            continue
-        }
-
-        if (!inOwners) {
-            continue
-        }
-
-        const listMatch = line.match(/^\s+-\s+(.+?)$/)
-        if (listMatch) {
-            owners.push(listMatch[1].replace(/^["']|["']$/g, '').trim())
-            continue
-        }
-
-        // A new top-level key terminates the owners block.
-        if (/^\S/.test(rawLine)) {
-            inOwners = false
-        }
+// The resolver emits bare team slugs (`team-foo`) and `@handle` individuals.
+// Normalize to the CODEOWNERS token shape the rest of the assigner speaks —
+// `@PostHog/<slug>` for teams, `@handle` for users — then classify.
+function mapResolvedOwner(rawOwner) {
+    if (!rawOwner) {
+        return null
     }
-
-    return owners
+    const token = rawOwner.startsWith('@') ? rawOwner : `@PostHog/${rawOwner}`
+    return classifyOwner(token)
 }
 
-function loadProductYamlRules(productsDir = 'products') {
-    const rules = []
-
-    if (!fs.existsSync(productsDir)) {
-        return rules
-    }
-
-    const entries = fs.readdirSync(productsDir, { withFileTypes: true })
-
-    for (const entry of entries) {
-        if (!entry.isDirectory()) {
-            continue
-        }
-
-        const yamlPath = `${productsDir}/${entry.name}/product.yaml`
-        if (!fs.existsSync(yamlPath)) {
-            continue
-        }
-
-        const content = fs.readFileSync(yamlPath, 'utf8')
-        const slugs = parseOwnersFromProductYaml(content)
-
-        const owners = []
-        for (const slug of slugs) {
-            // Guard against slugs that already include an `@` prefix, otherwise
-            // we'd build `@PostHog/@PostHog/team-foo`, which GitHub silently
-            // refuses to resolve and reviewer assignment is dropped.
-            if (!slug || slug === 'team-CHANGEME' || slug.startsWith('@')) {
-                continue
-            }
-            owners.push(`@PostHog/${slug}`)
-        }
-
-        if (owners.length === 0) {
-            continue
-        }
-
-        rules.push({ pattern: `${productsDir}/${entry.name}/**`, owners })
-    }
-
-    return rules
-}
-
-function globToRegex(pattern) {
-    let regex = pattern
-        .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-        .replace(/\*\*/g, '__DOUBLESTAR__')
-        .replace(/\*/g, '[^/]*')
-        .replace(/__DOUBLESTAR__/g, '.*')
-
-    if (pattern.endsWith('/')) {
-        regex = regex.slice(0, -1) + '.*'
-    }
-
-    return new RegExp(`^${regex}$`)
-}
-
+// Glob matching lives in the vendored, GitHub-faithful matcher (./codeowners.js,
+// a JS port of hmarr/codeowners). Thin wrapper so the rest of the assigner reads
+// naturally and the (filePath, pattern) argument order is stable. A malformed
+// pattern (e.g. a `***` typo) degrades to "no match" rather than aborting the
+// whole run, matching how the vendored CodeOwners class treats batch rules.
 function fileMatchesPattern(filePath, pattern) {
-    const regex = globToRegex(pattern)
-    return regex.test(filePath)
+    try {
+        return pathMatchesPattern(pattern, filePath)
+    } catch {
+        return false
+    }
 }
 
 function isExcludedFile(filePath, excludedPatterns = CONFIG.excludedPatterns) {
@@ -219,6 +152,25 @@ async function getChangedFiles() {
     return allFiles
 }
 
+// On external PRs these teams are labelled instead of requested as reviewers, so
+// the team is surfaced without being pulled into the queue before triage. Names
+// are the part after `@PostHog/`.
+const LABEL_ONLY_TEAMS_FOR_EXTERNAL = new Set(['team-product-analytics'])
+
+// `team-product-analytics` -> `team/product-analytics`; null for non-team owners.
+function teamSlugToLabel(name) {
+    if (!name || !name.startsWith('team-')) {
+        return null
+    }
+    return name.replace(/^team-/, 'team/')
+}
+
+function partitionExternalTeams(teams) {
+    const toLabel = teams.filter((name) => LABEL_ONLY_TEAMS_FOR_EXTERNAL.has(name))
+    const toRequest = teams.filter((name) => !LABEL_ONLY_TEAMS_FOR_EXTERNAL.has(name))
+    return { toLabel, toRequest }
+}
+
 // Resolve a raw CODEOWNERS owner token to a kind we can act on, or null if it's
 // something we don't assign (e.g. a malformed entry).
 function classifyOwner(owner) {
@@ -231,41 +183,60 @@ function classifyOwner(owner) {
     return null
 }
 
-// Build a footprint per owner: which rule patterns matched, which (non-excluded)
-// files they own in this diff, and the total lines changed across those files.
-// Pure function; takes already-fetched files so it's trivially testable.
-function computeOwnerFootprints(rules, changedFiles, config = CONFIG) {
+// Build a footprint per owner from the resolver's per-file result: which
+// owners.yaml/product.yaml sources pulled them in, which (non-excluded) files
+// they own in this diff, and the total lines changed across those files. Pure
+// function; takes the already-fetched files and the resolver map so it's
+// trivially testable. `resolutionByPath` maps filename -> {owners, source, ...}.
+function computeOwnerFootprints(resolutionByPath, changedFiles, config = CONFIG) {
     const relevantFiles = changedFiles.filter((file) => !isExcludedFile(file.filename, config.excludedPatterns))
     const footprints = new Map()
 
-    for (const rule of rules) {
-        const matched = relevantFiles.filter((file) => fileMatchesPattern(file.filename, rule.pattern))
-        if (matched.length === 0) {
+    for (const file of relevantFiles) {
+        const resolution = resolutionByPath[file.filename]
+        // status: generated/vendored is the structured form of the excluded
+        // patterns above — such trees have owners for lookup, but shouldn't
+        // pull reviewers in or count toward substantive thresholds. Ownership
+        // metadata files are exempt: an owners.yaml edit inside a generated
+        // tree still changes future routing and must reach a reviewer.
+        const basename = file.filename.split('/').pop()
+        const isOwnershipFile = basename === 'owners.yaml' || basename === 'product.yaml'
+        if (
+            !isOwnershipFile &&
+            resolution &&
+            (resolution.status === 'generated' || resolution.status === 'vendored')
+        ) {
             continue
         }
+        const owners = (resolution && resolution.owners) || []
+        if (owners.length === 0) {
+            continue
+        }
+        // The source is the owners.yaml/product.yaml that decided this file — the
+        // actionable locator we surface instead of a glob pattern.
+        const source = (resolution && resolution.source) || '(unresolved source)'
+        const lines = file.additions + file.deletions
 
-        for (const owner of rule.owners) {
-            const resolved = classifyOwner(owner)
+        for (const rawOwner of owners) {
+            const resolved = mapResolvedOwner(rawOwner)
             if (!resolved) {
                 continue
             }
 
-            let footprint = footprints.get(owner)
+            let footprint = footprints.get(resolved.owner)
             if (!footprint) {
                 footprint = {
-                    owner,
+                    owner: resolved.owner,
                     type: resolved.type,
                     name: resolved.name,
-                    patterns: new Set(),
-                    files: new Map(), // filename -> changed lines, deduped across rules
+                    patterns: new Set(), // resolver source locators, shown in the demotion comment
+                    files: new Map(), // filename -> changed lines
                 }
-                footprints.set(owner, footprint)
+                footprints.set(resolved.owner, footprint)
             }
 
-            footprint.patterns.add(rule.pattern)
-            for (const file of matched) {
-                footprint.files.set(file.filename, file.additions + file.deletions)
-            }
+            footprint.patterns.add(source)
+            footprint.files.set(file.filename, lines)
         }
     }
 
@@ -373,9 +344,9 @@ function buildReviewerComment(requested, demoted, config = CONFIG) {
         '',
         ...demoted.map(formatSkippedOwner),
         '',
-        'Soft owners come from ' +
-            '[`CODEOWNERS-soft`](https://github.com/PostHog/posthog/blob/master/.github/CODEOWNERS-soft) ' +
-            "and each product's `product.yaml`. Generated files and lockfiles are ignored when deciding ownership.",
+        "Soft owners come from each directory's `owners.yaml` and each product's `product.yaml` " +
+            '(resolved nearest-file-wins). The locator after each owner is the file that decided it. ' +
+            'Generated files and lockfiles are ignored when deciding ownership.',
     ].join('\n')
 }
 
@@ -412,23 +383,25 @@ async function assignReviewers(teams, users) {
 
     const response = await post(payload)
 
-    // GitHub returns 422 for the whole batch if *any* requested team isn't a
-    // collaborator on the repo (teams get renamed, deleted, or never set up,
-    // CODEOWNERS-soft and product.yaml drift). Salvage by retrying users +
-    // each team independently so valid entries still land, and log the bad
-    // slugs so they're visible in the action log as cleanup nudges.
-    if (response.status === 422 && teams.length > 0) {
+    // GitHub returns 422 for the whole batch if *any* requested team or user
+    // isn't assignable on the repo (teams get renamed or deleted, individual
+    // @handles go stale or leave, owners.yaml and product.yaml drift). Salvage
+    // by retrying every user and team independently so valid entries still
+    // land, and log the bad ones so they're visible as cleanup nudges.
+    if (response.status === 422) {
         const errorText = await response.text()
         console.warn(`⚠️  422 on bulk request, retrying individually:\n${errorText}`)
 
-        if (users.length > 0) {
-            const r = await post({ reviewers: users })
-            if (!r.ok) {
-                throw new Error(`GitHub API error assigning users: ${r.status} ${r.statusText}\n${await r.text()}`)
+        const dropped = []
+        for (const user of users) {
+            const r = await post({ reviewers: [user] })
+            if (r.status === 422) {
+                dropped.push(`@${user}`)
+            } else if (!r.ok) {
+                throw new Error(`GitHub API error assigning user '${user}': ${r.status} ${r.statusText}\n${await r.text()}`)
             }
         }
 
-        const dropped = []
         for (const team of teams) {
             const r = await post({ team_reviewers: [team] })
             if (r.status === 422) {
@@ -442,8 +415,8 @@ async function assignReviewers(teams, users) {
 
         if (dropped.length > 0) {
             console.warn(
-                `⚠️  Dropped ${dropped.length} stale team(s): ${dropped.join(', ')}. ` +
-                    `Fix product.yaml / CODEOWNERS-soft so these get assigned next time.`
+                `⚠️  Dropped ${dropped.length} stale reviewer(s): ${dropped.join(', ')}. ` +
+                    `Fix product.yaml / owners.yaml so these get assigned next time.`
             )
         }
         console.info('✅ Reviewers assigned (with fallback)')
@@ -456,6 +429,39 @@ async function assignReviewers(teams, users) {
     }
 
     console.info('✅ Reviewers assigned successfully')
+}
+
+// Best-effort: a label failure must never fail the job.
+async function applyTeamLabels(labels) {
+    const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
+
+    if (labels.length === 0) {
+        console.info('ℹ️  No team labels to apply')
+        return
+    }
+
+    console.info(`Applying team labels: ${labels.join(', ')}`)
+
+    try {
+        const response = await fetch(`https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels`, {
+            method: 'POST',
+            headers: {
+                Authorization: `token ${GITHUB_TOKEN}`,
+                Accept: 'application/vnd.github.v3+json',
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ labels }),
+        })
+
+        if (!response.ok) {
+            console.warn(`⚠️  Could not apply team labels: ${response.status} ${response.statusText}`)
+            return
+        }
+
+        console.info('✅ Team labels applied')
+    } catch (error) {
+        console.warn(`⚠️  Skipping team labels: ${error.message}`)
+    }
 }
 
 async function findExistingComment(marker) {
@@ -546,29 +552,41 @@ async function main() {
     }
 
     try {
-        const codeownersPath = '.github/CODEOWNERS-soft'
-        // products/<name>/product.yaml is the source of truth for product team
-        // ownership; we layer those rules on top of CODEOWNERS-soft so the file
-        // only needs to carry sub-folder overrides and secondary reviewers.
-        const rules = [...parseCodeowners(codeownersPath), ...loadProductYamlRules()]
         const changedFiles = await getChangedFiles()
 
         console.info(`Found ${changedFiles.length} changed files:`)
         changedFiles.forEach((file) => console.info(`  ${file.filename} (+${file.additions} -${file.deletions})`))
         console.info()
 
-        const footprints = computeOwnerFootprints(rules, changedFiles)
+        // Resolve ownership for the files that actually count (excluded ones can't
+        // pull in a reviewer, so don't waste a resolver round-trip on them).
+        const relevantFilenames = changedFiles
+            .filter((file) => !isExcludedFile(file.filename))
+            .map((file) => file.filename)
+        const resolutionByPath = resolveOwners(relevantFilenames)
+
+        const footprints = computeOwnerFootprints(resolutionByPath, changedFiles)
         const { requested, demoted } = classifyOwners(footprints)
 
         const teams = requested.filter((f) => f.type === 'team').map((f) => f.name)
         const users = requested.filter((f) => f.type === 'user').map((f) => f.name)
 
-        console.info(`Teams to request: ${teams.join(', ') || 'none'}`)
+        // Forks come from external contributors (no write access for same-repo branches).
+        const isExternal = process.env.IS_FORK === 'true'
+
+        console.info(`External (fork) PR: ${isExternal}`)
+        console.info(`Teams matched: ${teams.join(', ') || 'none'}`)
         console.info(`Users to request: ${users.join(', ') || 'none'}`)
         console.info(`Demoted to comment: ${demoted.map((f) => f.owner).join(', ') || 'none'}`)
         console.info()
 
-        await assignReviewers(teams, users)
+        if (!isExternal) {
+            await assignReviewers(teams, users)
+        } else {
+            const { toLabel, toRequest } = partitionExternalTeams(teams)
+            await applyTeamLabels(toLabel.map(teamSlugToLabel).filter(Boolean))
+            await assignReviewers(toRequest, users)
+        }
 
         const commentBody = buildReviewerComment(requested, demoted)
         if (commentBody) {
@@ -588,6 +606,8 @@ module.exports = {
     CONFIG,
     isExcludedFile,
     classifyOwner,
+    teamSlugToLabel,
+    partitionExternalTeams,
     computeOwnerFootprints,
     isSubstantive,
     classifyOwners,

@@ -1,4 +1,3 @@
-import re
 import itertools
 from collections.abc import Iterable, Iterator, Sequence
 from typing import TYPE_CHECKING, Any, Optional
@@ -18,7 +17,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLQuerySettings
+from posthog.hogql.constants import HogQLQuerySettings, LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.printer import prepare_and_print_ast
@@ -32,6 +31,7 @@ from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQ
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode, QueryRunner, get_query_runner
+from posthog.hogql_queries.utils.person_display_name import person_display_name_property_exprs
 from posthog.models import User
 
 
@@ -295,7 +295,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         return self.strategy.input_columns()
 
     # TODO: Figure out a more sure way of getting the actor id than using the alias or chain name
-    def source_id_column(self, source_query: ast.SelectQuery | ast.SelectSetQuery) -> list[int | str]:
+    def source_id_column(self, source_query: ast.SelectQuery | ast.SelectSetQuery) -> list[int | str] | None:
         # Figure out the id column of the source query, first column that has id in the name
         if isinstance(source_query, ast.SelectQuery):
             select = source_query.select
@@ -312,6 +312,12 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
             if isinstance(column, ast.Field) and any("id" in str(part).lower() for part in column.chain):
                 return [str(part) for part in column.chain]
+
+        # During cohort calculation the caller (print_cohort_hogql_query) can still resolve the
+        # actor id from the source query's own table (events → person.id, persons → id). Return
+        # None so it gets that chance instead of crashing static-cohort population outright.
+        if self.limit_context == LimitContext.COHORT_CALCULATION:
+            return None
         raise ValueError("Source query must have an id column")
 
     def source_distinct_id_column(self, source_query: ast.SelectQuery | ast.SelectSetQuery) -> str | None:
@@ -330,6 +336,8 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         assert self.source_query_runner is not None  # For type checking
         source_query = self.source_query_runner.to_actors_query()
         source_id_chain = self.source_id_column(source_query)
+        if source_id_chain is None:
+            raise ValueError("Source query must have an id column")
         source_alias = "source"
 
         return ast.JoinExpr(
@@ -349,7 +357,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
             ),
         )
 
-    def to_query(self) -> ast.SelectQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("columns"):
             columns = []
             group_by = []
@@ -455,6 +463,11 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                 assert self.source_query_runner is not None  # For type checking
                 source_query = self.source_query_runner.to_actors_query()
                 source_id_chain = self.source_id_column(source_query)
+                if source_id_chain is None:
+                    # Cohort calculation with a source that exposes no id column: hand the source
+                    # query back so the cohort calculator resolves the actor id from its table.
+                    # Skipping the persons join is fine — we only need the set of actor ids.
+                    return source_query
                 source_distinct_id_column = self.source_distinct_id_column(source_query)
                 source_alias = "source"
 
@@ -517,7 +530,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                             ast.CompareOperation(
                                 left=ast.Field(chain=[origin, self.strategy.origin_id]),
                                 right=ast.SelectQuery(
-                                    select=[ast.Field(chain=[source_alias, *self.source_id_column(source_query)])],
+                                    select=[ast.Field(chain=[source_alias, *source_id_chain])],
                                     select_from=ast.JoinExpr(table=source_query, alias=source_alias),
                                 ),
                                 op=ast.CompareOperationOp.In,
@@ -545,7 +558,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
         return select_query
 
-    def to_actors_query(self) -> ast.SelectQuery:
+    def to_actors_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return self.to_query()
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
@@ -559,13 +572,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
     def _get_person_display_name_column(self) -> ast.Expr:
         property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-        # Only use backticks for property names with spaces or special chars
-        props = []
-        for key in property_keys:
-            if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", key):
-                props.append(f"toString(properties.{key})")
-            else:
-                props.append(f"toString(properties.`{key}`)")
+        props = person_display_name_property_exprs(property_keys, "properties")
         # nosemgrep: hogql-fstring-audit (property_keys from team config is admin-only, not user input)
         return parse_expr(f"(coalesce({', '.join([*props, 'toString(id)'])}), toString(id))")
 

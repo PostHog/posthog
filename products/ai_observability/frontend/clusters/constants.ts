@@ -10,8 +10,14 @@ export const TRACES_PER_PAGE = 50
 // Query limits
 export const MAX_CLUSTERING_RUNS = 20
 
+// How far back to look for clustering runs. Scheduled runs are emitted (roughly) daily, but
+// a team can go several days without a fresh run — low-traffic days, sampling, or a paused
+// schedule. A wide window keeps the most recent run visible instead of the page going empty
+// the moment the last run ages past a day or two. MAX_CLUSTERING_RUNS still bounds the result.
+export const CLUSTERING_RUNS_LOOKBACK_DAYS = 90
+
 // Cluster detail URL pattern. Mirrored in `manifest.tsx`'s route registration so any
-// `tabAwareUrlToAction` matcher (e.g. `clusterDetailLogic`, `aiObservabilitySharedLogic`)
+// `urlToAction` matcher (e.g. `clusterDetailLogic`, `aiObservabilitySharedLogic`)
 // stays in lockstep with the actual route.
 export const AI_OBSERVABILITY_CLUSTER_URL_PATTERN = '/ai-observability/clusters/:runId/:clusterId'
 

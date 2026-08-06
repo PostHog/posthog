@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useState } from 'react'
 
-import { IconBolt } from '@posthog/icons'
+import { IconBolt, IconPerson } from '@posthog/icons'
 
 import { LiveUserCount } from 'lib/components/LiveUserCount'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -12,12 +13,15 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { teamLogic } from 'scenes/teamLogic'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsMenu } from 'scenes/web-analytics/WebAnalyticsMenu'
 
 export function WebAnalyticsHeaderButtons(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
+    const { shouldFilterTestAccounts } = useValues(webAnalyticsLogic)
+    const { setShouldFilterTestAccounts } = useActions(webAnalyticsLogic)
     const [showPopover, setShowPopover] = useState(false)
 
     const hasFeatureFlag = featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES]
@@ -29,6 +33,7 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
 
     const handleShare = (): void => {
         void copyToClipboard(window.location.href, 'link')
+        posthog.capture('web analytics share link copied', { source: 'header_button' })
     }
 
     const handleToggleEngine = (checked: boolean): void => {
@@ -59,6 +64,17 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
                     data-attr="web-analytics-share-button"
                 />
             )}
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconPerson />}
+                tooltip="Filter out internal and test users"
+                tooltipPlacement="top"
+                onClick={() => setShouldFilterTestAccounts(!shouldFilterTestAccounts)}
+                data-attr="web-analytics-filter-test-accounts"
+            >
+                Filter test accounts <LemonSwitch checked={shouldFilterTestAccounts} className="ml-1" />
+            </LemonButton>
             {hasFeatureFlag && (
                 <Popover
                     visible={showPopover}

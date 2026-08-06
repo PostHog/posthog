@@ -11,6 +11,7 @@ import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerL
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -73,6 +74,7 @@ function formatSessionSummary(summary: SessionSummaryContent, sessionId: string)
 
 export function PlayerSummaryDock(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
     const { logicProps, sessionRecordingId, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const {
         sessionSummary,
@@ -103,10 +105,10 @@ export function PlayerSummaryDock(): JSX.Element | null {
     const summaryId = summaryIdBySessionId[sessionRecordingId] ?? null
     const hasRenderedSummary = hasSummary && !sessionSummaryError
     const setIsOpen = (open: boolean): void => setSummaryOpen(sessionRecordingId, open)
-    const expandedHeight = Math.max(
-        MIN_EXPANDED_HEIGHT,
-        Math.min(MAX_EXPANDED_HEIGHT, desiredSize ?? DEFAULT_EXPANDED_HEIGHT)
-    )
+    // Cap the default height to the viewport so the dock can't crush the player.
+    const expandedMaxHeight = desiredSize
+        ? `${Math.max(MIN_EXPANDED_HEIGHT, Math.min(MAX_EXPANDED_HEIGHT, desiredSize))}px`
+        : `min(${DEFAULT_EXPANDED_HEIGHT}px, 45vh)`
 
     // `isOpen` flips multiple times per summary, so dedupe to one capture per render.
     const capturedKeyRef = useRef<string | null>(null)
@@ -136,7 +138,7 @@ export function PlayerSummaryDock(): JSX.Element | null {
                 'relative border-t bg-surface-primary overflow-hidden flex flex-col',
                 !isResizeInProgress && 'transition-[max-height] duration-300 ease-out'
             )}
-            style={{ maxHeight: isOpen ? expandedHeight : COLLAPSED_HEIGHT }}
+            style={{ maxHeight: isOpen ? expandedMaxHeight : COLLAPSED_HEIGHT }}
             data-attr="player-summary-dock"
         >
             {isOpen && <Resizer {...resizerProps} />}
@@ -156,6 +158,18 @@ export function PlayerSummaryDock(): JSX.Element | null {
                         data-attr="cancel-session-summary"
                     >
                         Cancel summarization
+                    </LemonButton>
+                ) : !isCloudOrDev ? (
+                    // AI session summaries run on PostHog Cloud only — show the standard upsell.
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        icon={<IconMagicWand />}
+                        to={urls.moveToPostHogCloud()}
+                        tooltip="AI session summaries are a PostHog Cloud feature (separate from PostHog AI, which runs on your own provider key)"
+                        data-attr="session-summary-move-to-cloud"
+                    >
+                        Summarize with PostHog Cloud
                     </LemonButton>
                 ) : (
                     <LemonButton

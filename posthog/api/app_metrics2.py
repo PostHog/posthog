@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
 from drf_spectacular.utils import extend_schema
@@ -9,12 +9,11 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from posthog.schema import ProductKey
-
 from posthog.api.utils import action
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.team.team import Team
+from posthog.schema_enums import ProductKey
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 APP_SOURCE_TO_PRODUCT_KEY: dict[str, ProductKey] = {
@@ -127,8 +126,10 @@ def fetch_app_metrics_trends(
     clickhouse_kwargs["team_id"] = team_id
     clickhouse_kwargs["app_source"] = app_source
     clickhouse_kwargs["app_source_id"] = app_source_id
-    clickhouse_kwargs["after"] = after.strftime("%Y-%m-%dT%H:%M:%S")
-    clickhouse_kwargs["before"] = before.strftime("%Y-%m-%dT%H:%M:%S")
+    # Convert to UTC before formatting — the naive string is read as UTC by toDateTime64, so a
+    # team-timezone-aware bound would otherwise shift the window by the team's offset.
+    clickhouse_kwargs["after"] = after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
+    clickhouse_kwargs["before"] = before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
     clickhouse_kwargs["instance_id"] = instance_id
     clickhouse_kwargs["name"] = name
     clickhouse_kwargs["kind"] = kind
@@ -205,12 +206,14 @@ def fetch_app_metric_totals(
     name = name or []
     kind = kind or []
 
+    # Convert to UTC before formatting — the naive string is read as UTC by toDateTime64, so a
+    # team-timezone-aware bound would otherwise shift the window by the team's offset.
     clickhouse_kwargs: dict[str, Any] = {
         "team_id": team_id,
         "app_source": app_source,
         "app_source_id": app_source_id,
-        "after": after.strftime("%Y-%m-%dT%H:%M:%S") if after else None,
-        "before": before.strftime("%Y-%m-%dT%H:%M:%S") if before else None,
+        "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if after else None,
+        "before": before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if before else None,
     }
 
     clickhouse_query = f"""
@@ -236,6 +239,56 @@ def fetch_app_metric_totals(
 
     totals = {row[0]: row[1] for row in results}
     return AppMetricsTotalsResponse(totals=totals)
+
+
+def fetch_app_metric_totals_by_source(
+    team_id: int,
+    app_source: str,
+    after: Optional[datetime] = None,
+    before: Optional[datetime] = None,
+    name: Optional[list[str]] = None,
+) -> dict[str, dict[str, int]]:
+    """Per-`app_source_id` metric totals for a whole team in one grouped query.
+
+    Unlike `fetch_app_metric_totals` (single object), this drops the `app_source_id`
+    filter and groups by it, so callers get counts for every object at once — e.g. a
+    failure overview across all workflows. Returns `{app_source_id: {metric_name: count}}`.
+    """
+    name = name or ["succeeded", "failed"]
+
+    # Convert to UTC before formatting — the naive string is read as UTC by toDateTime64, so a
+    # team-timezone-aware bound would otherwise shift the window by the team's offset.
+    clickhouse_kwargs: dict[str, Any] = {
+        "team_id": team_id,
+        "app_source": app_source,
+        "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if after else None,
+        "before": before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if before else None,
+        "name": name,
+    }
+
+    clickhouse_query = f"""
+        SELECT
+            app_source_id,
+            metric_name,
+            sum(count) as count
+        FROM app_metrics2
+        WHERE team_id = %(team_id)s
+        AND app_source = %(app_source)s
+        {"AND timestamp >= toDateTime64(%(after)s, 6)" if after else ""}
+        {"AND timestamp <= toDateTime64(%(before)s, 6)" if before else ""}
+        AND metric_name IN %(name)s
+        GROUP BY app_source_id, metric_name
+    """
+
+    results = sync_execute(clickhouse_query, clickhouse_kwargs)
+
+    if not isinstance(results, list):
+        raise ValueError("Unexpected results from ClickHouse")
+
+    totals: dict[str, dict[str, int]] = {}
+    for app_source_id, metric_name, count in results:
+        totals.setdefault(app_source_id, {})[metric_name] = count
+    return totals
 
 
 class AppMetricsMixin(viewsets.GenericViewSet):

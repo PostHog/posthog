@@ -37,8 +37,33 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "reinterpretAsFloat32": HogQLFunctionMeta("reinterpretAsFloat32", 1, 1),
     "reinterpretAsFloat64": HogQLFunctionMeta("reinterpretAsFloat64", 1, 1),
     "reinterpretAsUUID": HogQLFunctionMeta("reinterpretAsUUID", 1, 1),
+    "accurateCast": HogQLFunctionMeta("accurateCast", 2, 2),
+    "accurateCastOrNull": HogQLFunctionMeta("accurateCastOrNull", 2, 2),
     "toInt": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Int64")]),
     "toIntOrZero": HogQLFunctionMeta("toInt64OrZero", 1, 1, signatures=[((StringType(),), IntegerType())]),
+    "toIntOrDefault": HogQLFunctionMeta(
+        # Mirror of toFloatOrDefault: ClickHouse's toInt64OrDefault requires the default value to
+        # already be Int64, so cast it (any numeric/string literal then works). The 1-arg form is
+        # degenerate (equivalent to toIntOrZero) and is rewritten in the printer before the
+        # placeholder template renders.
+        # Defaults are Integer only: accurateCast of a fractional float (e.g. 0.5) to Int64 throws
+        # at runtime, so unlike toFloatOrDefault we don't accept Float-typed defaults.
+        "toInt64OrDefault({0}, accurateCast({1}, 'Int64'))",
+        1,
+        2,
+        using_placeholder_arguments=True,
+        using_positional_arguments=True,
+        signatures=[
+            ((DecimalType(),), IntegerType()),
+            ((IntegerType(),), IntegerType()),
+            ((FloatType(),), IntegerType()),
+            ((StringType(),), IntegerType()),
+            ((DecimalType(), IntegerType()), IntegerType()),
+            ((IntegerType(), IntegerType()), IntegerType()),
+            ((FloatType(), IntegerType()), IntegerType()),
+            ((StringType(), IntegerType()), IntegerType()),
+        ],
+    ),
     "_toInt8": HogQLFunctionMeta("toInt8", 1, 1),
     "_toInt16": HogQLFunctionMeta("toInt16", 1, 1),
     "_toInt32": HogQLFunctionMeta("toInt32", 1, 1),
@@ -47,6 +72,10 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "_toUInt64": HogQLFunctionMeta("toUInt64", 1, 1, signatures=[((UnknownType(),), IntegerType())]),
     "_toUInt128": HogQLFunctionMeta("toUInt128", 1, 1),
     "toFloat": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Float64")]),
+    # Aliases for the ClickHouse names — these map to the same nullable cast as toFloat
+    # (accurateCastOrNull returns NULL on unparseable input, matching toFloat64OrNull semantics).
+    "toFloatOrNull": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Float64")]),
+    "toFloat64OrNull": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Float64")]),
     "toFloatOrZero": HogQLFunctionMeta("toFloat64OrZero", 1, 1, signatures=[((StringType(),), FloatType())]),
     "toFloatOrDefault": HogQLFunctionMeta(
         # ClickHouse's toFloat64OrDefault requires the default value to already be
@@ -103,11 +132,13 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toNullableString": HogQLFunctionMeta(
         "accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Nullable(String)")]
     ),
-    "toBool": HogQLFunctionMeta("toBool", 1, 1),
+    "toBool": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Bool")]),
     "toJSONString": HogQLFunctionMeta("toJSONString", 1, 1),
     "parseDateTime": HogQLFunctionMeta("parseDateTimeOrNull", 2, 3, tz_aware=True),
     "parseDateTimeBestEffort": HogQLFunctionMeta("parseDateTime64BestEffortOrNull", 1, 2, tz_aware=True),
+    "dynamicType": HogQLFunctionMeta("dynamicType", 1, 1),
     "toTypeName": HogQLFunctionMeta("toTypeName", 1, 1),
+    "defaultValueOfTypeName": HogQLFunctionMeta("defaultValueOfTypeName", 1, 1),
     "cityHash64": HogQLFunctionMeta("cityHash64", 1, 1),
     "UUIDv7ToDateTime": HogQLFunctionMeta("UUIDv7ToDateTime", 1, 1, tz_aware=True),
 }

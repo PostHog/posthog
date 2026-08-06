@@ -132,10 +132,15 @@ def export_provider_credentials(settings: Settings) -> None:
         os.environ["OPENROUTER_API_KEY"] = settings.openrouter_api_key
     if settings.fireworks_api_key:
         os.environ["FIREWORKS_API_KEY"] = settings.fireworks_api_key
+    # Cloudflare credentials are deliberately *not* exported. Our CF path injects
+    # api_key/api_base per-call through cloudflare.make_cloudflare_*_call, while
+    # exporting CLOUDFLARE_API_KEY/ACCOUNT_ID would let litellm's native
+    # `cloudflare/...` provider pick them up on the generic openai path and
+    # bypass the CLOUDFLARE_ALLOWED_MODELS allowlist.
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     settings = get_settings()
     export_provider_credentials(settings)
 

@@ -12,6 +12,10 @@ import {
     LLMMessageDisplay,
 } from './ConversationMessagesDisplay'
 
+// react-json-view is loaded via React.lazy, so the first render suspends on a code-split chunk.
+// Under CI contention that resolve can exceed waitFor's 1s default, so give it headroom.
+const JSON_VIEWER_TIMEOUT_MS = 5000
+
 describe('LLMMessageDisplay', () => {
     beforeEach(() => {
         initKeaTests()
@@ -70,9 +74,12 @@ describe('LLMMessageDisplay', () => {
             </Provider>
         )
 
-        await waitFor(() => {
-            expect(container.querySelector('.react-json-view')).toBeInTheDocument()
-        })
+        await waitFor(
+            () => {
+                expect(container.querySelector('.react-json-view')).toBeInTheDocument()
+            },
+            { timeout: JSON_VIEWER_TIMEOUT_MS }
+        )
         expect(container.textContent).toContain(expectedSubstring)
     })
 
@@ -126,6 +133,42 @@ describe('LLMMessageDisplay', () => {
         )
 
         expect(container.querySelector('img')?.getAttribute('src')).toBe(expectedSrc)
+    })
+
+    it('renders OpenAI Responses input_text/input_image content parts as text and an image', () => {
+        const dataUri = 'data:image/jpeg;base64,/9j/4AAQSkZ'
+        const message: CompatMessage = {
+            role: 'user',
+            content: [
+                { type: 'input_text', text: 'what is in this photo?' },
+                { type: 'input_image', image_url: dataUri },
+            ],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.textContent).toContain('what is in this photo?')
+        expect(container.textContent).not.toContain('input_image')
+        expect(container.textContent).not.toContain('base64')
+        expect(container.querySelector('img')?.getAttribute('src')).toBe(dataUri)
+    })
+
+    it('renders an OpenAI Responses output_text content part as plain text', () => {
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'it is a photo of a cat' }],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.textContent).toContain('it is a photo of a cat')
+        expect(container.textContent).not.toContain('output_text')
     })
 
     it('renders content[].type=function with object arguments as a tool-call block', async () => {

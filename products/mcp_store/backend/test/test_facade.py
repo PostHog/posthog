@@ -1,10 +1,20 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.mcp_store.backend.facade.api import get_active_installations
+from posthog.models import User
+
+from products.mcp_store.backend.agents import get_built_in_agent
+from products.mcp_store.backend.facade.api import get_active_installations, get_installations_for_sandbox
 from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
-from products.mcp_store.backend.models import MCPServerInstallation, MCPServerTemplate
+from products.mcp_store.backend.models import (
+    MCPGatewayServer,
+    MCPServerInstallation,
+    MCPServerTemplate,
+    MCPServiceAccount,
+    MCPServiceAccountServerAccess,
+)
 
 
 class TestGetActiveInstallations(BaseTest):
@@ -30,6 +40,7 @@ class TestGetActiveInstallations(BaseTest):
                 id=str(installation.id),
                 name="Linear",
                 proxy_path=f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/proxy/",
+                scope="personal",
             )
         ]
 
@@ -115,6 +126,13 @@ class TestGetActiveInstallations(BaseTest):
 
         assert len(results) == 1
 
+    def test_excludes_shared_installations(self) -> None:
+        self._create_installation(scope="shared")
+
+        results = get_active_installations(self.team.id, self.user.id)
+
+        assert len(results) == 0
+
     @parameterized.expand(
         [
             ("enabled_api_key", True, "api_key", {}, True),
@@ -132,5 +150,308 @@ class TestGetActiveInstallations(BaseTest):
         )
 
         results = get_active_installations(self.team.id, self.user.id)
+
+        assert (len(results) == 1) == expected_included
+
+
+class TestGetInstallationsForSandbox(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        patcher = patch("products.mcp_store.backend.facade.api.is_builtin_agent_enforcement_enabled", return_value=True)
+        self.enforcement_enabled_mock = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _create_installation(self, **kwargs) -> MCPServerInstallation:
+        defaults: dict = {
+            "team": self.team,
+            "user": self.user,
+            "display_name": "Server",
+            "url": "https://mcp.example.com/mcp",
+            "auth_type": "api_key",
+            "is_enabled": True,
+            "scope": "personal",
+        }
+        defaults.update(kwargs)
+        return MCPServerInstallation.objects.create(**defaults)
+
+    def _create_gateway_server(self, *, name: str, url: str, is_team_enabled: bool = True) -> MCPGatewayServer:
+        return MCPGatewayServer.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            name=name,
+            url=url,
+            is_team_enabled=is_team_enabled,
+        )
+
+    def _support_agent(self) -> MCPServiceAccount:
+        account = get_built_in_agent(self.team.id, "support")
+        assert account is not None
+        return account
+
+    def test_shared_always_returned(self) -> None:
+        shared = self._create_installation(scope="shared", display_name="Shared Server")
+
+        results = get_installations_for_sandbox(self.team.id)
+
+        assert len(results) == 1
+        assert results[0].id == str(shared.id)
+        assert results[0].scope == "shared"
+
+    def test_personal_excluded_by_default(self) -> None:
+        self._create_installation(scope="personal")
+
+        results = get_installations_for_sandbox(self.team.id)
+
+        assert len(results) == 0
+
+    def test_personal_included_when_requested(self) -> None:
+        personal = self._create_installation(scope="personal")
+
+        results = get_installations_for_sandbox(self.team.id, user_id=self.user.id, include_personal=True)
+
+        assert len(results) == 1
+        assert results[0].id == str(personal.id)
+        assert results[0].scope == "personal"
+
+    def test_shared_plus_personal_combined(self) -> None:
+        self._create_installation(scope="shared", url="https://shared.example.com/mcp", display_name="Shared")
+        self._create_installation(scope="personal", url="https://personal.example.com/mcp", display_name="Personal")
+
+        results = get_installations_for_sandbox(self.team.id, user_id=self.user.id, include_personal=True)
+
+        assert len(results) == 2
+        scopes = {r.scope for r in results}
+        assert scopes == {"shared", "personal"}
+
+    def test_shared_visible_to_any_team_member(self) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        self._create_installation(scope="shared", user=other_user, display_name="Other's Shared")
+
+        results = get_installations_for_sandbox(self.team.id, user_id=self.user.id)
+
+        assert len(results) == 1
+
+    @parameterized.expand([("unstamped", None), ("stamped", "support")])
+    def test_agent_origin_resolves_legacy_until_gateway_flag_rollout(
+        self, _name: str, task_agent_key: str | None
+    ) -> None:
+        self.enforcement_enabled_mock.return_value = False
+        shared = self._create_installation(scope="shared", display_name="Shared")
+        personal = self._create_installation(
+            scope="personal", url="https://personal.example.com/mcp", display_name="Personal"
+        )
+
+        results = get_installations_for_sandbox(
+            self.team.id,
+            user_id=self.user.id,
+            include_personal=True,
+            task_origin="support_reply",
+            task_agent_key=task_agent_key,
+        )
+
+        assert {result.id for result in results} == {str(shared.id), str(personal.id)}
+        assert all(result.proxy_token is None for result in results)
+
+    def test_built_in_agent_only_gets_its_explicitly_delegated_credential(self) -> None:
+        account = self._support_agent()
+        granted_server = self._create_gateway_server(
+            name="Granted",
+            url="https://granted.example.com/mcp",
+        )
+        ungranted_server = self._create_gateway_server(
+            name="Ungranted",
+            url="https://ungranted.example.com/mcp",
+        )
+        self._create_installation(
+            scope="shared",
+            gateway_server=granted_server,
+            url=granted_server.url,
+            display_name="Granted",
+        )
+        personal = self._create_installation(
+            scope="personal",
+            gateway_server=granted_server,
+            url=granted_server.url,
+            display_name="Personal",
+        )
+        self._create_installation(
+            scope="shared",
+            gateway_server=ungranted_server,
+            url=ungranted_server.url,
+            display_name="Ungranted",
+        )
+        MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            service_account=account,
+            gateway_server=granted_server,
+            installation=personal,
+            granted_by=self.user,
+        )
+
+        results = get_installations_for_sandbox(
+            self.team.id,
+            user_id=self.user.id,
+            include_personal=True,
+            task_origin="support_reply",
+            task_agent_key="support",
+        )
+
+        assert [result.id for result in results] == [str(personal.id)]
+        assert results[0].proxy_path == f"/api/mcp_store/gateway/servers/{granted_server.id}/proxy/"
+        assert results[0].proxy_token is not None
+        assert results[0].proxy_token.startswith("mcp_gw_")
+
+        account.status = "paused"
+        account.save(update_fields=["status"])
+        assert (
+            get_installations_for_sandbox(
+                self.team.id,
+                task_origin="support_reply",
+                task_agent_key="support",
+            )
+            == []
+        )
+
+        account.status = "active"
+        account.save(update_fields=["status"])
+
+        unstamped_results = get_installations_for_sandbox(
+            self.team.id,
+            user_id=self.user.id,
+            include_personal=True,
+            task_origin="support_reply",
+        )
+        assert unstamped_results == []
+
+        mismatched_results = get_installations_for_sandbox(
+            self.team.id,
+            user_id=self.user.id,
+            include_personal=True,
+            task_origin="support_reply",
+            task_agent_key="scout",
+        )
+        assert mismatched_results == []
+
+    def test_built_in_agent_does_not_fall_back_after_delegated_credential_is_deleted(self) -> None:
+        account = self._support_agent()
+        server = self._create_gateway_server(
+            name="Delegated",
+            url="https://delegated.example.com/mcp",
+        )
+        self._create_installation(
+            scope="shared",
+            gateway_server=server,
+            url=server.url,
+            display_name="Shared",
+        )
+        delegated = self._create_installation(
+            scope="personal",
+            gateway_server=server,
+            url=server.url,
+            display_name="Delegated",
+        )
+        access = MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            service_account=account,
+            gateway_server=server,
+            installation=delegated,
+            granted_by=self.user,
+        )
+
+        delegated.delete()
+
+        access.refresh_from_db()
+        assert access.installation_id is None
+        assert (
+            get_installations_for_sandbox(
+                self.team.id,
+                task_origin="support_reply",
+                task_agent_key="support",
+            )
+            == []
+        )
+
+    def test_built_in_agent_blocked_when_admin_disables_server_for_team(self) -> None:
+        account = self._support_agent()
+        server = self._create_gateway_server(name="Granted", url="https://granted.example.com/mcp")
+        delegated = self._create_installation(scope="personal", gateway_server=server, url=server.url)
+        MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            service_account=account,
+            gateway_server=server,
+            installation=delegated,
+            granted_by=self.user,
+        )
+
+        results = get_installations_for_sandbox(
+            self.team.id,
+            task_origin="support_reply",
+            task_agent_key="support",
+        )
+        assert [result.id for result in results] == [str(delegated.id)]
+
+        server.is_team_enabled = False
+        server.save(update_fields=["is_team_enabled"])
+
+        assert (
+            get_installations_for_sandbox(
+                self.team.id,
+                task_origin="support_reply",
+                task_agent_key="support",
+            )
+            == []
+        )
+
+    def test_other_users_personal_not_returned(self) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        self._create_installation(scope="personal", user=other_user)
+
+        results = get_installations_for_sandbox(self.team.id, user_id=self.user.id, include_personal=True)
+
+        assert len(results) == 0
+
+    def test_personal_wins_over_shared_for_same_url(self) -> None:
+        # The user acts as themselves rather than through the shared credential.
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        url = "https://mcp.same.example.com/mcp"
+        self._create_installation(scope="shared", user=other_user, url=url, display_name="Shared")
+        personal = self._create_installation(scope="personal", url=url, display_name="Personal")
+
+        results = get_installations_for_sandbox(self.team.id, user_id=self.user.id, include_personal=True)
+
+        assert [r.id for r in results] == [str(personal.id)]
+        assert results[0].scope == "personal"
+
+    def test_shared_returned_for_same_url_without_include_personal(self) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        url = "https://mcp.same.example.com/mcp"
+        shared = self._create_installation(scope="shared", user=other_user, url=url)
+        self._create_installation(scope="personal", url=url)
+
+        results = get_installations_for_sandbox(self.team.id, user_id=self.user.id, include_personal=False)
+
+        assert [r.id for r in results] == [str(shared.id)]
+        assert results[0].scope == "shared"
+
+    def test_different_urls_not_deduped(self) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        self._create_installation(scope="shared", user=other_user, url="https://shared.example.com/mcp")
+        self._create_installation(scope="personal", url="https://personal.example.com/mcp")
+
+        results = get_installations_for_sandbox(self.team.id, user_id=self.user.id, include_personal=True)
+
+        assert {r.scope for r in results} == {"shared", "personal"}
+
+    @parameterized.expand(
+        [
+            ("shared_include_personal", "shared", True, True),
+            ("shared_no_personal", "shared", False, True),
+            ("personal_include_personal", "personal", True, True),
+            ("personal_no_personal", "personal", False, False),
+        ]
+    )
+    def test_scope_gating_matrix(self, _name: str, scope: str, include_personal: bool, expected_included: bool) -> None:
+        self._create_installation(scope=scope)
+
+        results = get_installations_for_sandbox(self.team.id, user_id=self.user.id, include_personal=include_personal)
 
         assert (len(results) == 1) == expected_included

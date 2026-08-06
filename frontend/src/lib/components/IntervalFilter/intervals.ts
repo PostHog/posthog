@@ -1,4 +1,8 @@
-export type IntervalKeyType = 'minute' | 'hour' | 'day' | 'week' | 'month'
+import type { IntervalType } from '~/types'
+
+// Derived from IntervalType so the compiler forces a picker decision when the schema gains an interval.
+// 'second' is intentionally not selectable in the UI.
+export type IntervalKeyType = Exclude<IntervalType, 'second'>
 
 export type Intervals = {
     [key in IntervalKeyType]: {
@@ -29,5 +33,15 @@ export const intervals: Intervals = {
     month: {
         label: 'month',
         newDateFrom: '-90d',
+    },
+    quarter: {
+        label: 'quarter',
+        newDateFrom: '-3y',
+        hidden: true,
+    },
+    year: {
+        label: 'year',
+        newDateFrom: '-5y',
+        hidden: true,
     },
 }

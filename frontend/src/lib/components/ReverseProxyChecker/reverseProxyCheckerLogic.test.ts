@@ -100,7 +100,9 @@ describe('reverseProxyCheckerLogic', () => {
         })
             .toFinishAllListeners()
             .toMatchValues({
-                hasReverseProxy: false,
+                // On error with no prior successful load the status stays unknown (null) rather
+                // than a confirmed false — consumers gate on `=== false`, so this fails safe.
+                hasReverseProxy: null,
             })
 
         expect(toastErrorSpy).not.toHaveBeenCalled()

@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from django.core.cache import cache
 from django.utils import timezone
 
 import requests
@@ -16,6 +15,7 @@ from posthog.models.integration import GitHubIntegration, Integration
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.tasks.backend.models import Task
+from products.tasks.backend.redis import get_tasks_cache
 
 logger = logging.getLogger(__name__)
 
@@ -127,32 +127,23 @@ def _refresh_installation_token(integration: Integration) -> None:
 
 def _github_get(
     github: GitHubIntegration,
-    access_token: str,
     path: str,
     *,
     endpoint: str,
     params: dict[str, str | int] | None = None,
 ) -> requests.Response:
-    url = f"https://api.github.com{path}"
-    return github._github_api_get(
-        url,
+    return github.api_request(
+        "GET",
+        path,
         endpoint=endpoint,
         params=params,
         timeout=GITHUB_REQUEST_TIMEOUT_SECONDS,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {access_token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
     )
 
 
-def _fetch_repository_tree(
-    github: GitHubIntegration, access_token: str, repository: str
-) -> tuple[list[str], str | None]:
+def _fetch_repository_tree(github: GitHubIntegration, repository: str) -> tuple[list[str], str | None]:
     repo_response = _github_get(
         github,
-        access_token,
         f"/repos/{repository}",
         endpoint="/repos/{owner}/{repo}",
     )
@@ -166,7 +157,6 @@ def _fetch_repository_tree(
 
     tree_response = _github_get(
         github,
-        access_token,
         f"/repos/{repository}/git/trees/{default_branch}",
         endpoint="/repos/{owner}/{repo}/git/trees/{tree_sha}",
         params={"recursive": 1},
@@ -216,12 +206,9 @@ def _select_candidate_paths(paths: list[str]) -> list[str]:
     return candidates[:MAX_CANDIDATE_PATHS]
 
 
-def _fetch_file_content(
-    github: GitHubIntegration, access_token: str, repository: str, path: str, ref: str | None
-) -> str | None:
+def _fetch_file_content(github: GitHubIntegration, repository: str, path: str, ref: str | None) -> str | None:
     response = _github_get(
         github,
-        access_token,
         f"/repos/{repository}/contents/{path}",
         endpoint="/repos/{owner}/{repo}/contents/{path}",
         params={"ref": ref} if ref else None,
@@ -244,11 +231,9 @@ def _fetch_file_content(
         return None
 
 
-def _scan_repository(
-    integration: Integration, access_token: str, repository: str
-) -> tuple[RepositoryScanEvidence, list[str]]:
-    github = GitHubIntegration(integration)
-    tree_paths, default_branch = _fetch_repository_tree(github, access_token, repository)
+def _scan_repository(integration: Integration, repository: str) -> tuple[RepositoryScanEvidence, list[str]]:
+    github = GitHubIntegration(integration, source="tasks")
+    tree_paths, default_branch = _fetch_repository_tree(github, repository)
 
     found_posthog_init = False
     found_posthog_capture = False
@@ -265,7 +250,7 @@ def _scan_repository(
                 extra={"repository": repository, "scanned": scanned},
             )
             break
-        content = _fetch_file_content(github, access_token, repository, path, default_branch)
+        content = _fetch_file_content(github, repository, path, default_branch)
         if content is None:
             continue
 
@@ -407,7 +392,7 @@ def compute_repository_readiness(
 
     key = _cache_key(team_id=team.id, integration_id=integration.id, repository=repository, window_days=window_days)
     if not refresh:
-        cached = cache.get(key)
+        cached = get_tasks_cache().get(key)
         if isinstance(cached, dict):
             generated_at_str = cached.get("generatedAt")
             if generated_at_str:
@@ -439,11 +424,11 @@ def compute_repository_readiness(
             "generatedAt": timezone.now().isoformat(),
             "cacheAgeSeconds": 0,
         }
-        cache.set(key, response, READINESS_CACHE_TTL_SECONDS)
+        get_tasks_cache().set(key, response, READINESS_CACHE_TTL_SECONDS)
         return response
 
     try:
-        scan_evidence, tree_paths = _scan_repository(integration, access_token, repository)
+        scan_evidence, tree_paths = _scan_repository(integration, repository)
     except Exception:
         logger.exception("repository_readiness.scan_failed", extra={"repository": repository})
         scan_evidence = RepositoryScanEvidence(
@@ -621,5 +606,5 @@ def compute_repository_readiness(
         },
     }
 
-    cache.set(key, response, READINESS_CACHE_TTL_SECONDS)
+    get_tasks_cache().set(key, response, READINESS_CACHE_TTL_SECONDS)
     return response

@@ -46,7 +46,7 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                             size="small"
                             className="w-36"
                             onChange={(newValue) => {
-                                updateAccessControlDefault(newValue as AccessControlLevel)
+                                updateAccessControlDefault(newValue as AccessControlLevel, 'v2')
                             }}
                             options={getLevelOptionsForResource(projectLevels)}
                         />
@@ -58,9 +58,9 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                     loading={loading}
                     columns={[
                         {
-                            title: 'Feature',
+                            title: 'Tool',
                             key: 'label',
-                            render: function RenderFeature(_, resource) {
+                            render: function RenderTool(_, resource) {
                                 const tooltipText = getAccessControlTooltip(resource.key)
                                 return (
                                     <div className="font-medium flex items-center gap-2">

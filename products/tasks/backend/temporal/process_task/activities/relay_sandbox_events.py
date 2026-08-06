@@ -4,18 +4,39 @@ import json
 import time
 import asyncio
 from dataclasses import dataclass
+from typing import Any
+
+from django.conf import settings
+from django.db import close_old_connections, transaction
 
 import httpx
 import httpx_sse
 import structlog
 import temporalio.client
+from asgiref.sync import sync_to_async
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
-from products.tasks.backend.models import TaskRun as TaskRunModel
-from products.tasks.backend.services.agent_command import validate_sandbox_url
-from products.tasks.backend.services.connection_token import create_sandbox_connection_token
-from products.tasks.backend.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
-from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT
+from posthog.temporal.common.utils import close_db_connections
+
+from products.tasks.backend.logic.services.agent_command import validate_sandbox_url
+from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
+from products.tasks.backend.logic.services.permission_broker import (
+    parse_permission_request,
+    try_auto_respond_permission_request,
+)
+from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
+from products.tasks.backend.models import (
+    Task as TaskModel,
+    TaskRun as TaskRunModel,
+)
+from products.tasks.backend.redis import run_uses_dedicated_stream
+from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_DEFAULT_SECONDS, resolve_inactivity_timeout
+from products.tasks.backend.temporal.process_task.utils import (
+    get_actor_distinct_id,
+    get_task_run_credential_user,
+    is_slack_interaction_state,
+)
 
 from ee.hogai.sandbox import is_turn_complete
 
@@ -25,6 +46,9 @@ HEARTBEAT_INTERVAL_SECONDS = 30
 SSE_CONNECT_TIMEOUT_SECONDS = 30
 SSE_READ_TIMEOUT_SECONDS = 300  # 5 min per chunk
 MAX_RECONNECT_ATTEMPTS = 5
+# Coalesce streamed prose into one agent_text_delta signal per interval instead of one per
+# chunk, which would bloat the parent workflow's history and trip the 2s deadlock detector.
+TEXT_DELTA_FLUSH_INTERVAL_SECONDS = 1.0
 
 TERMINAL_NOTIFICATION_METHODS = frozenset(
     {
@@ -32,6 +56,28 @@ TERMINAL_NOTIFICATION_METHODS = frozenset(
         "_posthog/error",
     }
 )
+
+FINAL_MESSAGE_MAX_CHARS = 20_000
+
+
+class FinalMessageTracker:
+    def __init__(self) -> None:
+        self._current_turn_parts: list[str] = []
+
+    def collect(self, event_data: dict) -> None:
+        text = _extract_agent_message_text(event_data)
+        if text:
+            self._current_turn_parts.append(text)
+
+    def end_turn(self) -> str | None:
+        if not self._current_turn_parts:
+            return None
+        text = "".join(self._current_turn_parts)[:FINAL_MESSAGE_MAX_CHARS]
+        self._current_turn_parts.clear()
+        return text
+
+    def reset(self) -> None:
+        self._current_turn_parts.clear()
 
 
 @dataclass
@@ -43,10 +89,25 @@ class RelaySandboxEventsInput:
     team_id: int
     distinct_id: str
     sandbox_id: str | None = None
+    # When True + slack_thread_context set, the relay forwards per-turn signals
+    # to the parent to drive SlackAgentDesignRelayWorkflow children.
+    slack_thread_context: dict[str, Any] | None = None
+    is_agent_design_enabled: bool = False
 
 
 @activity.defn
+@close_db_connections
 async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
+    await _relay_sandbox_events(input, finalize_stream_on_exit=True)
+
+
+@activity.defn
+@close_db_connections
+async def relay_sandbox_events_deferred_completion(input: RelaySandboxEventsInput) -> None:
+    await _relay_sandbox_events(input, finalize_stream_on_exit=False)
+
+
+async def _relay_sandbox_events(input: RelaySandboxEventsInput, *, finalize_stream_on_exit: bool) -> None:
     """Long-running activity that relays SSE events from a sandbox agent to a Redis stream.
 
     Connects to the sandbox's GET /events SSE endpoint and writes each event
@@ -56,16 +117,33 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
     if validation_error:
         raise ValueError(f"Invalid sandbox URL: {validation_error}")
 
+    task_run = await TaskRunModel.objects.select_related("task__created_by", "task__team").aget(id=input.run_id)
+
+    # Match the freshness window to the workflow's inactivity timeout for this run
+    # so the heartbeat suppression below never resets a timer it shouldn't.
+    origin_product = task_run.task.origin_product
+    is_user_origin = not origin_product or origin_product == TaskModel.OriginProduct.USER_CREATED.value
+    inactivity_timeout_seconds = resolve_inactivity_timeout(
+        is_user_origin=is_user_origin, state=task_run.state
+    ).total_seconds()
+
     stream_key = get_task_run_stream_key(input.run_id)
-    redis_stream = TaskRunRedisStream(stream_key)
+    redis_stream = TaskRunRedisStream(stream_key, run_uses_dedicated_stream(task_run.state))
     await redis_stream.initialize()
 
-    task_run = await TaskRunModel.objects.select_related("task__created_by").aget(id=input.run_id)
-    created_by = task_run.task.created_by
+    actor_user = await sync_to_async(get_task_run_credential_user)(task_run.task, task_run.state)
+    if is_slack_interaction_state(task_run.state) and actor_user is None:
+        # Deterministic: the recorded Slack actor no longer resolves, so every retry
+        # would fail identically. Write the error sentinel and fail for good instead
+        # of retrying until the run dies on the inactivity timeout with no reason.
+        error_message = "Slack task run is missing an acting user"
+        logger.error("relay_sandbox_events_missing_actor", run_id=input.run_id)
+        await redis_stream.mark_error(error_message)
+        raise ApplicationError(error_message, non_retryable=True)
     connection_token = create_sandbox_connection_token(
         task_run=task_run,
-        user_id=created_by.id if created_by else 0,
-        distinct_id=input.distinct_id,
+        user_id=actor_user.id if actor_user else 0,
+        distinct_id=get_actor_distinct_id(actor_user) if actor_user else input.distinct_id,
     )
 
     headers = {
@@ -101,13 +179,18 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
             sandbox_id=input.sandbox_id,
             background_logs_enabled=background_logs_enabled,
             task_run=task_run,
+            inactivity_timeout_seconds=inactivity_timeout_seconds,
+            slack_thread_context=input.slack_thread_context,
+            is_agent_design_enabled=input.is_agent_design_enabled,
+            finalize_stream_on_exit=finalize_stream_on_exit,
         )
     except asyncio.CancelledError:
         logger.info("relay_sandbox_events_cancelled", run_id=input.run_id)
         # Cancellation is expected when the workflow finishes or is replaced.
         # Do not emit an error sentinel: it makes clients treat a still-valid
         # task run as unrecoverably disconnected.
-        await redis_stream.mark_complete()
+        if finalize_stream_on_exit:
+            await redis_stream.mark_complete()
         raise
     except RuntimeError as e:
         # Interpreter-shutdown race: asyncio uses the default ThreadPoolExecutor
@@ -119,10 +202,19 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
             return
         logger.exception("relay_sandbox_events_failed", run_id=input.run_id, error=str(e))
         await redis_stream.mark_error(str(e)[:500])
-        raise
+        # The stream now carries an error sentinel — a retried attempt would
+        # append events past it that disconnected consumers never see. Fail
+        # the activity for good; retries are reserved for attempt-level
+        # deaths (worker restart), where no sentinel was written.
+        raise ApplicationError(str(e), non_retryable=True) from e
     except Exception as e:
         try:
-            marked_complete = await _mark_error_unless_run_is_terminal(redis_stream, input.run_id, str(e))
+            marked_complete = await _mark_error_unless_run_is_terminal(
+                redis_stream,
+                input.run_id,
+                str(e),
+                finalize_stream=finalize_stream_on_exit,
+            )
         except Exception as status_check_error:
             logger.exception(
                 "relay_sandbox_events_terminal_status_check_failed",
@@ -145,13 +237,17 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
                 logger.info("relay_sandbox_events_stopped_after_terminal_run", run_id=input.run_id, error=str(e))
             else:
                 logger.exception("relay_sandbox_events_failed", run_id=input.run_id, error=str(e))
-        raise
+        # A complete/error sentinel was written above (or attempted) — same
+        # reasoning as the RuntimeError path: don't retry past a sentinel.
+        raise ApplicationError(str(e), non_retryable=True) from e
 
 
 async def _mark_error_unless_run_is_terminal(
     redis_stream: TaskRunRedisStream,
     run_id: str,
     error: str,
+    *,
+    finalize_stream: bool = True,
 ) -> bool:
     try:
         task_run = await TaskRunModel.objects.only("status").aget(id=run_id)
@@ -164,7 +260,8 @@ async def _mark_error_unless_run_is_terminal(
         TaskRunModel.Status.FAILED,
         TaskRunModel.Status.CANCELLED,
     ):
-        await redis_stream.mark_complete()
+        if finalize_stream:
+            await redis_stream.mark_complete()
         return True
 
     await redis_stream.mark_error(error[:500])
@@ -177,6 +274,7 @@ async def _background_heartbeat(
     last_event_time: list[float] | None = None,
     last_workflow_signal: list[float] | None = None,
     agent_active: list[bool] | None = None,
+    inactivity_timeout_seconds: float = INACTIVITY_TIMEOUT_DEFAULT_SECONDS,
 ) -> None:
     """Heartbeat to Temporal periodically, independent of event flow.
 
@@ -195,7 +293,7 @@ async def _background_heartbeat(
                 workflow_handle is not None
                 and last_event_time is not None
                 and last_event_time[0] > 0
-                and (now - last_event_time[0]) < INACTIVITY_TIMEOUT.total_seconds()
+                and (now - last_event_time[0]) < inactivity_timeout_seconds
                 and (last_workflow_signal is None or (now - last_workflow_signal[0]) >= HEARTBEAT_INTERVAL_SECONDS)
                 and (agent_active is None or agent_active[0])
             ):
@@ -220,6 +318,10 @@ async def _relay_loop(
     sandbox_id: str | None = None,
     background_logs_enabled: bool = False,
     task_run: TaskRunModel | None = None,
+    inactivity_timeout_seconds: float = INACTIVITY_TIMEOUT_DEFAULT_SECONDS,
+    slack_thread_context: dict[str, Any] | None = None,
+    is_agent_design_enabled: bool = False,
+    finalize_stream_on_exit: bool = True,
 ) -> None:
     """Connect to sandbox SSE and relay events to Redis. Reconnects on transient failures."""
     reconnect_count = 0
@@ -231,8 +333,11 @@ async def _relay_loop(
         from posthog.temporal.common.client import async_connect
 
         temporal_client = await async_connect()
-        workflow_id = TaskRunModel.get_workflow_id(task_id, run_id)
-        workflow_handle = temporal_client.get_workflow_handle(workflow_id)
+        # Signals our own parent workflow — its real id, not a re-derived default (which a
+        # prefixed dispatch wouldn't match).
+        workflow_id = activity.info().workflow_id
+        if workflow_id:
+            workflow_handle = temporal_client.get_workflow_handle(workflow_id)
     except Exception as e:
         logger.warning("relay_workflow_handle_init_failed", run_id=run_id, error=str(e))
 
@@ -240,12 +345,30 @@ async def _relay_loop(
     # The background heartbeat reads this to decide whether the agent is active.
     last_event_time: list[float] = [0.0]  # list used as mutable container
     last_workflow_signal: list[float] = [0.0]  # shared with background heartbeat
-    agent_active: list[bool] = [True]  # agent is working; False after end_turn
+    # Whether the agent is mid-turn. Starts False (idle until a generating
+    # session_update) and resets to False on reconnect so a dropped end_of_turn
+    # can't leave it stuck True and emit phantom heartbeats.
+    agent_active: list[bool] = [False]
     last_audit_ts_ns: list[int] = [0]  # track last agentsh audit timestamp
+    # Brackets turn_started / turn_completed signals to the parent.
+    slack_turn_active: list[bool] = [False]
+    # ACP emits one tool_call + N tool_call_update per id; only render the start.
+    emitted_tool_call_ids: set[str] = set()
+    # Buffered prose + last flush time (monotonic); see TEXT_DELTA_FLUSH_INTERVAL_SECONDS.
+    pending_text_parts: list[str] = []
+    last_text_flush: list[float] = [0.0]
+    final_message_tracker = FinalMessageTracker()
 
     stop_heartbeat = asyncio.Event()
     heartbeat_task = asyncio.create_task(
-        _background_heartbeat(stop_heartbeat, workflow_handle, last_event_time, last_workflow_signal, agent_active)
+        _background_heartbeat(
+            stop_heartbeat,
+            workflow_handle,
+            last_event_time,
+            last_workflow_signal,
+            agent_active,
+            inactivity_timeout_seconds=inactivity_timeout_seconds,
+        )
     )
 
     try:
@@ -287,21 +410,67 @@ async def _relay_loop(
                                 continue
 
                             await redis_stream.write_event(event_data)
+                            if task_run is not None:
+                                permission_request = parse_permission_request(event_data)
+                                if permission_request is not None:
+                                    await asyncio.to_thread(_broker_permission_request, task_run, permission_request)
                             reconnect_count = 0
                             last_event_time[0] = time.monotonic()
+
+                            final_message_tracker.collect(event_data)
 
                             if _is_end_of_turn(event_data):
                                 agent_active[0] = False
                                 if sandbox_id and background_logs_enabled:
                                     asyncio.create_task(_emit_agentsh_events(sandbox_id, run_id, last_audit_ts_ns))
                                 if task_run is not None and task_run.mode == "interactive":
-                                    # Interactive run finished a turn — the agent is now idle waiting
-                                    # for the user. Hop off the event loop because the dispatcher
-                                    # does sync Redis (cache.add) and a potential network call to
+                                    # Hop off the event loop because the turn-completion dispatcher
+                                    # performs sync Redis I/O and a potential network call to
                                     # the feature-flag service.
-                                    asyncio.create_task(asyncio.to_thread(_safe_dispatch_awaiting_input, task_run))
-                            elif not agent_active[0] and _is_session_update(event_data):
+                                    asyncio.create_task(asyncio.to_thread(_safe_dispatch_turn_completed, task_run))
+                                if is_agent_design_enabled and slack_turn_active[0] and workflow_handle is not None:
+                                    slack_turn_active[0] = False
+                                    # Awaited in order: the final prose must be recorded before
+                                    # turn_completed, which clears the parent's relay id and would
+                                    # otherwise drop a delta that arrived after it.
+                                    await _flush_pending_text(workflow_handle, pending_text_parts, last_text_flush)
+                                    await _signal_safely(workflow_handle, "turn_completed")
+                                final_text = final_message_tracker.end_turn()
+                                if final_text is not None and task_run is not None:
+                                    await asyncio.to_thread(_persist_final_message, run_id, final_text)
+                            elif not agent_active[0] and _is_active_agent_update(event_data):
                                 agent_active[0] = True
+
+                            # Agent-design signal fan-out: first session/update opens the
+                            # child relay; tool_call → step, agent_message_chunk → markdown.
+                            if is_agent_design_enabled and workflow_handle is not None:
+                                if not slack_turn_active[0] and _is_session_update(event_data):
+                                    slack_turn_active[0] = True
+                                    # Await so turn_started is recorded before any delta of this turn,
+                                    # and reset the flush clock so the first delta buffers rather than
+                                    # racing turn_started to the parent.
+                                    last_text_flush[0] = time.monotonic()
+                                    await _signal_safely(
+                                        workflow_handle,
+                                        "turn_started",
+                                        arg={"slack_thread_context": slack_thread_context or {}},
+                                    )
+                                if slack_turn_active[0]:
+                                    step_payload = _extract_tool_call_step(event_data, emitted_tool_call_ids)
+                                    if step_payload is not None:
+                                        # Flush buffered prose first to keep text-before-tool order.
+                                        await _flush_pending_text(workflow_handle, pending_text_parts, last_text_flush)
+                                        asyncio.create_task(
+                                            _signal_safely(workflow_handle, "agent_status_update", arg=step_payload)
+                                        )
+                                if slack_turn_active[0] and _is_session_update(event_data):
+                                    text_delta = _extract_agent_message_text(event_data)
+                                    if text_delta:
+                                        pending_text_parts.append(text_delta)
+                                        if (time.monotonic() - last_text_flush[0]) >= TEXT_DELTA_FLUSH_INTERVAL_SECONDS:
+                                            await _flush_pending_text(
+                                                workflow_handle, pending_text_parts, last_text_flush
+                                            )
 
                             now = time.monotonic()
                             if (
@@ -318,16 +487,25 @@ async def _relay_loop(
                                     )
 
                             if _is_terminal_event(event_data):
-                                await redis_stream.mark_complete()
+                                await _flush_pending_text(workflow_handle, pending_text_parts, last_text_flush)
+                                if finalize_stream_on_exit:
+                                    await redis_stream.mark_complete()
                                 return
 
                     # SSE stream ended normally (sandbox closed connection)
-                    await redis_stream.mark_complete()
+                    await _flush_pending_text(workflow_handle, pending_text_parts, last_text_flush)
+                    if finalize_stream_on_exit:
+                        await redis_stream.mark_complete()
                     logger.info("relay_sandbox_events_stream_closed", run_id=run_id)
                     return
 
             except httpx.ReadTimeout:
                 reconnect_count += 1
+                # May have missed an end_of_turn on the dropped stream — assume idle until re-confirmed.
+                agent_active[0] = False
+                # Drop un-flushed partial prose — the agent replays events on reconnect.
+                pending_text_parts.clear()
+                final_message_tracker.reset()
                 logger.warning(
                     "relay_sandbox_events_read_timeout",
                     run_id=run_id,
@@ -348,6 +526,10 @@ async def _relay_loop(
                     return
                 # 5xx — transient server error, worth retrying
                 reconnect_count += 1
+                agent_active[0] = False  # missed-end_of_turn guard (see ReadTimeout above)
+                # Drop un-flushed partial prose — the agent replays events on reconnect.
+                pending_text_parts.clear()
+                final_message_tracker.reset()
                 logger.warning(
                     "relay_sandbox_events_http_error",
                     run_id=run_id,
@@ -359,6 +541,10 @@ async def _relay_loop(
 
             except (httpx.TransportError, httpx_sse.SSEError) as e:
                 reconnect_count += 1
+                agent_active[0] = False  # missed-end_of_turn guard (see ReadTimeout above)
+                # Drop un-flushed partial prose — the agent replays events on reconnect.
+                pending_text_parts.clear()
+                final_message_tracker.reset()
                 logger.warning(
                     "relay_sandbox_events_connection_error",
                     run_id=run_id,
@@ -381,24 +567,204 @@ async def _relay_loop(
 
 
 def _is_session_update(event_data: dict) -> bool:
-    """Check if an event is a session/update notification (active agent processing)."""
+    """Check if an event is a session/update notification."""
     if event_data.get("type") != "notification":
         return False
     notification = event_data.get("notification", {})
     return notification.get("method") == "session/update"
 
 
+# session/update sub-types that mean the agent is actively generating. Allowlist
+# (not denylist) so an unknown/missing sub-type — a future ACP lifecycle event,
+# or a malformed payload — fails safe to "not active" rather than re-latching
+# agent_active and reviving the idle heartbeat storm.
+_GENERATION_SESSION_UPDATE_SUBTYPES = frozenset(
+    {
+        "agent_message",
+        "agent_message_chunk",
+        "agent_thought_chunk",
+        "tool_call",
+        "tool_call_update",
+        "plan",
+        "user_message",
+        "user_message_chunk",
+    }
+)
+
+
+def _pi_conversation_event(event_data: dict) -> dict | None:
+    if event_data.get("type") != "pi_event":
+        return None
+    event = event_data.get("event")
+    return event if isinstance(event, dict) else None
+
+
+def _is_active_agent_update(event_data: dict) -> bool:
+    """True only for events where the agent is actively generating."""
+    pi_event = _pi_conversation_event(event_data)
+    if pi_event is not None:
+        return pi_event.get("type") in {
+            "assistant_message_chunk",
+            "assistant_thought_chunk",
+            "tool_call_started",
+            "tool_call_updated",
+            "user_message",
+        }
+    if not _is_session_update(event_data):
+        return False
+    update = (event_data.get("notification", {}).get("params") or {}).get("update") or {}
+    return update.get("sessionUpdate") in _GENERATION_SESSION_UPDATE_SUBTYPES
+
+
+# Priority order for picking the plan-block step's details line from rawInput.
+_TOOL_ARGS_PREVIEW_KEYS = (
+    "file_path",
+    "notebook_path",
+    "path",
+    "command",  # Bash
+    "code",  # MCP exec / hogql / sql payloads
+    "query",
+    "pattern",
+    "url",
+    "description",
+    "prompt",  # Task / Agent sub-agent
+    "name",
+    "title",
+)
+_TOOL_ARGS_PREVIEW_LIMIT = 240
+
+
+def _extract_tool_call_step(event_data: dict, seen: set[str]) -> dict[str, Any] | None:
+    """Build {title, details} from an ACP tool_call/tool_call_update.
+
+    Streaming Claude tools arrive with empty rawInput first; we defer the
+    emit + seen-write until rawInput populates so the step gets a details line.
+    """
+    if not _is_session_update(event_data):
+        return None
+    update = (event_data.get("notification", {}).get("params") or {}).get("update") or {}
+    if update.get("sessionUpdate") not in ("tool_call", "tool_call_update"):
+        return None
+
+    tool_call_id = update.get("toolCallId")
+    if not isinstance(tool_call_id, str) or tool_call_id in seen:
+        return None
+
+    # Bare tool name ("Read", "Bash") from agent meta; fall back to rendered title.
+    meta = update.get("_meta") or {}
+    title = ((meta.get("claudeCode") or {}) if isinstance(meta, dict) else {}).get("toolName")
+    if not isinstance(title, str) or not title:
+        title = update.get("title")
+    if not isinstance(title, str) or not title:
+        return None
+
+    details = _tool_args_preview(update.get("rawInput"))
+    if not details:
+        # rawInput not assembled yet — next tool_call_update will retry here.
+        return None
+
+    seen.add(tool_call_id)
+    return {"title": title, "details": details}
+
+
+def _tool_args_preview(raw_input: Any) -> str | None:
+    """First non-empty string from _TOOL_ARGS_PREVIEW_KEYS, trimmed to one line."""
+    if not isinstance(raw_input, dict):
+        return None
+    pick: str | None = None
+    for key in _TOOL_ARGS_PREVIEW_KEYS:
+        value = raw_input.get(key)
+        if isinstance(value, str) and value:
+            pick = value
+            break
+    if pick is None:
+        for value in raw_input.values():
+            if isinstance(value, str) and value.strip():
+                pick = value
+                break
+    if not pick:
+        return None
+    one_line = " ".join(pick.split())
+    if len(one_line) > _TOOL_ARGS_PREVIEW_LIMIT:
+        return one_line[: _TOOL_ARGS_PREVIEW_LIMIT - 1] + "…"
+    return one_line
+
+
+def _extract_agent_message_text(event_data: dict) -> str | None:
+    """Text from an agent message event, else None."""
+    pi_event = _pi_conversation_event(event_data)
+    if pi_event is not None and pi_event.get("type") == "assistant_message_chunk":
+        content = pi_event.get("content")
+        if isinstance(content, dict) and content.get("type") == "text":
+            text = content.get("text")
+            return text if isinstance(text, str) else None
+        return None
+
+    notification = event_data.get("notification", {})
+    if notification.get("method") != "session/update":
+        return None
+    params = notification.get("params") or {}
+    update = params.get("update") or {}
+    if update.get("sessionUpdate") not in {"agent_message", "agent_message_chunk"}:
+        return None
+    content = update.get("content")
+    if not isinstance(content, dict):
+        return None
+    if content.get("type") != "text":
+        return None
+    text = content.get("text")
+    return text if isinstance(text, str) and text else None
+
+
+async def _flush_pending_text(
+    workflow_handle: temporalio.client.WorkflowHandle | None,
+    pending_text_parts: list[str],
+    last_text_flush: list[float],
+) -> None:
+    """Flush buffered prose to the parent as one agent_text_delta signal.
+
+    Awaited (not fire-and-forget) so the delta is recorded before the caller sends the next
+    boundary signal, and so a flush at turn-end / terminal / stream-close isn't abandoned
+    mid-delivery. The buffer is cleared only after the send returns."""
+    last_text_flush[0] = time.monotonic()
+    if not pending_text_parts:
+        return
+    text = "".join(pending_text_parts)
+    if workflow_handle is not None and text:
+        await _signal_safely(workflow_handle, "agent_text_delta", arg=text)
+    pending_text_parts.clear()
+
+
+async def _signal_safely(
+    workflow_handle: temporalio.client.WorkflowHandle,
+    signal_name: str,
+    arg: Any = None,
+) -> None:
+    """Fire-and-forget signal — failures must never break the relay loop."""
+    try:
+        if arg is None:
+            await workflow_handle.signal(signal_name)
+        else:
+            await workflow_handle.signal(signal_name, arg=arg)
+    except Exception as e:
+        logger.warning("slack_app_relay_signal_failed", signal=signal_name, error=str(e))
+
+
 def _is_keepalive_event(event_data: dict) -> bool:
     return event_data.get("type") == "keepalive"
 
 
-_is_end_of_turn = is_turn_complete
+def _is_end_of_turn(event_data: dict) -> bool:
+    pi_event = _pi_conversation_event(event_data)
+    if pi_event is not None:
+        return pi_event.get("type") == "turn_completed"
+    return is_turn_complete(event_data)
 
 
 async def _emit_agentsh_events(sandbox_id: str, run_id: str, last_ts_ns: list[int]) -> None:
     """Read recent agentsh network events and emit as debug console logs."""
-    from products.tasks.backend.services.agentsh import build_audit_query_command
-    from products.tasks.backend.services.sandbox import Sandbox
+    from products.tasks.backend.logic.services.agentsh import build_audit_query_command
+    from products.tasks.backend.logic.services.sandbox import Sandbox
     from products.tasks.backend.temporal.observability import emit_agent_log
 
     try:
@@ -441,8 +807,8 @@ def _is_terminal_event(event_data: dict) -> bool:
     return method in TERMINAL_NOTIFICATION_METHODS
 
 
-def _safe_dispatch_awaiting_input(task_run: TaskRunModel) -> None:
-    """Schedule a push when an interactive run idles waiting on the user.
+def _safe_dispatch_turn_completed(task_run: TaskRunModel) -> None:
+    """Schedule a notification when an interactive run finishes a turn.
 
     Must be called via ``asyncio.to_thread`` (as the caller does) because the
     dispatcher performs sync I/O: a Redis write (``cache.add``) and a potential
@@ -450,12 +816,43 @@ def _safe_dispatch_awaiting_input(task_run: TaskRunModel) -> None:
     dispatch never bubbles into the relay loop.
     """
     try:
-        from products.tasks.backend.push_dispatcher import notify_task_run_awaiting_input
+        from products.tasks.backend.push_dispatcher import notify_task_run_turn_completed
 
-        notify_task_run_awaiting_input(task_run)
+        notify_task_run_turn_completed(task_run)
     except Exception:
         logger.warning(
             "relay_sandbox_events_push_dispatch_failed",
+            run_id=str(task_run.id),
+            exc_info=True,
+        )
+
+
+def _persist_final_message(run_id: str, text: str) -> None:
+    """Sync DB write; call via asyncio.to_thread."""
+    try:
+        if not settings.TEST:
+            close_old_connections()
+        with transaction.atomic():
+            run = TaskRunModel.objects.select_for_update().get(id=run_id)
+            output = run.output if isinstance(run.output, dict) else {}
+            run.output = {**output, "final_message": text}
+            run.save(update_fields=["output", "updated_at"])
+    except Exception:
+        logger.warning("relay_final_message_persist_failed", run_id=run_id, exc_info=True)
+
+
+def _broker_permission_request(task_run: TaskRunModel, permission_request: dict) -> None:
+    """Auto-allow a Slack-origin run's sandbox permission request (see permission_broker)."""
+    try:
+        # The close_old_connections guard mirrors event_ingest: this thread's pooled
+        # connection is never health-checked by Django (gated off in tests, where
+        # it would close the test transaction's connection).
+        if not settings.TEST:
+            close_old_connections()
+        try_auto_respond_permission_request(task_run, permission_request)
+    except Exception:
+        logger.warning(
+            "relay_sandbox_events_permission_broker_failed",
             run_id=str(task_run.id),
             exc_info=True,
         )

@@ -8,6 +8,7 @@ import structlog
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
+from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.grouping import (
     AssignAndEmitSignalInput,
     AssignAndEmitSignalOutput,
@@ -165,6 +166,7 @@ async def _process_signal(
     match_result = await workflow.execute_activity(
         match_signal_to_report_activity,
         MatchSignalToReportInput(
+            team_id=team_id,
             description=signal.description,
             source_product=signal.source_product,
             source_type=signal.source_type,
@@ -239,6 +241,7 @@ async def _process_signal(
             embedding=signal_embedding,
             match_result=match_result,
             updated_title=updated_title,
+            remediation=signal.remediation,
         ),
         start_to_close_timeout=timedelta(minutes=5),
         retry_policy=RetryPolicy(maximum_attempts=3),
@@ -275,7 +278,7 @@ async def _process_signal_safe(
             augmented_results=augmented_results,
             report_contexts=report_contexts,
         )
-    except Exception:
+    except Exception as e:
         logger.exception(
             "Failed to process signal in parallel batch",
             team_id=team_id,
@@ -283,7 +286,17 @@ async def _process_signal_safe(
             source_type=signal.source_type,
             source_id=signal.source_id,
         )
+        await capture_signal_dropped(signal, e, stage="grouping_parallel")
         return None
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class ParallelBatchResult:
+    processed_signals: list[_ProcessedBatchSignal]
+    emitted_signals: list[tuple[str, AssignAndEmitSignalOutput]]
+    report_contexts: dict[str, ReportContext]
+    dropped_count: int
+    promoted_reports: dict[str, tuple[SignalReportSummaryWorkflowInputs, int]]
 
 
 async def _process_parallel_batch(
@@ -296,23 +309,13 @@ async def _process_parallel_batch(
     signal_embeddings: list[list[float]],
     processed_batch_signals: list[_ProcessedBatchSignal],
     report_contexts: dict[str, ReportContext],
-) -> tuple[
-    list[_ProcessedBatchSignal],
-    list[tuple[str, AssignAndEmitSignalOutput]],
-    dict[str, ReportContext],
-    int,
-    dict[str, tuple[SignalReportSummaryWorkflowInputs, int]],
-]:
+) -> ParallelBatchResult:
     """
     Process a single parallel batch. All signals in batch_indices are processed
     concurrently via asyncio.gather.
 
-    Returns:
-        - new_processed_signals: list of _ProcessedBatchSignal for successful signals
-        - new_emitted_signals: list of (signal_id, AssignAndEmitSignalOutput)
-        - updated report_contexts
-        - dropped count
-        - promoted_reports
+    Returns a ParallelBatchResult with the processed signals, emitted signals,
+    updated report_contexts, dropped count, and promoted reports.
     """
     dropped = 0
     new_processed_signals: list[_ProcessedBatchSignal] = []
@@ -388,11 +391,21 @@ async def _process_parallel_batch(
 
         if result.assign_result.promoted:
             promoted_reports[result.assign_result.report_id] = (
-                SignalReportSummaryWorkflowInputs(team_id=signal.team_id, report_id=result.assign_result.report_id),
+                SignalReportSummaryWorkflowInputs(
+                    team_id=signal.team_id,
+                    report_id=result.assign_result.report_id,
+                    debounce_seconds=result.assign_result.research_debounce_seconds,
+                ),
                 result.assign_result.run_count,
             )
 
-    return new_processed_signals, new_emitted_signals, report_contexts, dropped, promoted_reports
+    return ParallelBatchResult(
+        processed_signals=new_processed_signals,
+        emitted_signals=new_emitted_signals,
+        report_contexts=report_contexts,
+        dropped_count=dropped,
+        promoted_reports=promoted_reports,
+    )
 
 
 async def process_sequential_phase_parallel(
@@ -442,7 +455,7 @@ async def process_sequential_phase_parallel(
             accumulated_signals=len(all_processed_signals),
         )
 
-        new_processed, new_emitted, report_contexts, dropped, promoted = await _process_parallel_batch(
+        result = await _process_parallel_batch(
             batch_indices=batch_indices,
             batch=batch,
             team_id=team_id,
@@ -454,10 +467,11 @@ async def process_sequential_phase_parallel(
             report_contexts=report_contexts,
         )
 
-        all_processed_signals.extend(new_processed)
-        all_emitted_signals.extend(new_emitted)
-        all_promoted_reports.update(promoted)
-        total_dropped += dropped
+        report_contexts = result.report_contexts
+        all_processed_signals.extend(result.processed_signals)
+        all_emitted_signals.extend(result.emitted_signals)
+        all_promoted_reports.update(result.promoted_reports)
+        total_dropped += result.dropped_count
 
     return SequentialPhaseResult(
         dropped=total_dropped,

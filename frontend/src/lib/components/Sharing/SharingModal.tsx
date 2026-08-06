@@ -27,16 +27,17 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { preflightLogic } from 'lib/logic/preflightLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
+import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { AnyResponseType, Node } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isInsightVizNode } from '~/queries/utils'
 import {
     AccessControlLevel,
@@ -45,8 +46,8 @@ import {
     InsightShortId,
     QueryBasedInsightModel,
 } from '~/types'
+import { InsightType } from '~/types'
 
-import { AccessControlAction } from '../AccessControlAction'
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { SharePasswordsTable } from './SharePasswordsTable'
 import { sharingLogic } from './sharingLogic'
@@ -182,9 +183,26 @@ export function SharingModalContent({
             : notebookShortId
               ? 'notebook'
               : 'this'
-    const hasEditAccess = userAccessLevel
-        ? accessLevelSatisfied(resource as AccessControlResourceType, userAccessLevel, AccessControlLevel.Editor)
-        : true
+    // Sharing requires editor access to the underlying resource being shared (enforced via
+    // `userAccessLevel`, the object's own access level) AND editor access to the independent
+    // `sharing_configuration` resource, which lets an org restrict who may manage public sharing
+    // at all, regardless of how much access they have to the resource itself.
+    const underlyingResourceDisabledReason = userAccessLevel
+        ? getAccessControlDisabledReason(
+              getResourceType(dashboardId, insightShortId, recordingId, notebookShortId),
+              AccessControlLevel.Editor,
+              userAccessLevel
+          )
+        : null
+    const sharingConfigDisabledReason = sharingConfiguration?.user_access_level
+        ? getAccessControlDisabledReason(
+              AccessControlResourceType.SharingConfiguration,
+              AccessControlLevel.Editor,
+              sharingConfiguration.user_access_level
+          )
+        : null
+    const sharingManageDisabledReason = underlyingResourceDisabledReason ?? sharingConfigDisabledReason
+    const hasEditAccess = !sharingManageDisabledReason
 
     useEffect(() => {
         setIframeLoaded(false)
@@ -227,27 +245,17 @@ export function SharingModalContent({
                         {!sharingAllowed ? (
                             <LemonBanner type="warning">Public sharing is disabled for this organization.</LemonBanner>
                         ) : (
-                            <AccessControlAction
-                                resourceType={getResourceType(
-                                    dashboardId,
-                                    insightShortId,
-                                    recordingId,
-                                    notebookShortId
-                                )}
-                                minAccessLevel={AccessControlLevel.Editor}
-                                userAccessLevel={userAccessLevel}
-                            >
-                                <LemonSwitch
-                                    id="sharing-switch"
-                                    label={`Share ${resource} publicly`}
-                                    checked={sharingConfiguration.enabled}
-                                    data-attr="sharing-switch"
-                                    onChange={(active) => setIsEnabled(active)}
-                                    bordered
-                                    fullWidth
-                                    loading={sharingConfigurationLoading}
-                                />
-                            </AccessControlAction>
+                            <LemonSwitch
+                                id="sharing-switch"
+                                label={`Share ${resource} publicly`}
+                                checked={sharingConfiguration.enabled}
+                                data-attr="sharing-switch"
+                                onChange={(active) => setIsEnabled(active)}
+                                bordered
+                                fullWidth
+                                loading={sharingConfigurationLoading}
+                                disabledReason={sharingManageDisabledReason}
+                            />
                         )}
 
                         {sharingAllowed && sharingConfiguration.enabled && sharingConfiguration.access_token ? (
@@ -278,6 +286,7 @@ export function SharingModalContent({
                                                     }
                                                 }}
                                                 checked={sharingConfiguration.password_required}
+                                                disabledReason={sharingManageDisabledReason}
                                             />
                                             {sharingConfiguration.password_required && (
                                                 <div className="mt-1 w-full">
@@ -286,6 +295,7 @@ export function SharingModalContent({
                                                         insightId={insight?.id}
                                                         recordingId={recordingId}
                                                         notebookShortId={notebookShortId}
+                                                        disabledReason={sharingManageDisabledReason}
                                                     />
                                                 </div>
                                             )}
@@ -368,13 +378,14 @@ export function SharingModalContent({
                                                     )}
                                                 </LemonField>
 
-                                                {isInsightVizNode(insight?.query) && insightShortId && (
-                                                    // These options are only valid for `InsightVizNode`s, and they rely on `insightVizDataLogic`
-                                                    <>
-                                                        <LegendCheckbox insightShortId={insightShortId} />
-                                                        <DetailedResultsCheckbox insightShortId={insightShortId} />
-                                                    </>
-                                                )}
+                                                {isInsightVizNode(insight?.query) &&
+                                                    insightShortId && (
+                                                        // These options are only valid for `InsightVizNode`s, and they rely on `insightVizDataLogic`
+                                                        <>
+                                                            <LegendCheckbox insightShortId={insightShortId} />
+                                                            <DetailedResultsCheckbox insightShortId={insightShortId} />
+                                                        </>
+                                                    )}
 
                                                 {recordingId && (
                                                     <LemonField name="showInspector">
@@ -733,4 +744,41 @@ SharingModal.open = (props: SharingModalBaseProps) => {
             type: 'secondary',
         },
     })
+}
+
+/**
+ * Build a canonical definition-based insight link ("template link").
+ * The link always points to `/insights/new` on the provided baseUrl and includes:
+ *   #insight=<InsightType>&q=<URL-encoded JSON definition>
+ *
+ * It works for both saved insights (where `query` is persisted on the model)
+ * and unsaved/draft insights (pass the raw query object).
+ */
+export function getInsightDefinitionUrl(
+    insight: Pick<QueryBasedInsightModel, 'query'> | { query: Node<Record<string, any>> },
+    baseUrl: string
+): string {
+    if (!insight?.query) {
+        throw new Error('getInsightDefinitionUrl: insight.query is required')
+    }
+
+    // Derive InsightType from the query where possible so the #insight=<TYPE> hash param is present
+    let insightType: InsightType | undefined
+    type InsightVizNode = { kind: NodeKind.InsightVizNode; source?: { kind?: string } }
+    const kind = (
+        insight.query.kind === NodeKind.InsightVizNode
+            ? (insight.query as InsightVizNode).source?.kind
+            : insight.query.kind
+    ) as keyof typeof nodeKindToInsightType | undefined
+
+    if (kind && kind in nodeKindToInsightType) {
+        insightType = nodeKindToInsightType[kind as keyof typeof nodeKindToInsightType]
+    }
+
+    const relativeUrl = urls.insightNew({ query: insight.query, type: insightType })
+
+    // Ensure the link is project-agnostic (`/project/<id>` may get injected elsewhere)
+    const cleanedPath = relativeUrl.replace(/^\/project\/[^/]+/, '')
+
+    return `${baseUrl}${cleanedPath}`
 }

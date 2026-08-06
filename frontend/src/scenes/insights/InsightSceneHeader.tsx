@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
-import { DebugCHQueries } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
+import { DebugCHQueries } from 'lib/components/Shortcuts/utils/DebugCHQueries'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { ReloadInsight } from 'scenes/saved-insights/ReloadInsight'
@@ -32,8 +32,8 @@ export function InsightSceneHeader({ insightLogicProps }: InsightSceneHeaderProp
                 <LemonBanner type="warning" className="mb-4">
                     <div className="flex flex-row items-center justify-between gap-2">
                         <span>
-                            You are viewing this insight with filter/variable overrides. Discard them to edit the
-                            insight.
+                            You're viewing this insight with a dashboard's filters applied, so it can't be edited.
+                            Discard the filters to edit the saved insight.
                         </span>
 
                         <LemonButton type="secondary" to={urls.insightView(insightId as InsightShortId)}>

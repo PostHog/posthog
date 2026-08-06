@@ -7,13 +7,15 @@ use axum::Router;
 use axum_test_helper::TestClient;
 use capture::ai_s3::{BlobStorage, MockBlobStorage};
 use capture::api::CaptureError;
-use capture::config::CaptureMode;
+use capture::config::{AiRouting, CaptureMode};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
 use capture::sinks::Event;
 use capture::time::TimeSource;
 use capture::v0_request::{OverflowReason, ProcessedEvent};
 use chrono::{DateTime, TimeZone, Utc};
+use common_ingestion_warnings::test_support::CollectingEmitter;
+use common_ingestion_warnings::{WarningEmitter, WarningType, CAPTURE_AI_EVENTS};
 use common_redis::MockRedisClient;
 use futures::StreamExt;
 use integration_utils::{test_lifecycle_handlers, DEFAULT_CONFIG, DEFAULT_TEST_TIME};
@@ -177,9 +179,8 @@ fn setup_ai_test_router() -> Router {
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        false,
+        None, // recorder_handle
         CaptureMode::Events,
-        String::from("capture-ai"),
         None,
         25 * 1024 * 1024,
         false,
@@ -188,15 +189,79 @@ fn setup_ai_test_router() -> Router {
         0.0_f32,
         26_214_400,                       // 25MB default for AI endpoint
         Some(create_mock_blob_storage()), // ai_blob_storage
-        Some(10),                         // request_timeout_seconds
         None,                             // body_chunk_read_timeout_ms
         256,                              // body_read_chunk_size_kb
         10 * 1024 * 1024,                 // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024,                 // capture_v1_max_decompressed_body_bytes
         None,                             // overflow_limiter
+        None,                             // ai_events_overflow_limiter
         None,                             // replay_overflow_limiter
         None,                             // v1_sink_router
+        8,                                // capture_v1_scatter_gather_min_batch
+        None,                             // ai_gateway_signing_secret
+        AiRouting::Primary,               // ai_routing
+        false,                            // ai_events_overflow_enabled
+        None,                             // ingestion_warning_emitter
     )
+}
+
+/// A router whose emit sites are live, plus the emitter to assert against.
+/// Mirrors `setup_ai_test_router` and differs only in the last argument.
+fn setup_ai_router_collecting_warnings() -> (Router, Arc<CollectingEmitter>) {
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
+
+    let timesource = FixedTime {
+        time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
+            .expect("Invalid fixed time format")
+            .with_timezone(&Utc),
+    };
+    let redis = Arc::new(MockRedisClient::new());
+
+    let mut cfg = DEFAULT_CONFIG.clone();
+    cfg.capture_mode = CaptureMode::Events;
+
+    let quota_limiter =
+        CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
+
+    let emitter = Arc::new(CollectingEmitter::default());
+    let warning_emitter: Option<Arc<dyn WarningEmitter>> = Some(emitter.clone());
+
+    let app = router(
+        timesource,
+        readiness,
+        liveness,
+        Arc::new(TestSink),
+        redis,
+        None,
+        quota_limiter,
+        TokenDropper::default(),
+        None, // event_restriction_service
+        None, // recorder_handle
+        CaptureMode::Events,
+        None,
+        25 * 1024 * 1024,
+        false,
+        1_i64,
+        false,
+        0.0_f32,
+        26_214_400,
+        Some(create_mock_blob_storage()),
+        None,
+        256,
+        10 * 1024 * 1024,
+        50 * 1024 * 1024,
+        None,
+        None,
+        None,
+        None,
+        8,
+        None,
+        AiRouting::Primary,
+        false,
+        warning_emitter,
+    );
+
+    (app, emitter)
 }
 
 // ============================================================================
@@ -1639,9 +1704,8 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        false,
+        None, // recorder_handle
         CaptureMode::Events,
-        String::from("capture-ai"),
         None,
         25 * 1024 * 1024,
         false,
@@ -1650,14 +1714,19 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         0.0_f32,
         26_214_400,                       // 25MB default for AI endpoint
         Some(create_mock_blob_storage()), // ai_blob_storage
-        Some(10),                         // request_timeout_seconds
         None,                             // body_chunk_read_timeout_ms
         256,                              // body_read_chunk_size_kb
         10 * 1024 * 1024,                 // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024,                 // capture_v1_max_decompressed_body_bytes
         None,                             // overflow_limiter
+        None,                             // ai_events_overflow_limiter
         None,                             // replay_overflow_limiter
         None,                             // v1_sink_router
+        8,                                // capture_v1_scatter_gather_min_batch
+        None,                             // ai_gateway_signing_secret
+        AiRouting::Primary,               // ai_routing
+        false,                            // ai_events_overflow_enabled
+        None,                             // ingestion_warning_emitter
     );
 
     (router, sink_clone)
@@ -2552,10 +2621,9 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         None,
         quota_limiter,
         token_dropper,
-        None,  // event_restriction_service
-        false, // metrics
+        None, // event_restriction_service
+        None, // recorder_handle
         CaptureMode::Events,
-        String::from("capture-ai"),
         None,                             // concurrency_limit
         25 * 1024 * 1024,                 // event_size_limit
         false,                            // enable_historical_rerouting
@@ -2564,14 +2632,19 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         0.0,                              // verbose_sample_percent
         26_214_400,                       // ai_max_sum_of_parts_bytes
         Some(create_mock_blob_storage()), // ai_blob_storage
-        Some(10),                         // request_timeout_seconds
         None,                             // body_chunk_read_timeout_ms
         256,                              // body_read_chunk_size_kb
         10 * 1024 * 1024,                 // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024,                 // capture_v1_max_decompressed_body_bytes
         None,                             // overflow_limiter
+        None,                             // ai_events_overflow_limiter
         None,                             // replay_overflow_limiter
         None,                             // v1_sink_router
+        8,                                // capture_v1_scatter_gather_min_batch
+        None,                             // ai_gateway_signing_secret
+        AiRouting::Primary,               // ai_routing
+        false,                            // ai_events_overflow_enabled
+        None,                             // ingestion_warning_emitter
     );
 
     (router, sink_clone)
@@ -2762,9 +2835,8 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        false,
+        None, // recorder_handle
         CaptureMode::Events,
-        String::from("capture-ai"),
         None,
         25 * 1024 * 1024,
         false,
@@ -2773,14 +2845,19 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         0.0_f32,
         26_214_400,
         Some(create_mock_blob_storage()), // ai_blob_storage
-        Some(10),                         // request_timeout_seconds
         None,                             // body_chunk_read_timeout_ms
         256,                              // body_read_chunk_size_kb
         10 * 1024 * 1024,                 // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024,                 // capture_v1_max_decompressed_body_bytes
         None,                             // overflow_limiter
+        None,                             // ai_events_overflow_limiter
         None,                             // replay_overflow_limiter
         None,                             // v1_sink_router
+        8,                                // capture_v1_scatter_gather_min_batch
+        None,                             // ai_gateway_signing_secret
+        AiRouting::Primary,               // ai_routing
+        false,                            // ai_events_overflow_enabled
+        None,                             // ingestion_warning_emitter
     );
 
     (router, sink_clone)
@@ -2916,9 +2993,8 @@ fn setup_ai_test_router_with_overflow_limiter(
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        false,
+        None, // recorder_handle
         CaptureMode::Events,
-        String::from("capture-ai"),
         None,
         25 * 1024 * 1024,
         false,
@@ -2927,14 +3003,19 @@ fn setup_ai_test_router_with_overflow_limiter(
         0.0_f32,
         26_214_400,
         Some(create_mock_blob_storage()),
-        Some(10),
         None,
         256,
-        10 * 1024 * 1024,       // capture_v1_max_compressed_body_bytes
-        50 * 1024 * 1024,       // capture_v1_max_decompressed_body_bytes
-        Some(overflow_limiter), // overflow_limiter
-        None,                   // replay_overflow_limiter
-        None,                   // v1_sink_router
+        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+        Some(overflow_limiter),
+        None,               // ai_events_overflow_limiter
+        None,               // replay_overflow_limiter
+        None,               // v1_sink_router
+        8,                  // capture_v1_scatter_gather_min_batch
+        None,               // ai_gateway_signing_secret
+        AiRouting::Primary, // ai_routing
+        false,              // ai_events_overflow_enabled
+        None,               // ingestion_warning_emitter
     );
 
     (router, sink_clone)
@@ -3022,4 +3103,366 @@ async fn test_ai_endpoint_without_overflow_limiter_is_parity_with_pre_refactor()
     let events = sink.get_events().await;
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].metadata.overflow_reason, None);
+}
+
+// ============================================================================
+// AI-gateway provenance on /i/v0/ai
+// ============================================================================
+
+const GW_SECRET: &str = "test-signing-secret";
+
+// Shared router builder for the provenance tests, with the signing secret set;
+// callers supply only what differs (the redis client and quota limiter).
+fn ai_router(
+    redis: Arc<MockRedisClient>,
+    quota_limiter: CaptureQuotaLimiter,
+) -> (Router, CapturingSink) {
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
+    let sink = CapturingSink::new();
+    let sink_clone = sink.clone();
+    let timesource = FixedTime {
+        time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
+            .unwrap()
+            .with_timezone(&Utc),
+    };
+    let router = router(
+        timesource,
+        readiness,
+        liveness,
+        Arc::new(sink),
+        redis,
+        None,
+        quota_limiter,
+        TokenDropper::default(),
+        None,
+        None, // recorder_handle
+        CaptureMode::Events,
+        None,
+        25 * 1024 * 1024,
+        false,
+        1_i64,
+        false,
+        0.0_f32,
+        26_214_400,
+        Some(create_mock_blob_storage()),
+        None,
+        256,
+        10 * 1024 * 1024,
+        50 * 1024 * 1024,
+        None,
+        None, // ai_events_overflow_limiter
+        None,
+        None,
+        8,
+        Some(GW_SECRET.to_string()),
+        AiRouting::Primary, // ai_routing
+        false,              // ai_events_overflow_enabled
+        None,               // ingestion_warning_emitter
+    );
+    (router, sink_clone)
+}
+
+// LLM-quota-limited (the token reads as over quota) with the signing secret set,
+// so a verified event can prove it bypasses the limiter.
+fn setup_ai_router_quota_limited_with_secret(token: &str) -> (Router, CapturingSink) {
+    let llm_key = format!(
+        "{}{}",
+        QUOTA_LIMITER_CACHE_KEY,
+        QuotaResource::LLMEvents.as_str()
+    );
+    let redis =
+        Arc::new(MockRedisClient::new().zrangebyscore_ret(&llm_key, vec![token.to_string()]));
+    let mut cfg = DEFAULT_CONFIG.clone();
+    cfg.capture_mode = CaptureMode::Events;
+    let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
+        .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
+    ai_router(redis, quota_limiter)
+}
+
+// Signing secret set, no quota limit, so the published event is observable
+// (used to assert a forged marker is stripped).
+fn setup_ai_router_with_secret() -> (Router, CapturingSink) {
+    let redis = Arc::new(MockRedisClient::new());
+    let mut cfg = DEFAULT_CONFIG.clone();
+    cfg.capture_mode = CaptureMode::Events;
+    let quota_limiter =
+        CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
+    ai_router(redis, quota_limiter)
+}
+
+// Sends an AI multipart request with the gateway provenance headers attached.
+async fn send_signed_ai_request(
+    client: &TestClient,
+    form: Form,
+    token: &str,
+    signature: &str,
+    signed_at: &str,
+    request_id: &str,
+) -> axum_test_helper::TestResponse {
+    let boundary = form.boundary().to_string();
+    let content_type = format!("multipart/form-data; boundary={boundary}");
+    let mut stream = form.into_stream();
+    let mut body = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        body.extend_from_slice(&chunk.unwrap());
+    }
+    client
+        .post("/i/v0/ai")
+        .header("Content-Type", content_type)
+        .header("Authorization", format!("Bearer {token}"))
+        .header("PostHog-Ai-Gateway-Signature", signature)
+        .header("PostHog-Ai-Gateway-Signed-At", signed_at)
+        .header("PostHog-Ai-Gateway-Request-Id", request_id)
+        .body(body)
+        .send()
+        .await
+}
+
+#[tokio::test]
+async fn test_ai_endpoint_verified_gateway_event_bypasses_quota_and_is_stamped() {
+    let token = "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3";
+    let (router, sink) = setup_ai_router_quota_limited_with_secret(token);
+    let client = TestClient::new(router);
+
+    let distinct_id = "user-7";
+    let request_id = "req-verified-1";
+    let sig = capture::v1::gateway_provenance::sign_for_test(
+        GW_SECRET.as_bytes(),
+        token,
+        distinct_id,
+        request_id,
+        DEFAULT_TEST_TIME,
+    );
+    let form = create_ai_event_form(
+        "$ai_generation",
+        distinct_id,
+        json!({"$ai_model": "claude"}),
+    );
+    let resp =
+        send_signed_ai_request(&client, form, token, &sig, DEFAULT_TEST_TIME, request_id).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // The token is LLM-quota-limited, so an unverified event would be dropped. A
+    // verified gateway event must be exempt (published) and stamped.
+    let events = sink.get_events().await;
+    assert_eq!(
+        events.len(),
+        1,
+        "verified gateway event must bypass the LLM quota limiter"
+    );
+    let data: Value = serde_json::from_str(&events[0].event.data).unwrap();
+    assert_eq!(data["properties"]["$ai_gateway_verified"], json!(true));
+    assert_eq!(
+        data["properties"]["$ai_gateway_request_id"],
+        json!(request_id)
+    );
+}
+
+#[tokio::test]
+async fn test_ai_endpoint_forged_marker_is_stripped() {
+    let token = "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3";
+    let (router, sink) = setup_ai_router_with_secret();
+    let client = TestClient::new(router);
+
+    // Client forges the verified marker and sends an invalid signature.
+    let form = create_ai_event_form(
+        "$ai_generation",
+        "user-7",
+        json!({"$ai_model": "claude", "$ai_gateway_verified": true}),
+    );
+    let resp = send_signed_ai_request(
+        &client,
+        form,
+        token,
+        "deadbeef",
+        DEFAULT_TEST_TIME,
+        "req-forged",
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 1);
+    let data: Value = serde_json::from_str(&events[0].event.data).unwrap();
+    assert!(
+        data["properties"].get("$ai_gateway_verified").is_none(),
+        "a forged $ai_gateway_verified with an invalid signature must be stripped"
+    );
+}
+
+// Over the global Events quota (the team-wide cap, not the scoped LLM one), with
+// the signing secret set.
+fn setup_ai_router_global_quota_limited_with_secret(token: &str) -> (Router, CapturingSink) {
+    let events_key = format!(
+        "{}{}",
+        QUOTA_LIMITER_CACHE_KEY,
+        QuotaResource::Events.as_str()
+    );
+    let redis =
+        Arc::new(MockRedisClient::new().zrangebyscore_ret(&events_key, vec![token.to_string()]));
+    let mut cfg = DEFAULT_CONFIG.clone();
+    cfg.capture_mode = CaptureMode::Events;
+    let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60));
+    ai_router(redis, quota_limiter)
+}
+
+#[tokio::test]
+async fn test_ai_endpoint_verified_gateway_event_still_subject_to_global_quota() {
+    let token = "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3";
+    let (router, sink) = setup_ai_router_global_quota_limited_with_secret(token);
+    let client = TestClient::new(router);
+
+    let distinct_id = "user-7";
+    let request_id = "req-global-limited";
+    let sig = capture::v1::gateway_provenance::sign_for_test(
+        GW_SECRET.as_bytes(),
+        token,
+        distinct_id,
+        request_id,
+        DEFAULT_TEST_TIME,
+    );
+    let form = create_ai_event_form(
+        "$ai_generation",
+        distinct_id,
+        json!({"$ai_model": "claude"}),
+    );
+    let resp =
+        send_signed_ai_request(&client, form, token, &sig, DEFAULT_TEST_TIME, request_id).await;
+
+    // Verified gateway events are exempt from the scoped LLM quota but not the
+    // global Events quota, so an over-global-quota token is still rejected.
+    assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        sink.get_events().await.len(),
+        0,
+        "verified gateway event must still obey the global Events quota"
+    );
+}
+
+// ============================================================================
+// PHASE 11: INGESTION WARNINGS
+// ============================================================================
+//
+// The mapping, details, and count are pinned at the helper level in
+// `ingestion_warnings::ai`. These cover what a unit test can't: that the emit
+// seam is wired into the handler at all, that attribution reaches it from the
+// event part, and that a rejection still produces its original HTTP response.
+
+#[tokio::test]
+async fn non_ai_event_name_warns_and_still_returns_400() {
+    let (app, emitter) = setup_ai_router_collecting_warnings();
+    let client = TestClient::new(app);
+
+    // Analytics sent to the AI path: the mistake invalid_ai_event exists for.
+    let form = Form::new().part(
+        "event",
+        Part::bytes(
+            serde_json::to_vec(&json!({
+                "uuid": uuid::Uuid::now_v7().to_string(),
+                "event": "$pageview",
+                "distinct_id": "user-1",
+                "properties": {"$ai_model": "gpt-4", "$lib": "posthog-python", "$lib_version": "3.1.0"}
+            }))
+            .unwrap(),
+        )
+        .mime_str("application/json")
+        .unwrap(),
+    );
+
+    let resp = send_multipart_request(&client, form, Some("test_token")).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    let emitted = emitter.emitted();
+    assert_eq!(emitted.len(), 1);
+    assert_eq!(emitted[0].warning, WarningType::InvalidAiEvent);
+    assert_eq!(emitted[0].source, CAPTURE_AI_EVENTS);
+    assert_eq!(emitted[0].token, "test_token");
+    assert_eq!(emitted[0].count, 1);
+    assert_eq!(
+        emitted[0].extra_details.get("eventName"),
+        Some(&json!("$pageview"))
+    );
+    // Attribution came off the event part's own properties.
+    assert_eq!(
+        emitted[0].extra_details.get("lib"),
+        Some(&json!("posthog-python"))
+    );
+    assert_eq!(
+        emitted[0].extra_details.get("libVersion"),
+        Some(&json!("3.1.0"))
+    );
+    assert_eq!(
+        emitted[0].extra_details.get("path"),
+        Some(&json!("/i/v0/ai"))
+    );
+}
+
+#[tokio::test]
+async fn missing_ai_model_warns_as_invalid_ai_event() {
+    let (app, emitter) = setup_ai_router_collecting_warnings();
+    let client = TestClient::new(app);
+
+    let form = create_ai_event_form("$ai_generation", "user-2", json!({"foo": "bar"}));
+    let resp = send_multipart_request(&client, form, Some("test_token")).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    let emitted = emitter.emitted();
+    assert_eq!(emitted.len(), 1);
+    assert_eq!(emitted[0].warning, WarningType::InvalidAiEvent);
+    // No $lib in the properties, so attribution falls back rather than dropping keys.
+    assert_eq!(emitted[0].extra_details.get("lib"), Some(&json!("unknown")));
+}
+
+// Structural failures happen before the event part parses, so this also covers
+// the pre-event-part attribution fallback on the seam.
+#[tokio::test]
+async fn unknown_multipart_field_warns_as_invalid_ai_payload() {
+    let (app, emitter) = setup_ai_router_collecting_warnings();
+    let client = TestClient::new(app);
+
+    let form = create_ai_event_form("$ai_generation", "user-3", json!({"$ai_model": "gpt-4"}))
+        .part(
+            "surprise",
+            Part::bytes(b"data".to_vec())
+                .mime_str("application/json")
+                .unwrap(),
+        );
+
+    let resp = send_multipart_request(&client, form, Some("test_token")).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    let emitted = emitter.emitted();
+    assert_eq!(emitted.len(), 1);
+    assert_eq!(emitted[0].warning, WarningType::InvalidAiPayload);
+    assert_eq!(
+        emitted[0].extra_details.get("part"),
+        Some(&json!("surprise"))
+    );
+}
+
+// A missing Bearer header is pre-token, so there is no team to attribute to and
+// the seam must stay silent. This is the property that keeps unattributable
+// failures out of the warnings table.
+#[tokio::test]
+async fn unauthenticated_request_never_warns() {
+    let (app, emitter) = setup_ai_router_collecting_warnings();
+    let client = TestClient::new(app);
+
+    let form = create_ai_event_form("$ai_generation", "user-4", json!({"$ai_model": "gpt-4"}));
+    let resp = send_multipart_request(&client, form, None).await;
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    assert!(emitter.emitted().is_empty());
+}
+
+#[tokio::test]
+async fn valid_ai_event_never_warns() {
+    let (app, emitter) = setup_ai_router_collecting_warnings();
+    let client = TestClient::new(app);
+
+    let form = create_ai_event_form("$ai_generation", "user-5", json!({"$ai_model": "gpt-4"}));
+    let resp = send_multipart_request(&client, form, Some("test_token")).await;
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert!(emitter.emitted().is_empty());
 }

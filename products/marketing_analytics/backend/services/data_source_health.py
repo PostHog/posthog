@@ -20,9 +20,7 @@ from products.marketing_analytics.backend.services.native_integrations import (
     DISPLAY_NAMES,
     EXTERNAL_SOURCE_TYPE_TO_NATIVE,
 )
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 
 logger = structlog.get_logger(__name__)
 

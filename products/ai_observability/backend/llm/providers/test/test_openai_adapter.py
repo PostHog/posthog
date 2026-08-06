@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -8,8 +10,13 @@ from posthoganalytics.ai.openai import (
     AzureOpenAI as WrappedAzureOpenAI,
     OpenAI as WrappedOpenAI,
 )
+from pydantic import BaseModel, ValidationError, model_validator
 
-from products.ai_observability.backend.llm.errors import QuotaExceededError
+from products.ai_observability.backend.llm.errors import (
+    ContextWindowExceededError,
+    QuotaExceededError,
+    StructuredOutputParseError,
+)
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter, OpenAIConfig
 from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest
 
@@ -17,6 +24,38 @@ from products.ai_observability.backend.llm.types import AnalyticsContext, Comple
 class TestOpenAIRecommendedModels:
     def test_recommended_models_equals_supported_models(self):
         assert OpenAIAdapter.recommended_models() == set(OpenAIConfig.SUPPORTED_MODELS)
+
+
+def _api_model(model_id: str, created: int) -> MagicMock:
+    model = MagicMock()
+    model.id = model_id
+    model.created = created
+    return model
+
+
+class TestOpenAIListModels:
+    @parameterized.expand(sorted(OpenAIConfig.RESPONSES_ONLY_MODELS))
+    def test_responses_only_model_is_not_picker_eligible(self, model: str):
+        assert model not in OpenAIConfig.SUPPORTED_MODELS
+        assert model not in OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING
+
+    def test_list_models_without_key_returns_supported_models(self):
+        assert OpenAIAdapter.list_models() == OpenAIConfig.SUPPORTED_MODELS
+
+    def test_list_models_excludes_responses_only_models_from_api_discovery(self):
+        api_models = [
+            _api_model("o3-pro", 300),
+            _api_model("gpt-5-pro", 200),
+            _api_model("gpt-6-future", 100),
+        ]
+        mock_client = MagicMock()
+        mock_client.models.list.return_value = api_models
+
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            result = OpenAIAdapter.list_models(api_key="sk-test")
+
+        assert "gpt-6-future" in result
+        assert OpenAIConfig.RESPONSES_ONLY_MODELS.isdisjoint(result)
 
 
 class TestBuildAnalyticsKwargs:
@@ -66,6 +105,39 @@ def _make_api_status_error(status_code: int, message: str) -> openai.APIStatusEr
     return openai.APIStatusError(message, response=response, body={"error": {"message": message, "code": status_code}})
 
 
+def _make_bad_request_error(message: str) -> openai.BadRequestError:
+    request = httpx.Request("POST", "https://example.invalid/v1/chat/completions")
+    response = httpx.Response(status_code=400, request=request, json={"error": {"message": message}})
+    return openai.BadRequestError(message, response=response, body={"error": {"message": message}})
+
+
+class _Verdict(BaseModel):
+    verdict: bool
+
+
+class _VerdictWithNA(BaseModel):
+    applicable: bool
+    verdict: bool | None = None
+
+    @model_validator(mode="after")
+    def _check(self) -> "_VerdictWithNA":
+        if self.applicable and self.verdict is None:
+            raise ValueError("verdict is required when applicable is true")
+        return self
+
+
+def _length_finish_reason_error() -> openai.LengthFinishReasonError:
+    return openai.LengthFinishReasonError(completion=MagicMock(usage=None))
+
+
+def _cross_field_error() -> ValidationError:
+    try:
+        _VerdictWithNA.model_validate({"applicable": True, "verdict": None})
+    except ValidationError as e:
+        return e
+    raise AssertionError("expected ValidationError")
+
+
 class TestOpenAIAdapterErrorMapping:
     @pytest.fixture
     def request_no_structured_output(self) -> CompletionRequest:
@@ -99,3 +171,57 @@ class TestOpenAIAdapterErrorMapping:
                 adapter.complete(
                     request_no_structured_output, api_key="sk-test", analytics=AnalyticsContext(capture=False)
                 )
+
+    @parameterized.expand(
+        [
+            (
+                "openai_context_length_exceeded",
+                "Error code: 400 - {'error': {'message': 'Input tokens exceed the configured limit of 272000 "
+                "tokens. Your messages resulted in 300826 tokens. Please reduce the length of the messages.', "
+                "'code': 'context_length_exceeded'}}",
+            ),
+            (
+                "openrouter_prompt_too_long",
+                "Error code: 400 - {'error': {'message': 'prompt is too long: 212618 tokens > 200000 maximum'}}",
+            ),
+        ]
+    )
+    def test_structured_context_window_400_maps_to_context_window_exceeded(self, _name: str, message: str):
+        adapter = OpenAIAdapter()
+        mock_client = MagicMock()
+        mock_client.beta.chat.completions.parse.side_effect = _make_bad_request_error(message)
+        request = CompletionRequest(
+            model="gpt-5-mini",
+            system="s",
+            messages=[{"role": "user", "content": "x"}],
+            provider="openai",
+            response_format=_Verdict,
+        )
+
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            with pytest.raises(ContextWindowExceededError):
+                adapter.complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
+
+    @parameterized.expand(
+        [
+            ("length_finish_reason", _length_finish_reason_error),
+            ("cross_field_validator", _cross_field_error),
+        ]
+    )
+    def test_structured_output_parse_errors_map_to_parse_error(
+        self, _name: str, make_error: Callable[[], Exception]
+    ) -> None:
+        adapter = OpenAIAdapter()
+        mock_client = MagicMock()
+        mock_client.beta.chat.completions.parse.side_effect = make_error()
+        request = CompletionRequest(
+            model="gpt-5-mini",
+            system="s",
+            messages=[{"role": "user", "content": "x"}],
+            provider="openai",
+            response_format=_Verdict,
+        )
+
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            with pytest.raises(StructuredOutputParseError):
+                adapter.complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))

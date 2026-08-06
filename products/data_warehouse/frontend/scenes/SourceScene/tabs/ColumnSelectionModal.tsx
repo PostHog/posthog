@@ -17,9 +17,11 @@ export interface ColumnSelectionTarget {
 
 interface ColumnSelectionPickerProps {
     schema: ColumnSelectionTarget | null
-    onSave: (enabledColumns: string[] | null) => void
+    onSave?: (enabledColumns: string[] | null) => void
     onCancel?: () => void
     hideActions?: boolean
+    /** Fires on every edit, so a parent can drive saving with its own button. */
+    onChange?: (enabledColumns: string[] | null) => void
 }
 
 interface ColumnSelectionModalProps {
@@ -44,7 +46,10 @@ interface UseColumnSelectionResult {
     filteredColumns: { name: string; data_type?: string; is_nullable?: boolean }[]
 }
 
-function useColumnSelection(schema: ColumnSelectionTarget | null): UseColumnSelectionResult {
+function useColumnSelection(
+    schema: ColumnSelectionTarget | null,
+    onChange?: (enabledColumns: string[] | null) => void
+): UseColumnSelectionResult {
     const available = schema?.available_columns ?? []
     const primaryKeys = useMemo(() => new Set(schema?.primary_key_columns ?? []), [schema?.primary_key_columns])
     const incrementalField = schema?.incremental_field
@@ -73,23 +78,40 @@ function useColumnSelection(schema: ColumnSelectionTarget | null): UseColumnSele
         return selected.has(name)
     }
 
+    // PKs + incremental are always synced — including them explicitly keeps the persisted
+    // list legible (e.g. ["id"] reads as "PK only" rather than the ambiguous []).
+    const computePersisted = (sel: Set<string> | null): string[] | null => {
+        if (sel === null) {
+            return null
+        }
+        const result = new Set(sel)
+        primaryKeys.forEach((pk) => result.add(pk))
+        if (incrementalField) {
+            result.add(incrementalField)
+        }
+        return Array.from(result)
+    }
+
+    const commit = (next: Set<string> | null): void => {
+        setSelected(next)
+        onChange?.(computePersisted(next))
+    }
+
     const toggleColumn = (name: string, checked: boolean): void => {
         if (isAlwaysRetained(name)) {
             return
         }
-        setSelected((current) => {
-            const baseline = current ?? new Set(available.map((c) => c.name))
-            const next = new Set(baseline)
-            if (checked) {
-                next.add(name)
-            } else {
-                next.delete(name)
-            }
-            return next
-        })
+        const baseline = selected ?? new Set(available.map((c) => c.name))
+        const next = new Set(baseline)
+        if (checked) {
+            next.add(name)
+        } else {
+            next.delete(name)
+        }
+        commit(next)
     }
 
-    const setSyncAll = (): void => setSelected(null)
+    const setSyncAll = (): void => commit(null)
 
     const filteredColumns = useMemo(() => {
         const term = filter.trim().toLowerCase()
@@ -99,19 +121,7 @@ function useColumnSelection(schema: ColumnSelectionTarget | null): UseColumnSele
         return available.filter((column) => column.name.toLowerCase().includes(term))
     }, [available, filter])
 
-    const persistedSelection = (): string[] | null => {
-        if (selected === null) {
-            return null
-        }
-        // PKs + incremental are always synced — including them explicitly keeps the persisted
-        // list legible (e.g. ["id"] reads as "PK only" rather than the ambiguous []).
-        const result = new Set(selected)
-        primaryKeys.forEach((pk) => result.add(pk))
-        if (incrementalField) {
-            result.add(incrementalField)
-        }
-        return Array.from(result)
-    }
+    const persistedSelection = (): string[] | null => computePersisted(selected)
 
     return {
         selected,
@@ -134,6 +144,7 @@ export function ColumnSelectionPicker({
     onSave,
     onCancel,
     hideActions,
+    onChange,
 }: ColumnSelectionPickerProps): JSX.Element {
     const {
         filter,
@@ -146,7 +157,7 @@ export function ColumnSelectionPicker({
         available,
         primaryKeys,
         filteredColumns,
-    } = useColumnSelection(schema)
+    } = useColumnSelection(schema, onChange)
 
     return (
         <div className="flex flex-col gap-2">
@@ -208,7 +219,7 @@ export function ColumnSelectionPicker({
                         )}
                         <LemonButton
                             type="primary"
-                            onClick={() => onSave(persistedSelection())}
+                            onClick={() => onSave?.(persistedSelection())}
                             disabledReason={available.length === 0 ? 'No columns discovered' : undefined}
                         >
                             Save

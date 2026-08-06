@@ -4,10 +4,11 @@ use crate::{
         errors::FlagError,
         types::{
             Compression, FlagDetails, FlagDetailsMetadata, FlagEvaluationReason, FlagValue,
-            FlagsQueryParams, LegacyFlagsResponse,
+            FlagsQueryParams, FlagsResponse, LegacyFlagsResponse,
         },
     },
     cohorts::cohort_cache_manager::CohortCacheManager,
+    cohorts::cohort_models::MembershipStampPolicy,
     cohorts::membership::{
         CohortMembershipError, CohortMembershipProvider, NoOpCohortMembershipProvider,
     },
@@ -23,11 +24,12 @@ use crate::{
         flag_service::FlagService,
     },
     handler::{
-        decoding, evaluation::evaluate_feature_flags, flags::fetch_and_filter, properties,
-        FeatureFlagEvaluationContext,
+        apply_minimal_flag_called_events, decoding, evaluation::evaluate_feature_flags,
+        flags::fetch_and_filter, properties, FeatureFlagEvaluationContext,
     },
     mock,
     properties::property_models::PropertyType,
+    team::team_models::Team,
     utils::{
         mock::MockInto,
         test_utils::{
@@ -45,6 +47,7 @@ use common_cache::NegativeCache;
 use common_database::Client;
 use common_geoip::GeoIpClient;
 use reqwest::header::CONTENT_TYPE;
+use rstest::rstest;
 use serde_json::{json, Value};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -88,90 +91,90 @@ fn create_test_geoip_service() -> GeoIpClient {
         .expect("Failed to create GeoIpService for testing")
 }
 
-#[test]
-fn test_geoip_enabled_with_person_properties() {
-    let geoip_service = create_test_geoip_service();
-
-    let mut person_props = HashMap::new();
-    person_props.insert("name".to_string(), Value::String("John".to_string()));
-
-    let result = properties::get_person_property_overrides(
-        false,
-        Some(person_props),
-        &IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), // Google's public DNS, should be in the US
-        &geoip_service,
-    );
-
-    assert!(result.is_some());
-    let result = result.unwrap();
-    assert!(result.len() > 1);
-    assert_eq!(result.get("name"), Some(&Value::String("John".to_string())));
-    assert!(result.contains_key("$geoip_country_name"));
+enum GeoipExpected {
+    /// GeoIP resolves and merges with the supplied person props (name + country keys).
+    NameAndCountry,
+    /// GeoIP is off, so only the supplied person prop survives.
+    NameOnly,
+    /// GeoIP resolves with no person props (country keys only).
+    CountryOnly,
+    /// Nothing to override.
+    None,
 }
 
-#[test]
-fn test_geoip_enabled_without_person_properties() {
+#[rstest]
+// GeoIP on, public IP, with person props → name preserved + geoip merged
+#[case(
+    false,
+    true,
+    IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
+    GeoipExpected::NameAndCountry
+)]
+// GeoIP on, public IP, no person props → geoip only
+#[case(
+    false,
+    false,
+    IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
+    GeoipExpected::CountryOnly
+)]
+// GeoIP off, public IP, with person props → only the person prop survives
+#[case(
+    true,
+    true,
+    IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
+    GeoipExpected::NameOnly
+)]
+// GeoIP off, public IP, no person props → nothing
+#[case(
+    true,
+    false,
+    IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
+    GeoipExpected::None
+)]
+// GeoIP on, loopback IP → GeoIP is on but resolves nothing
+#[case(
+    false,
+    false,
+    IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+    GeoipExpected::None
+)]
+fn test_geoip_person_property_overrides(
+    #[case] geoip_disabled: bool,
+    #[case] with_name: bool,
+    #[case] ip: IpAddr,
+    #[case] expected: GeoipExpected,
+) {
     let geoip_service = create_test_geoip_service();
+    let name = Value::String("John".to_string());
+
+    let person_properties = with_name.then(|| HashMap::from([("name".to_string(), name.clone())]));
 
     let result = properties::get_person_property_overrides(
-        false,
-        None,
-        &IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), // Google's public DNS, should be in the US
+        geoip_disabled,
+        person_properties,
+        &ip,
         &geoip_service,
     );
 
-    assert!(result.is_some());
-    let result = result.unwrap();
-    assert!(!result.is_empty());
-    assert!(result.contains_key("$geoip_country_name"));
-}
-
-#[test]
-fn test_geoip_disabled_with_person_properties() {
-    let geoip_service = create_test_geoip_service();
-
-    let mut person_props = HashMap::new();
-    person_props.insert("name".to_string(), Value::String("John".to_string()));
-
-    let result = properties::get_person_property_overrides(
-        true,
-        Some(person_props),
-        &IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
-        &geoip_service,
-    );
-
-    assert!(result.is_some());
-    let result = result.unwrap();
-    assert_eq!(result.len(), 1);
-    assert_eq!(result.get("name"), Some(&Value::String("John".to_string())));
-}
-
-#[test]
-fn test_geoip_disabled_without_person_properties() {
-    let geoip_service = create_test_geoip_service();
-
-    let result = properties::get_person_property_overrides(
-        true,
-        None,
-        &IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
-        &geoip_service,
-    );
-
-    assert!(result.is_none());
-}
-
-#[test]
-fn test_geoip_enabled_local_ip() {
-    let geoip_service = create_test_geoip_service();
-
-    let result = properties::get_person_property_overrides(
-        true,
-        None,
-        &IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-        &geoip_service,
-    );
-
-    assert!(result.is_none());
+    match expected {
+        GeoipExpected::NameAndCountry => {
+            let result = result.expect("expected property overrides");
+            assert!(result.len() > 1);
+            assert_eq!(result.get("name"), Some(&name));
+            assert!(result.contains_key("$geoip_country_name"));
+        }
+        GeoipExpected::NameOnly => {
+            let result = result.expect("expected property overrides");
+            assert_eq!(result.len(), 1);
+            assert_eq!(result.get("name"), Some(&name));
+        }
+        GeoipExpected::CountryOnly => {
+            let result = result.expect("expected property overrides");
+            assert!(!result.is_empty());
+            assert!(result.contains_key("$geoip_country_name"));
+        }
+        GeoipExpected::None => assert!(result.is_none()),
+    }
 }
 
 #[tokio::test]
@@ -199,6 +202,7 @@ async fn test_evaluate_feature_flags() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: "user123".to_string(),
         device_id: None,
         feature_flags: feature_flag_list,
@@ -219,6 +223,7 @@ async fn test_evaluate_feature_flags() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -279,6 +284,7 @@ async fn test_evaluate_feature_flags_with_errors() {
     // Set up evaluation context
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: "user123".to_string(),
         device_id: None,
         feature_flags: feature_flag_list,
@@ -303,6 +309,7 @@ async fn test_evaluate_feature_flags_with_errors() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -331,6 +338,7 @@ async fn test_evaluate_feature_flags_with_errors() {
                 version: 1,
                 description: None,
                 payload: None,
+                has_experiment: false,
             },
             conditions: None,
         }
@@ -343,7 +351,9 @@ async fn test_evaluate_feature_flags_with_errors() {
 fn test_decode_request() {
     let mut headers = HeaderMap::new();
     headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
-    let body = Bytes::from(r#"{"token": "test_token", "distinct_id": "user123"}"#);
+    let body = Bytes::from(
+        r#"{"token": "test_token", "distinct_id": "user123", "sent_at": "2023-11-14T22:13:20.000Z"}"#,
+    );
     let meta = FlagsQueryParams::default();
 
     let result = decoding::decode_request(&headers, body, &meta);
@@ -352,6 +362,10 @@ fn test_decode_request() {
     let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("user123".to_string()));
+    assert_eq!(
+        request.sent_at.unwrap().timestamp_millis(),
+        1_700_000_000_000
+    );
 }
 
 #[test]
@@ -667,6 +681,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: distinct_id.clone(),
         device_id: None,
         feature_flags: feature_flag_list,
@@ -687,6 +702,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -749,6 +765,7 @@ async fn test_evaluate_feature_flags_details() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: distinct_id.clone(),
         device_id: None,
         feature_flags: feature_flag_list,
@@ -769,6 +786,7 @@ async fn test_evaluate_feature_flags_details() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -797,6 +815,7 @@ async fn test_evaluate_feature_flags_details() {
                 version: 1,
                 description: None,
                 payload: None,
+                has_experiment: false,
             },
             conditions: None,
         }
@@ -818,6 +837,7 @@ async fn test_evaluate_feature_flags_details() {
                 version: 1,
                 description: None,
                 payload: None,
+                has_experiment: false,
             },
             conditions: None,
         }
@@ -902,6 +922,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: "user123".to_string(),
         device_id: None,
         feature_flags: feature_flag_list,
@@ -922,6 +943,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -979,6 +1001,7 @@ async fn test_long_distinct_id() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: long_id,
         device_id: None,
         feature_flags: feature_flag_list,
@@ -1003,6 +1026,7 @@ async fn test_long_distinct_id() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -1589,6 +1613,7 @@ async fn test_parallel_path_matches_sequential_results() {
     // Run sequential (threshold = 100, well above 4 flags)
     let sequential_context = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: distinct_id.clone(),
         device_id: None,
         feature_flags: seq_flag_list,
@@ -1609,6 +1634,7 @@ async fn test_parallel_path_matches_sequential_results() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -1619,6 +1645,7 @@ async fn test_parallel_path_matches_sequential_results() {
     // Run parallel (threshold = 1, forces rayon+oneshot for any batch >= 1)
     let parallel_context = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: distinct_id.clone(),
         device_id: None,
         feature_flags: par_flag_list,
@@ -1639,6 +1666,7 @@ async fn test_parallel_path_matches_sequential_results() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -1702,6 +1730,7 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
     let provider_disabled = Arc::new(CountingCohortMembershipProvider::new());
     let evaluation_context_disabled = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: distinct_id.clone(),
         device_id: None,
         feature_flags: feature_flag_list.clone(),
@@ -1730,6 +1759,7 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         skip_writes: false,
         cohort_membership_provider: provider_disabled.clone(),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -1738,6 +1768,7 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
     let provider_enabled = Arc::new(CountingCohortMembershipProvider::new());
     let evaluation_context_enabled = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id,
         device_id: None,
         feature_flags: feature_flag_list,
@@ -1766,6 +1797,7 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         skip_writes: false,
         cohort_membership_provider: provider_enabled.clone(),
         enable_realtime_cohort_evaluation: true,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -1800,5 +1832,31 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         provider_disabled.call_count(),
         0,
         "Provider should not be called when flags have no cohort dependencies"
+    );
+}
+
+#[test]
+fn test_apply_minimal_flag_called_events_sets_true_when_team_gated() {
+    let mut response = FlagsResponse::new(false, HashMap::new(), None, Uuid::new_v4());
+    let team = Team {
+        minimal_flag_called_events: true,
+        ..Default::default()
+    };
+
+    apply_minimal_flag_called_events(&mut response, &team);
+
+    assert_eq!(response.minimal_flag_called_events, Some(true));
+}
+
+#[test]
+fn test_apply_minimal_flag_called_events_leaves_none_when_team_ungated() {
+    let mut response = FlagsResponse::new(false, HashMap::new(), None, Uuid::new_v4());
+    let team = Team::default();
+
+    apply_minimal_flag_called_events(&mut response, &team);
+
+    assert_eq!(
+        response.minimal_flag_called_events, None,
+        "absence, not Some(false), is the full-events signal SDKs rely on"
     );
 }

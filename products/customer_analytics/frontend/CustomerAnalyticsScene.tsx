@@ -4,9 +4,9 @@ import { combineUrl, router } from 'kea-router'
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { NotFound } from 'lib/components/NotFound'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
@@ -28,12 +28,15 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SessionInsights } from 'products/customer_analytics/frontend/components/Insights/SessionInsights'
 
+import { AccountNotesTabContent } from './components/AccountNotes/AccountNotesTabContent'
 import { AccountsTabContent } from './components/Accounts/AccountsTabContent'
+import { AnnouncementsTabContent } from './components/Announcements/AnnouncementsTabContent'
 import { CustomerJourneys } from './components/CustomerJourneys/CustomerJourneys'
 import { CustomerJourneySelect } from './components/CustomerJourneys/CustomerJourneySelect'
 import { customerJourneysLogic } from './components/CustomerJourneys/customerJourneysLogic'
 import { DeleteJourneyButton } from './components/CustomerJourneys/DeleteJourneyButton'
 import { journeyEditorLogic } from './components/CustomerJourneys/journeyEditorLogic'
+import { FeedTabContent } from './components/Feed/FeedTabContent'
 import { FeedbackButton } from './components/FeedbackButton'
 import { ActiveUsersInsights } from './components/Insights/ActiveUsersInsights'
 import { SignupInsights } from './components/Insights/SignupInsights'
@@ -48,15 +51,15 @@ export const scene: SceneExport = {
     productKey: ProductKey.CUSTOMER_ANALYTICS,
 }
 
-export function CustomerAnalyticsScene(props: { tabId?: string }): JSX.Element {
+export function CustomerAnalyticsScene(): JSX.Element {
     return (
         <FeaturePreviewSceneGate config={customerAnalyticsFeaturePreviewGate}>
-            <CustomerAnalyticsSceneContent {...props} />
+            <CustomerAnalyticsSceneContent />
         </FeaturePreviewSceneGate>
     )
 }
 
-function CustomerAnalyticsSceneContent({ tabId }: { tabId?: string }): JSX.Element {
+function CustomerAnalyticsSceneContent(): JSX.Element {
     const { addProductIntent } = useActions(teamLogic)
     const { reportCustomerAnalyticsDashboardConfigurationButtonClicked, reportCustomerAnalyticsViewed } =
         useActions(eventUsageLogic)
@@ -73,17 +76,17 @@ function CustomerAnalyticsSceneContent({ tabId }: { tabId?: string }): JSX.Eleme
         AccessControlLevel.Editor
     )
 
-    if (!tabId) {
-        throw new Error('CustomerAnalyticsScene was rendered with no tabId')
-    }
-
     useOnMountEffect(() => {
         reportCustomerAnalyticsViewed()
     })
 
-    // Accounts is gated by CUSTOMER_ANALYTICS_CSP; without it the tab does not
-    // exist, so a guessed `/customer_analytics/accounts` URL is a 404.
-    if (activeTab === 'accounts' && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
+    // Accounts, Notes, Announcements and Feed are gated by CUSTOMER_ANALYTICS_CSP; without it the
+    // tabs do not exist, so guessed `/customer_analytics/{accounts,notes,announcements,feed}` URLs
+    // are 404s.
+    if (
+        (activeTab === 'accounts' || activeTab === 'notes' || activeTab === 'announcements' || activeTab === 'feed') &&
+        !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]
+    ) {
         return <NotFound object="page" />
     }
 
@@ -108,10 +111,28 @@ function CustomerAnalyticsSceneContent({ tabId }: { tabId?: string }): JSX.Eleme
 
     if (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
         tabs.push({
+            key: 'feed',
+            label: 'Feed',
+            content: <FeedTabContent />,
+            link: combineUrl(urls.customerAnalyticsFeed(), searchParams).url,
+        })
+        tabs.push({
             key: 'accounts',
             label: 'Accounts',
             content: <AccountsTabContent />,
             link: combineUrl(urls.customerAnalyticsAccounts(), searchParams).url,
+        })
+        tabs.push({
+            key: 'notes',
+            label: 'Notes',
+            content: <AccountNotesTabContent />,
+            link: combineUrl(urls.customerAnalyticsNotes(), searchParams).url,
+        })
+        tabs.push({
+            key: 'announcements',
+            label: 'Announcements',
+            content: <AnnouncementsTabContent />,
+            link: combineUrl(urls.customerAnalyticsAnnouncements(), searchParams).url,
         })
     }
 
@@ -196,7 +217,7 @@ function CustomerAnalyticsSceneContent({ tabId }: { tabId?: string }): JSX.Eleme
                                     <DeleteJourneyButton />
                                 </>
                             ) : (
-                                <AppShortcut
+                                <Shortcut
                                     name="CustomerAnalyticsSettings"
                                     keybind={[keyBinds.settings]}
                                     intent="Configure customer analytics"
@@ -224,7 +245,7 @@ function CustomerAnalyticsSceneContent({ tabId }: { tabId?: string }): JSX.Eleme
                                         children="Configure"
                                         data-attr="customer-analytics-config"
                                     />
-                                </AppShortcut>
+                                </Shortcut>
                             )}
                         </>
                     }

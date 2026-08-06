@@ -1,0 +1,16 @@
+# Patterns (extended regex, matched against repo-relative paths) for files that are safe to drop
+# from the production image build context, beyond the test/story/spec defaults baked into
+# bin/dockerignore-drop-check.
+#
+# Adding a line here is the reviewed escape hatch: if a .dockerignore change intentionally excludes
+# a non-test file and the guard fails, add the pattern here so reviewers see the acknowledgement in
+# the diff. Keep entries narrow — a broad pattern re-opens the silent-drop hole the guard closes.
+#
+# Example:
+#   ^docs/internal/.*\.md$
+
+# The desktop app is a nested standalone workspace with its own build and release pipeline.
+# No server image imports it, so .dockerignore drops the whole tree rather than shipping
+# ~56 MiB of icons, fonts, videos, wasm grammars and a vendored ripgrep binary in every
+# image build context.
+^products/desktop/

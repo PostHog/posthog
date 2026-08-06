@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { LemonSearchableSelect, LemonSearchableSelectProps, LemonSelectOptions } from '@posthog/lemon-ui'
 
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 type Story = StoryObj<LemonSearchableSelectProps<any>>
 const meta: Meta<LemonSearchableSelectProps<any>> = {

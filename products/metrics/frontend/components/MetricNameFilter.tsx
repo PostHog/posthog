@@ -5,7 +5,7 @@ import { List } from 'react-window'
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 
-import { metricNamePickerLogic, MetricNamePickerLogicProps } from './metricNamePickerLogic'
+import { metricNamePickerLogic } from './metricNamePickerLogic'
 
 const ROW_HEIGHT = 44
 const MAX_DROPDOWN_HEIGHT = 320
@@ -52,23 +52,28 @@ export interface MetricNameFilterProps {
     /** Currently selected metric name (empty string when nothing is picked). */
     value: string
     onChange: (name: string) => void
-    /** Per-tab keying so picker state doesn't leak across tabs. */
-    tabId: string
     /** Placeholder shown on the trigger when no metric is picked. */
     placeholder?: string
+    disabled?: boolean
+    disabledReason?: string | null
 }
 
 export const MetricNameFilter = ({
     value,
     onChange,
-    tabId,
     placeholder = 'Pick a metric',
+    disabled,
+    disabledReason,
 }: MetricNameFilterProps): JSX.Element => {
-    const logicProps: MetricNamePickerLogicProps = { tabId }
-
     return (
-        <BindLogic logic={metricNamePickerLogic} props={logicProps}>
-            <MetricNameFilterInner value={value} onChange={onChange} placeholder={placeholder} />
+        <BindLogic logic={metricNamePickerLogic} props={{}}>
+            <MetricNameFilterInner
+                value={value}
+                onChange={onChange}
+                placeholder={placeholder}
+                disabled={disabled}
+                disabledReason={disabledReason}
+            />
         </BindLogic>
     )
 }
@@ -77,10 +82,14 @@ function MetricNameFilterInner({
     value,
     onChange,
     placeholder,
+    disabled,
+    disabledReason,
 }: {
     value: string
     onChange: (name: string) => void
     placeholder: string
+    disabled?: boolean
+    disabledReason?: string | null
 }): JSX.Element {
     const { items, itemsLoading, search } = useValues(metricNamePickerLogic)
     const { setSearch } = useActions(metricNamePickerLogic)
@@ -146,6 +155,8 @@ function MetricNameFilterInner({
                 size="small"
                 sideIcon={<IconChevronDown />}
                 loading={itemsLoading && !value}
+                disabled={disabled}
+                disabledReason={disabledReason}
             >
                 {triggerLabel}
             </LemonButton>

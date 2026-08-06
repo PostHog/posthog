@@ -1,37 +1,33 @@
 import { useActions, useValues } from 'kea'
 
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { dateMapping } from 'lib/utils'
-import { cn } from 'lib/utils/css-classes'
+import { dateMapping } from 'lib/utils/dateFilters'
 
+import { DateRangeButton } from '../DateRangeButton'
 import { issueFiltersLogic } from './issueFiltersLogic'
 
-const errorTrackingDateOptions = dateMapping.filter((dm) => !['Yesterday', 'All time', 'Today'].includes(dm.key))
+const ERROR_TRACKING_NAMED_CHIPS = ['Last week', 'Last month', 'This week', 'This month', 'This year']
+const ERROR_TRACKING_DATE_OPTIONS = dateMapping.filter(
+    (option) => !['Yesterday', 'All time', 'Today'].includes(option.key)
+)
 
 export const DateRangeFilter = ({
     className,
     fullWidth = false,
-    size = 'small',
 }: {
     className?: string
     fullWidth?: boolean
-    size?: 'xsmall' | 'small' | 'medium' | 'large'
 }): JSX.Element => {
     const { dateRange } = useValues(issueFiltersLogic)
     const { setDateRange } = useActions(issueFiltersLogic)
+
     return (
-        <span className={cn('rounded bg-surface-primary', className)}>
-            <DateFilter
-                size={size}
-                dateFrom={dateRange.date_from}
-                dateTo={dateRange.date_to}
-                fullWidth={fullWidth}
-                dateOptions={errorTrackingDateOptions}
-                onChange={(changedDateFrom, changedDateTo) =>
-                    setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
-                }
-                allowedRollingDateOptions={['hours', 'days', 'weeks', 'months', 'years']}
-            />
-        </span>
+        <DateRangeButton
+            dateRange={dateRange}
+            onChange={setDateRange}
+            dateOptions={ERROR_TRACKING_DATE_OPTIONS}
+            namedChips={ERROR_TRACKING_NAMED_CHIPS}
+            className={className}
+            fullWidth={fullWidth}
+        />
     )
 }

@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import WebStatsBreakdown
+from posthog.schema import WebAnalyticsPreComputeStrategy, WebStatsBreakdown
 
 from posthog.clickhouse.query_tagging import (
     Feature,
@@ -34,7 +34,6 @@ def _make_runner(
     query_kind: str = "WebStatsTableQuery",
     breakdown: WebStatsBreakdown | None = WebStatsBreakdown.PAGE,
     conversion_goal: object | None = None,
-    sampling: object | None = None,
     properties: list | None = None,
     query_strategy: str | None = None,
 ) -> WebAnalyticsQueryRunner:
@@ -43,7 +42,6 @@ def _make_runner(
     query.kind = query_kind
     query.breakdownBy = breakdown
     query.conversionGoal = conversion_goal
-    query.sampling = sampling
     query.properties = properties or []
 
     team = MagicMock()
@@ -146,19 +144,6 @@ class TestWebAnalyticsMetrics(TestCase):
                 },
                 "stats_table_channel_type",
             ),
-            (
-                "trends",
-                "WebTrendsQuery",
-                None,
-                None,
-                {
-                    "query_kind": "WebTrendsQuery",
-                    "query_strategy": "none",
-                    "breakdown": "none",
-                    "has_conversion_goal": "false",
-                },
-                None,
-            ),
         ],
     )
     @patch(
@@ -176,12 +161,12 @@ class TestWebAnalyticsMetrics(TestCase):
         )
 
         fake_response = MagicMock()
-        fake_response.usedPreAggregatedTables = True
+        fake_response.preComputeStrategy = WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
 
         with patch.object(WebAnalyticsQueryRunner.__mro__[1], "calculate", return_value=fake_response):
             WebAnalyticsQueryRunner.calculate(runner)
 
-        label_filter = {**expected_labels, "used_preaggregated": "true"}
+        label_filter = {**expected_labels, "pre_compute_strategy": "pre_aggregated"}
         assert _get_counter_value(WEB_ANALYTICS_QUERY_COUNTER, label_filter) == 1.0
 
     @patch(
@@ -209,7 +194,7 @@ class TestWebAnalyticsMetrics(TestCase):
         counter_filter = {
             "query_kind": "WebStatsTableQuery",
             "query_strategy": "stats_table_simple_breakdown",
-            "used_preaggregated": "unknown",
+            "pre_compute_strategy": "unknown",
         }
         assert _get_counter_value(WEB_ANALYTICS_QUERY_COUNTER, counter_filter) == 1.0
 
@@ -221,7 +206,7 @@ class TestWebAnalyticsMetrics(TestCase):
         runner = _make_runner(query_kind="WebOverviewQuery", breakdown=None, properties=["fake_prop"])
 
         fake_response = MagicMock()
-        fake_response.usedPreAggregatedTables = False
+        fake_response.preComputeStrategy = WebAnalyticsPreComputeStrategy.LIVE
 
         with (
             patch.object(WebAnalyticsQueryRunner.__mro__[1], "calculate", return_value=fake_response),
@@ -239,7 +224,7 @@ class TestWebAnalyticsMetrics(TestCase):
         assert kw["query_strategy"] is None
         assert kw["clickhouse_query_type"] is None
         assert kw["breakdown"] == "none"
-        assert kw["used_preaggregated"] == "false"
+        assert kw["pre_compute_strategy"] == "live"
         assert kw["error"] is False
         assert kw["error_type"] is None
         assert kw["filter_count"] == 1
@@ -255,7 +240,7 @@ class TestWebAnalyticsMetrics(TestCase):
         cast(MagicMock, runner.clickhouse_query_type).return_value = "stats_table_path_bounce_query"
 
         fake_response = MagicMock()
-        fake_response.usedPreAggregatedTables = False
+        fake_response.preComputeStrategy = WebAnalyticsPreComputeStrategy.LIVE
 
         with (
             patch.object(WebAnalyticsQueryRunner.__mro__[1], "calculate", return_value=fake_response),
@@ -273,7 +258,7 @@ class TestWebAnalyticsMetrics(TestCase):
     def test_all_breakdown_values_produce_valid_labels(self, _name, breakdown, _mock_tag):
         runner = _make_runner(breakdown=breakdown)
         fake_response = MagicMock()
-        fake_response.usedPreAggregatedTables = None
+        fake_response.preComputeStrategy = None
 
         with patch.object(WebAnalyticsQueryRunner.__mro__[1], "calculate", return_value=fake_response):
             WebAnalyticsQueryRunner.calculate(runner)
@@ -284,10 +269,10 @@ class TestWebAnalyticsMetrics(TestCase):
     @patch(
         "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.get_query_tag_value", return_value=None
     )
-    def test_preaggregated_none_maps_to_unknown(self, _mock_tag):
+    def test_pre_compute_strategy_none_maps_to_unknown(self, _mock_tag):
         runner = _make_runner()
         fake_response = MagicMock()
-        fake_response.usedPreAggregatedTables = None
+        fake_response.preComputeStrategy = None
 
         with patch.object(WebAnalyticsQueryRunner.__mro__[1], "calculate", return_value=fake_response):
             WebAnalyticsQueryRunner.calculate(runner)
@@ -295,7 +280,7 @@ class TestWebAnalyticsMetrics(TestCase):
         assert (
             _get_counter_value(
                 WEB_ANALYTICS_QUERY_COUNTER,
-                {"query_strategy": "none", "used_preaggregated": "unknown"},
+                {"query_strategy": "none", "pre_compute_strategy": "unknown"},
             )
             == 1.0
         )
@@ -303,7 +288,7 @@ class TestWebAnalyticsMetrics(TestCase):
     @patch(
         "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.get_query_tag_value", return_value=None
     )
-    def test_response_missing_preaggregated_attr_maps_to_unknown(self, _mock_tag):
+    def test_response_missing_pre_compute_strategy_attr_maps_to_unknown(self, _mock_tag):
         runner = _make_runner()
         fake_response = MagicMock(spec=[])  # empty spec = no attributes
 
@@ -313,7 +298,7 @@ class TestWebAnalyticsMetrics(TestCase):
         assert (
             _get_counter_value(
                 WEB_ANALYTICS_QUERY_COUNTER,
-                {"query_strategy": "none", "used_preaggregated": "unknown"},
+                {"query_strategy": "none", "pre_compute_strategy": "unknown"},
             )
             == 1.0
         )
@@ -333,7 +318,6 @@ class TestWebAnalyticsMetrics(TestCase):
             ("goals", "WebGoalsQuery", None, None),
             ("external_clicks", "WebExternalClicksTableQuery", None, None),
             ("vitals_paths", "WebVitalsPathBreakdownQuery", None, None),
-            ("trends", "WebTrendsQuery", None, None),
         ],
     )
     @patch(
@@ -358,7 +342,7 @@ class TestWebAnalyticsMetrics(TestCase):
         cast(MagicMock, runner.query.model_dump).return_value = {"kind": query_kind}
 
         fake_response = MagicMock()
-        fake_response.usedPreAggregatedTables = False
+        fake_response.preComputeStrategy = WebAnalyticsPreComputeStrategy.LIVE
 
         with patch.object(WebAnalyticsQueryRunner.__mro__[1], "calculate", return_value=fake_response):
             WebAnalyticsQueryRunner.calculate(runner)
@@ -382,7 +366,7 @@ class TestWebAnalyticsMetrics(TestCase):
         runner.query = MagicMock(useWebAnalyticsPrecompute=True)
 
         with patch(
-            "products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute.posthoganalytics.feature_enabled",
+            "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common.posthoganalytics.feature_enabled",
             return_value=False,
         ):
             assert can_use_lazy_precompute(runner, log_prefix=family) is False
@@ -401,13 +385,13 @@ class TestWebAnalyticsMetrics(TestCase):
             ("web_stats", "web_stats"),
         ]
     )
-    def test_lazy_precompute_per_query_opt_in_not_set_rejection(self, _name, family):
+    def test_lazy_precompute_per_query_opt_out_rejection(self, _name, family):
         runner = MagicMock()
         runner.team = MagicMock(pk=42, uuid="00000000-0000-0000-0000-000000000000", organization_id=7, id=42)
         runner.query = MagicMock(useWebAnalyticsPrecompute=False)
 
         with patch(
-            "products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute.posthoganalytics.feature_enabled",
+            "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common.posthoganalytics.feature_enabled",
             return_value=True,
         ):
             assert can_use_lazy_precompute(runner, log_prefix=family) is False
@@ -415,7 +399,7 @@ class TestWebAnalyticsMetrics(TestCase):
         assert (
             _get_counter_value(
                 WEB_ANALYTICS_LAZY_PRECOMPUTE_REJECTED,
-                {"family": family, "reason": "PerQueryOptInNotSet"},
+                {"family": family, "reason": "PerQueryOptedOut"},
             )
             == 1.0
         )
@@ -481,7 +465,7 @@ class TestWebAnalyticsMetrics(TestCase):
         cast(MagicMock, runner.query.model_dump).return_value = expected_payload
 
         fake_response = MagicMock()
-        fake_response.usedPreAggregatedTables = False
+        fake_response.preComputeStrategy = WebAnalyticsPreComputeStrategy.LIVE
         with patch.object(WebAnalyticsQueryRunner.__mro__[1], "calculate", return_value=fake_response):
             WebAnalyticsQueryRunner.calculate(runner)
 

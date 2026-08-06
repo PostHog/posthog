@@ -1,0 +1,36 @@
+/* stylelint-disable selector-class-pattern -- BEM-ish with element/attr selectors */
+@layer components {
+    .quill-pagination {
+        display: flex;
+        justify-content: center;
+        width: 100%;
+    }
+
+    .quill-pagination__content {
+        display: flex;
+        flex-direction: row;
+        gap: 0.25rem;
+        align-items: center;
+        padding: 0;
+        margin: 0;
+        list-style: none;
+    }
+
+    .quill-pagination__item {
+        display: flex;
+    }
+
+    /* Tabular numerals keep page-number buttons from jittering width as digits change. */
+    .quill-pagination__button {
+        font-variant-numeric: tabular-nums;
+    }
+
+    .quill-pagination__ellipsis {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.75rem;
+        height: 1.75rem;
+        color: var(--muted-foreground);
+    }
+}

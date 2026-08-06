@@ -12,11 +12,26 @@ from llm_gateway.api.handler import (
     normalize_litellm_model_name,
 )
 from llm_gateway.dependencies import RateLimitedUser
+from llm_gateway.inference_routing import (
+    is_inference_routed_model,
+    send_inference_chat_completions,
+    send_inference_responses,
+)
+from llm_gateway.modal import is_modal_served_model
+from llm_gateway.modal_routing import send_modal_chat_completions, send_modal_responses
 from llm_gateway.models.openai import ChatCompletionRequest, ResponsesRequest, TranscriptionRequest
 from llm_gateway.products.config import validate_product
 from llm_gateway.request_context import apply_posthog_context_from_headers
 
 openai_router = APIRouter()
+
+
+def _invalid_request_error(message: str) -> HTTPException:
+    """A 400 in the OpenAI error envelope (mirrors anthropic.py's `_invalid_header_exception`)."""
+    return HTTPException(
+        status_code=400,
+        detail={"error": {"message": message, "type": "invalid_request_error", "code": None}},
+    )
 
 
 async def _handle_chat_completions(
@@ -25,6 +40,12 @@ async def _handle_chat_completions(
     product: str = "llm_gateway",
 ) -> dict[str, Any] | StreamingResponse:
     data = body.model_dump(exclude_none=True)
+
+    if is_inference_routed_model(body.model):
+        return await send_inference_chat_completions(data, user, body.stream or False, product)
+
+    if is_modal_served_model(body.model):
+        return await send_modal_chat_completions(data, user, body.stream or False, product)
 
     return await handle_llm_request(
         request_data=data,
@@ -48,6 +69,33 @@ async def _handle_responses(
     It supports multimodal inputs, reasoning models, and persistent conversations.
     """
     data = body.model_dump(exclude_none=True)
+
+    if is_inference_routed_model(body.model):
+        # OpenAI-compatible backends can't use the native OpenAI Responses path below: it would prefix
+        # `openai/` and call the real OpenAI Responses API. Route through the selected inference
+        # provider's endpoint via litellm's Responses->chat/completions bridge instead (see
+        # make_cloudflare_responses_call / make_modal_responses_call).
+        if body.previous_response_id is not None:
+            # The bridge rebuilds prior turns from litellm proxy spend logs; we run litellm as an
+            # SDK (no proxy DB), so it would silently resolve to empty history and drop the
+            # conversation. Reject explicitly rather than answer with lost context.
+            raise _invalid_request_error("previous_response_id is not supported for this model on the Responses API")
+        if data.get("tools"):
+            # `tools` arrives as an extra field (ResponsesRequest allows extras). The
+            # Responses->chat/completions bridge doesn't faithfully translate Responses-shaped
+            # tools: Responses-only types (`shell`, `custom`) pass through unchanged and
+            # chat-completions-shaped function tools lose their name, so the backend's
+            # chat/completions endpoint rejects the payload. Reject up front rather than hand it a
+            # request that will fail once tools are advertised.
+            raise _invalid_request_error("tools are not yet supported for this model on the Responses API")
+        return await send_inference_responses(data, user, body.stream or False, product)
+
+    if is_modal_served_model(body.model):
+        if body.previous_response_id is not None:
+            raise _invalid_request_error("previous_response_id is not supported for Modal models on the Responses API")
+        if data.get("tools"):
+            raise _invalid_request_error("tools are not yet supported for Modal models on the Responses API")
+        return await send_modal_responses(data, user, body.stream or False, product)
 
     original_model = body.model
     normalized_model = normalize_litellm_model_name(original_model, OPENAI_RESPONSES_CONFIG.name)
@@ -161,7 +209,7 @@ async def _handle_transcription(
 
     request = TranscriptionRequest(model=normalized_model, file=file_tuple, language=language)
 
-    # is_streaming=False, so handle_llm_request always returns a dict here, never a StreamingResponse.
+    # is_streaming=False always yields a dict, never a StreamingResponse.
     return cast(
         dict[str, Any],
         await handle_llm_request(
@@ -181,7 +229,8 @@ async def audio_transcriptions(
     user: RateLimitedUser,
     request: Request,
     file: Annotated[UploadFile, File()],
-    model: Annotated[str, Form()] = "gpt-4o-transcribe",
+    # required, like OpenAI's API: a server default would bypass the model access checks
+    model: Annotated[str, Form()],
     language: Annotated[str | None, Form()] = None,
 ) -> dict[str, Any]:
     apply_posthog_context_from_headers(request)
@@ -194,7 +243,7 @@ async def audio_transcriptions_with_product(
     product: str,
     request: Request,
     file: Annotated[UploadFile, File()],
-    model: Annotated[str, Form()] = "gpt-4o-transcribe",
+    model: Annotated[str, Form()],
     language: Annotated[str | None, Form()] = None,
 ) -> dict[str, Any]:
     validate_product(product)

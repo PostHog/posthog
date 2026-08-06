@@ -1,4 +1,5 @@
 import { gunzipSync, strFromU8, strToU8 } from 'fflate'
+import { decompress as zstdDecompressSync } from 'fzstd'
 import { EventType, IncrementalSource } from 'posthog-js/rrweb-types'
 
 import { ReplayTelemetry } from '../telemetry'
@@ -15,11 +16,26 @@ function isCompressedEvent(ev: unknown): ev is CompressedEventWithTime {
     return typeof ev === 'object' && ev !== null && 'cv' in ev
 }
 
+// dispatch to either gzip or zstd based on their standard magic bytes prefix
+function decompressSync(raw: Uint8Array): Uint8Array {
+    if (raw[0] === 0x1f && raw[1] === 0x8b) {
+        return gunzipSync(raw)
+    }
+    if (raw[0] === 0x28 && raw[1] === 0xb5 && raw[2] === 0x2f && raw[3] === 0xfd) {
+        return zstdDecompressSync(raw)
+    }
+    throw new Error(
+        `cv payload is neither gzip nor zstd (leading bytes ${Array.from(raw.slice(0, 4), (b) =>
+            b.toString(16).padStart(2, '0')
+        ).join(' ')})`
+    )
+}
+
 function unzip(compressedStr: string | undefined): any {
     if (!compressedStr) {
         return undefined
     }
-    return JSON.parse(strFromU8(gunzipSync(strToU8(compressedStr, true))))
+    return JSON.parse(strFromU8(decompressSync(strToU8(compressedStr, true))))
 }
 
 export function decompressEvent(ev: unknown, sessionRecordingId: string, telemetry: ReplayTelemetry): unknown {

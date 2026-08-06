@@ -43,6 +43,46 @@ export const formatVariableReference = (codeName: string): string => {
     return `{variables.${codeName}}`
 }
 
+// `values` is backed by a JSONField, so API-created variables can hold entries that
+// aren't strings — e.g. option-shaped objects like {label, value} from migration
+// scripts. Objects aren't valid React children (React error #31), so everything must
+// be coerced to a string before rendering.
+export const coerceListVariableValue = (value: unknown): string | null => {
+    if (value == null) {
+        return null
+    }
+    if (typeof value === 'string') {
+        return value
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') {
+        return String(value)
+    }
+    if (typeof value === 'object' && !Array.isArray(value)) {
+        const record = value as Record<string, unknown>
+        for (const key of ['value', 'label']) {
+            const inner = record[key]
+            if (typeof inner === 'string') {
+                return inner
+            }
+            if (typeof inner === 'number' || typeof inner === 'boolean') {
+                return String(inner)
+            }
+        }
+    }
+    try {
+        return JSON.stringify(value) ?? null
+    } catch {
+        return String(value)
+    }
+}
+
+// `values` can also be non-array data for older records, so coerce defensively
+// before mapping/rendering to avoid runtime crashes.
+export const getListVariableValues = (variable: ListVariable): string[] =>
+    Array.isArray(variable.values)
+        ? variable.values.map(coerceListVariableValue).filter((value): value is string => value !== null)
+        : []
+
 // Field components for direct prop binding (used in modal)
 export interface DirectFieldProps<T extends Variable = Variable> {
     variable: T
@@ -81,7 +121,7 @@ export const BooleanField = ({ variable, updateVariable }: DirectFieldProps<Bool
 
 export const ListValuesField = ({ variable, updateVariable }: DirectFieldProps<ListVariable>): JSX.Element => (
     <LemonInputSelect
-        value={variable.values}
+        value={getListVariableValues(variable)}
         onChange={(value) => updateVariable({ ...variable, values: value })}
         placeholder="Options..."
         mode="multiple"
@@ -95,8 +135,8 @@ export const ListDefaultField = ({ variable, updateVariable }: DirectFieldProps<
     <LemonSelect
         className="w-full"
         placeholder="Select default value"
-        value={variable.default_value}
-        options={(variable.values ?? []).map((n: string) => ({ label: n, value: n }))}
+        value={coerceListVariableValue(variable.default_value)}
+        options={getListVariableValues(variable).map((n: string) => ({ label: n, value: n }))}
         onChange={(value) => updateVariable({ ...variable, default_value: value ?? '' })}
         allowClear
         dropdownMaxContentWidth

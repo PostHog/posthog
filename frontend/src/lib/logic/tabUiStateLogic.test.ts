@@ -118,8 +118,8 @@ describe('tabUiStateLogic', () => {
         logicB.unmount()
 
         // State survives both unmounts — the global owns it.
-        expect(tabUiStateLogic.values.expandedRowsFor(TAB_A, `viz-${TAB_A}`)).toEqual([1])
-        expect(tabUiStateLogic.values.expandedRowsFor(TAB_B, `viz-${TAB_B}`)).toEqual([2])
+        expect(tabUiStateLogic.values.expandedRowsFor(undefined, `viz-${TAB_A}`)).toEqual([1])
+        expect(tabUiStateLogic.values.expandedRowsFor(undefined, `viz-${TAB_B}`)).toEqual([2])
     })
 
     describe('savedQueriesByTabAndScene', () => {

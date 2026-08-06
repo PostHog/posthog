@@ -138,10 +138,12 @@ test('password-protected insight sharing', async ({ page, playwrightSetup }) => 
     // Verify we're viewing the correct insight by checking the title
     await expect(page.locator('text=Password Protected Insight')).toBeVisible()
 
-    // Verify the insight content is loaded (either chart with canvas or empty state message)
+    // Verify the insight content is loaded (either chart canvas or empty state message). The quill
+    // chart renders two canvases (static `role="img"` layer + hover overlay), so scope to the
+    // static layer to avoid a strict-mode violation.
     await expect(
         page
-            .locator('[data-attr="insights-graph"] canvas')
+            .locator('[data-attr="insights-graph"] canvas[role="img"]')
             .or(page.locator('text=There are no matching events for this query'))
     ).toBeVisible()
 

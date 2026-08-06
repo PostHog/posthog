@@ -3,47 +3,76 @@ import { useActions, useValues } from 'kea'
 import { IconInfo, IconList } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
-import { AddMetricButton } from 'scenes/experiments/Metrics/AddMetricButton'
-import { METRIC_CONTEXTS } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import type { CachedNewExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
+import type { ExperimentMetric } from '~/queries/schema/schema-general'
+import { SummarizeExperimentButton } from '~/scenes/experiments/components/SummarizeExperimentButton'
+import { experimentLogic } from '~/scenes/experiments/experimentLogic'
+import { experimentMetricsLogic } from '~/scenes/experiments/experimentMetricsLogic'
+import { AddMetricButton } from '~/scenes/experiments/Metrics/AddMetricButton'
+import { METRIC_CONTEXTS } from '~/scenes/experiments/Metrics/experimentMetricModalLogic'
+import { MetricsReorderModal } from '~/scenes/experiments/MetricsView/MetricsReorderModal'
+import { modalsLogic } from '~/scenes/experiments/modalsLogic'
+import { getExperimentVariants, isSavedExperiment, metricResults } from '~/scenes/experiments/utils'
+import { Experiment } from '~/types'
 
-import { experimentLogic } from '../../experimentLogic'
-import { modalsLogic } from '../../modalsLogic'
-import { MetricsReorderModal } from '../MetricsReorderModal'
 import { HowToReadTooltip } from './HowToReadTooltip'
 import { MetricsTable } from './MetricsTable'
 import { ResultDetails } from './ResultDetails'
 
 export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element | null {
+    const { experiment } = useValues(experimentLogic)
+
+    const variants = getExperimentVariants(experiment)
+    // Guard here so the child can take a non-null, real experiment and mount keyed child logics safely.
+    if (!variants.length || !isSavedExperiment(experiment)) {
+        return null
+    }
+
+    return <MetricsContent experiment={experiment} isSecondary={isSecondary} />
+}
+
+function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; isSecondary?: boolean }): JSX.Element {
     const {
-        experiment,
         getInsightType,
         orderedPrimaryMetricsWithResults,
         orderedSecondaryMetricsWithResults,
         hasMinimumExposureForResults,
     } = useValues(experimentLogic)
+    const {
+        primaryMetricsResults,
+        primaryMetricsResultsErrors,
+        secondaryMetricsResults,
+        secondaryMetricsResultsErrors,
+    } = useValues(experimentMetricsLogic({ experiment }))
+    const { featureFlags } = useValues(featureFlagLogic)
+    const recalculationFlow = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
 
     const { openPrimaryMetricsReorderModal, openSecondaryMetricsReorderModal } = useActions(modalsLogic)
 
-    const variants = experiment?.feature_flag?.filters?.multivariate?.variants
-    if (!variants) {
-        return null
-    }
+    const type = isSecondary ? 'secondary' : 'primary'
 
-    const metricsWithResults = isSecondary ? orderedSecondaryMetricsWithResults : orderedPrimaryMetricsWithResults
+    const metricsWithResults = recalculationFlow
+        ? metricResults(experiment)(
+              isSecondary ? secondaryMetricsResults : primaryMetricsResults,
+              isSecondary ? secondaryMetricsResultsErrors : primaryMetricsResultsErrors,
+              type
+          )
+        : isSecondary
+          ? orderedSecondaryMetricsWithResults
+          : orderedPrimaryMetricsWithResults
 
-    const metrics = metricsWithResults.map(({ metric }: { metric: ExperimentMetric }) => metric)
-    const results = metricsWithResults.map(({ result }: { result: CachedNewExperimentQueryResponse }) => result)
-    const errors = metricsWithResults.map(({ error }: { error: any }) => error)
-    const metricIndexes = metricsWithResults.map(({ metricIndex }: { metricIndex: number }) => metricIndex)
+    const metrics = metricsWithResults.map(({ metric }) => metric)
+    const results = metricsWithResults.map(({ result }) => result)
+    const errors = metricsWithResults.map(({ error }) => error)
+    const metricIndexes = metricsWithResults.map(({ metricIndex }) => metricIndex)
 
     const showResultDetails = metrics.length === 1 && results[0] && hasMinimumExposureForResults && !isSecondary
     const hasSomeResults =
-        results?.some(
-            (result: CachedNewExperimentQueryResponse) => result?.variant_results && result.variant_results.length > 0
-        ) && hasMinimumExposureForResults
+        results?.some((result) => result?.variant_results && result.variant_results.length > 0) &&
+        hasMinimumExposureForResults
 
     return (
         <div className="mb-4 -mt-2" data-attr="experiment-creation-goal-metric">
@@ -59,17 +88,12 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                         <h2 className="mb-0 font-semibold text-lg leading-6">
                             {isSecondary ? 'Secondary metrics' : 'Primary metrics'}
                         </h2>
-                        {metrics.length > 0 && (
-                            <Tooltip
-                                title={
-                                    isSecondary
-                                        ? 'Secondary metrics capture additional outcomes or behaviors affected by your experiment. They help you understand broader impacts and potential side effects beyond the primary goal.'
-                                        : 'Primary metrics represent the main goal of your experiment. They directly measure whether your hypothesis was successful and are the key factor in deciding if the test achieved its primary objective.'
-                                }
-                            >
+                        {isSecondary && metrics.length > 0 && (
+                            <Tooltip title="Secondary metrics capture additional outcomes or behaviors affected by your experiment. They help you understand broader impacts and potential side effects beyond the primary goal.">
                                 <IconInfo className="text-secondary text-lg" />
                             </Tooltip>
                         )}
+                        {!isSecondary && hasMinimumExposureForResults && <SummarizeExperimentButton />}
                         {hasSomeResults && !isSecondary && <HowToReadTooltip />}
                     </div>
                 </div>
@@ -81,19 +105,17 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                                 <AddMetricButton
                                     metricContext={isSecondary ? METRIC_CONTEXTS.secondary : METRIC_CONTEXTS.primary}
                                 />
-                                {metrics.length > 1 && (
-                                    <LemonButton
-                                        type="secondary"
-                                        size="xsmall"
-                                        onClick={() =>
-                                            isSecondary
-                                                ? openSecondaryMetricsReorderModal()
-                                                : openPrimaryMetricsReorderModal()
-                                        }
-                                        icon={<IconList />}
-                                        tooltip="Reorder metrics"
-                                    />
-                                )}
+                                <LemonButton
+                                    type="secondary"
+                                    size="xsmall"
+                                    onClick={() =>
+                                        isSecondary
+                                            ? openSecondaryMetricsReorderModal()
+                                            : openPrimaryMetricsReorderModal()
+                                    }
+                                    icon={<IconList />}
+                                    tooltip="Reorder, move or remove metrics"
+                                />
                             </div>
                         )}
                     </div>

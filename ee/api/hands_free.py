@@ -27,6 +27,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.streaming import streaming_response
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import (
     MaxHandsFreeSynthesizeBurstRateThrottle,
@@ -35,7 +36,7 @@ from posthog.rate_limit import (
     MaxHandsFreeTokenSustainedRateThrottle,
 )
 
-from ee.models.assistant import Conversation
+from products.posthog_ai.backend.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
 
@@ -233,8 +234,9 @@ class MaxHandsFreeViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 finally:
                     upstream.close()
 
-            response = StreamingHttpResponse(stream_and_close(), content_type="audio/mpeg")
-            response["Cache-Control"] = "no-store"
+            response = streaming_response(
+                stream_and_close(), content_type="audio/mpeg", headers={"Cache-Control": "no-store"}
+            )
         except Exception:
             upstream.close()
             raise

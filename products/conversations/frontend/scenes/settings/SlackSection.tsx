@@ -1,11 +1,21 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonCard, LemonDivider, LemonInput, LemonTag, Link } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCard,
+    LemonCheckbox,
+    LemonDivider,
+    LemonInput,
+    LemonTag,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
@@ -44,7 +54,15 @@ function SlackChannelSection(): JSX.Element {
         slackBotIconUrlValue,
         slackBotDisplayName,
         slackBotDisplayNameValue,
+        slackNotifyOnJoin,
+        slackNotifyOnLeave,
+        slackAlertChannelId,
+        slackNudgeEnabled,
+        slackNeedsReconnect,
+        currentTeamLoading,
     } = useValues(supportSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const memberAlertsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SLACK_NOTIFY_ON_MEMBERS]
     const {
         connectSlack,
         setSlackChannels,
@@ -54,6 +72,10 @@ function SlackChannelSection(): JSX.Element {
         setSlackBotIconUrlValue,
         setSlackBotDisplayNameValue,
         saveSlackBotSettings,
+        setSlackNotifyOnJoin,
+        setSlackNotifyOnLeave,
+        setSlackAlertChannel,
+        setSlackNudgeEnabled,
         disconnectSlack,
     } = useActions(supportSettingsLogic)
     const adminRestrictionReason = useRestrictedArea({
@@ -80,6 +102,20 @@ function SlackChannelSection(): JSX.Element {
                         Add SupportHog to Slack
                     </LemonButton>
                 )}
+                {slackNeedsReconnect && (
+                    <LemonBanner
+                        type="warning"
+                        className="mt-2"
+                        action={{
+                            children: 'Reconnect',
+                            disabledReason: adminRestrictionReason,
+                            onClick: () => connectSlack(window.location.pathname),
+                        }}
+                    >
+                        Files sent in Slack won't appear on tickets, and images you send from PostHog arrive as links
+                        instead of attachments. Reconnect SupportHog to give it access to files.
+                    </LemonBanner>
+                )}
             </div>
             {slackConnected && (
                 <>
@@ -97,9 +133,9 @@ function SlackChannelSection(): JSX.Element {
                             <LemonInputSelect
                                 mode="multiple"
                                 value={slackChannelIds}
-                                options={slackChannels.map((c: { id: string; name: string }) => ({
+                                options={slackChannels.map((c) => ({
                                     key: c.id,
-                                    label: `#${c.name}`,
+                                    label: `#${c.name ?? c.id}`,
                                 }))}
                                 onChange={(newValue: string[]) => setSlackChannels(newValue)}
                                 loading={slackChannelsLoading}
@@ -115,6 +151,72 @@ function SlackChannelSection(): JSX.Element {
                             </LemonButton>
                         </div>
                     </div>
+                    <LemonDivider />
+                    <div className="flex flex-col gap-2">
+                        <div>
+                            <label className="font-medium">Ticket nudges</label>
+                            <p className="text-xs text-muted-alt">
+                                When enabled, SupportHog replies in-thread asking whether the customer wants to open a
+                                ticket. This means customers don't have to remember the emoji reaction or @mention.
+                                'Support channels' will still have tickets created for every thread, and no nudge is
+                                sent.
+                            </p>
+                        </div>
+                        <LemonCheckbox
+                            checked={slackNudgeEnabled}
+                            onChange={setSlackNudgeEnabled}
+                            disabled={currentTeamLoading}
+                            label="Nudge users to open tickets"
+                        />
+                    </div>
+                    {memberAlertsEnabled && (
+                        <>
+                            <LemonDivider />
+                            <div className="flex flex-col gap-2">
+                                <div>
+                                    <label className="font-medium">Channel membership alerts</label>
+                                    <p className="text-xs text-muted-alt">
+                                        Notify a channel when someone joins or leaves any channel the SupportHog bot is
+                                        in.
+                                    </p>
+                                </div>
+                                <LemonCheckbox
+                                    checked={slackNotifyOnJoin}
+                                    onChange={setSlackNotifyOnJoin}
+                                    disabled={currentTeamLoading}
+                                    label="Alert when someone joins a channel"
+                                />
+                                <LemonCheckbox
+                                    checked={slackNotifyOnLeave}
+                                    onChange={setSlackNotifyOnLeave}
+                                    disabled={currentTeamLoading}
+                                    label="Alert when someone leaves a channel"
+                                />
+                                <div className="flex gap-2 items-center">
+                                    <LemonInputSelect
+                                        mode="single"
+                                        value={slackAlertChannelId ? [slackAlertChannelId] : []}
+                                        options={slackChannels.map((c) => ({
+                                            key: c.id,
+                                            label: `#${c.name ?? c.id}`,
+                                        }))}
+                                        onChange={(newValue: string[]) => setSlackAlertChannel(newValue[0] ?? null)}
+                                        loading={slackChannelsLoading}
+                                        disabled={currentTeamLoading || (!slackNotifyOnJoin && !slackNotifyOnLeave)}
+                                        placeholder="Select alerts channel"
+                                    />
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        onClick={loadSlackChannelsWithToken}
+                                        disabledReason={slackChannelsLoading ? 'Loading channels...' : undefined}
+                                    >
+                                        Refresh
+                                    </LemonButton>
+                                </div>
+                            </div>
+                        </>
+                    )}
                     <LemonDivider />
                     <div className="flex items-center gap-4 justify-between">
                         <div>

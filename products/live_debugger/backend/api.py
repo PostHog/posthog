@@ -9,8 +9,8 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.auth import ProjectSecretAPIKeyAuthentication, SessionAuthentication
-from posthog.permissions import ProjectSecretAPITokenPermission
+from posthog.auth import SessionAuthentication, TeamSecretTokenAuthentication
+from posthog.permissions import TeamSecretTokenPermission
 
 from products.live_debugger.backend.models import LiveDebuggerBreakpoint
 
@@ -245,11 +245,11 @@ class LiveDebuggerBreakpointViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         methods=["GET"],
         detail=False,
         authentication_classes=[
-            ProjectSecretAPIKeyAuthentication,
+            TeamSecretTokenAuthentication,
             SessionAuthentication,
         ],
         required_scopes=["live_debugger:read"],
-        permission_classes=[ProjectSecretAPITokenPermission],
+        permission_classes=[TeamSecretTokenPermission],
         url_path="active",
     )
     def active_breakpoints(self, request: Request, *args, **kwargs) -> Response:

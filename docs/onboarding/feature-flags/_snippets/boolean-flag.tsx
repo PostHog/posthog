@@ -1,6 +1,6 @@
 import { memo } from 'react'
 
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { useMDXComponents } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 export const BooleanFlagSnippet = memo(({ language = 'javascript' }: { language?: string }): JSX.Element => {
     const { CodeBlock, dedent } = useMDXComponents()
@@ -10,7 +10,7 @@ export const BooleanFlagSnippet = memo(({ language = 'javascript' }: { language?
             if (posthog.isFeatureEnabled('flag-key')) {
                 // Do something differently for this user
                 // Optional: fetch the payload
-                const matchedFlagPayload = posthog.getFeatureFlagPayload('flag-key')
+                const matchedFlagPayload = posthog.getFeatureFlagResult('flag-key')?.payload
             }
         `,
         react: dedent`

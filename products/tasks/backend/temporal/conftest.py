@@ -1,4 +1,5 @@
 import os
+import time
 import random
 
 import pytest
@@ -8,8 +9,8 @@ from temporalio.testing import ActivityEnvironment
 from posthog.models import Integration, OAuthApplication, Organization, OrganizationMembership, Team, User
 from posthog.temporal.common.logger import configure_logger
 
+from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
-from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.create_snapshot.activities.get_snapshot_context import SnapshotContext
 from products.tasks.backend.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
@@ -26,6 +27,24 @@ def _runs_on_internal_pr() -> bool:
 def activity_environment():
     """Return a testing temporal ActivityEnvironment."""
     return ActivityEnvironment()
+
+
+@pytest.fixture
+def assert_sandbox_shutdown():
+    """Assert a sandbox reaches SHUTDOWN, polling because `Sandbox.destroy()` does not wait.
+
+    `destroy()` fires Modal's terminate RPC and returns immediately, by design: the sandbox
+    TTL is the backstop if termination never lands. So the shutdown a cleanup activity causes
+    is only observable some time after the activity returns.
+    """
+
+    def _assert_sandbox_shutdown(sandbox_id: str, timeout_seconds: float = 60.0) -> None:
+        deadline = time.monotonic() + timeout_seconds
+        while Sandbox.get_by_id(sandbox_id).is_running():
+            assert time.monotonic() < deadline, f"sandbox {sandbox_id} still running after {timeout_seconds}s"
+            time.sleep(1)
+
+    return _assert_sandbox_shutdown
 
 
 @pytest.fixture(autouse=True)

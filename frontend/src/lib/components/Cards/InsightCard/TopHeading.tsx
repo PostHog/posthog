@@ -1,6 +1,6 @@
 import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
-import { dateFilterToText } from 'lib/utils'
-import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/dateTimeUtils'
+import { dateFilterToText } from 'lib/utils/dateFilters'
+import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/datetime'
 import { InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
 import { Node, NodeKind, ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
@@ -14,7 +14,7 @@ import {
 } from '~/queries/utils'
 
 import { InsightFreshness } from './InsightFreshness'
-import { TileOverridesWarning } from './TileOverridesWarning'
+import { IgnoresDashboardFiltersNotice, TileOverridesWarning } from './TileOverridesWarning'
 
 function getInsightType(query: Node | null): InsightTypeMetadata {
     if (query?.kind) {
@@ -30,16 +30,20 @@ export function TopHeading({
     query,
     lastRefresh,
     hasTileOverrides,
+    ignoresDashboardFilters,
     resolvedDateRange,
     showInsightType = true,
+    showDate = true,
     dateFromOverride,
     dateToOverride,
 }: {
     query: Node | null
     lastRefresh?: string | null
     hasTileOverrides?: boolean | null
+    ignoresDashboardFilters?: boolean | null
     resolvedDateRange?: ResolvedDateRangeResponse | null
     showInsightType?: boolean
+    showDate?: boolean
     dateFromOverride?: string | null
     dateToOverride?: string | null
 }): JSX.Element {
@@ -66,6 +70,7 @@ export function TopHeading({
             query == undefined || isInsightQueryNode(query) || isInsightVizNode(query) ? 'Last 7 days' : null
         dateText = dateFilterToText(date_from, date_to, defaultDateRange)
     }
+    const dateLabel = showDate ? dateText : null
 
     const insightQueryNode = isInsightVizNode(query) ? query.source : isInsightQueryNode(query) ? query : null
     const interval = insightQueryNode ? getInterval(insightQueryNode) : null
@@ -76,11 +81,13 @@ export function TopHeading({
             typeLabel={insightType?.name}
             typeTitle={insightType?.description}
             showTypeLabel={showInsightType}
-            dateText={dateText}
+            dateText={dateLabel}
             dateTooltip={resolvedDateTooltip}
         >
-            {lastRefresh ? <InsightFreshness lastRefresh={lastRefresh} /> : null}
+            {/* Freshness clock lives in the date row — without a date it would hold the row open on its own. */}
+            {dateLabel && lastRefresh ? <InsightFreshness lastRefresh={lastRefresh} /> : null}
             {hasTileOverrides ? <TileOverridesWarning /> : null}
+            {ignoresDashboardFilters ? <IgnoresDashboardFiltersNotice /> : null}
         </CardTopHeadingRow>
     )
 }

@@ -1,7 +1,7 @@
 import { Link } from '@posthog/lemon-ui'
 
-import { isExternalLink } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { isExternalLink } from 'lib/utils/url'
 
 export function Property({ value }: { value: any }): JSX.Element {
     let valueString: string

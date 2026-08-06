@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { IconArrowLeft, IconTrash } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonTab, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HOG_FLOW_EDITOR_MODES, HogFlowEditorMode, hogFlowEditorLogic } from '../hogFlowEditorLogic'

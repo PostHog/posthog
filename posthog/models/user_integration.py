@@ -8,8 +8,11 @@ from django.db import models
 import requests
 import structlog
 
+from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
+from posthog.egress.limiter.policies import Priority
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import GitHubIntegrationBase
+from posthog.models.integration import invalidate_github_repository_caches_for_installation
 from posthog.models.utils import UUIDModel
 
 if TYPE_CHECKING:
@@ -35,10 +38,41 @@ class UserIntegration(UUIDModel):
     - `integration_id` holds the GitHub App installation_id
     - `config` holds installation metadata + user identity (login, id)
     - `sensitive_config` holds installation access token + user-to-server tokens
+
+    Contents for Slack (user identity link):
+    - `integration_id` holds the Slack user id (e.g. "U123ABC"), workspace-scoped
+    - `config` holds {slack_team_id, slack_team_name, slack_email_at_link, scope,
+      linked_at}; `scope` is the user scopes Slack granted, space-delimited as OIDC
+      returns them (the workspace row's `Integration.config["scope"]` is Slack's
+      comma-separated bot list, so don't parse the two the same way)
+    - `sensitive_config` holds {user_access_token, user_refresh_token?} — the
+      Slack user-to-server token plus, when the Slack app has
+      `token_rotation_enabled`, a refresh token used to rotate it. Today's
+      manifest has rotation off, so `user_refresh_token` is absent and
+      `user_access_token` is long-lived; the capture is defensive so flipping
+      rotation on later requires no schema or callback-shape change.
+
+    Cardinality (Slack):
+    - One PostHog user → many rows, one per Slack workspace they've linked
+      (Slack assigns a distinct user id per workspace, so the rows have
+      different `integration_id` values).
+    - One Slack identity (workspace × Slack user id) → may have multiple
+      PostHog rows when the same Slack account is linked to more than one
+      PostHog account (e.g. personal + work). The inbound resolver picks
+      the most-recently-linked accessible row and warns when it sees more
+      than one match — see `find_linked_posthog_user`.
+
+    The `unique_together = ("user", "kind", "integration_id")` constraint only
+    forbids the same PostHog user linking the same Slack workspace identity
+    twice (which would have to be a re-OAuth that `update_or_create` already
+    folds into an in-place refresh). It does NOT forbid two PostHog users
+    sharing a Slack identity — that's a deliberate allowance the resolver
+    handles deterministically.
     """
 
     class IntegrationKind(models.TextChoices):
         GITHUB = "github"
+        SLACK = "slack"
 
     user = models.ForeignKey(
         "posthog.User",
@@ -58,6 +92,9 @@ class UserIntegration(UUIDModel):
     class Meta:
         db_table = "posthog_user_integration"
         unique_together = [("user", "kind", "integration_id")]
+        indexes = [
+            models.Index(fields=["kind", "integration_id"], name="user_integration_kind_extid"),
+        ]
 
 
 class ReauthorizationRequired(Exception):
@@ -100,10 +137,16 @@ class UserGitHubIntegration(GitHubIntegrationBase):
 
     integration: UserIntegration
 
-    def __init__(self, integration: UserIntegration) -> None:
+    def __init__(
+        self, integration: UserIntegration, *, source: str | None = None, priority: Priority | None = None
+    ) -> None:
         if integration.kind != "github":
             raise Exception("UserGitHubIntegration initialized with non-github integration")
         self.integration = integration
+        if source is not None:
+            self.source = source
+        if priority is not None:
+            self.priority = priority
 
     # --- Token refresh hooks ---
 
@@ -113,6 +156,8 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             user_id=self.integration.user_id,
             status_code=response.status_code,
         )
+        if self._disarm_proactive_refresh_if_installation_gone(response):
+            self.integration.save(update_fields=["config"])
 
     def _on_token_refreshed(self) -> None:
         logger.info(
@@ -242,6 +287,169 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         assert token is not None, "user_access_token cleared unexpectedly after refresh"
         return token
 
+    def create_pull_request_review_comment(
+        self,
+        repository: str,
+        pr_number: int,
+        body: str,
+        *,
+        in_reply_to: str | None = None,
+        commit_id: str | None = None,
+        path: str | None = None,
+        line: int | None = None,
+        side: str | None = None,
+    ) -> dict[str, Any]:
+        """Post an inline PR review comment as the user (user-to-server token).
+
+        Two shapes, matching GitHub's API: a reply to an existing thread needs only
+        ``in_reply_to`` (the thread root comment id); a new thread needs ``commit_id``
+        (the PR head SHA) + ``path`` + ``line`` (+ ``side``). The comment is attributed
+        to the user's GitHub identity, not the app.
+
+        Raises :class:`ReauthorizationRequired` when the stored user token is unusable
+        and :class:`GitHubRateLimitError` on rate limits; other failures return
+        ``{"success": False, "error": ...}``.
+        """
+        token = self.get_usable_user_access_token()
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        payload: dict[str, Any]
+        if in_reply_to is not None:
+            url = f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}/comments/{in_reply_to}/replies"
+            endpoint = "/repos/{owner}/{repo}/pulls/{pull_number}/comments/{comment_id}/replies"
+            payload = {"body": body}
+        else:
+            if not (commit_id and path and line):
+                return {"success": False, "error": "New comment threads need commit_id, path, and line"}
+            url = f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}/comments"
+            endpoint = "/repos/{owner}/{repo}/pulls/{pull_number}/comments"
+            payload = {"body": body, "commit_id": commit_id, "path": path, "line": line, "side": side or "RIGHT"}
+
+        response = github_request(
+            "POST",
+            url,
+            source="signals_pr_review_comment",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            installation_id=self.github_installation_id,
+            priority=Priority.CRITICAL,
+            endpoint=endpoint,
+            json=payload,
+            timeout=15,
+        )
+        raise_if_github_rate_limited(response)
+        if response.status_code not in (200, 201):
+            logger.warning(
+                "UserGitHubIntegration: review comment post failed",
+                status_code=response.status_code,
+                repository=repo_path,
+                pr_number=pr_number,
+            )
+            return {
+                "success": False,
+                "error": f"GitHub rejected the comment (HTTP {response.status_code})",
+                "status_code": response.status_code,
+            }
+        return {"success": True, "comment": response.json()}
+
+    def _user_review_comment_request(
+        self,
+        method: str,
+        repository: str,
+        path_suffix: str,
+        *,
+        source: str,
+        json: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Shared transport for user-authored reads and edits of a review comment (fetch/edit/delete/react).
+
+        ``path_suffix`` is appended to ``/repos/{repo}/pulls/comments`` — e.g. ``/{id}`` for a
+        comment or ``/{id}/reactions`` for its reactions. Returns ``{"success", ...}``; raises
+        :class:`ReauthorizationRequired`/:class:`GitHubRateLimitError` like the create path.
+        """
+        token = self.get_usable_user_access_token()
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        response = github_request(
+            method,
+            f"https://api.github.com/repos/{repo_path}/pulls/comments{path_suffix}",
+            source=source,
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            installation_id=self.github_installation_id,
+            priority=Priority.CRITICAL,
+            json=json,
+            timeout=15,
+        )
+        raise_if_github_rate_limited(response)
+        if response.status_code not in (200, 201, 204):
+            logger.warning(
+                "UserGitHubIntegration: review comment request failed",
+                method=method,
+                status_code=response.status_code,
+                repository=repo_path,
+            )
+            return {
+                "success": False,
+                "error": f"GitHub rejected the change (HTTP {response.status_code})",
+                "status_code": response.status_code,
+            }
+        body = response.json() if response.status_code != 204 and response.content else None
+        return {"success": True, "result": body}
+
+    def get_pull_request_review_comment(self, repository: str, comment_id: str) -> dict[str, Any]:
+        """Fetch a single review comment as the user, so callers can check what it hangs off before
+        writing to it. ``comment`` is None when GitHub says there is no such comment this user can
+        see, which callers should treat the same as a comment that isn't theirs to touch.
+        """
+        result = self._user_review_comment_request(
+            "GET", repository, f"/{comment_id}", source="signals_pr_review_comment_fetch"
+        )
+        if result.get("success"):
+            return {"success": True, "comment": result.get("result")}
+        if result.get("status_code") == 404:
+            return {"success": True, "comment": None}
+        return result
+
+    def update_pull_request_review_comment(self, repository: str, comment_id: str, body: str) -> dict[str, Any]:
+        """Edit an existing review comment's body as the user."""
+        result = self._user_review_comment_request(
+            "PATCH", repository, f"/{comment_id}", source="signals_pr_review_comment_edit", json={"body": body}
+        )
+        if result.get("success"):
+            return {"success": True, "comment": result.get("result")}
+        return result
+
+    def delete_pull_request_review_comment(self, repository: str, comment_id: str) -> dict[str, Any]:
+        """Delete a review comment as the user."""
+        return self._user_review_comment_request(
+            "DELETE", repository, f"/{comment_id}", source="signals_pr_review_comment_delete"
+        )
+
+    def add_pull_request_review_comment_reaction(
+        self, repository: str, comment_id: str, content: str
+    ) -> dict[str, Any]:
+        """Add an emoji reaction to a review comment as the user. ``content`` is a GitHub reaction
+        key (``+1``, ``-1``, ``laugh``, ``hooray``, ``confused``, ``heart``, ``rocket``, ``eyes``)."""
+        result = self._user_review_comment_request(
+            "POST",
+            repository,
+            f"/{comment_id}/reactions",
+            source="signals_pr_review_comment_reaction",
+            json={"content": content},
+        )
+        if result.get("success"):
+            return {"success": True, "reaction": result.get("result")}
+        return result
+
+    def delete_pull_request_review_comment_reaction(
+        self, repository: str, comment_id: str, reaction_id: str
+    ) -> dict[str, Any]:
+        """Remove one of the user's own reactions from a review comment."""
+        return self._user_review_comment_request(
+            "DELETE",
+            repository,
+            f"/{comment_id}/reactions/{reaction_id}",
+            source="signals_pr_review_comment_reaction_delete",
+        )
+
     def _apply_user_token_payload(self, payload: dict[str, Any]) -> None:
         """Write a fresh user token pair + expirations onto the integration row."""
         now = int(time.time())
@@ -303,8 +511,7 @@ def user_github_integration_from_installation(
     """
     now = int(time.time())
     try:
-        raw_expires = installation.token_expires_at
-        expires_in = int(datetime.fromisoformat(raw_expires.replace("Z", "+00:00")).timestamp() - now)
+        expires_in = int(datetime.fromisoformat(installation.token_expires_at).timestamp() - now)
     except (ValueError, AttributeError):
         expires_in = 3600
 
@@ -351,4 +558,92 @@ def user_github_integration_from_installation(
                 "sensitive_config": sensitive_config,
             },
         )
+        invalidate_github_repository_caches_for_installation(installation.installation_id)
+    return integration
+
+
+def refresh_user_github_installation_access(
+    integration: UserIntegration,
+    installation: "GitHubInstallationAccess",
+) -> UserIntegration:
+    """Refresh installation token metadata without overwriting stored user OAuth credentials."""
+    now = int(time.time())
+    try:
+        expires_in = int(datetime.fromisoformat(installation.token_expires_at).timestamp() - now)
+    except (ValueError, AttributeError):
+        expires_in = 3600
+
+    config = dict(integration.config)
+    config.update(
+        {
+            "expires_in": expires_in,
+            "refreshed_at": now,
+            "repository_selection": installation.repository_selection,
+            "account": {
+                "type": (installation.installation_info.get("account") or {}).get("type"),
+                "name": (installation.installation_info.get("account") or {}).get(
+                    "login", installation.installation_id
+                ),
+            },
+        }
+    )
+
+    sensitive_config = dict(integration.sensitive_config)
+    sensitive_config["access_token"] = installation.access_token
+
+    integration.config = config
+    integration.sensitive_config = sensitive_config
+    integration.save(update_fields=["config", "sensitive_config"])
+    invalidate_github_repository_caches_for_installation(installation.installation_id)
+    return integration
+
+
+def user_slack_integration_from_identity(
+    user: "User",
+    *,
+    slack_user_id: str,
+    slack_team_id: str,
+    slack_team_name: str | None,
+    slack_email_at_link: str | None,
+    user_access_token: str,
+    user_refresh_token: str | None = None,
+    user_scopes: str = "",
+) -> UserIntegration:
+    """Create or refresh a Slack ``UserIntegration`` from a Sign-in-with-Slack
+    identity.
+
+    Persists the Slack user-to-server token in ``sensitive_config`` in symmetry
+    with the GitHub personal integration. ``user_refresh_token`` is captured
+    defensively — Slack only returns it when the app has
+    `token_rotation_enabled`, which today is off, so it's typically ``None``.
+    Storing both fields now means flipping rotation on later requires no
+    schema or callback-shape change. ``slack_email_at_link`` is stored for
+    support diagnostics and is not consulted at resolve time.
+
+    ``user_scopes`` records what Slack granted this link. Nothing gates on it today
+    — the OIDC consent screen grants ``OIDC_SCOPES`` all-or-nothing, so the row
+    existing already implies them — but it's what tells you, after the fact, which
+    scopes an older link was created with.
+    """
+    config: dict[str, Any] = {
+        "slack_team_id": slack_team_id,
+        "slack_team_name": slack_team_name,
+        "slack_email_at_link": slack_email_at_link,
+        "scope": user_scopes,
+        "linked_at": int(time.time()),
+    }
+    sensitive_config: dict[str, Any] = {
+        "user_access_token": user_access_token,
+    }
+    if user_refresh_token is not None:
+        sensitive_config["user_refresh_token"] = user_refresh_token
+    integration, _created = UserIntegration.objects.update_or_create(
+        user=user,
+        kind=UserIntegration.IntegrationKind.SLACK,
+        integration_id=slack_user_id,
+        defaults={
+            "config": config,
+            "sensitive_config": sensitive_config,
+        },
+    )
     return integration

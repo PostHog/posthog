@@ -4,11 +4,19 @@ import pytest
 
 from posthog.models.instance_setting import (
     InstanceSetting,
+    _clear_instance_setting_cache,
     get_instance_setting,
     get_instance_settings,
     override_instance_config,
     set_instance_setting,
 )
+
+
+@pytest.fixture(autouse=True)
+def _reset_instance_setting_cache():
+    _clear_instance_setting_cache()
+    yield
+    _clear_instance_setting_cache()
 
 
 def test_unknown_key_raises(db):
@@ -138,3 +146,15 @@ def test_admin_save_model_wraps_bare_strings(db):
     admin.save_model(request, obj4, form=None, change=False)
     assert obj4.raw_value == "42"
     assert obj4.value == 42
+
+
+def test_db_change_propagates_after_ttl(db, monkeypatch):
+    # A direct DB change (no cache_clear) stays stale while cached, then propagates once the TTL
+    # elapses — guards against reverting to a permanent cache (the stale-credential bug).
+    initial = get_instance_setting("EMAIL_HOST")
+
+    InstanceSetting.objects.create(key="constance:posthog:EMAIL_HOST", raw_value='"smtp.changed.test"')
+    assert get_instance_setting("EMAIL_HOST") == initial
+
+    monkeypatch.setattr("posthog.models.instance_setting._INSTANCE_SETTING_CACHE_TTL_SECONDS", 0)
+    assert get_instance_setting("EMAIL_HOST") == "smtp.changed.test"

@@ -1,7 +1,5 @@
 """Per-scanner Temporal schedule lifecycle helpers."""
 
-import json
-import hashlib
 import datetime as dt
 from typing import Any
 from uuid import UUID
@@ -9,8 +7,10 @@ from uuid import UUID
 from django.conf import settings
 
 import structlog
+from pydantic import BaseModel
 from temporalio import common
 from temporalio.client import (
+    Client,
     Schedule,
     ScheduleActionStartWorkflow,
     ScheduleIntervalSpec,
@@ -30,6 +30,7 @@ from posthog.temporal.common.search_attributes import (
     POSTHOG_TEAM_ID_KEY,
 )
 
+from products.replay_vision.backend.fingerprint import SCHEDULE_FINGERPRINT_LENGTH, config_fingerprint
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.temporal.constants import (
     SCANNER_SCHEDULE_INTERVAL,
@@ -48,6 +49,7 @@ logger = structlog.get_logger(__name__)
 _FINGERPRINT_FIELDS = (
     "scanner_version",
     "sampling_rate",
+    "sampling_mode",
     "model",
     "provider",
     "query",
@@ -57,8 +59,7 @@ _FINGERPRINT_FIELDS = (
 
 def compute_schedule_fingerprint(snapshot: dict[str, Any] | None) -> str:
     # `sort_keys=True` is recursive over dicts but not lists; assumes JSONField list ordering is stable.
-    canonical = json.dumps(snapshot or {}, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode()).hexdigest()[:16]
+    return config_fingerprint(snapshot, length=SCHEDULE_FINGERPRINT_LENGTH)
 
 
 def _compute_offset(scanner_id: UUID) -> dt.timedelta:
@@ -88,6 +89,47 @@ def _load_fingerprint(scanner_id: UUID) -> str | None:
     """Return the fingerprint for an enabled scanner, or `None` if it is missing or disabled."""
     row = ReplayScanner.objects.filter(pk=scanner_id, enabled=True).values(*_FINGERPRINT_FIELDS).first()
     return compute_schedule_fingerprint(dict(row)) if row else None
+
+
+def load_enabled_scanner_fingerprints() -> dict[UUID, tuple[int, str]]:
+    """Bulk variant for the reconciler: returns `{scanner_id: (team_id, fingerprint)}`."""
+    rows = ReplayScanner.objects.filter(enabled=True).values("id", "team_id", *_FINGERPRINT_FIELDS)
+    return {
+        row["id"]: (row["team_id"], compute_schedule_fingerprint({k: row[k] for k in _FINGERPRINT_FIELDS}))
+        for row in rows
+    }
+
+
+async def upsert_interval_schedule(
+    client: Client,
+    *,
+    schedule_id: str,
+    workflow_name: str,
+    workflow_id: str,
+    inputs: BaseModel,
+    interval: dt.timedelta,
+    execution_timeout: dt.timedelta,
+    search_attributes: TypedSearchAttributes | None = None,
+) -> None:
+    """Create or update a singleton interval schedule with SKIP overlap; first creation triggers immediately."""
+    schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            workflow_name,
+            inputs,
+            id=workflow_id,
+            task_queue=settings.REPLAY_VISION_TASK_QUEUE,
+            execution_timeout=execution_timeout,
+            retry_policy=common.RetryPolicy(maximum_attempts=1),
+        ),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=interval)]),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP, catchup_window=interval),
+    )
+    if await a_schedule_exists(client, schedule_id):
+        await a_update_schedule(client, schedule_id, schedule, search_attributes=search_attributes)
+    else:
+        await a_create_schedule(
+            client, schedule_id, schedule, trigger_immediately=True, search_attributes=search_attributes
+        )
 
 
 async def a_upsert_scanner_schedule(scanner_id: UUID, team_id: int) -> None:

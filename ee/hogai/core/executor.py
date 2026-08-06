@@ -19,6 +19,8 @@ from posthog.schema import AssistantEventType, FailureMessage
 from posthog.temporal.ai.base import AgentBaseWorkflow
 from posthog.temporal.common.client import async_connect
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.queue import ConversationQueueStore
 from ee.hogai.stream.redis_stream import (
     CONVERSATION_STREAM_MAX_LENGTH,
@@ -33,7 +35,6 @@ from ee.hogai.stream.redis_stream import (
     get_conversation_stream_key,
 )
 from ee.hogai.utils.types import AssistantOutput
-from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
 _tracer = trace.get_tracer(__name__)

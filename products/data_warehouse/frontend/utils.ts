@@ -165,6 +165,7 @@ export const SyncTypeLabelMap: Record<NonNullable<ExternalDataSourceSyncSchema['
     append: 'Append only',
     webhook: 'Webhook',
     cdc: 'CDC',
+    xmin: 'xmin',
 }
 
 export const SyncFrequencyLabelMap: Record<DataWarehouseSyncInterval, string> = {
@@ -178,6 +179,25 @@ export const SyncFrequencyLabelMap: Record<DataWarehouseSyncInterval, string> = 
     '24hour': 'Daily',
     '7day': 'Weekly',
     '30day': 'Monthly',
+}
+
+// Sync frequencies ordered shortest→longest. Object key order above is the single source of truth.
+export const SYNC_FREQUENCY_ORDER = Object.keys(SyncFrequencyLabelMap) as DataWarehouseSyncInterval[]
+
+// Every sync type floors at 5 minutes. Rows written before the floor may still carry '1min'
+// (the label maps above keep rendering it), but it is never offered or accepted again. This is
+// the one place the floor lives — the schedule picker, bulk edits, and the clamp all derive
+// from it. (The backend enforces the same rule in ExternalDataSchemaSerializer.)
+const LEGACY_SUB_FLOOR_SYNC_FREQUENCIES: DataWarehouseSyncInterval[] = ['1min']
+
+export function allowedSyncFrequencies(): DataWarehouseSyncInterval[] {
+    return SYNC_FREQUENCY_ORDER.filter((frequency) => !LEGACY_SUB_FLOOR_SYNC_FREQUENCIES.includes(frequency))
+}
+
+// Raise a requested frequency to the fastest allowed one (e.g. a legacy 1min → 5min).
+export function clampSyncFrequency(requested: DataWarehouseSyncInterval): DataWarehouseSyncInterval {
+    const allowed = allowedSyncFrequencies()
+    return allowed.includes(requested) ? requested : allowed[0]
 }
 
 export const StatusTagSetting: Record<ExternalDataJobStatus | ExternalDataSchemaStatus, LemonTagType> = {

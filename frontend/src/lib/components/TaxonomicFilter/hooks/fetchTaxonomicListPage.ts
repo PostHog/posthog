@@ -8,7 +8,7 @@
 import { combineUrl } from 'kea-router'
 
 import api from 'lib/api'
-import { ListStorage, TaxonomicFilterGroup } from 'lib/components/TaxonomicFilter/types'
+import { ListStorage, TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export interface FetchTaxonomicPageParams {
     group: TaxonomicFilterGroup
@@ -18,6 +18,9 @@ export interface FetchTaxonomicPageParams {
     isExpanded: boolean
     showNumericalPropsOnly?: boolean
     hideBehavioralCohorts?: boolean
+    /** Exclude event definitions not ingested within the staleness window. Only
+     *  applies to the event / custom-event endpoints (mirrors legacy `exclude_stale`). */
+    excludeStale?: boolean
     signal?: AbortSignal
 }
 
@@ -31,6 +34,7 @@ export async function fetchTaxonomicListPage({
     isExpanded,
     showNumericalPropsOnly,
     hideBehavioralCohorts,
+    excludeStale,
     signal,
 }: FetchTaxonomicPageParams): Promise<ListStorage> {
     const remoteEndpoint = group.endpoint
@@ -62,6 +66,11 @@ export async function fetchTaxonomicListPage({
     }
     if (hideBehavioralCohorts) {
         baseParams.hide_behavioral_cohorts = 'true'
+    }
+    const isEventGroup =
+        group.type === TaxonomicFilterGroupType.Events || group.type === TaxonomicFilterGroupType.CustomEvents
+    if (excludeStale && isEventGroup) {
+        baseParams.exclude_stale = 'true'
     }
 
     const useScoped = group.scopedEndpoint && !isExpanded

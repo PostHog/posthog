@@ -1,9 +1,9 @@
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { PostgresUse } from '~/utils/db/postgres'
 
-import { insertEvaluation } from '../_tests/fixtures'
+import { insertEvaluation, insertModelConfiguration, insertProviderKey } from '../_tests/fixtures'
 import { Evaluation } from '../types'
 import { EvaluationManagerService } from './evaluation-manager.service'
 
@@ -208,5 +208,24 @@ describe('EvaluationManagerService', () => {
         const evalWithError = items.find((item) => item.name === 'Evaluation with bytecode error')
         expect(evalWithError).toBeDefined()
         expect(evalWithError!.conditions[0].bytecode_error).toEqual('Failed to compile')
+    })
+
+    it('returns provider key id from model configuration', async () => {
+        const providerKey = await insertProviderKey(hub.postgres, teamId1)
+        const modelConfiguration = await insertModelConfiguration(hub.postgres, teamId1, {
+            provider_key_id: providerKey.id,
+        })
+
+        await hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE llm_analytics_evaluation SET model_configuration_id = $1, updated_at = NOW() WHERE id = $2`,
+            [modelConfiguration.id, evaluations[0].id],
+            'setEvaluationModelConfiguration'
+        )
+
+        manager['onEvaluationsReloaded'](teamId1, [evaluations[0].id])
+
+        const items = await manager.getEvaluationsForTeam(teamId1)
+        expect(items[0].provider_key_id).toEqual(providerKey.id)
     })
 })

@@ -27,12 +27,28 @@ export function parseVersion(version: string): SemanticVersion {
     return { major: majorInt, minor: minorInt, patch: patchInt, extra }
 }
 
-export function tryParseVersion(version: string): SemanticVersion | null {
-    try {
-        return parseVersion(version)
-    } catch {
-        return null
+// Validates a version string against the same shape the backend's `parse_semver` enforces
+// (feature flag `validate_filters`), so a non-semver value (an email, a hex string) is caught
+// inline before a save 400s. Intentionally stricter than the backend on component format: the
+// backend coerces each component with Python's `int()`, which tolerates things like a leading
+// `+` or `_` digit separators, while this only accepts plain digits. Kept separate from
+// `parseVersion` because that one accepts a leading `v`, which the backend's `int()` rejects.
+// `allowWildcard` handles patterns like `1.2.*` by dropping the trailing `.`/`*`, matching the
+// backend's `rstrip('.*')` for the wildcard operator.
+export function isValidSemverValue(value: string, options?: { allowWildcard?: boolean }): boolean {
+    let candidate = value.trim()
+    if (options?.allowWildcard) {
+        candidate = candidate.replace(/[.*]+$/, '')
     }
+    // Strip any pre-release / build suffix (everything after the first hyphen), matching the backend.
+    const base = candidate.split('-')[0]
+    const parts = base.split('.')
+    if (parts[0] === '') {
+        return false
+    }
+    // Missing minor/patch default to "0" (e.g. "1" -> 1.0.0); extra parts are ignored, as on the backend.
+    const [major, minor = '0', patch = '0'] = parts
+    return [major, minor, patch].every((part) => /^\d+$/.test(part))
 }
 
 export interface SemanticVersionDiff {
@@ -78,33 +94,6 @@ export function compareVersion(a: string | SemanticVersion, b: string | Semantic
         return 0
     }
     return diff.diff
-}
-
-export function lowestVersion(versions: (string | SemanticVersion)[]): SemanticVersion {
-    const parsed = versions.map((v) => (typeof v === 'string' ? parseVersion(v) : v))
-    // we expect this list to be small, so don't worry about nlogn vs n from using sort
-    parsed.sort(compareVersion)
-    return parsed[0]
-}
-
-export function highestVersion(versions: (string | SemanticVersion)[]): SemanticVersion {
-    const parsed = versions.map((v) => (typeof v === 'string' ? parseVersion(v) : v))
-    parsed.sort(compareVersion)
-    return parsed[parsed.length - 1]
-}
-
-export function isEqualVersion(a: string | SemanticVersion, b: string | SemanticVersion): boolean {
-    return diffVersions(a, b) === null
-}
-
-export function versionToString(version: SemanticVersion): string {
-    const versionPart = `${version.major}${
-        version.minor != null ? `.${version.minor}${version.patch != null ? `.${version.patch}` : ''}` : ''
-    }`
-    if (version.extra) {
-        return `${versionPart}-${version.extra}`
-    }
-    return versionPart
 }
 
 export function createVersionChecker(requiredVersion: string | SemanticVersion) {

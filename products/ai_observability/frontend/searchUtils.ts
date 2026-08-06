@@ -1,3 +1,7 @@
+import { LLMTraceEvent } from '~/queries/schema/schema-general'
+
+import { asString, formatModelRowLabel } from './utils'
+
 export interface SearchMatch {
     startIndex: number
     length: number
@@ -106,19 +110,19 @@ export function eventMatchesSearch(event: { properties: Record<string, any>; eve
     const lowerQuery = query.toLowerCase().trim()
 
     // Search in event title
-    const title = event.properties.$ai_span_name || event.event || ''
+    const title = asString(event.properties.$ai_span_name) || event.event || ''
     if (title.toLowerCase().includes(lowerQuery)) {
         return true
     }
 
     // Search in model name
-    const model = event.properties.$ai_model || ''
+    const model = asString(event.properties.$ai_model) || ''
     if (model.toLowerCase().includes(lowerQuery)) {
         return true
     }
 
     // Search in provider
-    const provider = event.properties.$ai_provider || ''
+    const provider = asString(event.properties.$ai_provider) || ''
     if (provider.toLowerCase().includes(lowerQuery)) {
         return true
     }
@@ -207,10 +211,7 @@ export function findTraceOccurrences(
 /**
  * Find search occurrences in sidebar event fields (title, model, provider)
  */
-export function findSidebarOccurrences(
-    events: Array<{ id: string; event?: string; properties: Record<string, any> }>,
-    query: string
-): SearchOccurrence[] {
+export function findSidebarOccurrences(events: LLMTraceEvent[], query: string): SearchOccurrence[] {
     if (!query.trim()) {
         return []
     }
@@ -219,7 +220,7 @@ export function findSidebarOccurrences(
 
     events.forEach((event) => {
         // Event title (only from span name, not event.event)
-        const title = event.properties.$ai_span_name || ''
+        const title = asString(event.properties.$ai_span_name) || ''
         if (title) {
             occurrences.push(
                 ...findSearchOccurrences(title, query, 'title', {
@@ -229,21 +230,15 @@ export function findSidebarOccurrences(
             )
         }
 
-        // Model and provider (displayed together in the UI)
-        if (event.event === '$ai_generation' && event.properties.$ai_span_name) {
-            let modelText = event.properties.$ai_model || ''
-            if (event.properties.$ai_provider) {
-                modelText = `${modelText} (${event.properties.$ai_provider})`
-            }
-            // Use 'model' field for the combined model + provider string
-            if (modelText) {
-                occurrences.push(
-                    ...findSearchOccurrences(modelText, query, 'model', {
-                        type: 'sidebar',
-                        eventId: event.id,
-                    })
-                )
-            }
+        // Model and provider, matching the model row rendered in the UI
+        const modelText = formatModelRowLabel(event)
+        if (modelText) {
+            occurrences.push(
+                ...findSearchOccurrences(modelText, query, 'model', {
+                    type: 'sidebar',
+                    eventId: event.id,
+                })
+            )
         }
     })
 
@@ -256,7 +251,7 @@ export function findSidebarOccurrences(
 export function findMessageOccurrences(
     events: Array<{ id: string; event?: string; properties: Record<string, any> }>,
     query: string,
-    normalizeMessages: (input: any, defaultRole: string, tools?: any) => any[]
+    normalizeMessages: (input: any, defaultRole: string, tools?: any) => { messages: any[] }
 ): SearchOccurrence[] {
     if (!query.trim()) {
         return []
@@ -279,7 +274,11 @@ export function findMessageOccurrences(
 
         // Input messages
         if (event.event === '$ai_generation') {
-            const normalizedInput = normalizeMessages(event.properties.$ai_input, 'user', event.properties.$ai_tools)
+            const normalizedInput = normalizeMessages(
+                event.properties.$ai_input,
+                'user',
+                event.properties.$ai_tools
+            ).messages
             normalizedInput.forEach((msg, msgIndex) => {
                 // Content
                 const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
@@ -327,7 +326,7 @@ export function findMessageOccurrences(
         // Output messages
         if (event.event === '$ai_generation') {
             const outputToNormalize = event.properties.$ai_output_choices ?? event.properties.$ai_output
-            const normalizedOutput = normalizeMessages(outputToNormalize, 'assistant')
+            const normalizedOutput = normalizeMessages(outputToNormalize, 'assistant').messages
 
             normalizedOutput.forEach((msg, msgIndex) => {
                 // Content

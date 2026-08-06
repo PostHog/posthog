@@ -2,6 +2,7 @@ import {
     countConditions,
     evaluateFilterTree,
     FilterNode,
+    normalizeRootToGroup,
     treeHasConditions,
     treeHasEmptyValues,
     updateAtPath,
@@ -269,6 +270,25 @@ describe('updateAtPath', () => {
             // child1 should be the same reference — not copied
             expect((result as { type: 'or'; children: FilterNode[] }).children[1]).toBe(child1)
         })
+    })
+})
+
+describe('normalizeRootToGroup', () => {
+    // Regression: the backend prunes single-child groups, so a saved one-condition
+    // filter loads back as a bare condition (or NOT) with no group to host the
+    // "Add condition"/"Add group" buttons. Re-wrap any non-group root in an OR.
+    it.each([
+        ['bare condition', cond('distinct_id', 'contains', 'bot')],
+        ['NOT node', not(cond())],
+    ])('wraps a %s root in an OR group', (_name, node) => {
+        expect(normalizeRootToGroup(node)).toEqual(or(node))
+    })
+
+    it.each([
+        ['OR', or(cond(), cond('distinct_id', 'exact', 'u1'))],
+        ['AND', and(cond())],
+    ])('leaves an %s root unchanged (same reference)', (_name, tree) => {
+        expect(normalizeRootToGroup(tree)).toBe(tree)
     })
 })
 

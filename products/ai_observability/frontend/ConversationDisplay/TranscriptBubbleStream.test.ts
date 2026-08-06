@@ -17,6 +17,13 @@ const mockedCapture = posthog.capture as jest.Mock
 
 beforeEach(() => mockedCapture.mockClear())
 
+// Shared message-builder helpers used across the buildStreamItems suites.
+const userText = (text: string): CompatMessage => ({ role: 'user', content: text })
+const assistant = (text: string): CompatMessage => ({ role: 'assistant', content: text })
+const thinking = (text: string): CompatMessage => ({ role: 'assistant (thinking)', content: text })
+const toolResult = (text: string): CompatMessage =>
+    ({ role: 'assistant (tool result)', content: text, tool_call_id: 'toolu_1' }) as unknown as CompatMessage
+
 describe('hasNonTextContent', () => {
     it.each<[name: string, content: CompatMessage['content'], expected: boolean]>([
         ['returns false for a plain string content', 'Hello there', false],
@@ -121,12 +128,10 @@ describe('unrenderableContentKinds', () => {
 })
 
 describe('buildStreamItems — internal tag detection + grouping', () => {
-    const userText = (text: string): CompatMessage => ({ role: 'user', content: text })
     const userTypedInternal = (text: string): CompatMessage => ({
         role: 'user',
         content: [{ type: 'text', text }] as unknown as CompatMessage['content'],
     })
-    const assistant = (text: string): CompatMessage => ({ role: 'assistant', content: text })
 
     it('returns plain bubbles for a conversation with no internal tags', () => {
         const items = buildStreamItems([userText('Hi there'), assistant('Hello')])
@@ -219,16 +224,6 @@ describe('buildStreamItems — internal tag detection + grouping', () => {
 })
 
 describe('buildStreamItems — internal messages (thinking, tool_result) collapse into the same pill', () => {
-    const userText = (text: string): CompatMessage => ({ role: 'user', content: text })
-    const assistant = (text: string): CompatMessage => ({ role: 'assistant', content: text })
-    const thinking = (text: string): CompatMessage => ({ role: 'assistant (thinking)', content: text })
-    const toolResult = (text: string): CompatMessage =>
-        ({
-            role: 'assistant (tool result)',
-            content: text,
-            tool_call_id: 'toolu_1',
-        }) as unknown as CompatMessage
-
     it('hides an assistant (thinking) bubble inside an internal-group pill', () => {
         const items = buildStreamItems([userText('What is 2+2?'), thinking('Let me work through this'), assistant('4')])
         expect(items.map((i) => i.kind)).toEqual(['bubble', 'internal-group', 'bubble'])
@@ -265,17 +260,27 @@ describe('buildStreamItems — internal messages (thinking, tool_result) collaps
         }
     })
 
-    it('produces separate pills when a real assistant reply interrupts the internal run', () => {
+    it('produces separate pills when the final answer of one user turn precedes the next user turn', () => {
         const items = buildStreamItems([
             userText('Question one'),
             thinking('first round of reasoning'),
             toolResult('first tool result'),
-            assistant('Intermediate answer.'),
+            assistant('Answer to question one.'),
+            userText('Question two'),
             thinking('second round of reasoning'),
             toolResult('second tool result'),
-            assistant('Final answer.'),
+            assistant('Answer to question two.'),
         ])
-        expect(items.map((i) => i.kind)).toEqual(['bubble', 'internal-group', 'bubble', 'internal-group', 'bubble'])
+        // 'Answer to question one.' stays a bubble: the next message is a genuine user turn, with no
+        // tool activity before it — so it is a final answer, not intermediate narration.
+        expect(items.map((i) => i.kind)).toEqual([
+            'bubble',
+            'internal-group',
+            'bubble',
+            'bubble',
+            'internal-group',
+            'bubble',
+        ])
     })
 
     it('coalesces an internal tag + thinking + tool_result run into a single pill', () => {
@@ -392,6 +397,100 @@ describe('buildStreamItems — internal messages (thinking, tool_result) collaps
         if (items[0].kind === 'internal-group') {
             expect(items[0].labels).toEqual(expectedLabels)
         }
+    })
+})
+
+describe('buildStreamItems — intermediate assistant narration collapses, final answer stays', () => {
+    const toolRole = (text: string): CompatMessage => ({ role: 'tool', content: text }) as unknown as CompatMessage
+    const toolCall = (name: string): CompatMessage =>
+        ({
+            role: 'assistant',
+            content: '',
+            tool_calls: [{ type: 'function', id: 'toolu_1', function: { name, arguments: {} } }],
+        }) as unknown as CompatMessage
+    const assistantWithToolCall = (text: string, name: string): CompatMessage =>
+        ({
+            role: 'assistant',
+            content: text,
+            tool_calls: [{ type: 'function', id: 'toolu_1', function: { name, arguments: {} } }],
+        }) as unknown as CompatMessage
+
+    it('collapses Anthropic-style narration (split text msg) that precedes a tool result', () => {
+        // What Max emits: [thinking, narration text, tool_use] -> normalizer splits into separate
+        // messages; the narration text is followed by the tool_result of the call it made.
+        const items = buildStreamItems([
+            userText('What % of employees login web vs app'),
+            thinking('Let me check the schema.'),
+            assistant('The `$lib` property is the right signal here.'),
+            toolResult('events: user_logged_in, login_succeeded, ...'),
+            thinking('Now I can build the split.'),
+            assistant("Over the last 30 days, here's the split: ..."),
+        ])
+        // One question bubble, one internal-group folding thinking + narration + tool_result +
+        // thinking, then the final answer as a bubble.
+        expect(items.map((i) => i.kind)).toEqual(['bubble', 'internal-group', 'bubble'])
+        if (items[1].kind === 'internal-group') {
+            expect(items[1].labels).toEqual(['thinking', 'reasoning', 'tool_result', 'thinking'])
+        }
+        if (items[2].kind === 'bubble') {
+            expect(items[2].text).toBe("Over the last 30 days, here's the split: ...")
+        }
+    })
+
+    it('collapses an assistant message that carries its own tool_calls (OpenAI chat / LangChain shape)', () => {
+        const items = buildStreamItems([
+            userText('What is the weather in Berlin?'),
+            assistantWithToolCall('I should call the weather API.', 'get_weather'),
+            toolRole('Sunny, 22°C.'),
+            assistant('It is sunny and 22°C in Berlin.'),
+        ])
+        expect(items.map((i) => i.kind)).toEqual(['bubble', 'internal-group', 'bubble'])
+        if (items[1].kind === 'internal-group') {
+            // narration (with own tool_calls) + raw `tool` result, both folded away
+            expect(items[1].labels).toEqual(['reasoning', 'tool_result'])
+        }
+    })
+
+    it('hides a raw `tool`-role result message (fix B)', () => {
+        const items = buildStreamItems([
+            userText('Look up the order'),
+            toolRole('paid'),
+            assistant('Your order is paid.'),
+        ])
+        expect(items.map((i) => i.kind)).toEqual(['bubble', 'internal-group', 'bubble'])
+        if (items[1].kind === 'internal-group') {
+            expect(items[1].labels).toEqual(['tool_result'])
+        }
+    })
+
+    it('drops a tool-call-only assistant message but collapses its narration sibling', () => {
+        // Anthropic split of [text, tool_use]: the empty tool_call message is dropped, the narration
+        // text is collapsed because it is followed by the tool result.
+        const items = buildStreamItems([
+            userText('Build a funnel'),
+            assistant('Looking up the schema first.'),
+            toolCall('read_taxonomy'),
+            toolResult('events: ...'),
+            assistant("Here's your funnel."),
+        ])
+        expect(items.map((i) => i.kind)).toEqual(['bubble', 'internal-group', 'bubble'])
+        if (items[1].kind === 'internal-group') {
+            expect(items[1].labels).toEqual(['reasoning', 'tool_result'])
+        }
+    })
+
+    it('does NOT collapse a final answer that has no trailing tool activity', () => {
+        const items = buildStreamItems([userText('What is 2+2?'), assistant('4')])
+        expect(items.map((i) => i.kind)).toEqual(['bubble', 'bubble'])
+    })
+
+    it('does NOT collapse a multi-message final answer (two assistant texts, no tools between)', () => {
+        const items = buildStreamItems([
+            userText('Summarize and then give next steps'),
+            assistant('Summary: things are good.'),
+            assistant('Next steps: keep going.'),
+        ])
+        expect(items.map((i) => i.kind)).toEqual(['bubble', 'bubble', 'bubble'])
     })
 })
 

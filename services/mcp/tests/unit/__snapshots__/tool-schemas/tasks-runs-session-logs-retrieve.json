@@ -18,7 +18,6 @@
             "type": "string"
         },
         "id": {
-            "description": "A UUID string identifying this task run.",
             "type": "string"
         },
         "limit": {

@@ -1,0 +1,31 @@
+{% extends "admin/base_site.html" %}
+{% load i18n l10n admin_urls %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+  &rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
+  &rsaquo; <a href="{% url opts|admin_urlname:'changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+  &rsaquo; {% translate 'Revoke all sessions' %}
+</div>
+{% endblock %}
+
+{% block content %}
+<p>Revoking all sessions immediately signs out <strong>every connection across all users</strong> (CLI, MCP, and partner integrations) for the selected applications and forces each one to re-authorize under the current scope ceiling. This cannot be undone.</p>
+
+<p>Are you sure you want to revoke all sessions for the following {{ queryset|length }} application(s)?</p>
+
+<ul>
+  {% for obj in queryset %}<li>{{ obj }}</li>{% endfor %}
+</ul>
+
+<form method="post">{% csrf_token %}
+  {% for obj in queryset %}
+  <input type="hidden" name="{{ action_checkbox_name }}" value="{{ obj.pk|unlocalize }}">
+  {% endfor %}
+  <input type="hidden" name="action" value="revoke_all_sessions">
+  <input type="hidden" name="confirm" value="yes">
+  <input type="submit" value="Yes, revoke all sessions" class="default">
+  <a href="{% url opts|admin_urlname:'changelist' %}" class="button cancel-link">Cancel</a>
+</form>
+{% endblock %}

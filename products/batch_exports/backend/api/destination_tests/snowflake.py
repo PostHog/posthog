@@ -81,7 +81,7 @@ class SnowflakeEstablishConnectionTestStep(DestinationTestStep):
     async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
         import snowflake.connector
-        from snowflake.connector.errors import DatabaseError, InterfaceError, OperationalError
+        from snowflake.connector.errors import DatabaseError, HttpError, InterfaceError, OperationalError
 
         private_key, result = try_load_private_key(self.private_key, self.private_key_passphrase)
         if result is not None:
@@ -98,7 +98,7 @@ class SnowflakeEstablishConnectionTestStep(DestinationTestStep):
                 role=f'"{self.role}"' if self.role is not None else None,
                 session_parameters=_SNOWFLAKE_SESSION_PARAMETERS,
             )
-        except (OperationalError, InterfaceError, DatabaseError) as err:
+        except (OperationalError, InterfaceError, DatabaseError, HttpError) as err:
             if err.msg is not None and "404 Not Found" in err.msg:
                 return DestinationTestStepResult(
                     status=Status.FAILED,

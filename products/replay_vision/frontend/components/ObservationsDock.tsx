@@ -12,6 +12,8 @@ import { urls } from 'scenes/urls'
 
 import type { ReplayScannerApi } from '../generated/api.schemas'
 import { observationsDockLogic } from '../logics/observationsDockLogic'
+import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { quotaUx } from '../utils/quotaProjection'
 import { ObservationDockCard } from './ObservationCard'
 
 const COLLAPSED_HEIGHT = 44
@@ -31,8 +33,11 @@ export function ObservationsDock(): JSX.Element | null {
 /** Searchable scanner picker for "Observe this recording"; a flat menu doesn't scale to teams with many scanners. */
 function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
-    const { scanners, filteredScanners, scannerSearch, scannerPickerOpen, observing } = useValues(logic)
+    const { scanners, scannersLoading, filteredScanners, scannerSearch, scannerPickerOpen, observing } =
+        useValues(logic)
     const { observe, setScannerSearch, setScannerPickerOpen } = useActions(logic)
+    const { quota } = useValues(visionQuotaLogic)
+    const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota)
 
     return (
         <LemonDropdown
@@ -53,8 +58,14 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
                         />
                     </div>
                     <div className="max-h-80 overflow-y-auto p-1">
-                        {scanners.length === 0 ? (
-                            <Link to={urls.replayVision()} className="block px-2 py-3 text-sm">
+                        {scanners.length === 0 && scannersLoading ? (
+                            <div className="flex items-center gap-2 px-2 py-3 text-sm text-muted">
+                                <Spinner /> Loading scanners…
+                            </div>
+                        ) : scanners.length === 0 ? (
+                            // Opens in a new tab so the recording stays put behind it — this dropdown is
+                            // reached mid-recording and a same-tab navigation would abandon that context.
+                            <Link to={urls.replayVision()} target="_blank" className="block px-2 py-3 text-sm">
                                 No scanners yet — create one
                             </Link>
                         ) : filteredScanners.length === 0 ? (
@@ -66,6 +77,9 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
                                     fullWidth
                                     size="small"
                                     onClick={() => observe(scanner.id)}
+                                    disabledReason={observing ? 'Starting an observation…' : undefined}
+                                    data-attr="vision-scan-pick-scanner"
+                                    data-ph-capture-attribute-scanner-type={scanner.scanner_type}
                                 >
                                     <span className="flex items-center justify-between gap-2 w-full">
                                         <span className="truncate">{scanner.name}</span>
@@ -84,7 +98,9 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
                 icon={<IconEye />}
                 sideIcon={<IconChevronDown />}
                 loading={observing}
-                data-attr="vision-observe-recording"
+                disabledReason={quotaDisabledReason}
+                tooltip={quotaTooltip}
+                data-attr="vision-scan-recording"
             >
                 Scan this recording
             </LemonButton>
@@ -94,8 +110,8 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
 
 function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
-    const { observations, observationsLoading, dockOpen } = useValues(logic)
-    const { setDockOpen } = useActions(logic)
+    const { observations, observationsLoading, dockOpen, retryingObservationIds } = useValues(logic)
+    const { setDockOpen, retryObservation } = useActions(logic)
     // sessionRecordingPlayerLogic is keyed by playerKey+sessionRecordingId; seek the exact mounted
     // player by its bound props rather than a propless default instance.
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -127,10 +143,10 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
             data-attr="vision-observations-dock"
         >
             {dockOpen && <Resizer {...resizerProps} />}
-            <div className="flex items-center gap-3 h-11 px-3 shrink-0">
+            <div className="flex items-center gap-2 lg:gap-3 h-11 px-3 shrink-0">
                 <ScannerPicker sessionId={sessionId} />
                 {observations.length > 0 && (
-                    <span className="text-muted text-sm">
+                    <span className="text-muted text-sm min-w-0 truncate">
                         {observations.length} observation{observations.length === 1 ? '' : 's'}
                     </span>
                 )}
@@ -142,6 +158,7 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
                         onClick={() => setDockOpen(!dockOpen)}
                         tooltip={dockOpen ? 'Collapse' : 'Expand'}
                         aria-label={dockOpen ? 'Collapse observations' : 'Expand observations'}
+                        data-attr="vision-dock-toggle"
                     />
                 )}
             </div>
@@ -153,11 +170,17 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
                         </div>
                     ) : observations.length === 0 ? (
                         <div className="text-muted text-sm py-4">
-                            No observations yet. Pick a scanner to observe this recording.
+                            No observations yet. Pick a scanner to run on this recording.
                         </div>
                     ) : (
                         observations.map((observation) => (
-                            <ObservationDockCard key={observation.id} observation={observation} onSeek={seekToTime} />
+                            <ObservationDockCard
+                                key={observation.id}
+                                observation={observation}
+                                onSeek={seekToTime}
+                                onRetry={() => retryObservation(observation.id)}
+                                retrying={retryingObservationIds.includes(observation.id)}
+                            />
                         ))
                     )}
                 </div>

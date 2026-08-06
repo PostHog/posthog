@@ -1,6 +1,6 @@
 /**
  * Client-side bot detection — mirrors `posthog.hogql_queries.web_analytics.bot_definitions`
- * and the `__preview_getBotName` / `__preview_isBot` / `__preview_getTrafficCategory`
+ * and the `getBotName` / `isLikelyBot` / `getTrafficCategory`
  * HogQL functions. Used by real-time dashboards where events arrive via the
  * livestream SSE feed and therefore cannot be classified server-side.
  *

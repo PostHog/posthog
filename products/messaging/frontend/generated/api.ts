@@ -10,13 +10,23 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AddOptOutRequestApi,
+    AddSuppressionRequestApi,
+    BulkAddOptOutsRequestApi,
+    BulkAddOptOutsResultApi,
     MessageCategoryApi,
     MessagePreferencesApi,
+    MessageSuppressionApi,
     MessageTemplateApi,
     MessagingCategoriesListParams,
+    MessagingPreferencesExportOptOutsCsvRetrieveParams,
+    MessagingPreferencesOptOutsRetrieveParams,
+    MessagingSuppressionsSuppressionsRetrieveParams,
     MessagingTemplatesListParams,
     PaginatedMessageCategoryListApi,
+    PaginatedMessageSuppressionApi,
     PaginatedMessageTemplateListApi,
+    PaginatedOptOutsApi,
+    PatchedDesignPatchApi,
     PatchedMessageCategoryApi,
     PatchedMessageTemplateApi,
 } from './api.schemas'
@@ -43,7 +53,7 @@ export const getMessagingCategoriesListUrl = (projectId: string, params?: Messag
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -157,8 +167,8 @@ export const getMessagingCategoriesImportFromCustomerioCreateUrl = (projectId: s
 
 /**
  * Import subscription topics and globally unsubscribed users from Customer.io API.
-Persists the App API key in Integration(kind="customerio-app").
-If no app_api_key is provided, reuses the stored Integration key.
+ * Persists the App API key in Integration(kind="customerio-app").
+ * If no app_api_key is provided, reuses the stored Integration key.
  */
 export const messagingCategoriesImportFromCustomerioCreate = async (
     projectId: string,
@@ -179,7 +189,7 @@ export const getMessagingCategoriesImportPreferencesCsvCreateUrl = (projectId: s
 
 /**
  * Import customer preferences from CSV file
-Expected CSV columns: id, email, cio_subscription_preferences
+ * Expected CSV columns: id, email, cio_subscription_preferences
  */
 export const messagingCategoriesImportPreferencesCsvCreate = async (
     projectId: string,
@@ -215,7 +225,7 @@ export const getMessagingCategoriesOptoutSyncConfigRetrieveUrl = (projectId: str
 
 /**
  * Get the Customer.io sync configuration state for this team.
-Used by the frontend to derive step completion.
+ * Used by the frontend to derive step completion.
  */
 export const messagingCategoriesOptoutSyncConfigRetrieve = async (
     projectId: string,
@@ -284,12 +294,12 @@ export const getMessagingCategoriesSaveTrackConfigCreateUrl = (projectId: string
 
 /**
  * Save Customer.io Track API credentials and/or toggle outbound sync.
-
-Accepts:
-  - site_id (optional): set on first creation only
-  - api_key (optional): set on first creation only
-  - region (optional): "us" or "eu", set on first creation only
-  - track_enabled (required): enable or disable outbound sync
+ *
+ * Accepts:
+ *   - site_id (optional): set on first creation only
+ *   - api_key (optional): set on first creation only
+ *   - region (optional): "us" or "eu", set on first creation only
+ *   - track_enabled (required): enable or disable outbound sync
  */
 export const messagingCategoriesSaveTrackConfigCreate = async (
     projectId: string,
@@ -310,10 +320,10 @@ export const getMessagingCategoriesSaveWebhookConfigCreateUrl = (projectId: stri
 
 /**
  * Save webhook signing secret and/or toggle the Customer.io webhook sync.
-
-Accepts:
-  - webhook_signing_secret (optional): set on first creation only
-  - webhook_enabled (required): enable or disable the webhook
+ *
+ * Accepts:
+ *   - webhook_signing_secret (optional): set on first creation only
+ *   - webhook_enabled (required): enable or disable the webhook
  */
 export const messagingCategoriesSaveWebhookConfigCreate = async (
     projectId: string,
@@ -349,6 +359,61 @@ export const messagingPreferencesAddOptOutCreate = async (
     })
 }
 
+export const getMessagingPreferencesBulkAddOptOutsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_preferences/bulk_add_opt_outs/`
+}
+
+/**
+ * Opt every recipient in the list out of the category named on their entry, or a default category.
+ * @summary Add multiple recipients to the opt-out list
+ */
+export const messagingPreferencesBulkAddOptOutsCreate = async (
+    projectId: string,
+    bulkAddOptOutsRequestApi: BulkAddOptOutsRequestApi,
+    options?: RequestInit
+): Promise<BulkAddOptOutsResultApi> => {
+    return apiMutator<BulkAddOptOutsResultApi>(getMessagingPreferencesBulkAddOptOutsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkAddOptOutsRequestApi),
+    })
+}
+
+export const getMessagingPreferencesExportOptOutsCsvRetrieveUrl = (
+    projectId: string,
+    params?: MessagingPreferencesExportOptOutsCsvRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/messaging_preferences/export_opt_outs_csv/?${stringifiedParams}`
+        : `/api/projects/${projectId}/messaging_preferences/export_opt_outs_csv/`
+}
+
+/**
+ * Stream the opt-out list for a category as a CSV file that can be re-imported as-is.
+ * @summary Download the opt-out list as a CSV file
+ */
+export const messagingPreferencesExportOptOutsCsvRetrieve = async (
+    projectId: string,
+    params?: MessagingPreferencesExportOptOutsCsvRetrieveParams,
+    options?: RequestInit
+): Promise<string> => {
+    return apiMutator<string>(getMessagingPreferencesExportOptOutsCsvRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getMessagingPreferencesGenerateLinkCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/messaging_preferences/generate_link/`
 }
@@ -366,15 +431,35 @@ export const messagingPreferencesGenerateLinkCreate = async (
     })
 }
 
-export const getMessagingPreferencesOptOutsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/messaging_preferences/opt_outs/`
+export const getMessagingPreferencesOptOutsRetrieveUrl = (
+    projectId: string,
+    params?: MessagingPreferencesOptOutsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/messaging_preferences/opt_outs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/messaging_preferences/opt_outs/`
 }
 
 /**
  * Get opt-outs filtered by category or overall opt-outs if no category specified
+ * @summary List recipients opted out of a message category
  */
-export const messagingPreferencesOptOutsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getMessagingPreferencesOptOutsRetrieveUrl(projectId), {
+export const messagingPreferencesOptOutsRetrieve = async (
+    projectId: string,
+    params?: MessagingPreferencesOptOutsRetrieveParams,
+    options?: RequestInit
+): Promise<PaginatedOptOutsApi> => {
+    return apiMutator<PaginatedOptOutsApi>(getMessagingPreferencesOptOutsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -397,12 +482,91 @@ export const messagingPreferencesWebhookUrlRetrieve = async (
     })
 }
 
+export const getMessagingSuppressionsAddSuppressionCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_suppressions/add_suppression/`
+}
+
+/**
+ * Manually suppress an email address so no workflow sends to it.
+ * @summary Manually add an email address to the suppression list
+ */
+export const messagingSuppressionsAddSuppressionCreate = async (
+    projectId: string,
+    addSuppressionRequestApi: AddSuppressionRequestApi,
+    options?: RequestInit
+): Promise<MessageSuppressionApi> => {
+    return apiMutator<MessageSuppressionApi>(getMessagingSuppressionsAddSuppressionCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(addSuppressionRequestApi),
+    })
+}
+
+export const getMessagingSuppressionsRemoveSuppressionCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_suppressions/remove_suppression/`
+}
+
+/**
+ * Remove an address from the suppression list so it can receive messages again.
+ * @summary Remove an email address from the suppression list
+ */
+export const messagingSuppressionsRemoveSuppressionCreate = async (
+    projectId: string,
+    addSuppressionRequestApi: AddSuppressionRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getMessagingSuppressionsRemoveSuppressionCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(addSuppressionRequestApi),
+    })
+}
+
+export const getMessagingSuppressionsSuppressionsRetrieveUrl = (
+    projectId: string,
+    params?: MessagingSuppressionsSuppressionsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/messaging_suppressions/suppressions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/messaging_suppressions/suppressions/`
+}
+
+/**
+ * List suppressed recipients for the team, most recently updated first.
+ * @summary List suppressed email addresses for the team
+ */
+export const messagingSuppressionsSuppressionsRetrieve = async (
+    projectId: string,
+    params?: MessagingSuppressionsSuppressionsRetrieveParams,
+    options?: RequestInit
+): Promise<PaginatedMessageSuppressionApi> => {
+    return apiMutator<PaginatedMessageSuppressionApi>(
+        getMessagingSuppressionsSuppressionsRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getMessagingTemplatesListUrl = (projectId: string, params?: MessagingTemplatesListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -507,5 +671,23 @@ export const messagingTemplatesDestroy = async (
     return apiMutator<unknown>(getMessagingTemplatesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getMessagingTemplatesDesignPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging_templates/${id}/design/`
+}
+
+export const messagingTemplatesDesignPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedDesignPatchApi?: PatchedDesignPatchApi,
+    options?: RequestInit
+): Promise<MessageTemplateApi> => {
+    return apiMutator<MessageTemplateApi>(getMessagingTemplatesDesignPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedDesignPatchApi),
     })
 }

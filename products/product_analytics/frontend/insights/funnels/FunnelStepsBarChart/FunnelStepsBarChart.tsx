@@ -2,33 +2,36 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
-import { buildTheme } from 'lib/charts/utils/theme'
-import { BarChart, DEFAULT_MARGINS } from 'lib/hog-charts'
-import type { BarChartConfig, PointClickData, TooltipContext } from 'lib/hog-charts'
+import { DEFAULT_MARGINS, FunnelChart } from '@posthog/quill-charts'
+import type { FunnelChartConfig, FunnelStepClickData, TooltipContext } from '@posthog/quill-charts'
+
+import { useChartTheme } from 'lib/charts/hooks'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { StepLegend } from 'scenes/funnels/FunnelBarVertical/StepLegend'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
-import { ChartParams, type FunnelStepWithConversionMetrics } from '~/types'
+import { ChartParams } from '~/types'
 
 import { FunnelStepsBarTooltip } from './FunnelStepsBarTooltip'
-import { buildFunnelStepsBarData, type FunnelStepsBarSeriesMeta } from './funnelStepsBarTransforms'
+import {
+    buildFunnelStepsBarData,
+    FUNNEL_STEPS_BAR_TOOLTIP_CONFIG,
+    resolveFunnelStepClick,
+    type FunnelStepsBarSeriesMeta,
+} from './funnelStepsBarTransforms'
 
-// Per-step width — caps bars and legend column width together so few-step funnels don't
-// stretch across the whole chart with huge gaps. Gridlines still span the full width.
-const STEP_WIDTH_PX = 320
+const BASE_STEP_WIDTH_PX = 240
+const PER_BAR_WIDTH_PX = 20
 
-const baseChartConfig: BarChartConfig = {
-    barLayout: 'grouped',
-    showGrid: true,
-    bars: { cornerRadius: 10, track: true, shadow: true },
+const CHART_CONFIG: FunnelChartConfig = {
     animateHover: true,
-    hideXAxis: true,
-    yTickFormatter: (value) => `${Math.round(value)}%`,
-    tooltip: { placement: 'top' },
+    // Keep the chart from collapsing under a tall StepLegend footer.
+    chartMinHeight: 150,
+    margins: { left: DEFAULT_MARGINS.left },
+    tooltip: FUNNEL_STEPS_BAR_TOOLTIP_CONFIG,
 }
 
 const handleChartError = (error: Error, info: ErrorInfo): void => {
@@ -42,12 +45,9 @@ export function FunnelStepsBarChart({
     showPersonsModal: showPersonsModalProp = true,
     inCardView,
 }: ChartParams): JSX.Element | null {
-    const { isDarkModeOn } = useValues(themeLogic)
-    // buildTheme() reads CSS vars; we re-memo on isDarkModeOn so the theme refreshes
-    // when the user toggles dark mode even though the function takes no arguments.
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
     const { insightProps } = useValues(insightLogic)
-    const { visibleStepsWithConversionMetrics, getFunnelsColor, breakdownFilter, querySource } = useValues(
+    const { visibleStepsWithConversionMetrics, getFunnelsColor, breakdownFilter, querySource, insightData } = useValues(
         funnelDataLogic(insightProps)
     )
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
@@ -57,7 +57,7 @@ export function FunnelStepsBarChart({
     const showPersonsModal = canOpenPersonModal && showPersonsModalProp
     const steps = visibleStepsWithConversionMetrics
 
-    const { series, labels } = useMemo(
+    const { series } = useMemo(
         () =>
             buildFunnelStepsBarData(steps, {
                 getColor: getFunnelsColor,
@@ -66,23 +66,23 @@ export function FunnelStepsBarChart({
         [steps, getFunnelsColor]
     )
 
+    // Feeds the tooltip header only; the visible labels come from the StepLegend footer.
+    const stepLabels = useMemo(() => steps.map((step) => String(step.custom_name ?? step.name ?? '')), [steps])
+
     const groupTypeLabel = aggregationLabel(querySource?.aggregation_group_type_index).plural
     const showTime = steps.some((step) => step.average_conversion_time != null)
-    const barsWidth = steps.length * STEP_WIDTH_PX
-    const chartConfig = useMemo<BarChartConfig>(
-        () => ({ ...baseChartConfig, bars: { ...baseChartConfig.bars, maxBandRange: barsWidth } }),
-        [barsWidth]
-    )
 
-    const onPointClick = useCallback(
-        (clickData: PointClickData<FunnelStepsBarSeriesMeta>): void => {
-            const step = steps[clickData.dataIndex]
-            if (!step) {
+    const breakdownCount = series.length
+    const stepWidthPx = Math.max(BASE_STEP_WIDTH_PX, breakdownCount * PER_BAR_WIDTH_PX)
+    const chartWidth = DEFAULT_MARGINS.left + steps.length * stepWidthPx + DEFAULT_MARGINS.right
+
+    const onStepClick = useCallback(
+        (clickData: FunnelStepClickData<FunnelStepsBarSeriesMeta>): void => {
+            const target = resolveFunnelStepClick(steps, clickData)
+            if (!target) {
                 return
             }
-            const breakdownIndex = clickData.series.meta?.breakdownIndex ?? 0
-            const variant: FunnelStepWithConversionMetrics = step.nested_breakdown?.[breakdownIndex] ?? step
-            openPersonsModalForSeries({ step, series: variant, converted: true })
+            openPersonsModalForSeries(target)
         },
         [steps, openPersonsModalForSeries]
     )
@@ -95,9 +95,30 @@ export function FunnelStepsBarChart({
                 breakdownFilter={breakdownFilter}
                 groupTypeLabel={groupTypeLabel}
                 showPersonsModal={showPersonsModal}
+                resolvedDateRange={insightData?.resolved_date_range}
+                compareTo={querySource?.compareFilter?.compare_to}
             />
         ),
-        [steps, breakdownFilter, groupTypeLabel, showPersonsModal]
+        [steps, breakdownFilter, groupTypeLabel, showPersonsModal, insightData?.resolved_date_range, querySource]
+    )
+
+    const renderStepFooter = useCallback(
+        (stepIndex: number): JSX.Element | null => {
+            const step = steps[stepIndex]
+            if (!step) {
+                return null
+            }
+            return (
+                <StepLegend
+                    step={step}
+                    stepIndex={stepIndex}
+                    showTime={showTime}
+                    showPersonsModal={showPersonsModal}
+                    inCardView={inCardView}
+                />
+            )
+        },
+        [steps, showTime, showPersonsModal, inCardView]
     )
 
     if (steps.length === 0) {
@@ -105,38 +126,21 @@ export function FunnelStepsBarChart({
     }
 
     return (
-        <div className="flex w-full flex-1 flex-col overflow-x-auto" data-attr="funnel-steps-bar-chart">
-            <div className="flex flex-1 flex-col">
-                <div className="flex min-h-[150px] flex-1">
-                    <BarChart<FunnelStepsBarSeriesMeta>
-                        series={series}
-                        labels={labels}
-                        theme={theme}
-                        config={chartConfig}
-                        tooltip={renderTooltip}
-                        onPointClick={showPersonsModal ? onPointClick : undefined}
-                        onError={handleChartError}
-                    />
-                </div>
-                {/* Legend padding matches the chart's left margin and bars-width so
-                    legend columns align with the bars above. */}
-                {/* eslint-disable-next-line react/forbid-dom-props */}
-                <div className="flex" style={{ paddingLeft: DEFAULT_MARGINS.left }}>
-                    <div className="flex" style={{ width: barsWidth }}>
-                        {steps.map((step, stepIndex) => (
-                            <div key={stepIndex} className="min-w-0 flex-1 overflow-hidden">
-                                <StepLegend
-                                    step={step}
-                                    stepIndex={stepIndex}
-                                    showTime={showTime}
-                                    showPersonsModal={showPersonsModal}
-                                    inCardView={inCardView}
-                                />
-                            </div>
-                        ))}
-                    </div>
-                </div>
+        <ScrollableShadows direction="horizontal" className="flex-1" contentClassName="flex h-full flex-col">
+            {/* eslint-disable-next-line react/forbid-dom-props */}
+            <div className="flex flex-1 flex-col" style={{ width: chartWidth }} data-attr="funnel-steps-bar-chart">
+                <FunnelChart<FunnelStepsBarSeriesMeta>
+                    steps={stepLabels}
+                    series={series}
+                    theme={theme}
+                    config={CHART_CONFIG}
+                    tooltip={renderTooltip}
+                    onStepClick={showPersonsModal ? onStepClick : undefined}
+                    stepFooter={renderStepFooter}
+                    dataAttr="funnel-steps-bar-chart-canvas"
+                    onError={handleChartError}
+                />
             </div>
-        </div>
+        </ScrollableShadows>
     )
 }

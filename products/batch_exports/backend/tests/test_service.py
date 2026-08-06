@@ -3,8 +3,12 @@ import datetime as dt
 
 import pytest
 
-from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
-
+from products.batch_exports.backend.models.batch_export import (
+    BatchExport,
+    BatchExportBackfill,
+    BatchExportDestination,
+    BatchExportRun,
+)
 from products.batch_exports.backend.service import (
     AzureBlobBatchExportInputs,
     BigQueryBatchExportInputs,

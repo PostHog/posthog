@@ -9,18 +9,17 @@ import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launche
 import experimentMetricResultsErrorJson from '~/mocks/fixtures/api/experiments/_experiment_metric_results_error.json'
 import experimentMetricResultsSuccessJson from '~/mocks/fixtures/api/experiments/_experiment_metric_results_success.json'
 import { useMocks } from '~/mocks/jest'
-import { Breakdown, ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
-import { initKeaTests } from '~/test/init'
-import { Experiment } from '~/types'
-
 import {
-    ExperimentSavedMetric,
-    ExperimentWarning,
-    classifyError,
-    experimentLogic,
-    extractErrorDetailString,
-    getDisplayOrderedIndices,
-} from './experimentLogic'
+    Breakdown,
+    CachedNewExperimentQueryResponse,
+    ExperimentMetric,
+    ExperimentMetricType,
+    NodeKind,
+} from '~/queries/schema/schema-general'
+import { initKeaTests } from '~/test/init'
+import { Experiment, MultivariateFlagVariant } from '~/types'
+
+import { ExperimentSavedMetric, ExperimentWarning, experimentLogic, getDisplayOrderedIndices } from './experimentLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
@@ -434,6 +433,494 @@ describe('experimentLogic', () => {
             )
         })
     })
+    describe('duplicateSharedMetricAsInlineMetric', () => {
+        const sharedMetricId = 555
+        const breakdown = { property: '$browser', type: 'event' } as Breakdown
+        const sharedSavedMetric = {
+            id: 1,
+            experiment: experiment.id as number,
+            saved_metric: sharedMetricId,
+            name: 'Shared conversion metric',
+            query: {
+                uuid: 'shared-metric-uuid',
+                kind: NodeKind.ExperimentMetric,
+                metric_type: ExperimentMetricType.MEAN,
+                source: { kind: NodeKind.EventsNode, event: '$pageview' },
+            },
+            metadata: { type: 'primary', breakdowns: [breakdown] },
+            created_at: '2024-01-01T00:00:00Z',
+        } as unknown as ExperimentSavedMetric
+
+        it('appends an inline copy of the shared metric without the shared link', async () => {
+            logic.actions.setExperiment({
+                ...experiment,
+                metrics: [],
+                metrics_secondary: [],
+                saved_metrics: [sharedSavedMetric],
+            } as unknown as Experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.duplicateSharedMetricAsInlineMetric({
+                    sharedMetricId,
+                    isSecondary: false,
+                    newUuid: 'new-inline-uuid',
+                })
+            })
+
+            expect(logic.values.experiment.metrics).toEqual([
+                {
+                    uuid: 'new-inline-uuid',
+                    kind: NodeKind.ExperimentMetric,
+                    metric_type: ExperimentMetricType.MEAN,
+                    source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                    name: 'Shared conversion metric (copy)',
+                    breakdownFilter: { breakdowns: [breakdown] },
+                },
+            ])
+            // The original shared metric link is left untouched
+            expect(logic.values.experiment.saved_metrics).toEqual([sharedSavedMetric])
+        })
+
+        it('is a no-op when the shared metric is not linked as the requested type', async () => {
+            logic.actions.setExperiment({
+                ...experiment,
+                metrics: [],
+                metrics_secondary: [],
+                saved_metrics: [sharedSavedMetric],
+            } as unknown as Experiment)
+
+            await expectLogic(logic, () => {
+                // The shared metric is a primary link, so duplicating it as secondary finds nothing
+                logic.actions.duplicateSharedMetricAsInlineMetric({
+                    sharedMetricId,
+                    isSecondary: true,
+                    newUuid: 'new-inline-uuid',
+                })
+            })
+
+            expect(logic.values.experiment.metrics_secondary).toEqual([])
+        })
+    })
+    describe('optimistic concurrency', () => {
+        let getSpy: jest.SpyInstance | undefined
+
+        beforeEach(() => {
+            jest.spyOn(api, 'update')
+            api.update.mockClear()
+        })
+
+        afterEach(() => {
+            // The conflict test stubs api.get. Left in place it also answers the
+            // query polling later describe blocks rely on, so restore it here
+            // rather than at the end of the test, where a failed assertion skips it.
+            getSpy?.mockRestore()
+            getSpy = undefined
+        })
+
+        it('sends version and original_experiment from the unmodified snapshot on update', async () => {
+            const snapshot = { ...experiment, version: 3 } as Experiment
+            logic.actions.setUnmodifiedExperiment(snapshot)
+            logic.actions.setExperiment(snapshot)
+            api.update.mockResolvedValue(snapshot)
+
+            await expectLogic(logic, () => {
+                logic.actions.updateExperiment({ description: 'updated' })
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({
+                    description: 'updated',
+                    version: 3,
+                    original_experiment: expect.objectContaining({
+                        metrics: snapshot.metrics,
+                        metrics_secondary: snapshot.metrics_secondary,
+                    }),
+                })
+            )
+        })
+
+        it('includes the concurrency payload on the raw shared-metric write path', async () => {
+            const snapshot = { ...experiment, version: 2, saved_metrics: [], metrics_secondary: [] } as Experiment
+            logic.actions.setUnmodifiedExperiment(snapshot)
+            logic.actions.setExperiment(snapshot)
+            api.update.mockResolvedValue(snapshot)
+
+            await expectLogic(logic, () => {
+                logic.actions.removeSharedMetricFromExperiment(12345)
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({
+                    version: 2,
+                    original_experiment: expect.objectContaining({ metrics: snapshot.metrics }),
+                })
+            )
+        })
+
+        it.each([
+            ['variant notes', (): void => logic.actions.updateExperimentVariantNotes({ control: 'a note' })],
+            ['variant images', (): void => logic.actions.updateExperimentVariantImages({ control: ['media-id-1'] })],
+        ])('includes the concurrency payload on the raw %s write path', async (_name, dispatch) => {
+            const snapshot = { ...experiment, version: 6 } as Experiment
+            logic.actions.setUnmodifiedExperiment(snapshot)
+            logic.actions.setExperiment(snapshot)
+            api.update.mockResolvedValue({ ...snapshot, version: 7 })
+
+            await expectLogic(logic, dispatch).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({
+                    version: 6,
+                    original_experiment: expect.objectContaining({ metrics: snapshot.metrics }),
+                })
+            )
+            // The write bumped the version server-side; the snapshot must absorb the response,
+            // or every later save from this tab is stale and can 409.
+            expect(logic.values.unmodifiedExperiment?.version).toEqual(7)
+        })
+
+        it('reloads fresh state but keeps the rejected scalar edit on a version conflict', async () => {
+            const snapshot = { ...experiment, version: 1 } as Experiment
+            logic.actions.setUnmodifiedExperiment(snapshot)
+            logic.actions.setExperiment(snapshot)
+            api.update.mockRejectedValue({
+                status: 409,
+                data: { detail: 'The experiment was changed since you loaded it.', current_version: 5 },
+            })
+            const fresh = { ...experiment, version: 5, name: 'renamed by someone else' } as Experiment
+            getSpy = jest.spyOn(api, 'get').mockResolvedValue(fresh)
+
+            await expectLogic(logic, () => {
+                logic.actions.updateExperiment({ description: 'stale write' })
+            }).toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith('The experiment was changed since you loaded it.')
+            // Fresh server state is loaded so the next save carries the current version...
+            expect(logic.values.unmodifiedExperiment?.version).toEqual(5)
+            expect(logic.values.experiment.name).toEqual('renamed by someone else')
+            // ...but the user's rejected edit stays visible for review and retry.
+            expect(logic.values.experiment.description).toEqual('stale write')
+        })
+    })
+    describe('saveMetricsReorder', () => {
+        const primaryMetric = {
+            kind: 'ExperimentMetric',
+            uuid: 'primary-metric-uuid',
+            name: 'Primary metric',
+        } as unknown as ExperimentMetric
+        const otherPrimaryMetric = {
+            kind: 'ExperimentMetric',
+            uuid: 'other-primary-uuid',
+            name: 'Other primary metric',
+        } as unknown as ExperimentMetric
+        const thirdPrimaryMetric = {
+            kind: 'ExperimentMetric',
+            uuid: 'third-primary-uuid',
+            name: 'Third primary metric',
+        } as unknown as ExperimentMetric
+        const secondaryMetric = {
+            kind: 'ExperimentMetric',
+            uuid: 'secondary-metric-uuid',
+            name: 'Secondary metric',
+        } as unknown as ExperimentMetric
+
+        const primaryMetricResult = {
+            baseline: { key: 'control' },
+            metric_uuid: 'primary-metric-uuid',
+        } as unknown as CachedNewExperimentQueryResponse
+        const otherPrimaryMetricResult = {
+            baseline: { key: 'control' },
+            metric_uuid: 'other-primary-uuid',
+        } as unknown as CachedNewExperimentQueryResponse
+        const thirdPrimaryMetricResult = {
+            baseline: { key: 'control' },
+            metric_uuid: 'third-primary-uuid',
+        } as unknown as CachedNewExperimentQueryResponse
+        const secondaryMetricResult = {
+            baseline: { key: 'control' },
+            metric_uuid: 'secondary-metric-uuid',
+        } as unknown as CachedNewExperimentQueryResponse
+
+        beforeEach(() => {
+            jest.spyOn(api, 'update')
+            api.update.mockClear()
+        })
+
+        it('persists a pure reorder without touching metric arrays or results', async () => {
+            const testExperiment = {
+                ...experiment,
+                saved_metrics: [],
+                metrics: [primaryMetric, otherPrimaryMetric],
+                metrics_secondary: [],
+                primary_metrics_ordered_uuids: ['primary-metric-uuid', 'other-primary-uuid'],
+            } as unknown as Experiment
+
+            logic.actions.setExperiment(testExperiment)
+            logic.actions.setPrimaryMetricsResults([primaryMetricResult, otherPrimaryMetricResult])
+            api.update.mockResolvedValue({
+                ...testExperiment,
+                primary_metrics_ordered_uuids: ['other-primary-uuid', 'primary-metric-uuid'],
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.saveMetricsReorder(false, ['other-primary-uuid', 'primary-metric-uuid'], [], [])
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['refreshExperimentResults', 'loadPrimaryMetricsResults'])
+
+            expect(api.update).toHaveBeenCalledWith(expect.stringContaining('/experiments/'), {
+                primary_metrics_ordered_uuids: ['other-primary-uuid', 'primary-metric-uuid'],
+                update_feature_flag_params: false,
+            })
+            expect(logic.values.primaryMetricsResults).toEqual([primaryMetricResult, otherPrimaryMetricResult])
+        })
+
+        it('moves an inline metric to secondary and reuses existing results', async () => {
+            const testExperiment = {
+                ...experiment,
+                saved_metrics: [],
+                metrics: [primaryMetric, otherPrimaryMetric],
+                metrics_secondary: [secondaryMetric],
+                primary_metrics_ordered_uuids: ['primary-metric-uuid', 'other-primary-uuid'],
+            } as unknown as Experiment
+
+            logic.actions.setExperiment(testExperiment)
+            logic.actions.setPrimaryMetricsResults([primaryMetricResult, otherPrimaryMetricResult])
+            logic.actions.setSecondaryMetricsResults([secondaryMetricResult])
+            api.update.mockResolvedValue({
+                ...testExperiment,
+                metrics: [otherPrimaryMetric],
+                metrics_secondary: [secondaryMetric, primaryMetric],
+                primary_metrics_ordered_uuids: ['other-primary-uuid'],
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.saveMetricsReorder(
+                    false,
+                    ['primary-metric-uuid', 'other-primary-uuid'],
+                    [],
+                    ['primary-metric-uuid']
+                )
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions([
+                    'refreshExperimentResults',
+                    'loadPrimaryMetricsResults',
+                    'loadSecondaryMetricsResults',
+                    'loadExperiment',
+                    'retryPrimaryMetric',
+                    'retrySecondaryMetric',
+                ])
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({
+                    metrics: [otherPrimaryMetric],
+                    metrics_secondary: [secondaryMetric, primaryMetric],
+                    primary_metrics_ordered_uuids: ['other-primary-uuid'],
+                })
+            )
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.not.objectContaining({ saved_metrics_ids: expect.anything() })
+            )
+            expect(logic.values.primaryMetricsResults).toEqual([otherPrimaryMetricResult])
+            expect(logic.values.secondaryMetricsResults).toEqual([secondaryMetricResult, primaryMetricResult])
+            expect(logic.values.primaryMetricsResultsErrors).toEqual([null])
+            expect(logic.values.secondaryMetricsResultsErrors).toEqual([null, null])
+        })
+
+        it('applies a combined move and removal in a single update', async () => {
+            const testExperiment = {
+                ...experiment,
+                saved_metrics: [],
+                metrics: [primaryMetric, otherPrimaryMetric, thirdPrimaryMetric],
+                metrics_secondary: [],
+                primary_metrics_ordered_uuids: ['primary-metric-uuid', 'other-primary-uuid', 'third-primary-uuid'],
+            } as unknown as Experiment
+
+            logic.actions.setExperiment(testExperiment)
+            logic.actions.setPrimaryMetricsResults([
+                primaryMetricResult,
+                otherPrimaryMetricResult,
+                thirdPrimaryMetricResult,
+            ])
+            api.update.mockResolvedValue({
+                ...testExperiment,
+                metrics: [thirdPrimaryMetric],
+                metrics_secondary: [primaryMetric],
+                primary_metrics_ordered_uuids: ['third-primary-uuid'],
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.saveMetricsReorder(
+                    false,
+                    ['primary-metric-uuid', 'other-primary-uuid', 'third-primary-uuid'],
+                    ['other-primary-uuid'],
+                    ['primary-metric-uuid']
+                )
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['refreshExperimentResults'])
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({
+                    metrics: [thirdPrimaryMetric],
+                    metrics_secondary: [primaryMetric],
+                    primary_metrics_ordered_uuids: ['third-primary-uuid'],
+                })
+            )
+            expect(logic.values.primaryMetricsResults).toEqual([thirdPrimaryMetricResult])
+            expect(logic.values.secondaryMetricsResults).toEqual([primaryMetricResult])
+        })
+
+        it('moves a shared metric by flipping its saved-metric link type', async () => {
+            const sharedMetricId = 123
+            const sharedSavedMetric = {
+                id: 1,
+                experiment: experiment.id as number,
+                saved_metric: sharedMetricId,
+                name: 'Shared metric',
+                query: {
+                    uuid: 'shared-metric-uuid',
+                    kind: NodeKind.ExperimentMetric,
+                    metric_type: ExperimentMetricType.MEAN,
+                    source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                },
+                metadata: { type: 'primary' },
+                created_at: '2024-01-01T00:00:00Z',
+            } satisfies ExperimentSavedMetric
+            const sharedMetricResult = {
+                baseline: { key: 'control' },
+                metric_uuid: 'shared-metric-uuid',
+            } as unknown as CachedNewExperimentQueryResponse
+            const testExperiment = {
+                ...experiment,
+                metrics: [],
+                metrics_secondary: [],
+                saved_metrics: [sharedSavedMetric],
+                primary_metrics_ordered_uuids: ['shared-metric-uuid'],
+            } as unknown as Experiment
+
+            logic.actions.setExperiment(testExperiment)
+            logic.actions.setPrimaryMetricsResults([sharedMetricResult])
+            api.update.mockResolvedValue({
+                ...testExperiment,
+                saved_metrics: [{ ...sharedSavedMetric, metadata: { type: 'secondary' } }],
+                primary_metrics_ordered_uuids: [],
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.saveMetricsReorder(false, ['shared-metric-uuid'], [], ['shared-metric-uuid'])
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['refreshExperimentResults', 'loadExperiment'])
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({
+                    saved_metrics_ids: [{ id: sharedMetricId, metadata: { type: 'secondary' } }],
+                })
+            )
+            expect(logic.values.primaryMetricsResults).toEqual([])
+            expect(logic.values.secondaryMetricsResults).toEqual([sharedMetricResult])
+        })
+
+        it('loads only the moved metric when it has no result yet', async () => {
+            const fetchedResult = { baseline: { key: 'control' }, variant_results: [] }
+            useMocks({
+                post: {
+                    '/api/environments/:team/query/:kind': () => [
+                        200,
+                        {
+                            cache_key: 'cache_key',
+                            query_status: {
+                                ...experimentMetricResultsSuccessJson.query_status,
+                                results: fetchedResult,
+                            },
+                        },
+                    ],
+                },
+                get: {
+                    '/api/environments/:team/query/:id': () => [
+                        200,
+                        {
+                            query_status: {
+                                ...experimentMetricResultsSuccessJson.query_status,
+                                results: fetchedResult,
+                            },
+                        },
+                    ],
+                },
+            })
+
+            const testExperiment = {
+                ...experiment,
+                saved_metrics: [],
+                metrics: [],
+                metrics_secondary: [secondaryMetric],
+                secondary_metrics_ordered_uuids: ['secondary-metric-uuid'],
+            } as unknown as Experiment
+
+            logic.actions.setExperiment(testExperiment)
+            api.update.mockResolvedValue({
+                ...testExperiment,
+                metrics: [secondaryMetric],
+                metrics_secondary: [],
+                secondary_metrics_ordered_uuids: [],
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.saveMetricsReorder(true, ['secondary-metric-uuid'], [], ['secondary-metric-uuid'])
+            })
+                .toDispatchActions(['updateExperimentSuccess', 'retryPrimaryMetric'])
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['refreshExperimentResults', 'loadPrimaryMetricsResults'])
+
+            expect(logic.values.primaryMetricsResults).toEqual([expect.objectContaining(fetchedResult)])
+        })
+
+        it('falls back to a full refresh when results are already loading', async () => {
+            useMocks({
+                post: {
+                    '/api/environments/:team/query/:kind': () => [
+                        200,
+                        { cache_key: 'cache_key', query_status: experimentMetricResultsSuccessJson.query_status },
+                    ],
+                },
+                get: {
+                    '/api/environments/:team/query/:id': () => [200, experimentMetricResultsSuccessJson],
+                },
+            })
+
+            const testExperiment = {
+                ...experiment,
+                saved_metrics: [],
+                metrics: [primaryMetric],
+                metrics_secondary: [],
+                primary_metrics_ordered_uuids: ['primary-metric-uuid'],
+            } as unknown as Experiment
+
+            logic.actions.setExperiment(testExperiment)
+            logic.actions.setPrimaryMetricsResultsLoading(true)
+            api.update.mockResolvedValue({
+                ...testExperiment,
+                metrics: [],
+                metrics_secondary: [primaryMetric],
+                primary_metrics_ordered_uuids: [],
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.saveMetricsReorder(false, ['primary-metric-uuid'], [], ['primary-metric-uuid'])
+            })
+                .toDispatchActions(['updateExperiment', 'refreshExperimentResults'])
+                .toFinishAllListeners()
+        })
+    })
     describe('breakdown management', () => {
         it('should add breakdown to inline metric', () => {
             const breakdown: Breakdown = { property: '$browser', type: 'event' }
@@ -792,7 +1279,9 @@ describe('experimentLogic', () => {
                 .toDispatchActions(['archiveExperiment', 'setExperiment'])
                 .toFinishAllListeners()
 
-            expect(createSpy).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${experiment.id}/archive`))
+            expect(createSpy).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${experiment.id}/archive`), {
+                disable_feature_flag: false,
+            })
             createSpy.mockRestore()
             keyed.unmount()
         })
@@ -962,6 +1451,79 @@ describe('experimentLogic', () => {
         })
     })
 
+    describe('freezeExposure', () => {
+        it('calls freeze_exposure endpoint, updates experiment, and toggles the loading guard', async () => {
+            const frozenResponse = { ...experiment, status: 'exposure_frozen' }
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue(frozenResponse)
+
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            keyed.actions.setExperiment(experiment)
+
+            expect(keyed.values.freezeExposureLoading).toBe(false)
+
+            await expectLogic(keyed, () => {
+                keyed.actions.freezeExposure()
+            })
+                .toDispatchActions(['freezeExposure', 'setFreezeExposureLoading', 'setExperiment'])
+                .toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledWith(
+                expect.stringContaining(`/experiments/${experiment.id}/freeze_exposure`)
+            )
+            expect(keyed.values.experiment.status).toBe('exposure_frozen')
+            // Loading guard is reset after the request settles.
+            expect(keyed.values.freezeExposureLoading).toBe(false)
+
+            createSpy.mockRestore()
+            keyed.unmount()
+        })
+
+        it('shows error toast and resets the loading guard on failure', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue({
+                detail: 'Experiment exposure is already frozen.',
+            })
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.freezeExposure()
+            }).toFinishAllListeners()
+
+            expect(errorMock).toHaveBeenCalledWith('Experiment exposure is already frozen.')
+            expect(logic.values.freezeExposureLoading).toBe(false)
+            createSpy.mockRestore()
+        })
+    })
+
+    describe('unfreezeExposure', () => {
+        it('calls unfreeze_exposure endpoint, updates experiment, and toggles the loading guard', async () => {
+            const unfrozenResponse = { ...experiment, status: 'running' }
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue(unfrozenResponse)
+
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            keyed.actions.setExperiment({ ...experiment, status: 'exposure_frozen' } as Experiment)
+
+            await expectLogic(keyed, () => {
+                keyed.actions.unfreezeExposure()
+            })
+                .toDispatchActions(['unfreezeExposure', 'setUnfreezeExposureLoading', 'setExperiment'])
+                .toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledWith(
+                expect.stringContaining(`/experiments/${experiment.id}/unfreeze_exposure`)
+            )
+            expect(keyed.values.experiment.status).toBe('running')
+            expect(keyed.values.unfreezeExposureLoading).toBe(false)
+
+            createSpy.mockRestore()
+            keyed.unmount()
+        })
+    })
+
     describe('resetRunningExperiment', () => {
         it('calls reset endpoint and updates experiment to draft state', async () => {
             const runningExperiment = {
@@ -1082,6 +1644,7 @@ describe('experimentLogic', () => {
             expect(createSpy).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${experiment.id}/end`), {
                 conclusion: 'won',
                 conclusion_comment: 'Test variant won clearly',
+                open_cleanup_pr: false,
             })
 
             // Post-condition: experiment is ended
@@ -1176,6 +1739,7 @@ describe('experimentLogic', () => {
                     release_to_everyone: false,
                     conclusion: 'won',
                     conclusion_comment: 'Test variant won clearly',
+                    open_cleanup_pr: false,
                 }
             )
 
@@ -1253,13 +1817,67 @@ describe('experimentLogic', () => {
         })
     })
 
+    describe('endExperimentLoading', () => {
+        // The end and ship-variant lifecycle calls both drive the single endExperimentLoading flag.
+        const triggers: { name: string; run: (l: ReturnType<typeof experimentLogic>) => void }[] = [
+            { name: 'endExperiment', run: (l) => l.actions.endExperiment() },
+            {
+                name: 'finishExperiment',
+                run: (l) => l.actions.finishExperiment({ selectedVariantKey: 'test', releaseToEveryone: false }),
+            },
+        ]
+
+        it.each(triggers)('flips the flag on then off around a successful $name', async ({ run }) => {
+            const runningExperiment = {
+                ...experiment,
+                start_date: '2026-03-17T10:00:00Z',
+                status: 'running',
+                conclusion: 'won',
+            } as Experiment
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue({
+                ...runningExperiment,
+                end_date: '2026-03-24T10:00:00Z',
+                status: 'stopped',
+            })
+
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            keyed.actions.setExperiment(runningExperiment)
+
+            await expectLogic(keyed, () => {
+                run(keyed)
+            })
+                // loading flips on before the request and off after it resolves
+                .toDispatchActions(['setEndExperimentLoading', 'setExperiment', 'setEndExperimentLoading'])
+                .toFinishAllListeners()
+                .toMatchValues({ endExperimentLoading: false })
+
+            createSpy.mockRestore()
+            keyed.unmount()
+        })
+
+        it.each(triggers)('resets the flag after a failed $name', async ({ run }) => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue({ detail: 'boom' })
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                run(logic)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ endExperimentLoading: false })
+
+            createSpy.mockRestore()
+        })
+    })
+
     describe('updateDistribution', () => {
         beforeEach(() => {
             jest.spyOn(api, 'update')
             api.update.mockClear()
         })
 
-        it('sends variant split and holdout via experiment update with update_feature_flag_params', async () => {
+        it('sends variant split via experiment update without resending an unchanged holdout', async () => {
             const updatedExperiment = {
                 ...experiment,
                 parameters: {
@@ -1272,6 +1890,7 @@ describe('experimentLogic', () => {
             }
             api.update.mockResolvedValue(updatedExperiment)
 
+            logic.actions.setUnmodifiedExperiment(experiment)
             logic.actions.setExperiment(experiment)
 
             await expectLogic(logic, () => {
@@ -1284,19 +1903,45 @@ describe('experimentLogic', () => {
             expect(api.update).toHaveBeenCalledWith(
                 expect.stringContaining('/experiments/'),
                 expect.objectContaining({
-                    parameters: expect.objectContaining({
-                        feature_flag_variants: [
-                            { key: 'control', rollout_percentage: 75 },
-                            { key: 'test', rollout_percentage: 25 },
-                        ],
-                    }),
-                    holdout_id: experiment.holdout_id,
+                    feature_flag: {
+                        filters: {
+                            multivariate: {
+                                variants: [
+                                    { key: 'control', rollout_percentage: 75 },
+                                    { key: 'test', rollout_percentage: 25 },
+                                ],
+                            },
+                        },
+                    },
                     update_feature_flag_params: true,
                 })
             )
-            // Should not send rollout_percentage — it's not editable in the distribution modal
-            const sentParams = (api.update.mock.calls[0][1] as Record<string, any>).parameters
-            expect(sentParams).not.toHaveProperty('rollout_percentage')
+            // An unchanged holdout must not ride along: resending it makes every stale
+            // distribution save read as a holdout edit and conflict server-side.
+            expect(api.update.mock.calls[0][1]).not.toHaveProperty('holdout_id')
+            // No rollout group when the caller omits rolloutPercentage (the modal itself always
+            // passes one; this covers the omit branch)
+            const sentFlagFilters = (api.update.mock.calls[0][1] as Record<string, any>).feature_flag.filters
+            expect(sentFlagFilters).not.toHaveProperty('groups')
+        })
+
+        it('sends holdout_id when the user changed it since the last save', async () => {
+            api.update.mockResolvedValue(experiment)
+
+            logic.actions.setUnmodifiedExperiment({ ...experiment, holdout_id: null } as Experiment)
+            logic.actions.setExperiment({ ...experiment, holdout_id: 42 } as Experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.updateDistribution([
+                    { key: 'control', rollout_percentage: 60 },
+                    { key: 'test', rollout_percentage: 40 },
+                ])
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({ holdout_id: 42 })
+            )
         })
 
         it('does not call feature flag API directly', async () => {
@@ -1489,6 +2134,36 @@ describe('experimentLogic', () => {
                 },
                 expected: null,
             },
+            {
+                desc: 'ended experiment with deleted flag still marked active',
+                overrides: {
+                    start_date: '2020-01-01',
+                    end_date: '2020-02-01',
+                    feature_flag: {
+                        id: 1,
+                        key: 'flag:deleted:1',
+                        active: true,
+                        deleted: true,
+                        filters: multivariantFilters,
+                    } as any,
+                },
+                expected: null,
+            },
+            {
+                desc: 'draft experiment with deleted flag still marked active',
+                overrides: {
+                    start_date: undefined,
+                    end_date: undefined,
+                    feature_flag: {
+                        id: 1,
+                        key: 'flag:deleted:1',
+                        active: true,
+                        deleted: true,
+                        filters: multivariantFilters,
+                    } as any,
+                },
+                expected: null,
+            },
         ])('$desc → $expected', ({ overrides, expected }) => {
             logic.actions.setExperiment(createExperiment(overrides))
             expect(logic.values.experimentWarning).toEqual(expected)
@@ -1519,95 +2194,15 @@ describe('experimentLogic', () => {
         })
     })
 
-    describe('classifyError', () => {
-        it.each([
-            // [description, errorDetail, errorMessage, errorCode, statusCode, expected]
-            ['504 gateway timeout', null, null, null, 504, 'timeout'],
-            ['408 request timeout', null, null, null, 408, 'timeout'],
-            ['query timeout body marker', 'Query timed out', null, null, 200, 'timeout'],
-            ['memory-limit error code', null, null, 'memory_limit_exceeded', 500, 'out_of_memory'],
-            ['OOM message pattern', null, 'Memory limit exceeded while running', null, 500, 'out_of_memory'],
-            ['generic 500', null, null, null, 500, 'server_error'],
-            ['503 unavailable', null, null, null, 503, 'server_error'],
-            ['status 0 is network', null, null, null, 0, 'network_error'],
-            ['TypeError: Failed to fetch', null, 'TypeError: Failed to fetch', null, null, 'network_error'],
-            ['TypeError: Load failed', null, 'TypeError: Load failed', null, null, 'network_error'],
-            [
-                "TypeError: Failed to execute 'fetch'",
-                null,
-                "TypeError: Failed to execute 'fetch' on 'Window'",
-                null,
-                null,
-                'network_error',
-            ],
-            ['NetworkError with null status', null, 'NetworkError when fetching', null, null, 'network_error'],
-            ['404 not_found', null, 'Experiment with id 123 not found', 'not_found', 404, 'not_found'],
-            ['401 unauthenticated', null, null, null, 401, 'authentication'],
-            ['403 not_authenticated code', null, null, 'not_authenticated', 403, 'authentication'],
-            ['403 permission_denied', null, null, 'permission_denied', 403, 'authorization'],
-            ['plain 403', null, null, null, 403, 'authorization'],
-            ['400 parse_error', null, null, 'parse_error', 400, 'validation_error'],
-            ['400 invalid_input', null, null, 'invalid_input', 400, 'validation_error'],
-            ['null status, no marker', null, 'Something odd', null, null, 'unknown'],
-            ['418 teapot falls through', null, null, null, 418, 'unknown'],
-        ] as const)('%s', (_desc, errorDetail, errorMessage, errorCode, statusCode, expected) => {
-            expect(classifyError(errorDetail, errorMessage, errorCode, statusCode)).toEqual(expected)
-        })
-
-        it('prefers timeout over 5xx server_error (504 overlap)', () => {
-            expect(classifyError(null, null, null, 504)).toEqual('timeout')
-        })
-
-        it('prefers out_of_memory over generic server_error', () => {
-            expect(classifyError(null, null, 'query_memory_limit_exceeded', 500)).toEqual('out_of_memory')
-        })
-
-        it('does not treat fetch-style messages as network errors when an HTTP status was returned', () => {
-            // A 400 response whose body happens to mention "Failed to fetch" should still classify by status, not network.
-            expect(classifyError(null, 'Failed to fetch remote config', null, 400)).toEqual('validation_error')
-        })
-    })
-
-    describe('extractErrorDetailString', () => {
-        it.each([
-            ['null → null', null, null],
-            ['undefined → null', undefined, null],
-            ['string passes through', 'Experiment with id 79259 not found', 'Experiment with id 79259 not found'],
-            ['DRF {detail: "..."} unwraps the inner string', { detail: 'Not found.' }, 'Not found.'],
-            [
-                'object without string detail falls back to JSON',
-                { 'no-exposures': true, 'no-control-variant': false },
-                '{"no-exposures":true,"no-control-variant":false}',
-            ],
-            [
-                'nested detail that is not a string falls back to JSON',
-                { detail: { nested: 1 } },
-                '{"detail":{"nested":1}}',
-            ],
-            ['array falls back to JSON', [1, 2, 3], '[1,2,3]'],
-        ] as const)('%s', (_desc, input, expected) => {
-            expect(extractErrorDetailString(input)).toEqual(expected)
-        })
-
-        it('returns null for values that cannot be stringified (circular refs)', () => {
-            const circular: Record<string, unknown> = {}
-            circular.self = circular
-            expect(extractErrorDetailString(circular)).toBeNull()
-        })
-    })
-
     describe('excluded variants', () => {
-        it('excludedVariants selector returns parameters.excluded_variants', async () => {
+        it('excludedVariants selector reads the excluded_variants column', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setExperiment({
                     ...experiment,
-                    parameters: {
-                        ...experiment.parameters,
-                        excluded_variants: ['test-2'],
-                    },
+                    excluded_variants: ['test-3'],
                 })
             }).toMatchValues({
-                excludedVariants: ['test-2'],
+                excludedVariants: ['test-3'],
             })
         })
 
@@ -1622,15 +2217,12 @@ describe('experimentLogic', () => {
             })
         })
 
-        it('setVariantExcluded sends a PATCH with the merged exclusion list', async () => {
+        it('setVariantExcluded PATCHes excluded_variants with the merged exclusion list', async () => {
             jest.spyOn(api, 'update')
             api.update.mockClear()
             const existingExperiment = {
                 ...experiment,
-                parameters: {
-                    ...experiment.parameters,
-                    excluded_variants: ['test-1'],
-                },
+                excluded_variants: ['test-1'],
             } as Experiment
             api.update.mockResolvedValue(existingExperiment)
 
@@ -1642,19 +2234,18 @@ describe('experimentLogic', () => {
                 .toDispatchActions(['setVariantExcluded'])
                 .toFinishAllListeners()
 
-            const sentParams = (api.update.mock.calls[0][1] as Record<string, any>).parameters
-            expect(sentParams.excluded_variants).toEqual(expect.arrayContaining(['test-1', 'test-2']))
-            expect(sentParams.excluded_variants).toHaveLength(2)
+            // The PATCH targets excluded_variants only — no parameters / feature_flag_variants resend.
+            const sentBody = api.update.mock.calls[0][1] as Record<string, any>
+            expect(sentBody.parameters).toBeUndefined()
+            expect(sentBody.excluded_variants).toEqual(expect.arrayContaining(['test-1', 'test-2']))
+            expect(sentBody.excluded_variants).toHaveLength(2)
         })
 
         it('setVariantExcluded(key, false) removes the key from the exclusion list', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setExperiment({
                     ...experiment,
-                    parameters: {
-                        ...experiment.parameters,
-                        excluded_variants: ['test-1', 'test-2'],
-                    },
+                    excluded_variants: ['test-1', 'test-2'],
                 })
             }).toMatchValues({
                 excludedVariants: ['test-1', 'test-2'],
@@ -1663,6 +2254,63 @@ describe('experimentLogic', () => {
             // Re-include test-2 — the new list (computed in the listener) must drop it.
             const next = logic.values.excludedVariants.filter((k) => k !== 'test-2')
             expect(next).toEqual(['test-1'])
+        })
+    })
+
+    describe('variants', () => {
+        const draftVariants: MultivariateFlagVariant[] = [
+            { key: 'control', rollout_percentage: 50 },
+            { key: 'draft-test', rollout_percentage: 50 },
+        ]
+        const flagVariants: MultivariateFlagVariant[] = [
+            { key: 'control', rollout_percentage: 50 },
+            { key: 'flag-test', rollout_percentage: 50 },
+        ]
+
+        it.each<{
+            desc: string
+            draftVariants?: MultivariateFlagVariant[]
+            flagVariants?: MultivariateFlagVariant[]
+            expected: MultivariateFlagVariant[]
+        }>([
+            {
+                desc: 'prefers the linked flag variants over the draft config',
+                draftVariants,
+                flagVariants,
+                expected: flagVariants,
+            },
+            {
+                desc: 'falls back to the draft flag config when the flag has no variants (creation flow)',
+                draftVariants,
+                expected: draftVariants,
+            },
+            {
+                desc: 'reads the linked flag variants when there is no draft config',
+                flagVariants,
+                expected: flagVariants,
+            },
+            {
+                desc: 'defaults to [] when neither source has variants',
+                expected: [],
+            },
+        ])('$desc', async (row) => {
+            await expectLogic(logic, () => {
+                logic.actions.setExperiment({
+                    ...experiment,
+                    feature_flag_config: row.draftVariants
+                        ? { filters: { multivariate: { variants: row.draftVariants } } }
+                        : undefined,
+                    feature_flag: {
+                        ...experiment.feature_flag,
+                        filters: {
+                            ...experiment.feature_flag?.filters,
+                            multivariate: row.flagVariants ? { variants: row.flagVariants } : undefined,
+                        },
+                    },
+                } as unknown as Experiment)
+            }).toMatchValues({
+                variants: row.expected,
+            })
         })
     })
 })

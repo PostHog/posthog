@@ -17,17 +17,22 @@ from posthog.api.embedding_worker import emit_embedding_request
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.signal_queries import (
     _DEDUPED_SIGNALS_SUBQUERY,
-    EMBEDDING_MODEL,
+    SIGNAL_DOCUMENT_PRODUCT,
+    SIGNAL_DOCUMENT_RENDERING,
+    SIGNAL_DOCUMENT_TYPE,
     FetchSignalsForReportInput,
     FetchSignalsForReportOutput,
     WaitForClickHouseInput,
+    WaitForClickHouseMode,
     WaitForClickHouseSignal,
     _ensure_tz_aware,
     fetch_signals_for_report_activity,
@@ -55,6 +60,7 @@ class SoftDeleteReportSignalsInput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def soft_delete_report_signals_activity(input: SoftDeleteReportSignalsInput) -> None:
     """Soft-delete all ClickHouse signals for a report by re-emitting with metadata.deleted=True."""
     team = await Team.objects.aget(pk=input.team_id)
@@ -104,6 +110,7 @@ class ReingestSignalsInput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def reingest_signals_activity(input: ReingestSignalsInput) -> None:
     """Re-emit all signals via emit_signal() through the active Signals pipeline."""
     team = await Team.objects.aget(pk=input.team_id)
@@ -162,6 +169,7 @@ class DeleteTeamReportsInput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def process_team_signals_batch_activity(input: ProcessTeamSignalsBatchInput) -> ProcessTeamSignalsBatchOutput:
     team = await Team.objects.aget(pk=input.team_id)
 
@@ -172,7 +180,8 @@ async def process_team_signals_batch_activity(input: ProcessTeamSignalsBatchInpu
                 document_id,
                 content,
                 metadata,
-                timestamp
+                timestamp,
+                latest_inserted_at
             FROM ({_DEDUPED_SIGNALS_SUBQUERY})
             WHERE NOT JSONExtractBool(metadata, 'deleted')
             ORDER BY timestamp DESC, document_id DESC
@@ -187,7 +196,7 @@ async def process_team_signals_batch_activity(input: ProcessTeamSignalsBatchInpu
 
     signals: list[SignalData] = []
     for row in result.results or []:
-        document_id, content, metadata_str, timestamp_raw = row
+        document_id, content, metadata_str, timestamp_raw, inserted_at_raw = row
         metadata = json.loads(metadata_str)
         signals.append(
             SignalData(
@@ -198,7 +207,9 @@ async def process_team_signals_batch_activity(input: ProcessTeamSignalsBatchInpu
                 source_id=metadata.get("source_id", ""),
                 weight=metadata.get("weight", 0.0),
                 timestamp=_ensure_tz_aware(timestamp_raw),
+                inserted_at=_ensure_tz_aware(inserted_at_raw),
                 extra=metadata.get("extra", {}),
+                remediation=metadata.get("remediation"),
                 metadata=dict(metadata),
             )
         )
@@ -219,9 +230,9 @@ async def process_team_signals_batch_activity(input: ProcessTeamSignalsBatchInpu
         await sync_to_async(emit_embedding_request, thread_sensitive=False)(
             content=signal.content,
             team_id=input.team_id,
-            product="signals",
-            document_type="signal",
-            rendering="plain",
+            product=SIGNAL_DOCUMENT_PRODUCT,
+            document_type=SIGNAL_DOCUMENT_TYPE,
+            rendering=SIGNAL_DOCUMENT_RENDERING,
             document_id=signal.signal_id,
             models=[m.value for m in EmbeddingModelName],
             timestamp=signal.timestamp,
@@ -243,9 +254,17 @@ async def process_team_signals_batch_activity(input: ProcessTeamSignalsBatchInpu
         WaitForClickHouseInput(
             team_id=input.team_id,
             signals=[
-                WaitForClickHouseSignal(signal_id=signal.signal_id, timestamp=signal.timestamp) for signal in signals
+                WaitForClickHouseSignal(
+                    signal_id=signal.signal_id,
+                    timestamp=signal.timestamp,
+                    inserted_at=signal.inserted_at,
+                )
+                for signal in signals
             ],
             max_wait_time_seconds=3600,
+            # Bulk reprocessing is non-interactive: let the store gate the polling, but
+            # confirm in ClickHouse before the next batch re-reads these rows.
+            mode=WaitForClickHouseMode.CH_CONFIRMED,
         )
     )
 
@@ -298,8 +317,14 @@ async def delete_team_reports_activity(input: DeleteTeamReportsInput) -> None:
         artefact_count = SignalReportArtefact.objects.filter(team_id=input.team_id).count()
         report_count = SignalReport.objects.filter(team_id=input.team_id).count()
 
-        SignalReportArtefact.objects.filter(team_id=input.team_id).delete()
+        # Reports first, so their artefacts go through the cascade. Each artefact's post_delete then
+        # carries the report deletion as its origin, which is what tells the safety-verdict receiver in
+        # receivers.py that reconciling this artefact is pointless work: the report it judges is being
+        # deleted in the same operation, and that deletion retracts the embedding on its own. Deleting
+        # artefacts first would cost two extra queries per artefact inside a five minute activity. The
+        # sweep afterwards keeps the original behavior for any artefact the cascade did not reach.
         SignalReport.objects.filter(team_id=input.team_id).delete()
+        SignalReportArtefact.objects.filter(team_id=input.team_id).delete()
 
         return artefact_count, report_count
 
@@ -377,10 +402,12 @@ class SignalReportReingestionWorkflow:
                     WaitForClickHouseSignal(
                         signal_id=s.signal_id,
                         timestamp=s.timestamp,
+                        inserted_at=s.inserted_at,
                     )
                     for s in fetch_result.signals
                 ],
                 max_wait_time_seconds=3600,
+                mode=WaitForClickHouseMode.CH_CONFIRMED,
             ),
             start_to_close_timeout=timedelta(hours=1, minutes=5),
             heartbeat_timeout=timedelta(minutes=5),

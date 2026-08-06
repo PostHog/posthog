@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 from django.db import models
 from django.db.models import QuerySet
 
+from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.utils import RootTeamMixin, UUIDTModel, sane_repr
@@ -42,12 +43,33 @@ class EarlyAccessFeature(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         related_name="features",
         related_query_name="feature",
     )
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="early_access_features",
+        # db_constraint disabled to avoid locking the hot posthog_user table when adding this FK.
+        db_constraint=False,
+    )
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     stage = models.CharField(max_length=40, choices=Stage)
     documentation_url = models.URLField(max_length=800, blank=True)
     payload = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    # Exactly one of assigned_user/assigned_role may be set (same convention as ErrorTrackingIssueAssignment).
+    # Defaults to the creator on creation.
+    assigned_user = models.ForeignKey(
+        "posthog.User",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        # db_constraint disabled to avoid locking the hot posthog_user table when adding this FK.
+        db_constraint=False,
+    )
+    assigned_role = models.ForeignKey("ee.Role", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
 
     def __str__(self) -> str:
         return self.name
@@ -55,9 +77,9 @@ class EarlyAccessFeature(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     __repr__ = sane_repr("id", "name", "team_id", "stage")
 
     @classmethod
-    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["EarlyAccessFeature"]:
+    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["EarlyAccessFeature"]:
         base_qs = cls.objects.filter(team=team)
-        return cls._filter_unfiled_queryset(base_qs, team, type="early_access_feature", ref_field="id")
+        return cls._filter_unfiled_queryset(base_qs, team, type="early_access_feature", ref_field="id", surface=surface)
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
@@ -68,7 +90,7 @@ class EarlyAccessFeature(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
             href=f"/early_access_features/{self.id}",
             meta={
                 "created_at": str(self.created_at),
-                "created_by": None,
+                "created_by": self.created_by_id,
             },
             should_delete=False,
         )

@@ -17,12 +17,18 @@ export const ColumnConfigurationsCreateBody = /* @__PURE__ */ zod.object({
     context_key: zod.string().max(columnConfigurationsCreateBodyContextKeyMax),
     columns: zod.array(zod.string()).optional(),
     name: zod.string().max(columnConfigurationsCreateBodyNameMax).optional(),
-    filters: zod.unknown().optional(),
+    filters: zod.unknown().optional().describe('Column filter state persisted with this view configuration.'),
     order_by: zod
         .array(zod.string())
         .nullish()
         .describe(
             'Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.'
+        ),
+    properties: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display).'
         ),
     visibility: zod
         .enum(['private', 'shared'])
@@ -38,12 +44,18 @@ export const ColumnConfigurationsUpdateBody = /* @__PURE__ */ zod.object({
     context_key: zod.string().max(columnConfigurationsUpdateBodyContextKeyMax),
     columns: zod.array(zod.string()).optional(),
     name: zod.string().max(columnConfigurationsUpdateBodyNameMax).optional(),
-    filters: zod.unknown().optional(),
+    filters: zod.unknown().optional().describe('Column filter state persisted with this view configuration.'),
     order_by: zod
         .array(zod.string())
         .nullish()
         .describe(
             'Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.'
+        ),
+    properties: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display).'
         ),
     visibility: zod
         .enum(['private', 'shared'])
@@ -59,12 +71,18 @@ export const ColumnConfigurationsPartialUpdateBody = /* @__PURE__ */ zod.object(
     context_key: zod.string().max(columnConfigurationsPartialUpdateBodyContextKeyMax).optional(),
     columns: zod.array(zod.string()).optional(),
     name: zod.string().max(columnConfigurationsPartialUpdateBodyNameMax).optional(),
-    filters: zod.unknown().optional(),
+    filters: zod.unknown().optional().describe('Column filter state persisted with this view configuration.'),
     order_by: zod
         .array(zod.string())
         .nullish()
         .describe(
             'Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.'
+        ),
+    properties: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display).'
         ),
     visibility: zod
         .enum(['private', 'shared'])
@@ -175,11 +193,11 @@ export const ElementsPartialUpdateBody = /* @__PURE__ */ zod.object({
 
 /**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
-
-The QueryCoalescingMiddleware attaches cached response data to
-request.META["_coalesced_response"] for followers. This mixin runs DRF's
-initial() (auth + permissions + throttling) before returning the
-cached response, ensuring the request is authorized.
+ *
+ * The QueryCoalescingMiddleware attaches cached response data to
+ * request.META["_coalesced_response"] for followers. This mixin runs DRF's
+ * initial() (auth + permissions + throttling) before returning the
+ * cached response, ensuring the request is authorized.
  */
 export const InsightsCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
@@ -187,11 +205,11 @@ export const InsightsCreateBody = /* @__PURE__ */ zod
 
 /**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
-
-The QueryCoalescingMiddleware attaches cached response data to
-request.META["_coalesced_response"] for followers. This mixin runs DRF's
-initial() (auth + permissions + throttling) before returning the
-cached response, ensuring the request is authorized.
+ *
+ * The QueryCoalescingMiddleware attaches cached response data to
+ * request.META["_coalesced_response"] for followers. This mixin runs DRF's
+ * initial() (auth + permissions + throttling) before returning the
+ * cached response, ensuring the request is authorized.
  */
 export const InsightsUpdateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
@@ -199,11 +217,11 @@ export const InsightsUpdateBody = /* @__PURE__ */ zod
 
 /**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
-
-The QueryCoalescingMiddleware attaches cached response data to
-request.META["_coalesced_response"] for followers. This mixin runs DRF's
-initial() (auth + permissions + throttling) before returning the
-cached response, ensuring the request is authorized.
+ *
+ * The QueryCoalescingMiddleware attaches cached response data to
+ * request.META["_coalesced_response"] for followers. This mixin runs DRF's
+ * initial() (auth + permissions + throttling) before returning the
+ * cached response, ensuring the request is authorized.
  */
 export const InsightsPartialUpdateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
@@ -211,34 +229,64 @@ export const InsightsPartialUpdateBody = /* @__PURE__ */ zod
 
 /**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
-
-The QueryCoalescingMiddleware attaches cached response data to
-request.META["_coalesced_response"] for followers. This mixin runs DRF's
-initial() (auth + permissions + throttling) before returning the
-cached response, ensuring the request is authorized.
+ *
+ * The QueryCoalescingMiddleware attaches cached response data to
+ * request.META["_coalesced_response"] for followers. This mixin runs DRF's
+ * initial() (auth + permissions + throttling) before returning the
+ * cached response, ensuring the request is authorized.
  */
 export const InsightsSuggestionsCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
+ * Soft-delete insights in bulk by ID. Mirrors the single-insight delete: sets deleted=True, soft-deletes the insights' dashboard tiles, and removes their linked alerts. Insights the requester cannot edit are skipped and reported in `skipped`. Reversible via the bulk_restore endpoint.
+ */
+
+export const insightsBulkDeleteCreateBodyIdsMax = 1000
+
+export const InsightsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.number().min(1))
+        .max(insightsBulkDeleteCreateBodyIdsMax)
+        .describe(
+            'Insight IDs to soft-delete (or restore). At most 1000 ids per request. Soft-deleted insights can be brought back via the bulk_restore endpoint.'
+        ),
+})
+
+/**
+ * Restore soft-deleted insights in bulk by ID — the inverse of bulk_delete. Sets deleted=False and re-activates the insights' dashboard tiles on dashboards that still exist. Linked alerts are not restored (they are removed on delete). Insights the requester cannot edit are reported in `skipped`.
+ */
+
+export const insightsBulkRestoreCreateBodyIdsMax = 1000
+
+export const InsightsBulkRestoreCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.number().min(1))
+        .max(insightsBulkRestoreCreateBodyIdsMax)
+        .describe(
+            'Insight IDs to soft-delete (or restore). At most 1000 ids per request. Soft-deleted insights can be brought back via the bulk_restore endpoint.'
+        ),
+})
+
+/**
  * Bulk update tags on multiple objects.
-
-PAT access: this action has no ``required_scopes=`` on the decorator —
-inheriting viewsets must add ``"bulk_update_tags"`` to their
-``scope_object_write_actions`` list to accept personal API keys.
-Without that opt-in, ``APIScopePermission`` rejects PAT requests with
-"This action does not support personal API key access". Done per-viewset
-so granting ``<scope>:write`` for one resource doesn't leak access to
-sibling resources that share this mixin.
-
-Accepts:
-- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
-
-Actions:
-- "add": Add tags to existing tags on each object
-- "remove": Remove specific tags from each object
-- "set": Replace all tags on each object with the provided list
+ *
+ * PAT access: this action has no ``required_scopes=`` on the decorator —
+ * inheriting viewsets must add ``"bulk_update_tags"`` to their
+ * ``scope_object_write_actions`` list to accept personal API keys.
+ * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+ * "This action does not support personal API key access". Done per-viewset
+ * so granting ``<scope>:write`` for one resource doesn't leak access to
+ * sibling resources that share this mixin.
+ *
+ * Accepts:
+ * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+ *
+ * Actions:
+ * - "add": Add tags to existing tags on each object
+ * - "remove": Remove specific tags from each object
+ * - "set": Replace all tags on each object with the provided list
  */
 export const insightsBulkUpdateTagsCreateBodyIdsMax = 500
 
@@ -258,11 +306,11 @@ export const InsightsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
-
-The QueryCoalescingMiddleware attaches cached response data to
-request.META["_coalesced_response"] for followers. This mixin runs DRF's
-initial() (auth + permissions + throttling) before returning the
-cached response, ensuring the request is authorized.
+ *
+ * The QueryCoalescingMiddleware attaches cached response data to
+ * request.META["_coalesced_response"] for followers. This mixin runs DRF's
+ * initial() (auth + permissions + throttling) before returning the
+ * cached response, ensuring the request is authorized.
  */
 export const InsightsCancelCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
@@ -285,4 +333,31 @@ export const InsightsViewedCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.number())
         .max(insightsViewedCreateBodyInsightIdsMax)
         .describe('Insight IDs that were just viewed by the current user. At most 2500 ids per request.'),
+})
+
+/**
+ * Converts a displayed journeys segment into the funnel query that reproduces its unique-actor count exactly. In open mode only a single edge converts (a two-step funnel with the inactivity gap as conversion window); in anchored mode any anchor-rooted chain converts (window W). The funnel is returned as JSON and is not executed or persisted here.
+ * @summary Convert a journey segment to a funnel
+ */
+export const PathsV2SegmentToFunnelCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .unknown()
+        .describe(
+            'The PathsV2Query the segment is displayed under (JSON object with kind `PathsV2Query`). Step sources, path cleaning, excluded items, date range, and the gap or conversion window are read from it, so the emitted funnel counts exactly what the chart shows.'
+        ),
+    items: zod
+        .array(
+            zod.object({
+                event: zod.string().describe('Event of the step source this path item belongs to.'),
+                label: zod
+                    .string()
+                    .nullish()
+                    .describe(
+                        "Label value from the source's naming property, after path cleaning. Null or omitted for sources without a naming property; an empty string means the property was missing on the event."
+                    ),
+            })
+        )
+        .describe(
+            "The segment's path items in displayed order. In open mode exactly two items - a single edge, source then target. In anchored mode the concrete chain as shown, starting at the anchor."
+        ),
 })

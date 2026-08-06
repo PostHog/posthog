@@ -6,6 +6,7 @@ from typing import Any, Optional, cast
 from django.db import transaction
 from django.db.models import Prefetch, Q
 
+import ormsgpack
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import (
     BaseCheckpointSaver,
@@ -16,12 +17,16 @@ from langgraph.checkpoint.base import (
     PendingWrite,
     get_checkpoint_id,
 )
-from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer, _msgpack_ext_hook_to_json
 from langgraph.checkpoint.serde.types import TASKS, ChannelProtocol
 
 from posthog.sync import database_sync_to_async
 
-from ee.models.assistant import ConversationCheckpoint, ConversationCheckpointBlob, ConversationCheckpointWrite
+from products.posthog_ai.backend.models.assistant import (
+    ConversationCheckpoint,
+    ConversationCheckpointBlob,
+    ConversationCheckpointWrite,
+)
 
 
 class DjangoCheckpointer(BaseCheckpointSaver[str]):
@@ -42,13 +47,17 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
             else []
         )
 
-    def _load_json(self, obj: Any):
-        return self.jsonplus_serde.loads(self.jsonplus_serde.dumps(obj))
-
     def _dump_json(self, obj: Any) -> dict[str, Any]:
-        serialized_metadata = self.jsonplus_serde.dumps(obj)
+        # JsonPlusSerializer no longer exposes a JSON mode, so round-trip through msgpack
+        # to coerce non-JSON values (e.g. Pydantic models in metadata writes) into
+        # JSON-safe structures for the JSONB column.
+        type_, blob = self.jsonplus_serde.dumps_typed(obj)
+        if type_ != "msgpack":
+            raise ValueError(f"Expected msgpack serialization for JSON dump, got {type_}")
+        jsonable = ormsgpack.unpackb(blob, ext_hook=_msgpack_ext_hook_to_json, option=ormsgpack.OPT_NON_STR_KEYS)
+        serialized = json.dumps(jsonable, ensure_ascii=False)
         # NOTE: we're using JSON serializer (not msgpack), so we need to remove null characters before writing
-        nulls_removed = serialized_metadata.decode().replace("\\u0000", "")
+        nulls_removed = serialized.replace("\\u0000", "")
         return json.loads(nulls_removed)
 
     def _get_checkpoint_qs(
@@ -93,11 +102,10 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
     def _get_checkpoint_channel_values(self, checkpoint: ConversationCheckpoint):
         if not checkpoint.checkpoint:
             return None
-        loaded_checkpoint = self._load_json(checkpoint.checkpoint)
-        if "channel_versions" not in loaded_checkpoint:
+        if "channel_versions" not in checkpoint.checkpoint:
             return None
         query = Q()
-        for channel, version in loaded_checkpoint["channel_versions"].items():
+        for channel, version in checkpoint.checkpoint["channel_versions"].items():
             query |= Q(channel=channel, version=version)
         return ConversationCheckpointBlob.objects.filter(
             Q(thread_id=checkpoint.thread_id, checkpoint_ns=checkpoint.checkpoint_ns) & query
@@ -131,7 +139,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
 
         async for checkpoint in qs:
             channel_values = self._get_checkpoint_channel_values(checkpoint)
-            loaded_checkpoint: Checkpoint = self._load_json(checkpoint.checkpoint)
+            loaded_checkpoint: Checkpoint = checkpoint.checkpoint
 
             pending_sends = (
                 [
@@ -155,11 +163,15 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                 else {}
             )
 
-            checkpoint_dict: Checkpoint = {  # ty: ignore[missing-typed-dict-key]
-                **loaded_checkpoint,
-                "pending_sends": pending_sends,
-                "channel_values": channel_values,
-            }
+            # langgraph-checkpoint dropped `pending_sends` from the Checkpoint TypedDict in 2.1, but the langgraph runtime still consumes it via `.get()`, so keep emitting it as an extra key
+            checkpoint_dict = cast(
+                Checkpoint,
+                {
+                    **loaded_checkpoint,
+                    "pending_sends": pending_sends,
+                    "channel_values": channel_values,
+                },
+            )
 
             yield CheckpointTuple(
                 {
@@ -170,7 +182,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                     }
                 },
                 checkpoint_dict,
-                self._load_json(checkpoint.metadata),
+                checkpoint.metadata,
                 (
                     {
                         "configurable": {
@@ -346,7 +358,8 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                 update_fields=["channel", "type", "blob"],
             )
 
-    def get_next_version(self, current: Optional[str | int], channel: ChannelProtocol) -> str:
+    # `channel` is typed `None` (deprecated) in the base class since 2.1, but langgraph 0.4 still passes a real channel object, so accept both
+    def get_next_version(self, current: Optional[str | int], channel: Optional[ChannelProtocol] = None) -> str:
         if current is None:
             current_v = 0
         elif isinstance(current, int):

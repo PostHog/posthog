@@ -7,7 +7,7 @@ import React from 'react'
 
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { DashboardResizeHandles } from 'lib/components/Cards/handles'
-import { EditModeEdgeOverlay } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
+import { EditModeEdge, EditModeEdgeOverlay } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More, MoreProps } from 'lib/lemon-ui/LemonButton/More'
 
@@ -18,7 +18,7 @@ interface ButtonTileCardProps extends React.HTMLAttributes<HTMLDivElement>, Resi
     placement: DashboardPlacement
     children?: JSX.Element
     canEnterEditModeFromEdge?: boolean
-    onEnterEditModeFromEdge?: () => void
+    onEnterEditModeFromEdge?: (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => void
     moreButtonOverlay?: MoreProps['overlay']
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
     /** Whether editing controls (three-dots menu) should be shown. False hides them on template dashboards in view mode. */

@@ -4,7 +4,7 @@ from django.core.management.base import BaseCommand
 
 import structlog
 
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, update_should_sync
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, update_should_sync
 
 logger = structlog.get_logger(__name__)
 

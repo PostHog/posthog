@@ -73,6 +73,23 @@ func GetAuthClaims(header http.Header) (teamID int, token string, err error) {
 	return c.TeamID, c.Token, nil
 }
 
+// verificationKeys returns the active signing secret plus any fallback secrets still
+// accepted for verification. Mirrors Django's JWT_SIGNING_KEY_FALLBACKS so tokens
+// signed with a previous key keep working mid-rotation until they expire.
+// Fallbacks come from jwt.secret_fallbacks — a YAML list or a comma-separated string
+// (the env var LIVESTREAM_JWT_SECRET_FALLBACKS form).
+func verificationKeys() jwt.VerificationKeySet {
+	keys := []jwt.VerificationKey{[]byte(viper.GetString("jwt.secret"))}
+	for _, entry := range viper.GetStringSlice("jwt.secret_fallbacks") {
+		for _, fallback := range strings.Split(entry, ",") {
+			if fallback = strings.TrimSpace(fallback); fallback != "" {
+				keys = append(keys, []byte(fallback))
+			}
+		}
+	}
+	return jwt.VerificationKeySet{Keys: keys}
+}
+
 func decodeAuthToken(authHeader string) (jwt.MapClaims, error) {
 	// split the token
 	parts := strings.Split(authHeader, " ")
@@ -92,8 +109,7 @@ func decodeAuthToken(authHeader string) (jwt.MapClaims, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
-		// Here you should specify the secret used to sign your JWTs.
-		return []byte(viper.GetString("jwt.secret")), nil
+		return verificationKeys(), nil
 	})
 
 	if err != nil {

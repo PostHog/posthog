@@ -12,7 +12,6 @@ from django.utils.timezone import now
 
 import requests
 from dateutil.relativedelta import relativedelta
-from loginas.utils import is_impersonated_session
 from posthoganalytics import capture_exception
 from rest_framework import renderers, request, serializers, status, viewsets
 from rest_framework.decorators import renderer_classes
@@ -24,6 +23,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.cdp.templates import HOG_FUNCTION_MIGRATORS
 from posthog.event_usage import report_user_action
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
@@ -208,7 +208,7 @@ def _update_plugin_attachment(
         organization_id=team.organization.id,
         team_id=team.id,
         user=user,
-        was_impersonated=is_impersonated_session(request),
+        was_impersonated=is_impersonated(request),
         item_id=plugin_config.id,
         scope="PluginConfig",
         activity=activity,
@@ -406,9 +406,16 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def unused(self, request: request.Request, **kwargs):
-        ids = Plugin.objects.exclude(
-            id__in=PluginConfig.objects.filter(enabled=True).values_list("plugin_id", flat=True)
-        ).values_list("id", flat=True)
+        ids = (
+            self.get_queryset()
+            .exclude(
+                id__in=PluginConfig.objects.filter(
+                    enabled=True, team__organization_id=self.organization_id
+                ).values_list("plugin_id", flat=True)
+            )
+            .order_by("id")
+            .values_list("id", flat=True)
+        )
         return Response(ids)
 
     @action(methods=["GET"], detail=False)
@@ -555,7 +562,7 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Users in an org but not yet in a team can technically manage plugins via the API
             team_id=user.team.id if user.team else 0,  # type: ignore
             user=user,  # type: ignore
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated(self.request),
             item_id=instance_id,
             scope="Plugin",
             activity="uninstalled",
@@ -574,7 +581,7 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Users in an org but not yet in a team can technically manage plugins via the API
             team_id=user.team.id if user.team else 0,
             user=user,
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated(self.request),
             item_id=serializer.instance.id,
             scope="Plugin",
             activity="installed",
@@ -777,7 +784,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             old_enabled=old_enabled,
             secret_fields=secret_fields,
             user=self.context["request"].user,
-            was_impersonated=is_impersonated_session(self.context["request"]),
+            was_impersonated=is_impersonated(self.context["request"]),
         )
 
         _update_plugin_attachments(self.context["request"], plugin_config)
@@ -829,7 +836,7 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     # Users in an org but not yet in a team can technically manage plugins via the API
                     team_id=self.team.id,
                     user=request.user,  # type: ignore
-                    was_impersonated=is_impersonated_session(self.request),
+                    was_impersonated=is_impersonated(self.request),
                     item_id=plugin_config.id,
                     scope="Plugin",  # use the type plugin so we can also provide unified history
                     activity="order_changed",

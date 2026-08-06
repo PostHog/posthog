@@ -3,7 +3,8 @@ import { BreakPointFunction } from 'kea'
 import { LemonMenuItem } from '@posthog/lemon-ui'
 
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
-import { UnexpectedNeverError, getDefaultInterval } from 'lib/utils'
+import { getDefaultInterval } from 'lib/utils/dateFilters'
+import { UnexpectedNeverError } from 'lib/utils/guards'
 
 import { hogqlQuery } from '~/queries/query'
 import {
@@ -377,14 +378,6 @@ export enum ConversionGoalWarning {
     CustomEventWithNoSessionId = 'CustomEventWithNoSessionId',
 }
 
-export interface WebAnalyticsStatusCheck {
-    isSendingWebVitals: boolean
-    isSendingPageViews: boolean
-    isSendingPageLeaves: boolean
-    isSendingPageLeavesScroll: boolean
-    hasAuthorizedUrls: boolean
-}
-
 export const SOURCE_DRILL_DOWN_MAP: Partial<Record<WebStatsBreakdown, SourceTab>> = {
     [WebStatsBreakdown.InitialChannelType]: SourceTab.REFERRING_DOMAIN,
     [WebStatsBreakdown.InitialReferringDomain]: SourceTab.REFERRING_URL,
@@ -463,6 +456,17 @@ export const webStatsBreakdownToPropertyName = (
         case WebStatsBreakdown.FrustrationMetrics:
             return { key: '$pathname', type: PropertyFilterType.Event }
         case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
+            return undefined
+        case WebStatsBreakdown.FirstPageviewChannelType:
+        case WebStatsBreakdown.FirstPageviewReferringDomain:
+        case WebStatsBreakdown.FirstPageviewUTMSource:
+        case WebStatsBreakdown.FirstPageviewUTMCampaign:
+        case WebStatsBreakdown.FirstPageviewUTMMedium:
+        case WebStatsBreakdown.FirstPageviewUTMTerm:
+        case WebStatsBreakdown.FirstPageviewUTMContent:
+        case WebStatsBreakdown.FirstPageviewUTMSourceMediumCampaign:
+            // Computed per-session from the first pageview at query time — there is
+            // no stored property to filter sessions by.
             return undefined
         default:
             throw new UnexpectedNeverError(breakdownBy)
@@ -611,6 +615,22 @@ export const getDisplayColumnName = (column: string, breakdownBy?: WebStatsBreak
                 return 'URL'
             case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
                 return 'Source / Medium / Campaign'
+            case WebStatsBreakdown.FirstPageviewChannelType:
+                return 'Channel Type (First Pageview)'
+            case WebStatsBreakdown.FirstPageviewReferringDomain:
+                return 'Referring Domain (First Pageview)'
+            case WebStatsBreakdown.FirstPageviewUTMSource:
+                return 'UTM Source (First Pageview)'
+            case WebStatsBreakdown.FirstPageviewUTMCampaign:
+                return 'UTM Campaign (First Pageview)'
+            case WebStatsBreakdown.FirstPageviewUTMMedium:
+                return 'UTM Medium (First Pageview)'
+            case WebStatsBreakdown.FirstPageviewUTMTerm:
+                return 'UTM Term (First Pageview)'
+            case WebStatsBreakdown.FirstPageviewUTMContent:
+                return 'UTM Content (First Pageview)'
+            case WebStatsBreakdown.FirstPageviewUTMSourceMediumCampaign:
+                return 'Source / Medium / Campaign (First Pageview)'
         }
     }
 

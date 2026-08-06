@@ -73,29 +73,33 @@ export function ExclusionRowSuffix({
     )
 
     return (
-        <div className="flex items-center gap-2 w-full p-1 my-1">
-            <span>between</span>
-            <LemonSelect
-                className="min-w-0 flex-shrink"
-                size="small"
-                value={stepRange.funnelFromStep || 0}
-                onChange={onChange}
-                options={Array.from(Array(numberOfSeries).keys())
-                    .slice(0, -1)
-                    .map((stepIndex) => ({ value: stepIndex, label: `Step ${stepIndex + 1}` }))}
-                disabled={!isFunnelWithEnoughSteps}
-            />
-            <span>and</span>
-            <LemonSelect
-                className="min-w-0 flex-shrink"
-                size="small"
-                value={stepRange.funnelToStep || (stepRange.funnelFromStep ?? 0) + 1}
-                onChange={(toStep: number) => onChange(stepRange.funnelFromStep, toStep)}
-                options={Array.from(Array(numberOfSeries).keys())
-                    .slice((stepRange.funnelFromStep ?? 0) + 1)
-                    .map((stepIndex) => ({ value: stepIndex, label: `Step ${stepIndex + 1}` }))}
-                disabled={!isFunnelWithEnoughSteps}
-            />
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 w-full p-1 my-1">
+            <div className="flex flex-shrink-0 items-center gap-2">
+                <span>between</span>
+                <LemonSelect
+                    className="flex-shrink-0"
+                    size="small"
+                    value={stepRange.funnelFromStep || 0}
+                    onChange={onChange}
+                    options={Array.from(Array(numberOfSeries).keys())
+                        .slice(0, -1)
+                        .map((stepIndex) => ({ value: stepIndex, label: `Step ${stepIndex + 1}` }))}
+                    disabled={!isFunnelWithEnoughSteps}
+                />
+            </div>
+            <div className="flex flex-shrink-0 items-center gap-2">
+                <span>and</span>
+                <LemonSelect
+                    className="flex-shrink-0"
+                    size="small"
+                    value={stepRange.funnelToStep || (stepRange.funnelFromStep ?? 0) + 1}
+                    onChange={(toStep: number) => onChange(stepRange.funnelFromStep, toStep)}
+                    options={Array.from(Array(numberOfSeries).keys())
+                        .slice((stepRange.funnelFromStep ?? 0) + 1)
+                        .map((stepIndex) => ({ value: stepIndex, label: `Step ${stepIndex + 1}` }))}
+                    disabled={!isFunnelWithEnoughSteps}
+                />
+            </div>
             <div className="flex items-center gap-1 ml-auto">
                 {propertyFiltersButton}
                 <LemonButton

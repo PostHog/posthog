@@ -9,7 +9,7 @@ from parameterized import parameterized
 
 from posthog.models.comment import Comment
 
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.models import EmailChannel, EmailOutboxMessage, Ticket
 from products.conversations.backend.models.constants import Channel
 
 
@@ -207,6 +207,34 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.last_message_text == "Public message"  # Unchanged
         assert self.ticket.last_message_at == public_msg.created_at  # Unchanged
         assert self.ticket.updated_at == public_msg.created_at  # Unchanged
+
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_private_team_note_emits_private_message_sent_event(self, mock_capture, mock_on_commit):
+        self._create_team_message("Private note", is_private=True)
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.message_count == 0
+        mock_capture.assert_called_once()
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["event_name"] == "$conversation_private_message_sent"
+        assert call_kwargs["properties"]["actor_id"] == self.user.id
+        # The note body must never reach the event stream: analytics events are
+        # team-scoped and bypass ticket-level access controls
+        assert "message_content" not in call_kwargs["properties"]
+        assert "Private note" not in str(call_kwargs["properties"])
+
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_private_ai_message_emits_no_event(self, mock_capture, mock_on_commit):
+        # Private AI messages have no human actor; emitting them would fire workflows with an empty actor
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="AI draft suggestion",
+            item_context={"author_type": "AI", "is_private": True},
+        )
+
+        mock_capture.assert_not_called()
 
     def test_soft_delete_private_message_does_not_decrement_count(self, mock_on_commit):
         """Deleting a private message should not decrement message_count (since it wasn't counted)."""
@@ -417,3 +445,70 @@ class TestTicketCreatedEventSignal(BaseTest):
 
         assert ticket.id is not None
         mock_capture.assert_called_once()
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestEmailReplySignalGuard(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.team.conversations_settings = {"email_enabled": True}
+        self.team.save()
+        self.config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="signal0test1",
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+            domain_verified=True,
+        )
+        self.email_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.EMAIL,
+            email_config=self.config,
+            widget_session_id="",
+            distinct_id="customer@external.com",
+            email_from="customer@external.com",
+            email_subject="Help",
+        )
+
+    @parameterized.expand(
+        [
+            ("inbound_team_email_blocked", "support", True, True, 0),
+            ("in_app_agent_reply_sent", "support", False, True, 1),
+            ("customer_email_blocked", "customer", True, True, 0),
+        ]
+    )
+    def test_email_outbox_guard(self, _mock_on_commit, _name, author_type, from_email, has_created_by, expected_count):
+        ctx: dict = {"author_type": author_type, "is_private": False}
+        if from_email:
+            ctx["from_email"] = True
+
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.email_ticket.id),
+            content="test message",
+            created_by=self.user if has_created_by else None,
+            item_context=ctx,
+        )
+
+        assert EmailOutboxMessage.objects.filter(ticket=self.email_ticket).count() == expected_count
+
+
+class TestIsOutboundReply:
+    @parameterized.expand(
+        [
+            ("private_ai_note", {"author_type": "AI", "is_private": True}, None, False),
+            ("public_ai_reply", {"author_type": "AI", "is_private": False}, None, True),
+            ("human_team_reply", {"author_type": "support", "is_private": False}, 42, True),
+            ("private_human_note", {"author_type": "support", "is_private": True}, 42, False),
+            ("customer_message", {"author_type": "customer", "is_private": False}, None, False),
+            ("customer_with_created_by", {"author_type": "customer", "is_private": False}, 1, False),
+            ("none_context", None, 42, False),
+            ("non_dict_context", "garbage", None, False),
+        ]
+    )
+    def test_outbound_reply_gating(self, _name, item_context, created_by_id, expected):
+        from products.conversations.backend.signals import _is_outbound_reply
+
+        assert _is_outbound_reply(item_context, created_by_id) is expected

@@ -11,7 +11,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { midEllipsis } from 'lib/utils'
+import { midEllipsis } from 'lib/utils/strings'
 
 import { ActiveDetailFilter, advancedActivityLogsLogic } from './advancedActivityLogsLogic'
 

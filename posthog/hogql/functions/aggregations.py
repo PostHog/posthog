@@ -145,7 +145,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
         using_placeholder_arguments=True,
     ),
     "every": HogQLFunctionMeta(
-        "toBool(min({}))",
+        "accurateCastOrNull(min({}), 'Bool')",
         1,
         1,
         aggregate=True,

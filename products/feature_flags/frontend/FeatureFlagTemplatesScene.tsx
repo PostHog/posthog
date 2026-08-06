@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { IconArrowLeft, IconFlask, IconPeople, IconPlus, IconTestTube, IconToggle } from '@posthog/icons'
+import { IconArrowLeft, IconCode, IconFlask, IconPeople, IconPlus, IconTestTube, IconToggle } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { FlagIntent } from 'scenes/feature-flags/featureFlagIntentWarningLogic'
@@ -43,6 +43,11 @@ const TEMPLATES: FeatureFlagTemplate[] = [
         key: 'targeted-multivariate',
         description: 'Test variants for specific user or group segments',
         icon: <IconFlask className="w-6 h-6 text-primary-3000" />,
+    },
+    {
+        key: 'remote-config',
+        description: 'Deliver configuration values to your app',
+        icon: <IconCode className="w-6 h-6 text-primary-3000" />,
     },
 ]
 
@@ -191,12 +196,8 @@ function IntentStep({ template }: { template: SelectedTemplate }): JSX.Element {
 }
 
 export function FeatureFlagTemplatesScene(): JSX.Element {
-    const { featureFlagsV2Enabled, intentsEnabled, selectedTemplate } = useValues(featureFlagTemplatesSceneLogic)
+    const { intentsEnabled, selectedTemplate } = useValues(featureFlagTemplatesSceneLogic)
     const { selectTemplate } = useActions(featureFlagTemplatesSceneLogic)
-
-    if (!featureFlagsV2Enabled) {
-        return <></>
-    }
 
     return (
         <div className="flex flex-col items-center justify-center py-8 min-h-[80vh]">

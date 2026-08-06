@@ -6,16 +6,20 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 
+from django.core.cache import cache
+
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertState, InsightThresholdType
 
+from posthog.constants import AvailableFeature
+from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 
@@ -45,7 +49,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
             "name": "alert name",
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "calculation_interval": "daily",
         }
         response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
@@ -65,7 +69,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
             "detector_config": None,
             "threshold": {
-                "configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}},
+                "configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}},
                 "created_at": mock.ANY,
                 "id": mock.ANY,
                 "name": "",
@@ -91,6 +95,192 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
         alerts = self.client.get(f"/api/projects/{self.team.id}/alerts")
         assert len(alerts.json()["results"]) == 0
+
+    def test_alert_rejects_insight_without_viewer_access(self) -> None:
+        # Alert write access must not let a user reference an insight they can't view — otherwise
+        # they could exfiltrate a restricted insight's results via notifications / check history.
+        def deny_insight(obj=None, *args, **kwargs) -> bool:
+            return type(obj).__name__ != "Insight"
+
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "name": "alert name",
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            "calculation_interval": "daily",
+        }
+        # An alert created while access is allowed, so we can test the insight-swap update vector.
+        alert_id = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()["id"]
+
+        with mock.patch(
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            side_effect=deny_insight,
+        ):
+            create = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
+            update = self.client.patch(
+                f"/api/projects/{self.team.id}/alerts/{alert_id}", {"insight": self.insight["id"]}
+            )
+            simulate = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate/",
+                {"insight": self.insight["id"], "detector_config": {"type": "zscore", "threshold": 0.9}},
+            )
+
+        for response in (create, update, simulate):
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert "access to this insight" in str(response.json())
+
+    def test_existing_alert_hidden_when_insight_viewer_access_is_lost(self) -> None:
+        # An existing alert must not outlive viewer access to its linked insight: otherwise its
+        # check history (breaching rows / values) leaks on read, and a PATCH that omits `insight`
+        # bypasses the create-time check. The queryset gate hides it from list, retrieve, update, and delete.
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "name": "alert name",
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            "calculation_interval": "daily",
+        }
+        alert_id = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()["id"]
+
+        # Deny viewer access to every insight by emptying the viewable-insight queryset.
+        with mock.patch(
+            "posthog.rbac.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda queryset, *args, **kwargs: queryset.none(),
+        ):
+            retrieve = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert_id}")
+            listed = self.client.get(f"/api/projects/{self.team.id}/alerts")
+            update = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", {"name": "renamed"})
+            delete = self.client.delete(f"/api/projects/{self.team.id}/alerts/{alert_id}")
+
+        assert retrieve.status_code == status.HTTP_404_NOT_FOUND, retrieve.content
+        assert update.status_code == status.HTTP_404_NOT_FOUND, update.content
+        assert delete.status_code == status.HTTP_404_NOT_FOUND, delete.content
+        assert [a["id"] for a in listed.json()["results"]] == []
+
+    def test_create_alert_on_funnel_insight(self) -> None:
+        funnel_insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={
+                "query": {
+                    "kind": "FunnelsQuery",
+                    "series": [
+                        {"kind": "EventsNode", "event": "$pageview"},
+                        {"kind": "EventsNode", "event": "$autocapture"},
+                    ],
+                }
+            },
+        ).json()
+        creation_request = {
+            "insight": funnel_insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None},
+            "name": "funnel alert",
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 50}}},
+            "calculation_interval": "daily",
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+
+    def test_create_threshold_alert_rejects_empty_bounds(self) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "name": "alert name",
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "calculation_interval": "daily",
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "At least one threshold bound" in str(response.json())
+
+    @parameterized.expand(
+        [
+            ("alert_name", "a" * 256, ""),
+            ("threshold_name", "alert name", "a" * 256),
+        ]
+    )
+    def test_create_alert_rejects_over_long_name(self, _name: str, alert_name: str, threshold_name: str) -> None:
+        # Over-long names used to sail past validation and 500 on the Postgres write
+        # (value too long for varchar(255)); the serializer must reject them with a 400.
+        creation_request: dict[str, Any] = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "name": alert_name,
+            "threshold": {
+                "name": threshold_name,
+                "configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}},
+            },
+            "calculation_interval": "daily",
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_patch_alert_rejects_over_long_name(self) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "name": "alert name",
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            "calculation_interval": "daily",
+        }
+        alert_id = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()["id"]
+        response = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", {"name": "a" * 256})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_patch_legacy_empty_bounds_alert_without_touching_threshold(self) -> None:
+        threshold = Threshold.objects.create(
+            team=self.team,
+            insight_id=self.insight["id"],
+            configuration={"type": InsightThresholdType.ABSOLUTE, "bounds": {}},
+        )
+        alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight_id=self.insight["id"],
+            name="legacy no-op",
+            condition={"type": AlertConditionType.ABSOLUTE_VALUE},
+            config={"type": "TrendsAlertConfig", "series_index": 0},
+            threshold=threshold,
+            calculation_interval=AlertCalculationInterval.DAILY,
+            enabled=True,
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert.id}",
+            {"enabled": False},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        alert.refresh_from_db()
+        assert alert.enabled is False
+
+    def test_patch_empty_threshold_bounds_rejected(self) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "name": "alert name",
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            "calculation_interval": "daily",
+        }
+        alert_id = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()["id"]
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert_id}",
+            {"threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "At least one threshold bound" in str(response.json())
 
     def test_incorrect_creation(self) -> None:
         creation_request = {
@@ -129,7 +319,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             ],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "alert name",
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
@@ -164,7 +354,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "checks limit test",
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
@@ -198,7 +388,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "checks offset test",
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
@@ -228,7 +418,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "checks date test",
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
@@ -271,7 +461,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "checks window test",
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
@@ -317,7 +507,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 ],
                 "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
                 "config": {"type": "TrendsAlertConfig", "series_index": 0},
-                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
                 "name": "alert name",
             }
             self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
@@ -337,7 +527,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             ],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "alert name",
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
@@ -354,7 +544,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
 
         insight_without_alert_support = deepcopy(self.default_insight_data)
-        insight_without_alert_support["query"] = {"kind": "FunnelsQuery", "series": []}
+        insight_without_alert_support["query"] = {"kind": "RetentionQuery", "retentionFilter": {}}
         self.client.patch(
             f"/api/projects/{self.team.id}/insights/{another_insight['id']}",
             data=insight_without_alert_support,
@@ -362,6 +552,121 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_hogql_alert_survives_insight_update_and_is_listed_on_insight(self) -> None:
+        hogql_insight_data: dict[str, Any] = {
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {"kind": "HogQLQuery", "query": "select count() from events"},
+            },
+        }
+        hogql_insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=hogql_insight_data).json()
+
+        alert = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": hogql_insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "HogQLAlertConfig", "evaluation": "last_row"},
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "name": "sql alert",
+            },
+        ).json()
+
+        # The insight response must list the alert inline — the UI trusts this list on reload.
+        insight_response = self.client.get(f"/api/projects/{self.team.id}/insights/{hogql_insight['id']}").json()
+        assert [a["id"] for a in insight_response["alerts"]] == [alert["id"]]
+
+        # Updating the insight while it stays SQL-backed must not cascade-delete the alert.
+        updated = deepcopy(hogql_insight_data)
+        updated["query"]["source"]["query"] = "select count() + 1 from events"
+        self.client.patch(f"/api/projects/{self.team.id}/insights/{hogql_insight['id']}", data=updated)
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
+        assert response.status_code == status.HTTP_200_OK
+
+        # Changing to a kind that cannot carry alerts still cascades.
+        self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{hogql_insight['id']}",
+            data={"query": {"kind": "RetentionQuery", "retentionFilter": {}}},
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_funnel_alert_survives_insight_update_and_is_listed_on_insight(self) -> None:
+        funnel_insight_data: dict[str, Any] = {
+            "query": {
+                "kind": "FunnelsQuery",
+                "series": [
+                    {"kind": "EventsNode", "event": "$pageview"},
+                    {"kind": "EventsNode", "event": "$autocapture"},
+                ],
+            },
+        }
+        funnel_insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=funnel_insight_data).json()
+
+        alert = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": funnel_insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None},
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 50}}},
+                "name": "funnel alert",
+            },
+        ).json()
+
+        # The insight response must list the alert inline — the UI trusts this list on reload.
+        insight_response = self.client.get(f"/api/projects/{self.team.id}/insights/{funnel_insight['id']}").json()
+        assert [a["id"] for a in insight_response["alerts"]] == [alert["id"]]
+
+        # Updating the insight while it stays funnel-backed must not cascade-delete the alert.
+        updated = deepcopy(funnel_insight_data)
+        updated["query"]["series"][1]["event"] = "$pageleave"
+        self.client.patch(f"/api/projects/{self.team.id}/insights/{funnel_insight['id']}", data=updated)
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
+        assert response.status_code == status.HTTP_200_OK
+
+        # Changing to a kind that cannot carry alerts still cascades.
+        self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{funnel_insight['id']}",
+            data={"query": {"kind": "RetentionQuery", "retentionFilter": {}}},
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_alert_survives_switch_between_alertable_kinds(self) -> None:
+        # Switching the insight to a different alertable kind (trends -> SQL) leaves the alert's config
+        # mismatched, but the alert is NOT deleted: the check cycle re-validates against the current
+        # query and auto-disables + notifies on mismatch (covered by the validation/auto-disable tests),
+        # so the alert and its history survive the edit and the user can reconfigure it.
+        trends_insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights", data=self.default_insight_data
+        ).json()
+        alert_id = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": trends_insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "name": "trends alert",
+            },
+        ).json()["id"]
+
+        # Switch the insight from trends to SQL — a different alertable kind.
+        self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{trends_insight['id']}",
+            data={
+                "query": {
+                    "kind": "DataVisualizationNode",
+                    "source": {"kind": "HogQLQuery", "query": "select count() from events"},
+                }
+            },
+        )
+        assert self.client.get(f"/api/projects/{self.team.id}/alerts/{alert_id}").status_code == status.HTTP_200_OK
 
     def test_alert_is_deleted_on_insight_soft_delete(self) -> None:
         another_insight = self.client.post(
@@ -372,7 +677,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "alert name",
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
@@ -409,7 +714,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "alert name",
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
@@ -456,7 +761,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             ],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "alert name",
             "state": AlertState.FIRING,
         }
@@ -480,6 +785,44 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         check = AlertCheck.objects.filter(alert_configuration=firing_alert.id).latest("created_at")
         assert check.state == AlertState.SNOOZED
 
+        self.client.patch(f"/api/projects/{self.team.id}/alerts/{firing_alert.id}", {"enabled": False})
+        disabled_and_snoozed_alert = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{firing_alert.id}",
+            {"snoozed_until": datetime.now()},
+        ).json()
+        assert disabled_and_snoozed_alert["enabled"] is False
+        assert disabled_and_snoozed_alert["state"] == AlertState.NOT_FIRING
+        disabled_check = AlertCheck.objects.filter(alert_configuration=firing_alert.id).latest("created_at")
+        assert disabled_check.state == AlertState.NOT_FIRING
+
+        enabled_and_snoozed_alert = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{firing_alert.id}",
+            {"enabled": True, "snoozed_until": "1d"},
+        ).json()
+        assert enabled_and_snoozed_alert["enabled"] is True
+        assert enabled_and_snoozed_alert["state"] == AlertState.SNOOZED
+
+        snoozed_alert = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{firing_alert.id}",
+            {"snoozed_until": datetime.now()},
+        ).json()
+        assert snoozed_alert["state"] == AlertState.SNOOZED
+
+        edited_snoozed_alert = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{firing_alert.id}",
+            {"threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 200}}}},
+        ).json()
+        assert edited_snoozed_alert["state"] == AlertState.NOT_FIRING
+
+        edited_and_snoozed_alert = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{firing_alert.id}",
+            {
+                "snoozed_until": "1d",
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 300}}},
+            },
+        ).json()
+        assert edited_and_snoozed_alert["state"] == AlertState.SNOOZED
+
     @parameterized.expand(
         [
             (
@@ -501,11 +844,20 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 "not compatible with non time series",
             ),
             (
+                "detector_on_non_time_series",
+                {
+                    "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "detector_config": {"type": "zscore", "threshold": 0.95, "window": 30},
+                },
+                "anomaly detection isn't supported for non time series trends",
+            ),
+            (
                 "absolute_with_percentage_threshold",
                 {
                     "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
                     "config": {"type": "TrendsAlertConfig", "series_index": 0},
-                    "threshold": {"configuration": {"type": InsightThresholdType.PERCENTAGE, "bounds": {}}},
+                    "threshold": {"configuration": {"type": InsightThresholdType.PERCENTAGE, "bounds": {"upper": 100}}},
                 },
                 "absolute value alerts require an absolute threshold",
             ),
@@ -519,13 +871,13 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         creation_request = {
             "insight": pie_insight["id"],
             "subscribed_users": [self.user.id],
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "alert name",
             **overrides,
         }
         response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert expected_error_fragment in str(response.content).lower()
+        assert expected_error_fragment in response.json()["detail"].lower()
 
     @parameterized.expand(
         [
@@ -543,7 +895,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 "absolute_with_percentage_threshold_via_patch",
                 {
                     "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
-                    "threshold": {"configuration": {"type": InsightThresholdType.PERCENTAGE, "bounds": {}}},
+                    "threshold": {"configuration": {"type": InsightThresholdType.PERCENTAGE, "bounds": {"upper": 100}}},
                 },
                 "absolute value alerts require an absolute threshold",
             ),
@@ -555,7 +907,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "alert name",
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
@@ -565,6 +917,31 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert expected_error_fragment in str(response.content).lower()
 
+    def test_patch_alert_rejects_detector_for_non_time_series(self) -> None:
+        pie_insight_data = deepcopy(self.default_insight_data)
+        pie_insight_data["query"]["trendsFilter"]["display"] = "ActionsPie"
+        pie_insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=pie_insight_data).json()
+
+        alert = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": pie_insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "name": "alert name",
+            },
+        ).json()
+        assert "id" in alert, alert
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert['id']}",
+            {"detector_config": {"type": "zscore", "threshold": 0.95, "window": 30}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "anomaly detection isn't supported for non time series trends" in response.json()["detail"].lower()
+
     @parameterized.expand(
         [
             (
@@ -573,6 +950,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 status.HTTP_400_BAD_REQUEST,
                 "weekly",
                 None,
+                False,
             ),
             (
                 "omitted_interval_preserves_existing",
@@ -580,6 +958,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 status.HTTP_200_OK,
                 "weekly",
                 "renamed alert",
+                False,
             ),
             (
                 "updated_interval_applied",
@@ -587,21 +966,32 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 status.HTTP_200_OK,
                 "hourly",
                 "alert name",
+                True,
             ),
         ]
     )
-    def test_patch_calculation_interval(self, _name, patch_payload, expected_status, expected_interval, expected_name):
+    def test_patch_calculation_interval(
+        self,
+        _name: str,
+        patch_payload: dict[str, Any],
+        expected_status: int,
+        expected_interval: str,
+        expected_name: str | None,
+        clears_next_check: bool,
+    ) -> None:
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "alert name",
             "calculation_interval": "weekly",
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
         assert alert["calculation_interval"] == "weekly"
+        scheduled_check = datetime(2027, 1, 1, tzinfo=UTC)
+        AlertConfiguration.objects.filter(id=alert["id"]).update(next_check_at=scheduled_check)
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/alerts/{alert['id']}",
@@ -613,13 +1003,16 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             assert response.json()["calculation_interval"] == expected_interval
             assert response.json()["name"] == expected_name
 
+        persisted_alert = AlertConfiguration.objects.get(id=alert["id"])
+        assert persisted_alert.next_check_at == (None if clears_next_check else scheduled_check)
+
     def test_create_alert_with_schedule_restriction(self) -> None:
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "quiet alert",
             "schedule_restriction": {"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
         }
@@ -635,7 +1028,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "bad quiet",
             "schedule_restriction": {
                 "blocked_windows": [
@@ -654,7 +1047,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "snap next",
             "calculation_interval": "hourly",
         }
@@ -678,7 +1071,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "alert",
             "schedule_restriction": {"blocked_windows": [{"start": "22:00", "end": "23:00"}]},
         }
@@ -703,7 +1096,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "quiet hours alert",
             "schedule_restriction": {"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
             **extra,
@@ -832,7 +1225,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "patch me",
             "calculation_interval": "daily",
         }
@@ -889,7 +1282,7 @@ class TestInvestigationAgentValidation(APIBaseTest):
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
             "name": "investigation alert",
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "calculation_interval": "daily",
             "detector_config": detector_config,
             "investigation_agent_enabled": enabled,
@@ -950,7 +1343,7 @@ class TestAlertSimulate(APIBaseTest):
         }
         self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.insight_data).json()
 
-    @mock.patch("posthog.tasks.alerts.detector.calculate_for_query_based_insight")
+    @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
     def test_simulate_returns_valid_response(self, mock_calculate) -> None:
         mock_calculate.return_value = mock.MagicMock(
             result=[
@@ -1016,7 +1409,7 @@ class TestAlertSimulate(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @mock.patch("posthog.tasks.alerts.detector.calculate_for_query_based_insight")
+    @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
     def test_simulate_does_not_create_alert_check_records(self, mock_calculate) -> None:
         mock_calculate.return_value = mock.MagicMock(
             result=[
@@ -1050,6 +1443,161 @@ class TestAlertSimulate(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK, response.content
         assert AlertCheck.objects.count() == checks_before
+
+
+class TestAlertTestDelivery(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={
+                "query": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "trendsFilter": {"display": "BoldNumber"},
+                }
+            },
+        ).json()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            data={
+                "insight": insight["id"],
+                "name": "Testable alert",
+                "subscribed_users": [],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        self.alert = response.json()
+
+    def _create_destination(self, *, enabled: bool = True, alert_id: str | None = None) -> HogFunction:
+        return HogFunction.objects.create(
+            team=self.team,
+            name="Alert destination",
+            type="internal_destination",
+            template_id="template-webhook",
+            enabled=enabled,
+            inputs_schema=[],
+            inputs={},
+            hog="return event",
+            filters={
+                "events": [{"id": "$insight_alert_firing", "type": "events"}],
+                "properties": [
+                    {
+                        "key": "alert_id",
+                        "value": alert_id or self.alert["id"],
+                        "operator": "exact",
+                        "type": "event",
+                    }
+                ],
+            },
+        )
+
+    @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions")
+    def test_queues_test_delivery_for_active_destinations_without_changing_alert(self, mock_trigger) -> None:
+        mock_trigger.return_value = True
+        self._create_destination()
+        self._create_destination()
+        self._create_destination(enabled=False)
+        self._create_destination(alert_id="00000000-0000-0000-0000-000000000000")
+        alert_before = AlertConfiguration.objects.get(id=self.alert["id"])
+
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}/test-delivery/")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.content
+        assert response.json() == {
+            "destination_count": 2,
+            "email_recipient_count": 0,
+            "failed_delivery_channels": [],
+        }
+        mock_trigger.assert_called_once_with(
+            mock.ANY,
+            {
+                "breaches": "Test alert from PostHog. No action is needed.",
+                "is_test": True,
+                "alert_name": "[TEST] Testable alert",
+            },
+        )
+        alert_after = AlertConfiguration.objects.get(id=self.alert["id"])
+        assert alert_after.state == alert_before.state
+        assert alert_after.last_notified_at == alert_before.last_notified_at
+        assert AlertCheck.objects.filter(alert_configuration_id=self.alert["id"]).count() == 0
+
+    @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions")
+    @mock.patch("products.alerts.backend.email_notifications.EmailMessage")
+    def test_sends_test_delivery_to_subscribed_users_without_a_destination(
+        self, mock_email_message, mock_trigger
+    ) -> None:
+        alert = AlertConfiguration.objects.get(id=self.alert["id"])
+        AlertSubscription.objects.create(alert_configuration=alert, user=self.user)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}/test-delivery/")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.content
+        assert response.json() == {
+            "destination_count": 0,
+            "email_recipient_count": 1,
+            "failed_delivery_channels": [],
+        }
+        mock_email_message.assert_called_once()
+        assert mock_email_message.call_args.kwargs["subject"] == "Test alert: Testable alert for Default project"
+        mock_email_message.return_value.add_recipient.assert_called_once_with(email=self.user.email)
+        mock_email_message.return_value.send.assert_called_once_with()
+        mock_trigger.assert_not_called()
+
+    @mock.patch("products.alerts.backend.api.alert.send_test_alert_email", side_effect=RuntimeError("email failed"))
+    @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions", return_value=True)
+    def test_destination_still_queues_when_email_fails(self, mock_trigger, _mock_email) -> None:
+        alert = AlertConfiguration.objects.get(id=self.alert["id"])
+        AlertSubscription.objects.create(alert_configuration=alert, user=self.user)
+        self._create_destination()
+
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}/test-delivery/")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.content
+        assert response.json() == {
+            "destination_count": 1,
+            "email_recipient_count": 0,
+            "failed_delivery_channels": ["email"],
+        }
+        mock_trigger.assert_called_once()
+
+    @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions", return_value=False)
+    def test_returns_service_unavailable_when_destination_fails_to_queue(self, mock_trigger) -> None:
+        self._create_destination()
+
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}/test-delivery/")
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
+        assert response.json() == {
+            "detail": "Unable to start the test delivery. Check the configured channels and try again."
+        }
+        mock_trigger.assert_called_once()
+
+    @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions")
+    def test_rejects_test_delivery_without_active_destinations(self, mock_trigger) -> None:
+        self._create_destination(enabled=False)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}/test-delivery/")
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json() == {"detail": "Add an email recipient or active destination before sending a test."}
+        mock_trigger.assert_not_called()
+
+    @mock.patch("posthog.rate_limit.AlertTestDeliveryThrottle.rate", new="2/minute")
+    @mock.patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions")
+    def test_rate_limits_test_delivery_per_team(self, _mock_trigger, _rate_limit_enabled) -> None:
+        cache.clear()
+        self._create_destination()
+        endpoint = f"/api/projects/{self.team.id}/alerts/{self.alert['id']}/test-delivery/"
+
+        assert self.client.post(endpoint).status_code == status.HTTP_202_ACCEPTED
+        assert self.client.post(endpoint).status_code == status.HTTP_202_ACCEPTED
+        assert self.client.post(endpoint).status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        cache.clear()
 
 
 class TestAlertEventProperties(APIBaseTest):
@@ -1174,61 +1722,170 @@ class TestAlertEventProperties(APIBaseTest):
         for key, value in expected_detector_fields.items():
             assert props[key] == value, f"{key} expected {value}, got {props[key]}"
 
-
-class TestTriggerAlertHogFunctions(APIBaseTest):
     @parameterized.expand(
         [
             (
-                "threshold_alert",
-                None,
-                {"alert_mode": "threshold", "detector_type": None, "ensemble_operator": None},
-            ),
-            (
-                "single_detector",
-                {"type": "zscore", "threshold": 0.95, "window": 30},
-                {"alert_mode": "detector", "detector_type": "zscore", "ensemble_operator": None},
-            ),
-            (
-                "ensemble_detector",
+                "trends_config",
+                {"type": "TrendsAlertConfig", "series_index": 1},
                 {
-                    "type": "ensemble",
-                    "operator": "AND",
-                    "detectors": [
-                        {"type": "zscore", "threshold": 0.95, "window": 30},
-                        {"type": "mad", "threshold": 0.95, "window": 30},
-                    ],
+                    "config_type": "TrendsAlertConfig",
+                    "trends_series_index": 1,
+                    "hogql_evaluation": None,
+                    "hogql_has_explicit_column": None,
+                    "hogql_has_label_column": None,
                 },
-                {"alert_mode": "detector", "detector_type": "ensemble", "ensemble_operator": "AND"},
+            ),
+            (
+                "hogql_default",
+                {"type": "HogQLAlertConfig", "evaluation": "last_row"},
+                {
+                    "config_type": "HogQLAlertConfig",
+                    "hogql_evaluation": "last_row",
+                    "hogql_has_explicit_column": False,
+                    "hogql_has_label_column": False,
+                },
+            ),
+            (
+                "hogql_any_row_with_columns",
+                {"type": "HogQLAlertConfig", "evaluation": "any_row", "column": "errors", "label_column": "country"},
+                {
+                    "config_type": "HogQLAlertConfig",
+                    "hogql_evaluation": "any_row",
+                    "hogql_has_explicit_column": True,
+                    "hogql_has_label_column": True,
+                },
             ),
         ]
     )
-    @mock.patch("posthog.tasks.alerts.utils.produce_internal_event")
-    def test_insight_alert_firing_detector_props(
-        self,
-        _name: str,
-        detector_config: dict | None,
-        expected_props: dict,
-        mock_produce: mock.MagicMock,
+    def test_event_properties_capture_alert_config_adoption(self, _name: str, config: dict, expected: dict) -> None:
+        alert = AlertConfiguration(
+            name="test alert",
+            condition={"type": "absolute_value"},
+            config=config,
+            calculation_interval="daily",
+        )
+        props = alert._get_event_properties()
+        for key, value in expected.items():
+            assert props[key] == value, f"{key} expected {value}, got {props[key]}"
+
+
+class TestAlertListFilters(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.default_insight_data: dict[str, Any] = {
+            "query": {
+                "kind": "TrendsQuery",
+                "series": [
+                    {
+                        "kind": "EventsNode",
+                        "event": "$pageview",
+                    }
+                ],
+                "trendsFilter": {"display": "BoldNumber"},
+            },
+        }
+        self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.default_insight_data).json()
+
+    def _create_alert(self, name: str, user=None) -> AlertConfiguration:
+        return AlertConfiguration.objects.create(
+            team=self.team,
+            insight_id=self.insight["id"],
+            name=name,
+            created_by=user or self.user,
+        )
+
+    def test_list_filter_by_search(self) -> None:
+        self._create_alert("Revenue spike")
+        self._create_alert("Unrelated alert")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts", {"search": "Reven"})
+        result_names = [alert["name"] for alert in response.json()["results"]]
+
+        assert result_names == ["Revenue spike"]
+
+    def test_list_filter_by_created_by_uuid(self) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
+
+        self._create_alert("Mine", user=self.user)
+        self._create_alert("Theirs", user=other_user)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/alerts",
+            {"created_by": str(other_user.uuid)},
+        )
+        result_names = [alert["name"] for alert in response.json()["results"]]
+
+        assert result_names == ["Theirs"]
+
+    def test_list_filter_by_search_and_created_by(self) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other2@posthog.com", None)
+
+        self._create_alert("Revenue spike", user=self.user)
+        self._create_alert("Revenue other", user=other_user)
+        self._create_alert("Unrelated", user=other_user)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/alerts",
+            {"search": "Revenue", "created_by": str(other_user.uuid)},
+        )
+        result_names = [alert["name"] for alert in response.json()["results"]]
+
+        assert result_names == ["Revenue other"]
+
+    @parameterized.expand(
+        [
+            ("email in name", "alerts+ops@example.com", "alerts+ops@example.com"),
+            ("uuid in name", "run 1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed", "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed"),
+            ("dotted identifier", "com.acme.billing alert", "com.acme.billing"),
+        ]
+    )
+    def test_list_filter_by_search_matches_literal_substring_below_trigram_threshold(
+        self, _name: str, alert_name: str, search: str
     ) -> None:
-        from posthog.tasks.alerts.utils import trigger_alert_hog_functions
+        self._create_alert(alert_name)
+        self._create_alert("Totally unrelated")
 
-        alert = mock.MagicMock()
-        alert.id = "00000000-0000-0000-0000-000000000001"
-        alert.name = "test alert"
-        alert.insight.name = "test insight"
-        alert.insight.short_id = "abcd1234"
-        alert.state = AlertState.FIRING
-        alert.last_checked_at = None
-        alert.team_id = self.team.id
-        alert.detector_config = detector_config
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts", {"search": search})
+        results = response.json()["results"]
 
-        trigger_alert_hog_functions(alert, properties={"breaches": "test breach"})
+        match_type_by_name = {a["name"]: a["search_match_type"] for a in results}
+        assert match_type_by_name.get(alert_name) == "exact", (
+            "a literal substring must match and be labelled exact even when it scores below the trigram thresholds"
+        )
+        assert all(a["name"] != "Totally unrelated" for a in results)
 
-        assert mock_produce.call_count == 1
-        event = mock_produce.call_args.kwargs["event"]
-        for key, value in expected_props.items():
-            assert event.properties[key] == value, f"{key} expected {value}, got {event.properties[key]}"
-        assert event.properties["breaches"] == "test breach"
+    def test_list_filter_by_search_hides_similar_matches_when_exact_matches_exist(self) -> None:
+        for name in ("revenue spike", "spike in revenue", "reveneu drop", "Unrelated alert"):
+            self._create_alert(name)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts", {"search": "revenue"})
+        results = response.json()["results"]
+
+        match_type_by_name = {a["name"]: a["search_match_type"] for a in results}
+        assert match_type_by_name == {
+            "revenue spike": "exact",
+            "spike in revenue": "exact",
+        }, "similar matches must be hidden when exact matches exist"
+
+    def test_list_filter_by_search_match_type_absent_without_search(self) -> None:
+        self._create_alert("Revenue spike")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts")
+        results = response.json()["results"]
+
+        assert results
+        assert all("search_match_type" not in a for a in results)
+
+    @parameterized.expand(
+        [
+            ("search_length_cap", {"search": "a" * 201}, "search"),
+            ("invalid_created_by_uuid", {"created_by": "not-a-uuid"}, "created_by"),
+        ]
+    )
+    def test_list_filter_validation_errors(self, _name: str, query_params: dict[str, str], expected_attr: str) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts", query_params)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == expected_attr
 
 
 class TestAlertAPIKeyAccess(APIBaseTest):
@@ -1271,6 +1928,13 @@ class TestAlertAPIKeyAccess(APIBaseTest):
             (["alert:read"], "get", "/{alert_id}/", status.HTTP_200_OK, None),
             (["alert:read"], "delete", "/{alert_id}/", status.HTTP_403_FORBIDDEN, "alert:write"),
             (["alert:write"], "delete", "/{alert_id}/", status.HTTP_204_NO_CONTENT, None),
+            (
+                ["alert:read"],
+                "post",
+                "/{alert_id}/test-delivery/",
+                status.HTTP_403_FORBIDDEN,
+                "alert:write",
+            ),
         ]
     )
     def test_alert_api_key_access(self, scopes, http_method, endpoint_suffix, expected_status, error_scope):
@@ -1303,7 +1967,7 @@ class TestAlertAPIKeyAccess(APIBaseTest):
                 "name": "New Alert",
                 "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
                 "config": {"type": "TrendsAlertConfig", "series_index": 0},
-                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             },
             HTTP_AUTHORIZATION=f"Bearer {api_key}",
         )
@@ -1311,3 +1975,205 @@ class TestAlertAPIKeyAccess(APIBaseTest):
         assert response.status_code == expected_status
         if error_scope:
             assert error_scope in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            # simulate returns an insight's result series, so alert:read alone isn't enough.
+            (["feature_flag:read"], "alert:read"),
+            (["alert:read"], "insight:read"),
+        ]
+    )
+    def test_simulate_requires_insight_read_scope(self, scopes, missing_scope):
+        api_key = self._create_api_key(scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate/",
+            data={"insight": self.insight["id"], "detector_config": {"type": "zscore", "threshold": 0.9}},
+            HTTP_AUTHORIZATION=f"Bearer {api_key}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert missing_scope in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            (["alert:read", "insight:read"],),
+            (["alert:write", "insight:write"],),  # write grants read for both
+        ]
+    )
+    @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
+    def test_simulate_with_both_scopes_passes_the_gate(self, scopes, mock_calculate) -> None:
+        mock_calculate.return_value = mock.MagicMock(
+            result=[
+                {
+                    "data": [10.0, 12.0, 11.0, 50.0, 13.0, 12.0, 11.0] * 5,
+                    "days": [f"2024-01-{i:02d}" for i in range(1, 36)],
+                    "labels": [f"2024-01-{i:02d}" for i in range(1, 36)],
+                    "label": "pageview",
+                }
+            ]
+        )
+        api_key = self._create_api_key(scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate/",
+            data={
+                "insight": self.insight["id"],
+                "detector_config": {"type": "zscore", "threshold": 0.9, "window": 30},
+                "series_index": 0,
+            },
+            HTTP_AUTHORIZATION=f"Bearer {api_key}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+
+class TestAlertRealTimeInterval(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.default_insight_data: dict[str, Any] = {
+            "query": {
+                "kind": "TrendsQuery",
+                "series": [
+                    {
+                        "kind": "EventsNode",
+                        "event": "$pageview",
+                    }
+                ],
+                "trendsFilter": {"display": "BoldNumber"},
+            },
+        }
+        self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.default_insight_data).json()
+
+    def _creation_request(self, **overrides: Any) -> dict[str, Any]:
+        payload = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "name": "real time alert",
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"lower": 0}}},
+            "calculation_interval": AlertCalculationInterval.REAL_TIME,
+        }
+        payload.update(overrides)
+        return payload
+
+    def _enable_real_time_alerts(self, limit: int | None = None) -> None:
+        feature: dict[str, Any] = {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts"}
+        if limit is not None:
+            feature["limit"] = limit
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            feature,
+        ]
+        self.organization.save()
+
+    def test_create_real_time_rejected_without_billing_entitlement(self) -> None:
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Scale or Enterprise" in str(response.json())
+
+    def test_create_real_time_succeeds_with_entitlement(self) -> None:
+        self._enable_real_time_alerts()
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert response.json()["calculation_interval"] == AlertCalculationInterval.REAL_TIME
+
+    def test_patch_real_time_succeeds_with_entitlement(self) -> None:
+        self._enable_real_time_alerts()
+        create_response = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
+        alert_id = create_response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert_id}",
+            {"name": "updated real time alert"},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["name"] == "updated real time alert"
+        assert response.json()["calculation_interval"] == AlertCalculationInterval.REAL_TIME
+
+    def test_patch_existing_real_time_rejected_after_entitlement_removed(self) -> None:
+        self._enable_real_time_alerts()
+        create_response = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
+        alert_id = create_response.json()["id"]
+
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert_id}",
+            {"name": "still real time"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Scale or Enterprise" in str(response.json())
+
+    def test_create_real_time_rejected_when_limit_reached(self) -> None:
+        self._enable_real_time_alerts(limit=1)
+        first = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
+        assert first.status_code == status.HTTP_201_CREATED, first.content
+
+        second = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request(name="second"))
+        assert second.status_code == status.HTTP_400_BAD_REQUEST
+        assert "limit of 1 real-time alerts" in str(second.json())
+
+    def test_real_time_limit_ignores_disabled_alerts(self) -> None:
+        self._enable_real_time_alerts(limit=1)
+        first = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
+        assert first.status_code == status.HTTP_201_CREATED, first.content
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{first.json()['id']}",
+            {"enabled": False},
+        )
+
+        second = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request(name="second"))
+        assert second.status_code == status.HTTP_201_CREATED, second.content
+
+    def test_real_time_limit_ignores_other_intervals(self) -> None:
+        self._enable_real_time_alerts(limit=1)
+        daily = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            self._creation_request(name="daily", calculation_interval=AlertCalculationInterval.DAILY),
+        )
+        assert daily.status_code == status.HTTP_201_CREATED, daily.content
+
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+
+    def test_patch_to_real_time_rejected_when_limit_reached(self) -> None:
+        self._enable_real_time_alerts(limit=1)
+        real_time = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
+        assert real_time.status_code == status.HTTP_201_CREATED, real_time.content
+
+        daily = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            self._creation_request(name="daily", calculation_interval=AlertCalculationInterval.DAILY),
+        )
+        assert daily.status_code == status.HTTP_201_CREATED, daily.content
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{daily.json()['id']}",
+            {"calculation_interval": AlertCalculationInterval.REAL_TIME},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "limit of 1 real-time alerts" in str(response.json())
+
+    def test_enable_real_time_rejected_when_limit_reached(self) -> None:
+        self._enable_real_time_alerts(limit=1)
+        first = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
+        assert first.status_code == status.HTTP_201_CREATED, first.content
+
+        disabled = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            self._creation_request(name="disabled", enabled=False),
+        )
+        assert disabled.status_code == status.HTTP_201_CREATED, disabled.content
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{disabled.json()['id']}",
+            {"enabled": True},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "limit of 1 real-time alerts" in str(response.json())

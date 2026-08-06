@@ -7,6 +7,11 @@ on:
                 description: 'File that triggers doc regeneration when changed'
                 required: true
                 type: string
+            additional_source_files:
+                description: 'Extra files (newline-separated) that also trigger regeneration, e.g. the generator script'
+                required: false
+                type: string
+                default: ''
             build_command:
                 description: 'Command to regenerate the docs'
                 required: true
@@ -38,9 +43,15 @@ jobs:
                   GH_TOKEN: ${{ github.token }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   SOURCE_FILE: ${{ inputs.source_file }}
+                  ADDITIONAL_SOURCE_FILES: ${{ inputs.additional_source_files }}
               run: |
-                  if gh pr diff "$PR_NUMBER" --name-only \
-                      | grep -q "$SOURCE_FILE"; then
+                  # Regenerate when the data file OR any additional source (e.g. the generator) changes,
+                  # so a generator-only edit can't pass without validating the committed output.
+                  # --repo is required because this step runs before checkout, so gh has no
+                  # local git remote to infer the repo from (otherwise: "not a git repository").
+                  changed_files=$(gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --name-only)
+                  if printf '%s\n' "$changed_files" \
+                      | grep -qFf <(printf '%s\n' "$SOURCE_FILE" "$ADDITIONAL_SOURCE_FILES" | grep -v '^$'); then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   fi
 
@@ -48,32 +59,9 @@ jobs:
               if: steps.source-check.outputs.changed == 'true'
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            - name: Setup pnpm
+            - name: Install pnpm dependencies
               if: steps.source-check.outputs.changed == 'true'
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Setup Node.js
-              if: steps.source-check.outputs.changed == 'true'
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-
-            - name: Get pnpm store path
-              if: steps.source-check.outputs.changed == 'true'
-              id: pnpm-store
-              run: echo "path=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-
-            - name: Restore pnpm cache
-              if: steps.source-check.outputs.changed == 'true'
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: ${{ steps.pnpm-store.outputs.path }}
-                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-
-
-            - name: Install dependencies
-              if: steps.source-check.outputs.changed == 'true'
-              run: pnpm install --frozen-lockfile
+              uses: ./.github/actions/pnpm-install
 
             - name: Generate docs
               if: steps.source-check.outputs.changed == 'true'
@@ -96,20 +84,12 @@ jobs:
             - name: Post reminder comment
               if: steps.docs-check.outputs.outdated == 'true'
               env:
-                  GH_TOKEN: ${{ github.token }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  GITHUB_TOKEN: ${{ github.token }}
                   SOURCE_FILE: ${{ inputs.source_file }}
                   BUILD_COMMAND: ${{ inputs.build_command }}
                   OUTPUT_FILE: ${{ inputs.output_file }}
               run: |
-                  # Check if reminder comment already exists
-                  if gh pr view "$PR_NUMBER" --json comments \
-                      --jq '.comments[].body' | grep -q 'Generated Docs Update Required'; then
-                      echo "Comment already exists, skipping"
-                      exit 0
-                  fi
-
-                  gh pr comment "$PR_NUMBER" --body "### 📄 Generated Docs Update Required
+                  message_body="### Generated docs update required
 
                   You updated \`${SOURCE_FILE}\` but the generated docs are out of date.
 
@@ -119,6 +99,25 @@ jobs:
                   \`\`\`
 
                   Then commit the updated \`${OUTPUT_FILE}\` file."
+
+                  # All callers of this reusable workflow share the one generated-docs section —
+                  # if a second caller ever runs on the same PR, they will clobber and false-clear
+                  # each other; give the section id an input (registered in SECTIONS) at that point.
+                  if [ -f .github/scripts/post-reminder-section.mjs ]; then
+                      BODY="$message_body" node .github/scripts/post-reminder-section.mjs generated-docs warn "regeneration needed"
+                  else
+                      echo "Skipping generated-docs section — script not present on this checkout"
+                  fi
+
+            # Docs are current again — mark any reminder from an earlier push resolved.
+            - name: Clear docs reminder
+              if: steps.docs-check.outputs.outdated == 'false'
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f .github/scripts/post-reminder-section.mjs ]; then
+                      node .github/scripts/post-reminder-section.mjs generated-docs --clear "docs regenerated"
+                  fi
 
             - name: Fail if docs outdated
               if: steps.docs-check.outputs.outdated == 'true' && inputs.fail_on_outdated

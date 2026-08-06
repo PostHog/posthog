@@ -22,10 +22,27 @@ function makeNoopStreamResponse(): Response {
     } as unknown as Response
 }
 
+// Build a fake Response that streams the given SSE chunks and then closes.
+function makeSseStreamResponse(chunks: string[]): Response {
+    const encoder = new TextEncoder()
+    const queue = chunks.map((chunk) => encoder.encode(chunk))
+    return {
+        body: {
+            getReader: () => ({
+                read: async () => {
+                    const next = queue.shift()
+                    return next === undefined ? { done: true, value: undefined } : { done: false, value: next }
+                },
+            }),
+        },
+    } as unknown as Response
+}
+
 describe('sessionSummaryProgressLogic', () => {
     let logic: ReturnType<typeof sessionSummaryProgressLogic.build>
 
     beforeEach(() => {
+        localStorage.clear() // the persisted autoExpandSummary reducer must not leak between tests
         initKeaTests()
         logic = sessionSummaryProgressLogic()
         logic.mount()
@@ -68,22 +85,38 @@ describe('sessionSummaryProgressLogic', () => {
             })
         })
 
-        it('re-opens via setSummary after user closed, only if summary is non-null', async () => {
+        it('does not re-open via setSummary after the user closed', async () => {
             logic.actions.startSummarization(SESSION_ID)
             logic.actions.setSummaryOpen(SESSION_ID, false)
 
-            // Null summary should not reopen
-            await expectLogic(logic, () => {
-                logic.actions.setSummary(SESSION_ID, null)
-            }).toMatchValues({
-                openBySessionId: expect.objectContaining({ [SESSION_ID]: false }),
-            })
-
-            // Non-null summary should reopen
             await expectLogic(logic, () => {
                 logic.actions.setSummary(SESSION_ID, { segments: [] } as any)
             }).toMatchValues({
-                openBySessionId: expect.objectContaining({ [SESSION_ID]: true }),
+                openBySessionId: expect.objectContaining({ [SESSION_ID]: false }),
+            })
+        })
+
+        it('does not auto-open when the user collapsed the dock for another session', async () => {
+            logic.actions.setSummaryOpen('session-a', false)
+
+            await expectLogic(logic, () => {
+                logic.actions.startSummarization('session-b')
+                logic.actions.setSummary('session-c', { segments: [] } as any)
+            }).toMatchValues({
+                autoExpandSummary: false,
+                openBySessionId: { 'session-a': false },
+            })
+        })
+
+        it('expanding the dock re-enables auto-open for future sessions', async () => {
+            logic.actions.setSummaryOpen('session-a', false)
+            logic.actions.setSummaryOpen('session-a', true)
+
+            await expectLogic(logic, () => {
+                logic.actions.startSummarization('session-b')
+            }).toMatchValues({
+                autoExpandSummary: true,
+                openBySessionId: expect.objectContaining({ 'session-b': true }),
             })
         })
 
@@ -203,6 +236,70 @@ describe('sessionSummaryProgressLogic', () => {
             const lastByB = [...calls].reverse().find((c) => c[0] === idB)
             expect(lastByA?.[1]).toEqual(expect.objectContaining({ forceRestart: true }))
             expect(lastByB?.[1]).toEqual(expect.objectContaining({ forceRestart: false }))
+        })
+    })
+
+    describe('stream lifecycle', () => {
+        it('clears loading and surfaces an error when the stream ends without a terminal event', async () => {
+            const sessionId = 'stream-no-terminal-event'
+            // Stream emits only a progress event then closes — no summary, no error.
+            // Without terminal-event tracking, loading would stay true until the 10-minute timeout.
+            ;(api as any).recordings.summarizeStream = jest
+                .fn()
+                .mockResolvedValue(
+                    makeSseStreamResponse(['event: session-summary-progress\ndata: {"step":1,"phase":"watching"}\n\n'])
+                )
+
+            await expectLogic(logic, () => {
+                logic.actions.startSummarization(sessionId)
+            })
+                .toDispatchActions(['startSummarization', 'setProgress', 'setError'])
+                .toMatchValues({
+                    loadingBySessionId: expect.objectContaining({ [sessionId]: false }),
+                    errorBySessionId: expect.objectContaining({
+                        [sessionId]: 'Summary stream ended unexpectedly. Please try again.',
+                    }),
+                })
+        })
+
+        it('does not surface the unexpected-end error after a successful summary stream', async () => {
+            const sessionId = 'stream-with-summary'
+            ;(api as any).recordings.summarizeStream = jest
+                .fn()
+                .mockResolvedValue(
+                    makeSseStreamResponse(['data: {"id":"summary-1","summary":{"segments":[],"key_actions":[]}}\n\n'])
+                )
+
+            await expectLogic(logic, () => {
+                logic.actions.startSummarization(sessionId)
+            })
+                .toDispatchActions(['startSummarization', 'setSummary'])
+                .toMatchValues({
+                    loadingBySessionId: expect.objectContaining({ [sessionId]: false }),
+                    errorBySessionId: expect.objectContaining({ [sessionId]: null }),
+                })
+        })
+
+        it('does not surface the unexpected-end error when the user cancelled mid-stream', async () => {
+            const sessionId = 'stream-cancelled'
+            let releaseRead: (result: { done: boolean; value?: Uint8Array }) => void = () => {}
+            ;(api as any).recordings.summarizeStream = jest.fn().mockResolvedValue({
+                body: {
+                    getReader: () => ({
+                        read: () => new Promise((resolve) => (releaseRead = resolve)),
+                    }),
+                },
+            } as unknown as Response)
+
+            logic.actions.startSummarization(sessionId)
+            // Let the listener reach the pending reader.read() before cancelling
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            logic.actions.cancelSummarization(sessionId)
+            releaseRead({ done: true, value: undefined })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.errorBySessionId[sessionId]).toBeNull()
+            expect(logic.values.loadingBySessionId[sessionId]).toBe(false)
         })
     })
 })

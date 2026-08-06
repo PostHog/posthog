@@ -3,11 +3,13 @@ import { BindLogic } from 'kea'
 
 import { mswDecorator } from '~/mocks/browser'
 
+import __dashboard1 from '../__mocks__/dashboard1.json'
+import __dashboards from '../__mocks__/dashboards.json'
 import { addInsightToDashboardLogic } from '../addInsightToDashboardModalLogic'
 import { dashboardLogic } from '../dashboardLogic'
 import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
 
-const dashboardRaw = require('../__mocks__/dashboard1.json')
+const dashboardRaw = __dashboard1 as any
 
 const dashboard = {
     ...dashboardRaw,
@@ -48,7 +50,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/dashboards/': require('../__mocks__/dashboards.json'),
+                '/api/environments/:team_id/dashboards/': __dashboards as any,
                 [`/api/environments/:team_id/dashboards/${DASHBOARD_ID}/`]: dashboard,
                 '/api/environments/:team_id/insights/': mockInsightsList,
             },
@@ -61,7 +63,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
-        testOptions: { waitForSelector: '.LemonModal' },
+        testOptions: { waitForSelector: '.LemonModal', viewport: { width: 1300, height: 2000 } },
     },
 }
 export default meta
@@ -95,7 +97,7 @@ export const Empty: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/dashboards/': require('../__mocks__/dashboards.json'),
+                '/api/environments/:team_id/dashboards/': __dashboards as any,
                 [`/api/environments/:team_id/dashboards/${DASHBOARD_ID}/`]: dashboard,
                 '/api/environments/:team_id/insights/': { results: [], count: 0, next: null, previous: null },
             },

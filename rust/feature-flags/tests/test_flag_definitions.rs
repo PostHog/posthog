@@ -1335,17 +1335,17 @@ async fn test_invalid_project_api_key() {
         "Should return 401 for invalid token. Body: {body_text}"
     );
 
-    // Verify the response body format (if JSON)
-    if let Ok(body) = serde_json::from_str::<Value>(&body_text) {
-        assert_eq!(body["type"], "authentication_error");
-        assert_eq!(body["code"], "not_authenticated");
-    } else {
-        // If not JSON, verify the error message mentions invalid API key
-        assert!(
-            body_text.contains("API key is invalid") || body_text.contains("expired"),
-            "Body should mention invalid API key. Got: {body_text}"
-        );
-    }
+    // An invalid project token must return the structured DRF-style JSON envelope,
+    // matching the secret/personal API key paths.
+    let body: Value = serde_json::from_str(&body_text)
+        .unwrap_or_else(|_| panic!("Body should be JSON. Got: {body_text}"));
+    assert_eq!(body["type"], "authentication_error");
+    assert_eq!(body["code"], "authentication_failed");
+    assert_eq!(
+        body["detail"],
+        "The provided API key is invalid or has expired. Please check your API key and try again."
+    );
+    assert_eq!(body["attr"], Value::Null);
 }
 
 #[tokio::test]
@@ -2640,4 +2640,103 @@ async fn test_flag_definitions_billing_counter(#[case] skip_writes: bool) {
             "FlagDefinitions billing counter should be incremented once"
         );
     }
+}
+
+/// Poll the self-heal rebuild-requests set until it contains `team_id`, or return
+/// false after ~2s. The enqueue runs in a background task, so a bounded retry is
+/// needed rather than a single read.
+async fn poll_for_rebuild_enqueue(redis_url: &str, team_id: i32) -> bool {
+    use feature_flags::utils::test_utils::read_flag_definitions_rebuild_requests;
+    use tokio::time::{sleep, Duration};
+
+    for _ in 0..40 {
+        let members = read_flag_definitions_rebuild_requests(redis_url).await;
+        if members.contains(&team_id.to_string()) {
+            return true;
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+    false
+}
+
+#[tokio::test]
+async fn test_cache_miss_enqueues_rebuild_when_self_heal_enabled() {
+    use feature_flags::{
+        config::{Config, FlexBool},
+        utils::test_utils::{dummy_s3_client, TestContext},
+    };
+    use reqwest;
+
+    let mut config = Config::default_test_config();
+    config.flag_definitions_self_heal_enabled = FlexBool(true);
+    let context = TestContext::new(Some(&config)).await;
+
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    // Don't populate the cache, and inject a NotFound S3 so the read is a genuine
+    // cache_miss (the flags test job has no object store, so real S3 would error).
+    let server =
+        common::ServerHandle::for_config_with_s3(config.clone(), Some(dummy_s3_client())).await;
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 503, "expected a cache-miss 503");
+    assert!(
+        poll_for_rebuild_enqueue(&config.redis_url, team.id).await,
+        "team {} should be enqueued for rebuild after a cache-miss 503",
+        team.id
+    );
+}
+
+#[tokio::test]
+async fn test_cache_miss_does_not_enqueue_rebuild_when_self_heal_disabled() {
+    use feature_flags::{
+        config::Config,
+        utils::test_utils::{dummy_s3_client, read_flag_definitions_rebuild_requests, TestContext},
+    };
+    use reqwest;
+    use tokio::time::{sleep, Duration};
+
+    // default_test_config leaves flag_definitions_self_heal_enabled = false.
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    // Inject a NotFound S3 so this is a genuine cache_miss: the only reason no enqueue
+    // happens is the flag being off, not the miss classifying as s3_error.
+    let server =
+        common::ServerHandle::for_config_with_s3(config.clone(), Some(dummy_s3_client())).await;
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 503, "expected a cache-miss 503");
+
+    // Give any (erroneous) background enqueue time to land, then assert it did not.
+    sleep(Duration::from_millis(500)).await;
+    let members = read_flag_definitions_rebuild_requests(&config.redis_url).await;
+    assert!(
+        !members.contains(&team.id.to_string()),
+        "team {} must not be enqueued when self-heal is disabled",
+        team.id
+    );
 }

@@ -20,41 +20,25 @@ from .provider_keys import LLMProviderKeySerializer
 
 @extend_schema_serializer(many=False)
 class EvaluationConfigSerializer(serializers.ModelSerializer):
-    trial_evals_remaining = serializers.IntegerField(
-        read_only=True,
-        help_text="Number of trial evaluation runs remaining before the team must supply its own provider key.",
-    )
     active_provider_key = LLMProviderKeySerializer(
         read_only=True,
         allow_null=True,
-        help_text="Provider key currently used to run llm_judge evaluations. Null when the team is on trial credits.",
+        help_text="Provider key used to run llm_judge evals; null if none configured yet.",
     )
 
     class Meta:
         model = EvaluationConfig
         fields = [
-            "trial_eval_limit",
-            "trial_evals_used",
-            "trial_evals_remaining",
             "active_provider_key",
             "created_at",
             "updated_at",
         ]
         read_only_fields = [
-            "trial_eval_limit",
-            "trial_evals_used",
-            "trial_evals_remaining",
             "active_provider_key",
             "created_at",
             "updated_at",
         ]
         extra_kwargs = {
-            "trial_eval_limit": {
-                "help_text": "Maximum number of llm_judge runs the team may execute on PostHog trial credits.",
-            },
-            "trial_evals_used": {
-                "help_text": "Number of llm_judge runs already consumed against the trial credit pool.",
-            },
             "created_at": {"help_text": "Timestamp when the evaluation config row was created."},
             "updated_at": {"help_text": "Timestamp when the evaluation config row was last modified."},
         }

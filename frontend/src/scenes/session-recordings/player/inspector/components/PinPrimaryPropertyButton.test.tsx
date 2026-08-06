@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, render } from '@testing-library/react'
 import { Provider } from 'kea'
 
-import { getPrimaryPropertyForEvent } from 'lib/utils/primaryEventProperty'
+import { getPrimaryPropertyForEvent } from 'lib/utils/events'
 
 import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
 import { initKeaTests } from '~/test/init'

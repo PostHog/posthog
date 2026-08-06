@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { lowercaseFirstLetter } from 'lib/utils'
+import { lowercaseFirstLetter } from 'lib/utils/strings'
 
 import { CostBreakdownTooltip } from '../components/CostBreakdownTooltip'
 import { MetadataTag } from '../components/MetadataTag'

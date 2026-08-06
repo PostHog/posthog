@@ -2,12 +2,12 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
 
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
-import { PostgresUse } from '../../utils/db/postgres'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { LegacyDestinationPlugin, LegacyTransformationPlugin } from '../legacy-plugins/types'

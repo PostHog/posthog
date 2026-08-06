@@ -39,7 +39,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -53,12 +53,12 @@
                         (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                  FROM events
                  LEFT OUTER JOIN
-                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                  WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -81,6 +81,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -125,7 +127,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -139,12 +141,12 @@
                         (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                  FROM events
                  LEFT OUTER JOIN
-                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                  WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -167,6 +169,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -211,7 +215,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -225,12 +229,12 @@
                         (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                  FROM events
                  LEFT OUTER JOIN
-                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                  WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), and(equals(events.event, '$pageview'), ifNull(notIn(path_item, ['/bar/*/foo']), 1)))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -252,6 +256,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -296,7 +302,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -310,12 +316,12 @@
                         (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                  FROM events
                  LEFT OUTER JOIN
-                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                  WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), and(equals(events.event, '$pageview'), ifNull(notIn(path_item, ['/bar/*/foo']), 1)))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -337,6 +343,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -381,7 +389,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -395,12 +403,12 @@
                         (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                  FROM events
                  LEFT OUTER JOIN
-                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                  WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -422,6 +430,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -466,7 +476,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -480,12 +490,12 @@
                         (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                  FROM events
                  LEFT OUTER JOIN
-                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                  WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), equals(events.event, '$screen'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -507,6 +517,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -551,7 +563,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -565,12 +577,12 @@
                         (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                  FROM events
                  LEFT OUTER JOIN
-                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                  WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -592,6 +604,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -636,7 +650,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -650,12 +664,12 @@
                         (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                  FROM events
                  LEFT OUTER JOIN
-                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                  WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))), ifNull(notIn(path_item, ['/custom1', '/1', '/2', '/3']), 1)))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -677,6 +691,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -721,7 +737,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -735,12 +751,12 @@
                         (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                  FROM events
                  LEFT OUTER JOIN
-                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                  WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-03 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -762,6 +778,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -806,7 +824,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -820,12 +838,12 @@
                         (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                  FROM events
                  LEFT OUTER JOIN
-                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                  LEFT JOIN
                    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                            groups.group_type_index AS index,
@@ -855,6 +873,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -899,7 +919,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -942,6 +962,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -986,7 +1008,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -1029,6 +1051,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -1095,7 +1119,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -1121,12 +1145,12 @@
                            (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                     FROM events
                     LEFT OUTER JOIN
-                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -1134,8 +1158,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(path_dropoff_key, '2_step two'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
-                                                                         and isNull(path_key)))
+     WHERE and(equals(path_dropoff_key, '2_step two'), equals(path_dropoff_key, path_key))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -1149,6 +1172,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -1215,7 +1240,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -1241,12 +1266,12 @@
                            (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                     FROM events
                     LEFT OUTER JOIN
-                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -1254,7 +1279,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE ifNull(equals(path_key, '2_step two'), 0)
+     WHERE equals(path_key, '2_step two')
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -1268,6 +1293,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -1334,7 +1361,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -1360,12 +1387,12 @@
                            (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                     FROM events
                     LEFT OUTER JOIN
-                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -1387,6 +1414,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -1453,7 +1482,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -1479,12 +1508,12 @@
                            (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                     FROM events
                     LEFT OUTER JOIN
-                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -1492,8 +1521,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(path_dropoff_key, '3_step three'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
-                                                                           and isNull(path_key)))
+     WHERE and(equals(path_dropoff_key, '3_step three'), equals(path_dropoff_key, path_key))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -1507,6 +1535,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -1573,7 +1603,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -1599,12 +1629,12 @@
                            (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                     FROM events
                     LEFT OUTER JOIN
-                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -1612,7 +1642,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE ifNull(equals(path_key, '3_step three'), 0)
+     WHERE equals(path_key, '3_step three')
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -1626,6 +1656,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -1692,7 +1724,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -1718,12 +1750,12 @@
                            (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                     FROM events
                     LEFT OUTER JOIN
-                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -1745,6 +1777,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -1811,7 +1845,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -1837,12 +1871,12 @@
                            (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                     FROM events
                     LEFT OUTER JOIN
-                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -1850,8 +1884,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(path_dropoff_key, '4_step four'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
-                                                                          and isNull(path_key)))
+     WHERE and(equals(path_dropoff_key, '4_step four'), equals(path_dropoff_key, path_key))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -1865,6 +1898,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -1931,7 +1966,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -1957,12 +1992,12 @@
                            (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                     FROM events
                     LEFT OUTER JOIN
-                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -1970,7 +2005,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE ifNull(equals(path_key, '4_step four'), 0)
+     WHERE equals(path_key, '4_step four')
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -1984,6 +2019,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -2050,7 +2087,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -2076,12 +2113,12 @@
                            (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                     FROM events
                     LEFT OUTER JOIN
-                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -2103,6 +2140,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -2156,7 +2195,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -2170,12 +2209,12 @@
                         (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                  FROM events
                  LEFT OUTER JOIN
-                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                  WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-02-01 23:59:59', 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -2197,6 +2236,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -2265,7 +2306,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -2291,12 +2332,12 @@
                            (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                     FROM events
                     LEFT OUTER JOIN
-                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -2304,10 +2345,10 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE ifNull(equals(path_key, '2_/2'), 0)
+     WHERE equals(path_key, '2_/2')
      GROUP BY person_id) AS source
   INNER JOIN
-    (SELECT tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -2320,27 +2361,27 @@
                                                             (SELECT person_id AS person_id, joined_path_tuple.1 AS path, joined_path_tuple.2 AS conversion_time, joined_path_tuple.3 AS prev_path, event_in_session_index, session_index AS session_index, arrayPopFront(arrayPushBack(path_basic, '')) AS path_basic_0, arrayMap((x, y) -> if(ifNull(equals(x, y), isNull(x)
                                                                                                                                                                                                                                                                                                                                                       and isNull(y)), 0, 1), path_basic, path_basic_0) AS mapping, arrayFilter((x, y) -> y, time, mapping) AS timings, arrayFilter((x, y) -> y, path_basic, mapping) AS compact_path, indexOf(compact_path, NULL) AS target_index, joined_path_tuple.4 AS final_uuid, joined_path_tuple.5 AS final_timestamp, joined_path_tuple.6 AS final_session_id, joined_path_tuple.7 AS final_window_id, arrayFilter((x, y) -> y, uuid_items, mapping) AS uuid, arrayFilter((x, y) -> y, timestamp_items, mapping) AS timestamp, arrayFilter((x, y) -> y, session_id_items, mapping) AS session_id, arrayFilter((x, y) -> y, window_id_items, mapping) AS window_id, if(ifNull(greater(target_index, 0), 0), arraySlice(compact_path, target_index), compact_path) AS filtered_path, arraySlice(filtered_path, 1, 5) AS limited_path, if(ifNull(greater(target_index, 0), 0), arraySlice(timings, target_index), timings) AS filtered_timings, arraySlice(filtered_timings, 1, 5) AS limited_timings, if(ifNull(greater(target_index, 0), 0), arraySlice(uuid, target_index), uuid) AS filtered_uuid, arraySlice(filtered_uuid, 1, 5) AS limited_uuid, if(ifNull(greater(target_index, 0), 0), arraySlice(timestamp, target_index), timestamp) AS filtered_timestamp, arraySlice(filtered_timestamp, 1, 5) AS limited_timestamp, if(ifNull(greater(target_index, 0), 0), arraySlice(session_id, target_index), session_id) AS filtered_session_id, arraySlice(filtered_session_id, 1, 5) AS limited_session_id, if(ifNull(greater(target_index, 0), 0), arraySlice(window_id, target_index), window_id) AS filtered_window_id, arraySlice(filtered_window_id, 1, 5) AS limited_window_id, arrayDifference(limited_timings) AS timings_diff, concat(ifNull(toString(length(limited_path)), ''), '_', ifNull(toString(limited_path[-1]), '')) AS path_dropoff_key, arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuid, limited_timestamp, limited_session_id, limited_window_id) AS limited_path_timings
                                                              FROM
-                                                               (SELECT person_id AS person_id, path_time_tuple.1 AS path_basic, path_time_tuple.2 AS time, session_index, arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple, arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths, path_time_tuple.4 AS uuid_items, path_time_tuple.5 AS timestamp_items, path_time_tuple.6 AS session_id_items, path_time_tuple.7 AS window_id_items
+                                                               (SELECT person_id AS person_id, path_time_tuple.1 AS path_basic, path_time_tuple.2 AS time, session_index, arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple, arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths, path_time_tuple.4 AS uuid_items, path_time_tuple.5 AS timestamp_items, path_time_tuple.6 AS session_id_items, path_time_tuple.7 AS window_id_items
                                                                 FROM
                                                                   (SELECT person_id AS person_id, groupArray(timestamp) AS timing_list, groupArray(path_item) AS path_list, groupArray(uuid) AS uuid_list, groupArray(timestamp) AS timestamp_list, groupArray(session_id) AS session_id_list, groupArray(window_id) AS window_id_list
                                                                    FROM
                                                                      (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, NULL AS groupings, multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index, (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                                                                       FROM events
                                                                       LEFT OUTER JOIN
-                                                                        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
+                                                                        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
                                                                          FROM person_distinct_id_overrides
                                                                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                          GROUP BY person_distinct_id_overrides.distinct_id
-                                                                         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                                                                         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                       WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                                                                       ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                    GROUP BY person_id) ARRAY
                                                                 JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                              JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
-                                                       WHERE ifNull(equals(path_key, '2_/2'), 0)
+                                                       WHERE equals(path_key, '2_/2')
                                                        GROUP BY person_id) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
@@ -2353,6 +2394,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -2366,7 +2409,7 @@
   FROM session_replay_events
   WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['s3', 's1', 's5']))
   GROUP BY session_replay_events.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(session_replay_events.is_deleted), 0), 0))
+  HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(session_replay_events.is_deleted), 0))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2375,6 +2418,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -2443,7 +2488,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -2469,12 +2514,12 @@
                            (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                     FROM events
                     LEFT OUTER JOIN
-                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -2482,11 +2527,10 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(path_dropoff_key, '2_/2'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
-                                                                   and isNull(path_key)))
+     WHERE and(equals(path_dropoff_key, '2_/2'), equals(path_dropoff_key, path_key))
      GROUP BY person_id) AS source
   INNER JOIN
-    (SELECT tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -2499,28 +2543,27 @@
                                                             (SELECT person_id AS person_id, joined_path_tuple.1 AS path, joined_path_tuple.2 AS conversion_time, joined_path_tuple.3 AS prev_path, event_in_session_index, session_index AS session_index, arrayPopFront(arrayPushBack(path_basic, '')) AS path_basic_0, arrayMap((x, y) -> if(ifNull(equals(x, y), isNull(x)
                                                                                                                                                                                                                                                                                                                                                       and isNull(y)), 0, 1), path_basic, path_basic_0) AS mapping, arrayFilter((x, y) -> y, time, mapping) AS timings, arrayFilter((x, y) -> y, path_basic, mapping) AS compact_path, indexOf(compact_path, NULL) AS target_index, joined_path_tuple.4 AS final_uuid, joined_path_tuple.5 AS final_timestamp, joined_path_tuple.6 AS final_session_id, joined_path_tuple.7 AS final_window_id, arrayFilter((x, y) -> y, uuid_items, mapping) AS uuid, arrayFilter((x, y) -> y, timestamp_items, mapping) AS timestamp, arrayFilter((x, y) -> y, session_id_items, mapping) AS session_id, arrayFilter((x, y) -> y, window_id_items, mapping) AS window_id, if(ifNull(greater(target_index, 0), 0), arraySlice(compact_path, target_index), compact_path) AS filtered_path, arraySlice(filtered_path, 1, 5) AS limited_path, if(ifNull(greater(target_index, 0), 0), arraySlice(timings, target_index), timings) AS filtered_timings, arraySlice(filtered_timings, 1, 5) AS limited_timings, if(ifNull(greater(target_index, 0), 0), arraySlice(uuid, target_index), uuid) AS filtered_uuid, arraySlice(filtered_uuid, 1, 5) AS limited_uuid, if(ifNull(greater(target_index, 0), 0), arraySlice(timestamp, target_index), timestamp) AS filtered_timestamp, arraySlice(filtered_timestamp, 1, 5) AS limited_timestamp, if(ifNull(greater(target_index, 0), 0), arraySlice(session_id, target_index), session_id) AS filtered_session_id, arraySlice(filtered_session_id, 1, 5) AS limited_session_id, if(ifNull(greater(target_index, 0), 0), arraySlice(window_id, target_index), window_id) AS filtered_window_id, arraySlice(filtered_window_id, 1, 5) AS limited_window_id, arrayDifference(limited_timings) AS timings_diff, concat(ifNull(toString(length(limited_path)), ''), '_', ifNull(toString(limited_path[-1]), '')) AS path_dropoff_key, arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuid, limited_timestamp, limited_session_id, limited_window_id) AS limited_path_timings
                                                              FROM
-                                                               (SELECT person_id AS person_id, path_time_tuple.1 AS path_basic, path_time_tuple.2 AS time, session_index, arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple, arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths, path_time_tuple.4 AS uuid_items, path_time_tuple.5 AS timestamp_items, path_time_tuple.6 AS session_id_items, path_time_tuple.7 AS window_id_items
+                                                               (SELECT person_id AS person_id, path_time_tuple.1 AS path_basic, path_time_tuple.2 AS time, session_index, arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple, arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths, path_time_tuple.4 AS uuid_items, path_time_tuple.5 AS timestamp_items, path_time_tuple.6 AS session_id_items, path_time_tuple.7 AS window_id_items
                                                                 FROM
                                                                   (SELECT person_id AS person_id, groupArray(timestamp) AS timing_list, groupArray(path_item) AS path_list, groupArray(uuid) AS uuid_list, groupArray(timestamp) AS timestamp_list, groupArray(session_id) AS session_id_list, groupArray(window_id) AS window_id_list
                                                                    FROM
                                                                      (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, NULL AS groupings, multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index, (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                                                                       FROM events
                                                                       LEFT OUTER JOIN
-                                                                        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
+                                                                        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
                                                                          FROM person_distinct_id_overrides
                                                                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                          GROUP BY person_distinct_id_overrides.distinct_id
-                                                                         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                                                                         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                       WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                                                                       ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                    GROUP BY person_id) ARRAY
                                                                 JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                              JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
-                                                       WHERE and(ifNull(equals(path_dropoff_key, '2_/2'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
-                                                                                                                     and isNull(path_key)))
+                                                       WHERE and(equals(path_dropoff_key, '2_/2'), equals(path_dropoff_key, path_key))
                                                        GROUP BY person_id) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
@@ -2533,6 +2576,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -2601,7 +2646,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -2627,12 +2672,12 @@
                            (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                     FROM events
                     LEFT OUTER JOIN
-                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -2640,11 +2685,10 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(path_dropoff_key, '3_/3'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
-                                                                   and isNull(path_key)))
+     WHERE and(equals(path_dropoff_key, '3_/3'), equals(path_dropoff_key, path_key))
      GROUP BY person_id) AS source
   INNER JOIN
-    (SELECT tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -2657,28 +2701,27 @@
                                                             (SELECT person_id AS person_id, joined_path_tuple.1 AS path, joined_path_tuple.2 AS conversion_time, joined_path_tuple.3 AS prev_path, event_in_session_index, session_index AS session_index, arrayPopFront(arrayPushBack(path_basic, '')) AS path_basic_0, arrayMap((x, y) -> if(ifNull(equals(x, y), isNull(x)
                                                                                                                                                                                                                                                                                                                                                       and isNull(y)), 0, 1), path_basic, path_basic_0) AS mapping, arrayFilter((x, y) -> y, time, mapping) AS timings, arrayFilter((x, y) -> y, path_basic, mapping) AS compact_path, indexOf(compact_path, NULL) AS target_index, joined_path_tuple.4 AS final_uuid, joined_path_tuple.5 AS final_timestamp, joined_path_tuple.6 AS final_session_id, joined_path_tuple.7 AS final_window_id, arrayFilter((x, y) -> y, uuid_items, mapping) AS uuid, arrayFilter((x, y) -> y, timestamp_items, mapping) AS timestamp, arrayFilter((x, y) -> y, session_id_items, mapping) AS session_id, arrayFilter((x, y) -> y, window_id_items, mapping) AS window_id, if(ifNull(greater(target_index, 0), 0), arraySlice(compact_path, target_index), compact_path) AS filtered_path, arraySlice(filtered_path, 1, 5) AS limited_path, if(ifNull(greater(target_index, 0), 0), arraySlice(timings, target_index), timings) AS filtered_timings, arraySlice(filtered_timings, 1, 5) AS limited_timings, if(ifNull(greater(target_index, 0), 0), arraySlice(uuid, target_index), uuid) AS filtered_uuid, arraySlice(filtered_uuid, 1, 5) AS limited_uuid, if(ifNull(greater(target_index, 0), 0), arraySlice(timestamp, target_index), timestamp) AS filtered_timestamp, arraySlice(filtered_timestamp, 1, 5) AS limited_timestamp, if(ifNull(greater(target_index, 0), 0), arraySlice(session_id, target_index), session_id) AS filtered_session_id, arraySlice(filtered_session_id, 1, 5) AS limited_session_id, if(ifNull(greater(target_index, 0), 0), arraySlice(window_id, target_index), window_id) AS filtered_window_id, arraySlice(filtered_window_id, 1, 5) AS limited_window_id, arrayDifference(limited_timings) AS timings_diff, concat(ifNull(toString(length(limited_path)), ''), '_', ifNull(toString(limited_path[-1]), '')) AS path_dropoff_key, arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuid, limited_timestamp, limited_session_id, limited_window_id) AS limited_path_timings
                                                              FROM
-                                                               (SELECT person_id AS person_id, path_time_tuple.1 AS path_basic, path_time_tuple.2 AS time, session_index, arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple, arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths, path_time_tuple.4 AS uuid_items, path_time_tuple.5 AS timestamp_items, path_time_tuple.6 AS session_id_items, path_time_tuple.7 AS window_id_items
+                                                               (SELECT person_id AS person_id, path_time_tuple.1 AS path_basic, path_time_tuple.2 AS time, session_index, arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple, arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths, path_time_tuple.4 AS uuid_items, path_time_tuple.5 AS timestamp_items, path_time_tuple.6 AS session_id_items, path_time_tuple.7 AS window_id_items
                                                                 FROM
                                                                   (SELECT person_id AS person_id, groupArray(timestamp) AS timing_list, groupArray(path_item) AS path_list, groupArray(uuid) AS uuid_list, groupArray(timestamp) AS timestamp_list, groupArray(session_id) AS session_id_list, groupArray(window_id) AS window_id_list
                                                                    FROM
                                                                      (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, NULL AS groupings, multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index, (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                                                                       FROM events
                                                                       LEFT OUTER JOIN
-                                                                        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
+                                                                        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
                                                                          FROM person_distinct_id_overrides
                                                                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                          GROUP BY person_distinct_id_overrides.distinct_id
-                                                                         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                                                                         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                       WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                                                                       ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                    GROUP BY person_id) ARRAY
                                                                 JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                              JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
-                                                       WHERE and(ifNull(equals(path_dropoff_key, '3_/3'), 0), ifNull(equals(path_dropoff_key, path_key), isNull(path_dropoff_key)
-                                                                                                                     and isNull(path_key)))
+                                                       WHERE and(equals(path_dropoff_key, '3_/3'), equals(path_dropoff_key, path_key))
                                                        GROUP BY person_id) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
@@ -2691,6 +2734,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -2704,7 +2749,7 @@
   FROM session_replay_events
   WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['s1']))
   GROUP BY session_replay_events.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC')), 0), ifNull(equals(max(session_replay_events.is_deleted), 0), 0))
+  HAVING and(greaterOrEquals(expiry_time, toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC')), equals(max(session_replay_events.is_deleted), 0))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2713,6 +2758,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -2781,7 +2828,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -2807,12 +2854,12 @@
                            (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                     FROM events
                     LEFT OUTER JOIN
-                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -2820,10 +2867,10 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE ifNull(equals(path_key, '2_/2'), 0)
+     WHERE equals(path_key, '2_/2')
      GROUP BY person_id) AS source
   INNER JOIN
-    (SELECT tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -2836,27 +2883,27 @@
                                                             (SELECT person_id AS person_id, joined_path_tuple.1 AS path, joined_path_tuple.2 AS conversion_time, joined_path_tuple.3 AS prev_path, event_in_session_index, session_index AS session_index, arrayPopFront(arrayPushBack(path_basic, '')) AS path_basic_0, arrayMap((x, y) -> if(ifNull(equals(x, y), isNull(x)
                                                                                                                                                                                                                                                                                                                                                       and isNull(y)), 0, 1), path_basic, path_basic_0) AS mapping, arrayFilter((x, y) -> y, time, mapping) AS timings, arrayFilter((x, y) -> y, path_basic, mapping) AS compact_path, indexOf(compact_path, NULL) AS target_index, joined_path_tuple.4 AS final_uuid, joined_path_tuple.5 AS final_timestamp, joined_path_tuple.6 AS final_session_id, joined_path_tuple.7 AS final_window_id, arrayFilter((x, y) -> y, uuid_items, mapping) AS uuid, arrayFilter((x, y) -> y, timestamp_items, mapping) AS timestamp, arrayFilter((x, y) -> y, session_id_items, mapping) AS session_id, arrayFilter((x, y) -> y, window_id_items, mapping) AS window_id, if(ifNull(greater(target_index, 0), 0), arraySlice(compact_path, target_index), compact_path) AS filtered_path, arraySlice(filtered_path, 1, 5) AS limited_path, if(ifNull(greater(target_index, 0), 0), arraySlice(timings, target_index), timings) AS filtered_timings, arraySlice(filtered_timings, 1, 5) AS limited_timings, if(ifNull(greater(target_index, 0), 0), arraySlice(uuid, target_index), uuid) AS filtered_uuid, arraySlice(filtered_uuid, 1, 5) AS limited_uuid, if(ifNull(greater(target_index, 0), 0), arraySlice(timestamp, target_index), timestamp) AS filtered_timestamp, arraySlice(filtered_timestamp, 1, 5) AS limited_timestamp, if(ifNull(greater(target_index, 0), 0), arraySlice(session_id, target_index), session_id) AS filtered_session_id, arraySlice(filtered_session_id, 1, 5) AS limited_session_id, if(ifNull(greater(target_index, 0), 0), arraySlice(window_id, target_index), window_id) AS filtered_window_id, arraySlice(filtered_window_id, 1, 5) AS limited_window_id, arrayDifference(limited_timings) AS timings_diff, concat(ifNull(toString(length(limited_path)), ''), '_', ifNull(toString(limited_path[-1]), '')) AS path_dropoff_key, arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuid, limited_timestamp, limited_session_id, limited_window_id) AS limited_path_timings
                                                              FROM
-                                                               (SELECT person_id AS person_id, path_time_tuple.1 AS path_basic, path_time_tuple.2 AS time, session_index, arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple, arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths, path_time_tuple.4 AS uuid_items, path_time_tuple.5 AS timestamp_items, path_time_tuple.6 AS session_id_items, path_time_tuple.7 AS window_id_items
+                                                               (SELECT person_id AS person_id, path_time_tuple.1 AS path_basic, path_time_tuple.2 AS time, session_index, arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple, arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths, path_time_tuple.4 AS uuid_items, path_time_tuple.5 AS timestamp_items, path_time_tuple.6 AS session_id_items, path_time_tuple.7 AS window_id_items
                                                                 FROM
                                                                   (SELECT person_id AS person_id, groupArray(timestamp) AS timing_list, groupArray(path_item) AS path_list, groupArray(uuid) AS uuid_list, groupArray(timestamp) AS timestamp_list, groupArray(session_id) AS session_id_list, groupArray(window_id) AS window_id_list
                                                                    FROM
                                                                      (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, ifNull(if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event), '') AS path_item_ungrouped, events.uuid AS uuid, toTimeZone(events.timestamp, 'UTC') AS timestamp, ifNull(nullIf(nullIf(events.`$session_id`, ''), 'null'), '') AS session_id, ifNull(nullIf(nullIf(events.`$window_id`, ''), 'null'), '') AS window_id, NULL AS groupings, multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index, (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                                                                       FROM events
                                                                       LEFT OUTER JOIN
-                                                                        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
+                                                                        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
                                                                          FROM person_distinct_id_overrides
                                                                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                          GROUP BY person_distinct_id_overrides.distinct_id
-                                                                         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                                                                         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                       WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-02 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                                                                       ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                    GROUP BY person_id) ARRAY
                                                                 JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
                                                              JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index))
-                                                       WHERE ifNull(equals(path_key, '2_/2'), 0)
+                                                       WHERE equals(path_key, '2_/2')
                                                        GROUP BY person_id) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
@@ -2869,6 +2916,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -2882,7 +2931,7 @@
   FROM session_replay_events
   WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['']))
   GROUP BY session_replay_events.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC')), 0), ifNull(equals(max(session_replay_events.is_deleted), 0), 0))
+  HAVING and(greaterOrEquals(expiry_time, toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC')), equals(max(session_replay_events.is_deleted), 0))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2891,6 +2940,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -3087,13 +3138,13 @@
                                                 timestamp_list,
                                                 session_id_list,
                                                 window_id_list) AS paths_tuple,
-                                                arraySplit(x -> if(ifNull(less(x.3,
-                                                                                1800), 0), 0,
-                                                                                           1), paths_tuple) AS session_paths,
-                                                                                               path_time_tuple.4 AS uuid_items,
-                                                                                               path_time_tuple.5 AS timestamp_items,
-                                                                                               path_time_tuple.6 AS session_id_items,
-                                                                                               path_time_tuple.7 AS window_id_items
+                                                arraySplit(x -> if(less(x.3,
+                                                                         1800), 0,
+                                                                                1), paths_tuple) AS session_paths,
+                                                                                    path_time_tuple.4 AS uuid_items,
+                                                                                    path_time_tuple.5 AS timestamp_items,
+                                                                                    path_time_tuple.6 AS session_id_items,
+                                                                                    path_time_tuple.7 AS window_id_items
   FROM (
   SELECT person_id AS person_id,
          groupArray(timestamp) AS timing_list,
@@ -3125,14 +3176,16 @@
                                                                                                                                                                                                                                                                                                                                                                                                    0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
   FROM events
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                                     events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(greaterOrEquals(events.timestamp,
                                                toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00',
@@ -3150,13 +3203,13 @@
        arrayEnumerate(limited_path_timings) AS event_in_session_index
   WHERE and(ifNull(greater(start_target_index,
                            0), 0), ifNull(greater(end_target_index,
-                                                  0), 0)))) WHERE ifNull(equals(path_key,
-                                                                                '2_/2'), 0)
+                                                  0), 0)))) WHERE equals(path_key,
+                                                                         '2_/2')
   GROUP BY person_id) AS source
   INNER JOIN (
-  SELECT tupleElement(argMax(tuple(toTimeZone(person.created_at,
-                                              'UTC')), person.version), 1) AS created_at,
-                                                                        person.id AS id
+  SELECT argMax(toTimeZone(person.created_at,
+                           'UTC'), person.version) AS created_at,
+                                   person.id AS id
   FROM person
   WHERE and(equals(person.team_id,
                    99999), in(id, (
@@ -3347,13 +3400,13 @@
                                                   timestamp_list,
                                                   session_id_list,
                                                   window_id_list) AS paths_tuple,
-                                                  arraySplit(x -> if(ifNull(less(x.3,
-                                                                                  1800), 0), 0,
-                                                                                             1), paths_tuple) AS session_paths,
-                                                                                                 path_time_tuple.4 AS uuid_items,
-                                                                                                 path_time_tuple.5 AS timestamp_items,
-                                                                                                 path_time_tuple.6 AS session_id_items,
-                                                                                                 path_time_tuple.7 AS window_id_items
+                                                  arraySplit(x -> if(less(x.3,
+                                                                           1800), 0,
+                                                                                  1), paths_tuple) AS session_paths,
+                                                                                      path_time_tuple.4 AS uuid_items,
+                                                                                      path_time_tuple.5 AS timestamp_items,
+                                                                                      path_time_tuple.6 AS session_id_items,
+                                                                                      path_time_tuple.7 AS window_id_items
     FROM (
     SELECT person_id AS person_id,
            groupArray(timestamp) AS timing_list,
@@ -3385,13 +3438,15 @@
                                                                                                                                                                                                                                                                                                                                                                                                      0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
     FROM events
     LEFT OUTER JOIN (
-    SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                     person_distinct_id_overrides.distinct_id AS distinct_id
+    SELECT argMax(person_distinct_id_overrides.person_id,
+                  person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
     FROM person_distinct_id_overrides WHERE equals(person_distinct_id_overrides.team_id,
                                                    99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                                     events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(greaterOrEquals(events.timestamp,
                                                toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00',
@@ -3409,14 +3464,15 @@
        arrayEnumerate(limited_path_timings) AS event_in_session_index
   WHERE and(ifNull(greater(start_target_index,
                            0), 0), ifNull(greater(end_target_index,
-                                                  0), 0)))) WHERE ifNull(equals(path_key,
-                                                                                '2_/2'), 0)
+                                                  0), 0)))) WHERE equals(path_key,
+                                                                         '2_/2')
   GROUP BY person_id) AS source)))
   GROUP BY person.id
-  HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at,
-                                                                                                                                                       'UTC')), person.version), 1), plus(now64(6,
-                                                                                                                                                                                                'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id,
-                                                                                                                                                                                                                                                                                               source.actor_id)
+  HAVING and(equals(argMax(person.is_deleted,
+                           person.version), 0), less(argMax(toTimeZone(person.created_at,
+                                                                       'UTC'), person.version), plus(now64(6,
+                                                                                                           'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id,
+                                                                                                                                                                                                      source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
@@ -3429,6 +3485,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -3442,7 +3500,7 @@
   FROM session_replay_events
   WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['s1']))
   GROUP BY session_replay_events.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC')), 0), ifNull(equals(max(session_replay_events.is_deleted), 0), 0))
+  HAVING and(greaterOrEquals(expiry_time, toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC')), equals(max(session_replay_events.is_deleted), 0))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -3451,6 +3509,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -3495,7 +3555,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -3509,12 +3569,12 @@
                         (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                  FROM events
                  LEFT OUTER JOIN
-                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                  WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -3536,6 +3596,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -3584,7 +3646,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -3598,12 +3660,12 @@
                         (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                  FROM events
                  LEFT OUTER JOIN
-                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                  WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -3626,6 +3688,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -3700,7 +3764,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -3726,12 +3790,12 @@
                            (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                     FROM events
                     LEFT OUTER JOIN
-                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -3740,7 +3804,7 @@
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index
            WHERE and(ifNull(greater(start_target_index, 0), 0), ifNull(greater(end_target_index, 0), 0))))
-     WHERE and(ifNull(equals(last_path_key, '1_/5'), 0), ifNull(equals(path_key, '2_/about'), 0))
+     WHERE and(ifNull(equals(last_path_key, '1_/5'), 0), equals(path_key, '2_/about'))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -3754,6 +3818,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -3802,7 +3868,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -3816,12 +3882,12 @@
                         (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                  FROM events
                  LEFT OUTER JOIN
-                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                  WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -3844,6 +3910,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -3918,7 +3986,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -3944,12 +4012,12 @@
                            (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                     FROM events
                     LEFT OUTER JOIN
-                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -3958,7 +4026,7 @@
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index
            WHERE and(ifNull(greater(start_target_index, 0), 0), ifNull(greater(end_target_index, 0), 0))))
-     WHERE and(ifNull(equals(last_path_key, '3_...'), 0), ifNull(equals(path_key, '4_/5'), 0))
+     WHERE and(ifNull(equals(last_path_key, '3_...'), 0), equals(path_key, '4_/5'))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -3972,6 +4040,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -4016,7 +4086,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -4030,12 +4100,12 @@
                         (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                  FROM events
                  LEFT OUTER JOIN
-                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                  WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -4058,6 +4128,8 @@
                    max_bytes_before_external_group_by=23622320128,
                    transform_null_in=1,
                    optimize_min_equality_disjunction_chain_length=4294967295,
+                   optimize_rewrite_aggregate_function_with_if=0,
+                   optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
                    use_hive_partitioning=0
   '''
@@ -4102,7 +4174,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -4116,12 +4188,12 @@
                         (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                  FROM events
                  LEFT OUTER JOIN
-                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                  WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -4143,6 +4215,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -4187,7 +4261,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -4201,12 +4275,12 @@
                         (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                  FROM events
                  LEFT OUTER JOIN
-                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                  WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -4228,6 +4302,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -4294,7 +4370,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -4320,12 +4396,12 @@
                            (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                     FROM events
                     LEFT OUTER JOIN
-                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -4333,7 +4409,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(last_path_key, '1_/1'), 0), ifNull(equals(path_key, '2_/2'), 0))
+     WHERE and(ifNull(equals(last_path_key, '1_/1'), 0), equals(path_key, '2_/2'))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -4347,6 +4423,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -4413,7 +4491,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -4439,12 +4517,12 @@
                            (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                     FROM events
                     LEFT OUTER JOIN
-                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -4452,7 +4530,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(last_path_key, '2_/2'), 0), ifNull(equals(path_key, '3_/3'), 0))
+     WHERE and(ifNull(equals(last_path_key, '2_/2'), 0), equals(path_key, '3_/3'))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -4466,6 +4544,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -4510,7 +4590,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -4524,12 +4604,12 @@
                         (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                  FROM events
                  LEFT OUTER JOIN
-                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                  WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -4551,6 +4631,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -4617,7 +4699,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -4643,12 +4725,12 @@
                            (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                     FROM events
                     LEFT OUTER JOIN
-                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -4656,7 +4738,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(last_path_key, '2_/2'), 0), ifNull(equals(path_key, '3_/3'), 0))
+     WHERE and(ifNull(equals(last_path_key, '2_/2'), 0), equals(path_key, '3_/3'))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -4670,6 +4752,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -4714,7 +4798,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -4728,12 +4812,12 @@
                         (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                  FROM events
                  LEFT OUTER JOIN
-                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                  WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -4755,6 +4839,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -4821,7 +4907,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -4847,12 +4933,12 @@
                            (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                     FROM events
                     LEFT OUTER JOIN
-                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -4860,7 +4946,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(last_path_key, '1_/1'), 0), ifNull(equals(path_key, '2_/2'), 0))
+     WHERE and(ifNull(equals(last_path_key, '1_/1'), 0), equals(path_key, '2_/2'))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -4874,6 +4960,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -4940,7 +5028,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -4966,12 +5054,12 @@
                            (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                     FROM events
                     LEFT OUTER JOIN
-                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -4979,7 +5067,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(last_path_key, '2_/2'), 0), ifNull(equals(path_key, '3_/3'), 0))
+     WHERE and(ifNull(equals(last_path_key, '2_/2'), 0), equals(path_key, '3_/3'))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -4993,6 +5081,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -5059,7 +5149,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -5085,12 +5175,12 @@
                            (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                     FROM events
                     LEFT OUTER JOIN
-                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2012-01-07 23:59:59', 'UTC')))))
                     ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
@@ -5098,7 +5188,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(last_path_key, '3_/3'), 0), ifNull(equals(path_key, '4_/4'), 0))
+     WHERE and(ifNull(equals(last_path_key, '3_/3'), 0), equals(path_key, '4_/4'))
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -5112,6 +5202,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -5156,7 +5248,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -5170,12 +5262,12 @@
                         (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                  FROM events
                  LEFT OUTER JOIN
-                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                  WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -5197,6 +5289,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -5241,7 +5335,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -5260,12 +5354,12 @@
                         (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
                  FROM events
                  LEFT OUTER JOIN
-                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                  WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
@@ -5287,6 +5381,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''

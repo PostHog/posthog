@@ -45,7 +45,7 @@ def store_session_id_chunks(
     prefix = generate_prefix(workflow_id)
     total_chunks = math.ceil(len(session_ids) / chunk_size)
 
-    for i, chunk in enumerate(batched(session_ids, chunk_size)):
+    for i, chunk in enumerate(batched(session_ids, chunk_size, strict=False)):
         key = generate_chunk_key(prefix, i)
         content = "\n".join(chunk)
         object_storage.write(key, content)

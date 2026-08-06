@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 import posthog.models.utils
 
-import ee.models.assistant
+import products.posthog_ai.backend.models.assistant
 
 
 class Migration(migrations.Migration):
@@ -30,7 +30,12 @@ class Migration(migrations.Migration):
                         default=posthog.models.utils.uuid7, editable=False, primary_key=True, serialize=False
                     ),
                 ),
-                ("short_id", models.CharField(default=ee.models.assistant.generate_short_id, max_length=4)),
+                (
+                    "short_id",
+                    models.CharField(
+                        default=products.posthog_ai.backend.models.assistant.generate_short_id, max_length=4
+                    ),
+                ),
                 ("name", models.CharField(max_length=400)),
                 (
                     "type",

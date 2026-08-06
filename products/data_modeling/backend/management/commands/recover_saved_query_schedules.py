@@ -23,13 +23,16 @@ Usage:
 
     # Limit number of queries to those created after date
     python manage.py recover_saved_query_schedules --created-after '2025-10-01'
+
+    # Resume after a previously processed saved query (exclusive)
+    python manage.py recover_saved_query_schedules --start-after-saved-query-id <uuid>
 """
 
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.db.models import Count, OuterRef, Q, Subquery
 
@@ -38,6 +41,7 @@ from posthog.temporal.common.schedule import describe_schedule, schedule_exists,
 
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.schedule import partition_saved_queries_by_v2_schedule
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +79,12 @@ class Command(BaseCommand):
             default="2025-10-01",
             help="Only process queries created after this date (YYYY-MM-DD). Default: 2025-10-01",
         )
+        parser.add_argument(
+            "--start-after-saved-query-id",
+            type=str,
+            default=None,
+            help="Resume after this saved query UUID (exclusive), following the (created_at, id) ordering used by this command",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         dry_run = options["dry_run"]
@@ -82,6 +92,7 @@ class Command(BaseCommand):
         managed_viewset = options["managed_viewset"]
         limit = options["limit"]
         created_after = options["created_after"]
+        start_after_saved_query_id = options["start_after_saved_query_id"]
 
         self.stdout.write(f"\n{'=' * 60}")
         self.stdout.write(f"Saved Query Schedule Recovery - {'DRY_RUN' if dry_run else 'LIVE'}")
@@ -102,11 +113,28 @@ class Command(BaseCommand):
                 return
         self.stdout.write(f"\nProcessing team_id={target_team_id}")
         # get queries for the target team
-        queries = base_qs.filter(team_id=target_team_id).order_by("created_at")
+        queries = base_qs.filter(team_id=target_team_id).order_by("created_at", "id")
+        if start_after_saved_query_id:
+            cursor = (
+                DataWarehouseSavedQuery.objects.filter(id=start_after_saved_query_id, team_id=target_team_id)
+                .values("created_at")
+                .first()
+            )
+            if cursor is None:
+                raise CommandError(f"No saved query found with id={start_after_saved_query_id}")
+            cursor_created_at = cursor["created_at"]
+            queries = queries.filter(
+                Q(created_at__gt=cursor_created_at) | Q(created_at=cursor_created_at, id__gt=start_after_saved_query_id)
+            )
+            self.stdout.write(f"Resuming after saved query id={start_after_saved_query_id}")
         if limit:
             queries = queries[:limit]
             self.stdout.write(f"Limited to {limit} queries")
         queries = list(queries)
+        # Never revive a v1 schedule for a saved query whose DAG already runs on v2.
+        queries, on_v2 = partition_saved_queries_by_v2_schedule(queries)
+        if on_v2:
+            self.stdout.write(self.style.WARNING(f"Skipping {len(on_v2)} queries whose DAG already runs on v2"))
         self.stdout.write(f"Found {len(queries)} affected queries for team_id={target_team_id}\n")
         if not queries:
             self.stdout.write(self.style.SUCCESS("No queries to process for this team."))

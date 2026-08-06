@@ -1,12 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import * as libUtils from 'lib/utils'
-import { entityFilterLogic, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import * as libUtils from 'lib/utils/dom'
+import { LocalFilter, entityFilterLogic, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { FilterType } from '~/types'
+import { AnyPropertyFilter, FilterType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import eventDefinitionsJson from './__mocks__/event_definitions.json'
 import filtersJson from './__mocks__/filters.json'
@@ -203,6 +203,158 @@ describe('entityFilterLogic', () => {
                 })
             )
         })
+    })
+
+    describe('updateFilter across entity types', () => {
+        const personProperty: AnyPropertyFilter = {
+            key: 'email',
+            value: 'test@posthog.com',
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Person,
+        }
+        const extendedPersonProperty: AnyPropertyFilter = {
+            key: 'customers.plan',
+            value: ['pro'],
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.DataWarehousePersonProperty,
+        }
+        const dwColumnProperty: AnyPropertyFilter = {
+            key: 'status',
+            value: ['complete'],
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.DataWarehouse,
+        }
+        const hogqlProperty: AnyPropertyFilter = {
+            key: 'amount > 0',
+            type: PropertyFilterType.HogQL,
+        }
+
+        const eventFilter: LocalFilter = {
+            id: '$pageview',
+            name: '$pageview',
+            type: 'events',
+            order: 0,
+            uuid: 'uuid-0',
+            properties: [personProperty, extendedPersonProperty, dwColumnProperty, hogqlProperty],
+        }
+        const dataWarehouseFilter: LocalFilter = {
+            id: 'payments',
+            name: 'payments',
+            type: 'data_warehouse',
+            table_name: 'payments',
+            order: 0,
+            uuid: 'uuid-0',
+            properties: [dwColumnProperty, hogqlProperty],
+        }
+        const switchToPayments = {
+            type: 'data_warehouse',
+            id: 'payments',
+            name: 'payments',
+            table_name: 'payments',
+        }
+
+        it.each([
+            [
+                'drops person-scoped filters when an event becomes a data warehouse series',
+                eventFilter,
+                switchToPayments,
+                [hogqlProperty],
+            ],
+            [
+                'drops column filters when a data warehouse series becomes an event',
+                dataWarehouseFilter,
+                { type: 'events', id: '$pageview', name: '$pageview' },
+                [hogqlProperty],
+            ],
+            [
+                'drops column filters when the data warehouse table changes',
+                dataWarehouseFilter,
+                { type: 'data_warehouse', id: 'orders', name: 'orders', table_name: 'orders' },
+                [hogqlProperty],
+            ],
+            [
+                'keeps column filters when the data warehouse table is unchanged',
+                dataWarehouseFilter,
+                { ...switchToPayments, timestamp_field: 'created_at' },
+                [dwColumnProperty, hogqlProperty],
+            ],
+        ] as [string, LocalFilter, Record<string, any>, AnyPropertyFilter[]][])(
+            '%s',
+            async (_name, initialFilter, update, expectedProperties) => {
+                logic.actions.setFilters([initialFilter])
+
+                await expectLogic(logic, () => {
+                    logic.actions.updateFilter({ ...update, index: 0 } as Parameters<
+                        typeof logic.actions.updateFilter
+                    >[0])
+                }).toDispatchActions(['updateFilter', 'setFilters'])
+
+                expect(logic.values.localFilters[0].properties).toEqual(expectedProperties)
+            }
+        )
+
+        const eventPropertyMath = {
+            ...eventFilter,
+            math: 'sum',
+            math_property: 'revenue',
+            math_property_type: TaxonomicFilterGroupType.NumericalEventProperties,
+        }
+        const dataWarehousePropertyMath = {
+            ...dataWarehouseFilter,
+            math: 'sum',
+            math_property: 'amount',
+            math_property_type: TaxonomicFilterGroupType.DataWarehouseProperties,
+        }
+
+        it.each([
+            [
+                'drops property math when an event becomes a data warehouse series',
+                eventPropertyMath,
+                switchToPayments,
+                { math: undefined, math_property: undefined, math_property_type: undefined },
+            ],
+            [
+                'drops property math when a data warehouse series becomes an event',
+                dataWarehousePropertyMath,
+                { type: 'events', id: '$pageview', name: '$pageview' },
+                { math: undefined, math_property: undefined, math_property_type: undefined },
+            ],
+            [
+                'drops property math when the data warehouse table changes',
+                dataWarehousePropertyMath,
+                { type: 'data_warehouse', id: 'orders', name: 'orders', table_name: 'orders' },
+                { math: undefined, math_property: undefined, math_property_type: undefined },
+            ],
+            [
+                'keeps property math when the data warehouse table is unchanged',
+                dataWarehousePropertyMath,
+                { ...switchToPayments, timestamp_field: 'created_at' },
+                {
+                    math: 'sum',
+                    math_property: 'amount',
+                    math_property_type: TaxonomicFilterGroupType.DataWarehouseProperties,
+                },
+            ],
+            [
+                'keeps math that does not depend on a property',
+                { ...eventFilter, math: 'dau' },
+                switchToPayments,
+                { math: 'dau', math_property: undefined, math_property_type: undefined },
+            ],
+        ] as [string, LocalFilter, Record<string, any>, Record<string, any>][])(
+            '%s',
+            async (_name, initialFilter, update, expectedMath) => {
+                logic.actions.setFilters([initialFilter])
+
+                await expectLogic(logic, () => {
+                    logic.actions.updateFilter({ ...update, index: 0 } as Parameters<
+                        typeof logic.actions.updateFilter
+                    >[0])
+                }).toDispatchActions(['updateFilter', 'setFilters'])
+
+                expect(logic.values.localFilters[0]).toMatchObject(expectedMath)
+            }
+        )
     })
 
     describe('duplicating filters', () => {

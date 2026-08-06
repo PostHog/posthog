@@ -12,9 +12,6 @@ export class TrendsInsight extends ChartInsightBase {
     readonly breakdownButton: Locator
     readonly formulaSwitch: Locator
     readonly formulaInput: Locator
-    readonly dateRangeButton: Locator
-    readonly chartTypeButton: Locator
-    readonly comparisonButton: Locator
     readonly taxonomicFilter: TaxonomicFilter
     readonly boldNumber: Locator
     readonly boldNumberComparison: Locator
@@ -34,9 +31,6 @@ export class TrendsInsight extends ChartInsightBase {
         this.breakdownButton = page.getByTestId('add-breakdown-button')
         this.formulaSwitch = page.locator('#trends-formula-switch')
         this.formulaInput = page.getByPlaceholder('Example: (A + B) / 100')
-        this.dateRangeButton = page.getByTestId('date-filter')
-        this.chartTypeButton = page.getByTestId('chart-filter')
-        this.comparisonButton = page.getByTestId('compare-filter')
         this.taxonomicFilter = new TaxonomicFilter(page)
         this.boldNumber = page.getByTestId('bold-number-value')
         this.boldNumberComparison = page.getByTestId('bold-number-comparison')
@@ -44,11 +38,6 @@ export class TrendsInsight extends ChartInsightBase {
 
     seriesEventButton(index: number): Locator {
         return this.page.getByTestId(`trend-element-subject-${index}`)
-    }
-
-    async waitForChart(): Promise<void> {
-        await this.page.getByTestId('insight-loading-waiting-message').waitFor({ state: 'detached', timeout: 30000 })
-        await expect(this.chart).toBeVisible({ timeout: 30000 })
     }
 
     async waitForDetailsTable(): Promise<void> {
@@ -133,26 +122,6 @@ export class TrendsInsight extends ChartInsightBase {
         await this.waitForChart()
     }
 
-    async selectChartType(namePattern: RegExp): Promise<void> {
-        await this.page.keyboard.press('Escape')
-        await expect(async () => {
-            await this.chartTypeButton.click({ timeout: 500 })
-            await this.page.getByRole('menuitem', { name: namePattern }).click({ timeout: 500 })
-            await expect(this.chartTypeButton).toHaveText(namePattern, { timeout: 1000 })
-        }).toPass({ timeout: 15000 })
-        await this.waitForChart()
-    }
-
-    async selectDateRange(text: string): Promise<void> {
-        await this.page.keyboard.press('Escape')
-        const dataAttr = `date-filter-${text.toLowerCase().replace(/\s+/g, '-')}`
-        await expect(async () => {
-            await this.dateRangeButton.click({ timeout: 500 })
-            await this.page.getByTestId(dataAttr).click({ timeout: 500 })
-        }).toPass({ timeout: 15000 })
-        await this.waitForChart()
-    }
-
     async openOptionsPanel(): Promise<void> {
         await this.page.locator('[data-attr="insight-filters"]').getByRole('button', { name: 'Options' }).click()
     }
@@ -178,12 +147,6 @@ export class TrendsInsight extends ChartInsightBase {
 
     async unpinInterval(): Promise<void> {
         await this.page.getByRole('button', { name: 'Unpin interval' }).click()
-        await this.waitForChart()
-    }
-
-    async selectComparison(text: string): Promise<void> {
-        await this.comparisonButton.click()
-        await this.page.getByText(text).click()
         await this.waitForChart()
     }
 

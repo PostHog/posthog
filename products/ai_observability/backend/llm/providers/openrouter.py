@@ -1,7 +1,7 @@
 """OpenRouter provider for unified LLM client.
 
 OpenRouter is an LLM gateway with an OpenAI-compatible API that exposes models
-from many providers. It is BYOKEY-only (no PostHog trial key).
+from many providers. It is BYOKEY-only (no PostHog-funded key).
 """
 
 import logging
@@ -53,7 +53,7 @@ class OpenRouterAdapter(OpenAIAdapter):
         api_key: str | None,
         analytics: AnalyticsContext,
         base_url: str | None = None,
-    ) -> Generator[StreamChunk, None, None]:
+    ) -> Generator[StreamChunk]:
         yield from super().stream(request, api_key, analytics, base_url=OPENROUTER_BASE_URL)
 
     @staticmethod

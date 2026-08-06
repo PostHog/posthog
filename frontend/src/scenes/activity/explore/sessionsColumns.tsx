@@ -1,6 +1,6 @@
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
-import { colonDelimitedDuration } from 'lib/utils'
+import { colonDelimitedDuration } from 'lib/utils/durations'
 import { SessionDisplay } from 'scenes/sessions/SessionDisplay'
 
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'

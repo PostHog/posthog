@@ -1,5 +1,28 @@
-use serde::{de, Deserializer};
+use serde::{de, Deserialize, Deserializer};
 use std::fmt;
+
+/// Deserialize a value of type `T: Default + Deserialize`, treating JSON
+/// `null` as `T::default()`.
+///
+/// Use this on fields where the upstream source emits `null` (rather than
+/// omitting the field) when a value is absent — Amplitude exports, for
+/// example, include every column on every row and emit `null` for absent
+/// object-typed fields like `plan`, `event_properties`, `user_properties`,
+/// `group_properties`, `groups`. Bare `#[serde(default)]` only fires when
+/// the field is **missing**; if the field is present-and-`null`, serde
+/// tries to deserialize `null` into the target type and fails for
+/// `HashMap`, structs, and other non-Option types.
+///
+/// Pair with `#[serde(default, deserialize_with = "deserialize_null_as_default")]`
+/// so both shapes — missing **and** explicit-`null` — produce `T::default()`,
+/// while real values deserialize normally.
+pub fn deserialize_null_as_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
+}
 
 fn parse_bool_from_str<E: de::Error>(value: &str, empty_as_false: bool) -> Result<bool, E> {
     if value.is_empty() {
@@ -333,6 +356,51 @@ mod tests {
 
         let json = r#"{"flag": 42}"#;
         let result: Result<TestOptionalStruct, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[derive(Deserialize, Debug, PartialEq, Default)]
+    struct TestNullableMapStruct {
+        #[serde(default, deserialize_with = "deserialize_null_as_default")]
+        bag: std::collections::HashMap<String, serde_json::Value>,
+    }
+
+    #[test]
+    fn test_deserialize_null_as_default_with_real_object() {
+        let json = r#"{"bag": {"a": 1, "b": "two"}}"#;
+        let result: TestNullableMapStruct = serde_json::from_str(json).unwrap();
+        assert_eq!(result.bag.len(), 2);
+        assert_eq!(result.bag.get("a"), Some(&serde_json::json!(1)));
+        assert_eq!(result.bag.get("b"), Some(&serde_json::json!("two")));
+    }
+
+    #[test]
+    fn test_deserialize_null_as_default_with_explicit_null() {
+        // The whole point of this helper: present-and-null must produce
+        // the default value rather than failing. Bare #[serde(default)] alone
+        // would fail here because null can't deserialize into a HashMap.
+        let json = r#"{"bag": null}"#;
+        let result: TestNullableMapStruct = serde_json::from_str(json).unwrap();
+        assert!(result.bag.is_empty());
+    }
+
+    #[test]
+    fn test_deserialize_null_as_default_with_missing_field() {
+        let json = r#"{}"#;
+        let result: TestNullableMapStruct = serde_json::from_str(json).unwrap();
+        assert!(result.bag.is_empty());
+    }
+
+    #[test]
+    fn test_deserialize_null_as_default_propagates_non_null_type_errors() {
+        // Defaulting only kicks in for null; other invalid shapes still fail
+        // so we don't silently swallow real schema breakage.
+        let json = r#"{"bag": "not-an-object"}"#;
+        let result: Result<TestNullableMapStruct, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+
+        let json = r#"{"bag": [1, 2, 3]}"#;
+        let result: Result<TestNullableMapStruct, _> = serde_json::from_str(json);
         assert!(result.is_err());
     }
 }

@@ -1,8 +1,11 @@
 import uuid
+from importlib import import_module
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
+from django.contrib.auth import SESSION_KEY
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -12,6 +15,7 @@ from posthog.api.webauthn import WEBAUTHN_REGISTRATION_CHALLENGE_KEY, WebAuthnLo
 from posthog.models import User
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.session.models import Session
 
 
 class TestWebAuthnRegistration(APIBaseTest):
@@ -273,7 +277,7 @@ class TestWebAuthnLogin(APIBaseTest):
         self.assertEqual(me_response.status_code, status.HTTP_401_UNAUTHORIZED)
 
         mock_is_email_available.assert_called_once()
-        mock_send_email_verification.assert_called_once_with(self.user)
+        mock_send_email_verification.assert_called_once_with(self.user, None)
 
     @patch("posthog.auth.verify_passkey_authentication_response")
     def test_login_with_unverified_credential_fails(self, mock_verify):
@@ -423,6 +427,44 @@ class TestWebAuthnLogin(APIBaseTest):
         # Verify the user is NOT logged in
         me_response = self.client.get("/api/users/@me/")
         self.assertEqual(me_response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @patch("posthog.auth.verify_passkey_authentication_response")
+    def test_login_blocked_for_member_when_org_requires_verified_domain(self, mock_verify):
+        from webauthn.helpers import bytes_to_base64url
+
+        from posthog.api.webauthn import user_uuid_to_handle
+
+        self.organization.enforce_verified_domains = True
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+        self.client.post("/api/webauthn/login/begin/")
+        mock_verify.return_value = MagicMock(new_sign_count=1)
+
+        user_handle = user_uuid_to_handle(self.user.uuid)
+
+        response = self.client.post(
+            "/api/webauthn/login/complete/",
+            {
+                "id": bytes_to_base64url(self.credential.credential_id),
+                "rawId": bytes_to_base64url(self.credential.credential_id),
+                "type": "public-key",
+                "response": {
+                    "authenticatorData": "data",
+                    "clientDataJSON": "data",
+                    "signature": "sig",
+                    "userHandle": bytes_to_base64url(user_handle),
+                },
+            },
+            format="json",
+        )
+        # A blocked member is refused; only blocked admins get the gated session (covered in the
+        # password login tests, where the escape-hatch loop is exercised).
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("verified email domain", response.json()["error"])
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
 
     @patch("posthog.auth.verify_passkey_authentication_response")
     def test_spoofed_user_handle_cannot_bypass_sso_enforcement(self, mock_verify):
@@ -652,6 +694,36 @@ class TestWebAuthnCredentialManagement(APIBaseTest):
         self.assertTrue(verify_complete_response.json()["verified"])
 
         mock_send_email.delay.assert_called_once_with(self.user.id)
+
+    @patch("posthog.api.webauthn.send_passkey_added_email")
+    @patch("posthog.api.webauthn.verify_passkey_authentication_response")
+    def test_verify_complete_first_passkey_revokes_other_sessions(self, mock_verify, _mock_send_email):
+        # Only the FIRST verified passkey (a new login factor) revokes other sessions.
+        WebauthnCredential.objects.filter(user=self.user).delete()
+        engine = import_module(settings.SESSION_ENGINE)
+        other = engine.SessionStore()
+        other[SESSION_KEY] = str(self.user.pk)
+        other.create()
+
+        unverified = WebauthnCredential.objects.create(
+            user=self.user,
+            credential_id=b"first-passkey-id",
+            label="First",
+            public_key=b"public-key",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=False,
+        )
+        self.client.post(f"/api/webauthn/credentials/{unverified.pk}/verify/")
+        mock_verify.return_value = MagicMock(new_sign_count=1)
+
+        response = self.client.post(f"/api/webauthn/credentials/{unverified.pk}/verify_complete/", {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertFalse(Session.objects.filter(session_key=other.session_key).exists())
+        # The current session is kept — only OTHER sessions are revoked.
+        self.assertTrue(Session.objects.filter(session_key=self.client.session.session_key).exists())
 
     @parameterized.expand(
         [

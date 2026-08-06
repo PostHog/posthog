@@ -10,8 +10,9 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     StringJSONDatabaseField,
 )
+from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 
 external_tables: dict[str, dict[str, DatabaseField]] = {
     "*": {
@@ -519,6 +520,10 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "cancel_at": StringDatabaseField(name="cancel_at"),
         "cancel_at_period_end": BooleanDatabaseField(name="cancel_at_period_end"),
         "cancellation_details": StringJSONDatabaseField(name="cancellation_details"),
+        # Expanded via API sync (`expand=data.discounts`); contains full Discount objects
+        # with embedded Coupon. Under webhook-only mode this is an array of `di_*` IDs —
+        # join to `stripe_discount.id` for full details.
+        "discounts": StringJSONDatabaseField(name="discounts"),
         "__trial_end": IntegerDatabaseField(name="trial_end", hidden=True),
         "trial_end": ast.ExpressionField(
             isolate_scope=True,
@@ -796,6 +801,73 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "redaction": StringJSONDatabaseField(name="redaction"),
         "metadata": StringJSONDatabaseField(name="metadata"),
         "type": StringDatabaseField(name="type"),
+    },
+    "stripe_coupon": {
+        "id": StringDatabaseField(name="id"),
+        "object": StringDatabaseField(name="object"),
+        "__created": IntegerDatabaseField(name="created", hidden=True),
+        "created_at": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[ast.Call(name="toString", args=[ast.Field(chain=["__created"])])],
+            ),
+            name="created_at",
+        ),
+        "amount_off": IntegerDatabaseField(name="amount_off"),
+        "percent_off": FloatDatabaseField(name="percent_off"),
+        "currency": StringDatabaseField(name="currency"),
+        "duration": StringDatabaseField(name="duration"),
+        "duration_in_months": IntegerDatabaseField(name="duration_in_months"),
+        "max_redemptions": IntegerDatabaseField(name="max_redemptions"),
+        "__redeem_by": IntegerDatabaseField(name="redeem_by", hidden=True),
+        "redeem_by": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[ast.Call(name="toString", args=[ast.Field(chain=["__redeem_by"])])],
+            ),
+            name="redeem_by",
+        ),
+        "times_redeemed": IntegerDatabaseField(name="times_redeemed"),
+        "valid": BooleanDatabaseField(name="valid"),
+        "name": StringDatabaseField(name="name"),
+        "livemode": BooleanDatabaseField(name="livemode"),
+        "metadata": StringJSONDatabaseField(name="metadata"),
+        "applies_to": StringJSONDatabaseField(name="applies_to"),
+    },
+    # Webhook-only — populated by `customer.discount.created|updated|deleted` events.
+    # Discount has no API list endpoint, so this table backfills only forward.
+    "stripe_discount": {
+        "id": StringDatabaseField(name="id"),
+        "object": StringDatabaseField(name="object"),
+        "customer": StringDatabaseField(name="customer"),
+        "subscription": StringDatabaseField(name="subscription"),
+        "subscription_item": StringDatabaseField(name="subscription_item"),
+        "invoice": StringDatabaseField(name="invoice"),
+        "invoice_item": StringDatabaseField(name="invoice_item"),
+        "promotion_code": StringDatabaseField(name="promotion_code"),
+        "checkout_session": StringDatabaseField(name="checkout_session"),
+        # Coupon is always embedded inline in a Discount object — full coupon details live here.
+        "coupon": StringJSONDatabaseField(name="coupon"),
+        "__start": IntegerDatabaseField(name="start", hidden=True),
+        "start": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[ast.Call(name="toString", args=[ast.Field(chain=["__start"])])],
+            ),
+            name="start",
+        ),
+        "__end": IntegerDatabaseField(name="end", hidden=True),
+        "end": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[ast.Call(name="toString", args=[ast.Field(chain=["__end"])])],
+            ),
+            name="end",
+        ),
     },
     "zendesk_brands": {
         "id": IntegerDatabaseField(name="id"),
@@ -1393,3 +1465,57 @@ def get_dlt_mapping_for_external_table(table):
         for _, field in external_tables[table].items()
         if type(field) is not ast.ExpressionField
     }
+
+
+class _SingleFieldChainCollector(TraversingVisitor):
+    """Collects the single-segment field references (e.g. `__created`) inside an expression."""
+
+    def __init__(self) -> None:
+        self.names: set[str] = set()
+
+    def visit_field(self, node: ast.Field) -> None:
+        if len(node.chain) == 1 and isinstance(node.chain[0], str):
+            self.names.add(node.chain[0])
+
+
+def get_hogql_column_name_mapping(table_name_without_prefix: str) -> dict[str, str]:
+    """Map each raw synced column name to the HogQL-visible field name it surfaces as.
+
+    Curated sources (Stripe, etc.) rename or wrap some raw columns when exposing them via HogQL — for
+    example Stripe's `customer` -> `customer_id` (a direct rename) and `created` -> `created_at` (a
+    computed `ExpressionField` over the hidden `__created` column). Anything downstream that keys off
+    column names — the user-facing column list, and semantic enrichment, which stores annotations that
+    users and the AI agent read back by the *visible* name — needs this raw -> visible mapping. Returns
+    `{}` for tables with no curated definition (arbitrary SQL sources), where raw columns are exposed
+    unchanged.
+    """
+    fields = external_tables.get(table_name_without_prefix)
+    if not fields:
+        return {}
+
+    # Hidden plain fields carry the raw column name (`__created` -> raw `created`) but are never
+    # surfaced directly; a visible ExpressionField wraps them.
+    hidden_raw_by_key = {
+        key: field.name
+        for key, field in fields.items()
+        if isinstance(field, DatabaseField) and not isinstance(field, ast.ExpressionField) and field.hidden
+    }
+
+    mapping: dict[str, str] = {}
+    # ExpressionFields first: attribute the raw column behind each referenced hidden field to the
+    # expression's visible name (`created` -> `created_at`).
+    for key, field in fields.items():
+        if isinstance(field, ast.ExpressionField):
+            collector = _SingleFieldChainCollector()
+            collector.visit(field.expr)
+            for referenced in collector.names:
+                raw = hidden_raw_by_key.get(referenced)
+                if raw is not None:
+                    mapping[raw] = key
+    # Visible plain fields: direct renames (`customer` -> `customer_id`). Don't override an
+    # expression mapping already established for the same raw column.
+    for key, field in fields.items():
+        if isinstance(field, DatabaseField) and not isinstance(field, ast.ExpressionField) and not field.hidden:
+            mapping.setdefault(field.name, key)
+
+    return mapping

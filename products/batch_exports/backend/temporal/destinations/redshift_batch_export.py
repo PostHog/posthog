@@ -12,13 +12,13 @@ from django.conf import settings
 
 import psycopg
 import pyarrow as pa
-import aioboto3
 import botocore.exceptions
 from psycopg import sql
 from structlog.contextvars import bind_contextvars
-from temporalio import activity, workflow
+from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.models import Team
 from posthog.models.integration import TLS, Authority, Credentials
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -34,10 +34,10 @@ from products.batch_exports.backend.service import (
     RedshiftBatchExportInputs,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
-    OverBillingLimitError,
     StartBatchExportRunInputs,
     default_fields,
     get_data_interval,
+    is_over_billing_limit_error,
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.destinations.postgres_batch_export import (
@@ -45,7 +45,13 @@ from products.batch_exports.backend.temporal.destinations.postgres_batch_export 
     PostgreSQLClient,
     PostgreSQLField,
 )
-from products.batch_exports.backend.temporal.destinations.s3_batch_export import ConcurrentS3Consumer
+from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
+    ConcurrentS3Consumer,
+    PolicyStatement,
+    get_credentials_using_user_aws_role,
+    s3_client,
+)
+from products.batch_exports.backend.temporal.destinations.utils import get_absolute_key_prefix
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -54,7 +60,7 @@ from products.batch_exports.backend.temporal.pipeline.transformer import (
     RedshiftQueryStreamTransformer,
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
-from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
+from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import JsonType, handle_non_retryable_errors
 
 LOGGER = get_write_only_logger(__name__)
@@ -101,6 +107,11 @@ NON_RETRYABLE_ERROR_TYPES = (
     "InvalidCredentialsError",
     # Raised by Redshift client when the cluster has insufficient system resources.
     "InsufficientSystemResourcesError",
+    # The S3 credentials provided for the COPY can't read the staged files.
+    "InsufficientS3PermissionsError",
+    # Redshift failed to COPY the staged files from S3 (IAM role auth, cause not locally confirmable).
+    # These (read access, region, manifest) don't self-heal, so retrying is pointless.
+    "RedshiftS3CopyError",
 )
 
 
@@ -129,6 +140,41 @@ class InsufficientSystemResourcesError(Exception):
     """
 
     pass
+
+
+class InsufficientS3PermissionsError(Exception):
+    """Error raised when Redshift cannot read the staged files from S3 during COPY.
+
+    Redshift surfaces a missing read permission as the misleading "COPY with MANIFEST parameter
+    requires full path of an S3 object" error rather than a clean access-denied. We translate it
+    into something actionable once we've confirmed S3 read is denied with the same credentials.
+    """
+
+    def __init__(self, bucket: str):
+        super().__init__(
+            f"Redshift could not read the staged files from S3 bucket '{bucket}'."
+            " The S3 credentials provided for the Redshift COPY are missing read access"
+            " (Redshift requires both 's3:GetObject' and 's3:ListBucket')."
+            " If the bucket uses SSE-KMS encryption, 'kms:Decrypt' on the key is also required."
+            " Grant read access and retry."
+        )
+
+
+class RedshiftS3CopyError(Exception):
+    """Error raised when Redshift fails to COPY the staged files from S3 and we can't pin down why.
+
+    Used for IAM role auth, which we can't probe locally to confirm a read denial. The message points
+    at the common causes of a failed COPY so the user knows where to look.
+    """
+
+    def __init__(self, bucket: str):
+        super().__init__(
+            f"Redshift could not COPY the staged files from S3 bucket '{bucket}'."
+            " Common causes: the IAM role provided for the Redshift COPY lacks read access to the"
+            " bucket (Redshift requires 's3:GetObject' and 's3:ListBucket', plus 'kms:Decrypt' if the"
+            " bucket uses SSE-KMS encryption), or the bucket is in a different AWS region than the"
+            " Redshift cluster. Verify the role's permissions and the bucket region, then retry."
+        )
 
 
 class ClientErrorGroup(ExceptionGroup):
@@ -585,8 +631,7 @@ def get_redshift_fields_from_record_schema(
 class S3StageBucketParameters:
     name: str
     region_name: str
-    # TODO: We should support AWS RBAC in S3 batch export.
-    credentials: AWSCredentials
+    credentials: IAMRole | AWSCredentials
 
 
 @dataclasses.dataclass
@@ -973,6 +1018,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
                     consumer=consumer,
                     producer_task=producer_task,
                     transformer=transformer,
+                    records_total=inputs.batch_export.records_total,
                 )
 
                 if merge_settings.requires_merge is True:
@@ -993,11 +1039,9 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
 async def upload_manifest_file(
     bucket: str,
     region_name: str,
-    aws_access_key_id: str | None,
-    aws_secret_access_key: str | None,
+    credentials: AWSCredentials,
     files_uploaded: list[str],
     manifest_key: str,
-    endpoint_url: str | None = None,
 ):
     """Upload manifest file used by Redshift COPY.
 
@@ -1007,13 +1051,14 @@ async def upload_manifest_file(
     requirement when using Parquet. Since we don't track exactly the size of bytes of
     each Parquet file produced, this function gets it from S3 instead.
     """
-    session = aioboto3.Session()
-    async with session.client(
-        "s3",
-        region_name=region_name,
-        aws_access_key_id=aws_access_key_id,
-        aws_secret_access_key=aws_secret_access_key,
-        endpoint_url=endpoint_url,
+
+    async with s3_client(
+        credentials.aws_access_key_id,
+        credentials.aws_secret_access_key,
+        credentials.aws_session_token,
+        region=region_name,
+        # Required for unit tests which run against a local bucket, otherwise always None.
+        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT if settings.TEST else None,
     ) as client:
         entries = []
 
@@ -1073,23 +1118,18 @@ async def upload_manifest_file(
 
         manifest = {"entries": entries}
 
-        optional_kwargs = {}
-        if endpoint_url is None:
-            optional_kwargs["ChecksumAlgorithm"] = "CRC64NVME"
-
         await client.put_object(
             Bucket=bucket,
             Key=manifest_key,
             Body=json.dumps(manifest),
-            **optional_kwargs,  # type: ignore
+            ChecksumAlgorithm="CRC64NVME",
         )
 
 
 async def delete_uploaded_files(
     bucket: str,
     region_name: str,
-    aws_access_key_id: str | None,
-    aws_secret_access_key: str | None,
+    credentials: AWSCredentials,
     files_uploaded: list[str],
     manifest_key: str,
 ):
@@ -1100,12 +1140,11 @@ async def delete_uploaded_files(
     The delete itself is a "best-effort" as we don't want to fail the batch export if
     this fails.
     """
-    session = aioboto3.Session()
-    async with session.client(
-        "s3",
-        region_name=region_name,
-        aws_access_key_id=aws_access_key_id,
-        aws_secret_access_key=aws_secret_access_key,
+    async with s3_client(
+        credentials.aws_access_key_id,
+        credentials.aws_secret_access_key,
+        credentials.aws_session_token,
+        region=region_name,
     ) as client:
 
         async def delete_key(f: str):
@@ -1119,6 +1158,82 @@ async def delete_uploaded_files(
             for f in files_uploaded:
                 tg.create_task(delete_key(f))
             tg.create_task(delete_key(manifest_key))
+
+
+async def is_s3_read_access_denied(
+    bucket: str,
+    region_name: str,
+    credentials: AWSCredentials,
+    keys: collections.abc.Sequence[str],
+) -> bool:
+    """Return True only if a HEAD positively confirms read access is denied for any of `keys`.
+
+    We `head_object` each key with the same credentials Redshift uses for the COPY. A 403 / Access
+    Denied / Forbidden confirms a read-permission problem (including the SSE-KMS 'kms:Decrypt' case,
+    which also fails the HEAD). Anything else returns False — a successful HEAD, a non-permission
+    error (e.g. a 404), or an unexpected probe failure (e.g. a connection error). This is best-effort
+    by design: callers should only escalate to a hard error on a confirmed denial, and never mask an
+    original failure just because the probe itself couldn't run.
+    """
+    try:
+        async with s3_client(
+            credentials.aws_access_key_id,
+            credentials.aws_secret_access_key,
+            credentials.aws_session_token,
+            region=region_name,
+        ) as client:
+            for key in keys:
+                try:
+                    await client.head_object(Bucket=bucket, Key=key)
+                except botocore.exceptions.ClientError as err:
+                    status = err.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+                    code = err.response.get("Error", {}).get("Code")
+                    if status == 403 or code in ("403", "AccessDenied", "Forbidden"):
+                        return True
+    except Exception:
+        LOGGER.warning("S3 read-access probe failed; treating as not confirmed", exc_info=True)
+    return False
+
+
+async def check_and_raise_redshift_copy_error(
+    err: psycopg.errors.InternalError_,
+    *,
+    authorization: IAMRole | AWSCredentials,
+    bucket: str,
+    region_name: str,
+    manifest_key: str,
+    files_uploaded: collections.abc.Sequence[str],
+) -> None:
+    """Translate a failed Redshift COPY into an actionable error.
+
+    Redshift reports a missing read permission as the misleading "requires full path of an S3 object"
+    error. We always generate a well-formed manifest, so for credential auth we confirm the real
+    cause by probing S3 read access (HEAD on the manifest + a staged file) with the same credentials
+    Redshift uses for the COPY: a confirmed denial raises `InsufficientS3PermissionsError`, otherwise
+    we return so the caller re-raises the original (it's some other COPY problem).
+
+    IAM role auth can't be probed locally, so we can't confirm the cause. We only translate when the
+    error matches a known S3 read/access marker, raising the more generic `RedshiftS3CopyError` that
+    points at the likely culprits (role read access or bucket region). Any other COPY error returns
+    unchanged so it keeps its original message and retry behaviour.
+    """
+    if isinstance(authorization, AWSCredentials):
+        probe_keys = [manifest_key, *files_uploaded[:1]]
+        if await is_s3_read_access_denied(
+            bucket=bucket, region_name=region_name, credentials=authorization, keys=probe_keys
+        ):
+            raise InsufficientS3PermissionsError(bucket) from err
+        return
+
+    markers = (
+        "requires full path of an S3 object",
+        "Access Denied",
+        "S3ServiceException",
+        "Forbidden",
+    )
+    diagnostics = (str(err), err.diag.message_primary or "", err.diag.message_detail or "")
+    if any(marker in text for text in diagnostics for marker in markers):
+        raise RedshiftS3CopyError(bucket) from err
 
 
 @activity.defn
@@ -1215,22 +1330,39 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
         # some nice round somewhere in the range (100MB).
         # TODO: Maybe derive this from user's input?
         max_file_size_mb = 100
-        consumer = ConcurrentS3Consumer(
-            bucket=inputs.copy.s3_bucket.name,
-            region_name=inputs.copy.s3_bucket.region_name,
-            prefix=inputs.copy.s3_key_prefix,
-            data_interval_start=inputs.batch_export.data_interval_start,
-            data_interval_end=inputs.batch_export.data_interval_end,
-            batch_export_model=inputs.batch_export.batch_export_model,
-            file_format="Parquet",
-            compression="zstd",
-            encryption=None,
-            aws_access_key_id=inputs.copy.s3_bucket.credentials.aws_access_key_id,
-            aws_secret_access_key=inputs.copy.s3_bucket.credentials.aws_secret_access_key,
-            max_file_size_mb=max_file_size_mb,
-            part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
-            max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
-        )
+
+        if isinstance(inputs.copy.s3_bucket.credentials, IAMRole):
+            team = await Team.objects.aget(id=inputs.batch_export.team_id)
+            organization_id = str(team.organization_id)
+
+            bucket_name = inputs.copy.s3_bucket.name
+            key_prefix = get_absolute_key_prefix(
+                inputs.copy.s3_key_prefix,
+                inputs.batch_export.data_interval_start,
+                inputs.batch_export.data_interval_end,
+                inputs.batch_export.batch_export_model,
+            )
+            policy_statements = [
+                PolicyStatement(
+                    Effect="Allow",
+                    Action=["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:AbortMultipartUpload"],
+                    Resource=f"arn:aws:s3:::{bucket_name}{key_prefix}*",
+                ),
+                PolicyStatement(
+                    Effect="Allow",
+                    Action=["s3:ListBucket"],
+                    Resource=f"arn:aws:s3:::{bucket_name}",
+                ),
+            ]
+
+            credentials = await get_credentials_using_user_aws_role(
+                inputs.copy.s3_bucket.credentials,
+                organization_id,
+                session_name=f"PostHog-batch-exports-{inputs.batch_export.batch_export_id}",
+                policy_statements=policy_statements,
+            )
+        else:
+            credentials = inputs.copy.s3_bucket.credentials
 
         table_schemas = _get_table_schemas(
             model=model,
@@ -1256,13 +1388,37 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             else inputs.table.name
         )
 
-        result = await run_consumer_from_stage(
-            queue=queue,
-            consumer=consumer,
-            producer_task=producer_task,
-            transformer=transformer,
-            json_columns=table_schemas.super_columns,
-        )
+        async with s3_client(
+            credentials.aws_access_key_id,
+            credentials.aws_secret_access_key,
+            credentials.aws_session_token,
+            region=inputs.copy.s3_bucket.region_name,
+        ) as client:
+            consumer = ConcurrentS3Consumer(
+                bucket=inputs.copy.s3_bucket.name,
+                region_name=inputs.copy.s3_bucket.region_name,
+                prefix=inputs.copy.s3_key_prefix,
+                data_interval_start=inputs.batch_export.data_interval_start,
+                data_interval_end=inputs.batch_export.data_interval_end,
+                batch_export_model=inputs.batch_export.batch_export_model,
+                file_format="Parquet",
+                checksum_algorithm="CRC64NVME",
+                compression="zstd",
+                encryption=None,
+                s3_client=client,
+                max_file_size_mb=max_file_size_mb,
+                part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
+                max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
+            )
+
+            result = await run_consumer_from_stage(
+                queue=queue,
+                consumer=consumer,
+                producer_task=producer_task,
+                transformer=transformer,
+                json_columns=table_schemas.super_columns,
+                records_total=inputs.batch_export.records_total,
+            )
 
         if result.error is not None:
             return result
@@ -1321,24 +1477,33 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                 await upload_manifest_file(
                     bucket=inputs.copy.s3_bucket.name,
                     region_name=inputs.copy.s3_bucket.region_name,
-                    aws_access_key_id=inputs.copy.s3_bucket.credentials.aws_access_key_id,
+                    credentials=credentials,
                     files_uploaded=consumer.files_uploaded,
-                    aws_secret_access_key=inputs.copy.s3_bucket.credentials.aws_secret_access_key,
-                    # manifest_key is always str, but posixpath.relpath can return both str and bytes.
-                    manifest_key=manifest_key if isinstance(manifest_key, str) else manifest_key.decode("utf-8"),
+                    manifest_key=manifest_key,
                 )
 
                 try:
                     external_logger.info(f"Copying {len(consumer.files_uploaded)} file/s into Redshift")
 
-                    await redshift_client.acopy_from_s3_bucket(
-                        table_name=redshift_stage_table,
-                        parquet_fields=[field.name for field in transformer.schema],
-                        schema_name=inputs.table.schema_name,
-                        s3_bucket=inputs.copy.s3_bucket.name,
-                        manifest_key=manifest_key,
-                        authorization=inputs.copy.authorization,
-                    )
+                    try:
+                        await redshift_client.acopy_from_s3_bucket(
+                            table_name=redshift_stage_table,
+                            parquet_fields=[field.name for field in transformer.schema],
+                            schema_name=inputs.table.schema_name,
+                            s3_bucket=inputs.copy.s3_bucket.name,
+                            manifest_key=manifest_key,
+                            authorization=inputs.copy.authorization,
+                        )
+                    except psycopg.errors.InternalError_ as err:
+                        await check_and_raise_redshift_copy_error(
+                            err,
+                            authorization=inputs.copy.authorization,
+                            bucket=inputs.copy.s3_bucket.name,
+                            region_name=inputs.copy.s3_bucket.region_name,
+                            manifest_key=manifest_key,
+                            files_uploaded=consumer.files_uploaded,
+                        )
+                        raise
 
                     if merge_settings.requires_merge is True:
                         await redshift_client.amerge_tables(
@@ -1361,11 +1526,9 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                     await delete_uploaded_files(
                         bucket=inputs.copy.s3_bucket.name,
                         region_name=inputs.copy.s3_bucket.region_name,
-                        aws_access_key_id=inputs.copy.s3_bucket.credentials.aws_access_key_id,
+                        credentials=credentials,
                         files_uploaded=consumer.files_uploaded,
-                        aws_secret_access_key=inputs.copy.s3_bucket.credentials.aws_secret_access_key,
-                        # manifest_key is always str, but posixpath.relpath can return both str and bytes.
-                        manifest_key=manifest_key if isinstance(manifest_key, str) else manifest_key.decode("utf-8"),
+                        manifest_key=manifest_key,
                     )
 
         return result
@@ -1392,16 +1555,14 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to Redshift."""
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
-        data_interval_start, data_interval_end = get_data_interval(
-            inputs.interval, inputs.data_interval_end, inputs.timezone
-        )
+        data_interval = get_data_interval(inputs.interval, inputs.data_interval_end, inputs.timezone)
         should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
-            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
-            data_interval_end=data_interval_end.isoformat(),
+            data_interval_start=data_interval.start.isoformat() if not should_backfill_from_beginning else None,
+            data_interval_end=data_interval.end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
@@ -1418,13 +1579,15 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
                     non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
                 ),
             )
-        except OverBillingLimitError:
-            return
+        except exceptions.ActivityError as e:
+            if is_over_billing_limit_error(e):
+                return
+            raise
 
         batch_export_inputs = BatchExportInsertInputs(
             team_id=inputs.team_id,
-            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
-            data_interval_end=data_interval_end.isoformat(),
+            data_interval_start=data_interval.start.isoformat() if not should_backfill_from_beginning else None,
+            data_interval_end=data_interval.end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             run_id=run_id,

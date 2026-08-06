@@ -18,7 +18,6 @@ from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import hash_key_value, mask_key_value
 
-DEV_API_KEY = settings.DEV_API_KEY
 DEV_USER_EMAIL = "test@posthog.com"
 DEV_KEY_LABEL = "Local Development Key"
 
@@ -47,10 +46,14 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        # DEV_API_KEY ships with ee/settings.py, which OSS builds never load.
+        dev_api_key = getattr(settings, "DEV_API_KEY", None)
         if not settings.DEBUG:
             raise CommandError("This command can only run with DEBUG=True")
         if settings.CLOUD_DEPLOYMENT:
             raise CommandError("This command cannot run in cloud deployments")
+        if not dev_api_key:
+            raise CommandError("settings.DEV_API_KEY is not configured (it ships with the EE settings)")
 
         email = options["email"]
         scopes = options["scopes"]
@@ -65,10 +68,16 @@ class Command(BaseCommand):
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist:
-            print(f"User with email '{email}' not found")
-            return
+            # Fall back to the first user so the deterministic dev key works on
+            # any local DB (e.g. one bootstrapped via SSO with a real email
+            # rather than the demo `test@posthog.com`).
+            user = User.objects.order_by("pk").first()
+            if user is None:
+                print(f"User with email '{email}' not found and no users exist")
+                return
+            print(f"User '{email}' not found; using first user '{user.email}'")
 
-        secure_value = hash_key_value(DEV_API_KEY)
+        secure_value = hash_key_value(dev_api_key)
 
         existing_key = PersonalAPIKey.objects.filter(secure_value=secure_value).first()
         if existing_key:
@@ -93,7 +102,7 @@ class Command(BaseCommand):
                 print(f"Updated scopes to {existing_key.scopes} for user '{existing_key.user.email}'")
             else:
                 print(f"API key already exists for user '{existing_key.user.email}'")
-            print(f"Key: {DEV_API_KEY}")
+            print(f"Key: {dev_api_key}")
             return
 
         PersonalAPIKey.objects.filter(user=user, label=DEV_KEY_LABEL).delete()
@@ -104,7 +113,7 @@ class Command(BaseCommand):
             user=user,
             label=DEV_KEY_LABEL,
             secure_value=secure_value,
-            mask_value=mask_key_value(DEV_API_KEY),
+            mask_value=mask_key_value(dev_api_key),
             scopes=create_scopes,
         )
 
@@ -118,4 +127,4 @@ class Command(BaseCommand):
         print(f"Created personal API key for '{email}'")
         if create_scopes:
             print(f"Scopes: {', '.join(create_scopes)}")
-        print(f"Key: {DEV_API_KEY}")
+        print(f"Key: {dev_api_key}")

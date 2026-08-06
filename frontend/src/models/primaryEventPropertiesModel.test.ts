@@ -1,10 +1,14 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
 import { initKeaTests } from '~/test/init'
 
 describe('the primary event properties model', () => {
+    // Safety net for the test that calls silenceKeaLoadersErrors() inline
+    afterEach(resumeKeaLoadersErrors)
+
     let logic: ReturnType<typeof primaryEventPropertiesModel.build>
 
     beforeEach(() => {
@@ -17,12 +21,12 @@ describe('the primary event properties model', () => {
                 '/api/projects/:team_id/event_definitions/by_name/': () => [200, { id: 'def-1', name: 'my_event' }],
             },
             patch: {
-                '/api/projects/:team_id/event_definitions/:id/': (req) => [
+                '/api/projects/:team_id/event_definitions/:id/': async ({ request }) => [
                     200,
                     {
                         id: 'def-1',
                         name: 'my_event',
-                        primary_property: (req.body as Record<string, any>).primary_property,
+                        primary_property: ((await request.json()) as Record<string, any>).primary_property,
                     },
                 ],
             },
@@ -104,6 +108,8 @@ describe('the primary event properties model', () => {
     })
 
     it('does not mark events as loaded when the load request fails, so they can be retried', async () => {
+        // Deliberate loader failure — kea-loaders would log it
+        silenceKeaLoadersErrors()
         useMocks({
             get: { '/api/projects/:team_id/event_definitions/primary_properties/': () => [500, {}] },
         })

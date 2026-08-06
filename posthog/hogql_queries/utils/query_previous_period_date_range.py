@@ -61,6 +61,7 @@ class QueryPreviousPeriodDateRange(QueryDateRange):
             self.date_from_delta_mappings(),
             self.date_to_delta_mappings(),
             self.interval_name,
+            exclude_incomplete_periods=bool(self._date_range and self._date_range.excludeIncompletePeriods),
         )
 
         return previous_period_date_from, previous_period_date_to

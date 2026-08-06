@@ -59,36 +59,55 @@ export function isReadOnly(): boolean {
     return getter?.() ?? false
 }
 
+// An entry is either a bare regex (matches any write method on a path that is
+// only used for reads/passive telemetry — DELETE is safe because no destructive
+// DELETE exists on the same path), or `{ pattern, methods }` for paths where
+// some methods are passive telemetry but others would mutate (e.g. PATCH is
+// view-tracking but DELETE destroys the resource — only PATCH may pass).
+type AllowedPattern = RegExp | { pattern: RegExp; methods: ReadonlyArray<ReadOnlyMethod> }
+
 // Writes that should pass through in read-only mode. Three categories:
 //   1. Reads disguised as writes — /query serves HogQL / trends / funnels /
 //      retention via POST because the payload is too large for a query string.
 //      Block-listing it would make the entire app unusable.
 //   2. Passive telemetry that fires automatically on view/mount and should not
 //      raise: /file_system/log_view, /insights/viewed, /insights/timing
-//      (time-to-see-data), and /metalytics (side-panel scene view tracking).
+//      (time-to-see-data), /metalytics (side-panel scene view tracking), and
+//      PATCH /session_recordings/:id (markViewed view-tracking — restricted to
+//      PATCH because DELETE on the same path is the destructive recording
+//      delete endpoint and must stay blocked).
 //   3. PostHog AI (Max) conversations — the read-only toast tells users to
 //      "Use Max or the MCP to make this change", so Max must remain usable.
 //      Matches /conversations except the two ticket sub-features (`views` and
 //      `tickets`). Mount-path-agnostic — works under /environments/ or
 //      /projects/ — so the discriminator is the sub-feature, not the prefix.
-const READ_ONLY_ALLOWED_PATTERNS = [
+//   4. Exports — POST creates a render job (session replay MP4, insight PNG, etc.)
+//      but does not mutate product data; blocking it breaks download workflows.
+const READ_ONLY_ALLOWED_PATTERNS: ReadonlyArray<AllowedPattern> = [
     /\/query(?:\/|$|\?)/, // /api/environments/:team_id/query, /api/environments/:team_id/query/:queryId/log, etc.
     /\/file_system\/log_view(?:\/|$|\?)/, // /api/environments/:team_id/file_system/log_view
     /\/insights\/viewed(?:\/|$|\?)/, // /api/environments/:team_id/insights/viewed — passive "recently viewed" telemetry
     /\/insights\/timing(?:\/|$|\?)/, // /api/projects/:team_id/insights/timing — time-to-see-data telemetry fired after every dashboard/insight load
     /\/metalytics(?:\/|$|\?)/, // /api/projects/:team_id/metalytics — side-panel scene view tracking (only accepts metric_name=viewed)
     /\/conversations(?!\/(?:views|tickets))(?:\/|$|\?)/, // /api/.../conversations[/:id[/queue|/append_message|/cancel|...]] — PostHog AI (Max), excluding /conversations/views and /conversations/tickets
+    /\/exports\/?(?:\?|$)/, // /api/.../exports[/] — create export jobs only; detail paths like /exports/:id/ stay blocked
+    { pattern: /\/session_recordings\/[^/]+(?:\/|$|\?)/, methods: ['PATCH'] }, // PATCH /api/.../session_recordings/:id — markViewed view-tracking ({viewed: true, ...} then {analyzed: true, ...}). DELETE on the same path stays blocked.
 ]
 
-function isReadDisguisedAsWrite(url: string): boolean {
-    return READ_ONLY_ALLOWED_PATTERNS.some((pattern) => pattern.test(url))
+function isReadDisguisedAsWrite(method: ReadOnlyMethod, url: string): boolean {
+    return READ_ONLY_ALLOWED_PATTERNS.some((entry) => {
+        if (entry instanceof RegExp) {
+            return entry.test(url)
+        }
+        return entry.methods.includes(method) && entry.pattern.test(url)
+    })
 }
 
 export function assertNotReadOnly(method: ReadOnlyMethod, url: string): void {
     if (!isReadOnly()) {
         return
     }
-    if (isReadDisguisedAsWrite(url)) {
+    if (isReadDisguisedAsWrite(method, url)) {
         return
     }
     notifier?.(method)

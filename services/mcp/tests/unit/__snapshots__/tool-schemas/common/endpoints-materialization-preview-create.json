@@ -1,0 +1,30 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "bucket_overrides": {
+            "anyOf": [
+                {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Per-column bucket function overrides, e.g. {\"timestamp\": \"hour\"}"
+        },
+        "name": {
+            "type": "string"
+        },
+        "version": {
+            "type": "number"
+        }
+    },
+    "required": ["name"],
+    "type": "object"
+}

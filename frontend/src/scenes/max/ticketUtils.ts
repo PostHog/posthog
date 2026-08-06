@@ -11,6 +11,19 @@ export interface TicketPromptData {
     initialText?: string
 }
 
+const TICKET_CONFIRMATION_LEAD = "I've created a support ticket for you"
+
+/**
+ * Builds the confirmation message shown once a ticket is created. The target response time is left
+ * out when the plan has none, so a customer is never promised a reply their plan doesn't cover.
+ */
+export function formatTicketConfirmationMessage(ticketId: string, responseTime: string | null): string {
+    const closingLine = responseTime
+        ? `Our support team aims to get back to you within ${responseTime}.`
+        : 'Our support team will get back to you soon!'
+    return `${TICKET_CONFIRMATION_LEAD}.\nYour ticket ID is #${ticketId}.\n${closingLine}`
+}
+
 /**
  * Extracts the text after "/ticket " from a message, if any.
  */
@@ -47,8 +60,7 @@ export function getTicketPromptData(threadGrouped: ThreadMessage[], streamingAct
     // If a ticket confirmation already exists, don't show the form
     if (isInitialTicketPrompt) {
         const hasConfirmationMessage = threadGrouped.some(
-            (msg) =>
-                msg?.type === 'ai' && 'content' in msg && msg.content?.includes("I've created a support ticket for you")
+            (msg) => msg?.type === 'ai' && 'content' in msg && msg.content?.includes(TICKET_CONFIRMATION_LEAD)
         )
         if (!hasConfirmationMessage) {
             const initialText =
@@ -93,17 +105,15 @@ export function getTicketSummaryData(
             responseMessage?.type === 'ai' &&
             'content' in responseMessage &&
             responseMessage.content &&
-            !responseMessage.content.includes("I'll help you create a support ticket")
+            !responseMessage.content.includes("I'll help you create a support ticket") &&
+            !responseMessage.content.includes('is available for customers on paid plans')
         ) {
             // Check if user continued the conversation (sent another message after the summary)
             // or if a ticket was already created
             const messagesAfterSummary = threadGrouped.slice(ticketCommandIndex + 2)
             const userContinuedConversation = messagesAfterSummary.some((msg) => msg?.type === 'human')
             const hasConfirmationMessage = messagesAfterSummary.some(
-                (msg) =>
-                    msg?.type === 'ai' &&
-                    'content' in msg &&
-                    msg.content?.includes("I've created a support ticket for you")
+                (msg) => msg?.type === 'ai' && 'content' in msg && msg.content?.includes(TICKET_CONFIRMATION_LEAD)
             )
 
             if (hasConfirmationMessage) {
@@ -136,6 +146,37 @@ export function getTicketSummaryData(
 }
 
 /**
+ * Builds the ticket body from the user's own note and, when present, PostHog AI's summary.
+ * The user's note leads so a human framing is always on top; the AI summary is attached as
+ * supporting context. Returns an empty string when there is nothing to send.
+ */
+export function composeTicketBody({ note, summary }: { note: string; summary?: string }): string {
+    const trimmedNote = note.trim()
+    if (summary) {
+        return trimmedNote ? `${trimmedNote}\n\n----\nPostHog AI's analysis:\n${summary}` : summary
+    }
+    return trimmedNote
+}
+
+/**
+ * Appends the conversation and trace identifiers to a ticket body. Returns an empty string when
+ * the body is empty, so metadata alone can never be submitted as a ticket.
+ */
+export function appendTicketMetadata(
+    body: string,
+    { conversationId, traceId }: { conversationId: string; traceId: string | null }
+): string {
+    const trimmedBody = body.trim()
+    if (!trimmedBody) {
+        return ''
+    }
+    const metadataLines = [`Conversation ID: ${conversationId}`, traceId ? `Trace ID: ${traceId}` : null].filter(
+        Boolean
+    )
+    return `${trimmedBody}\n\n----\n${metadataLines.join('\n')}`
+}
+
+/**
  * Checks if a message is a ticket confirmation message.
  */
 export function isTicketConfirmationMessage(message: ThreadMessage): boolean {
@@ -143,6 +184,6 @@ export function isTicketConfirmationMessage(message: ThreadMessage): boolean {
         message.type !== 'human' &&
         'content' in message &&
         typeof message.content === 'string' &&
-        message.content.includes("I've created a support ticket for you")
+        message.content.includes(TICKET_CONFIRMATION_LEAD)
     )
 }

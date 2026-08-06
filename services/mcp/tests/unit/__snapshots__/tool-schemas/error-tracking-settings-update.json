@@ -1,0 +1,54 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "per_issue_rate_limit_bucket_size_minutes": {
+            "anyOf": [
+                {
+                    "minimum": 1,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Bucket window over which the per-issue rate limit applies, in minutes."
+        },
+        "per_issue_rate_limit_value": {
+            "anyOf": [
+                {
+                    "minimum": 1,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Maximum number of exception events ingested per bucket for each individual issue. Null removes the limit."
+        },
+        "project_rate_limit_bucket_size_minutes": {
+            "anyOf": [
+                {
+                    "minimum": 1,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Bucket window over which the project-wide rate limit applies, in minutes."
+        },
+        "project_rate_limit_value": {
+            "anyOf": [
+                {
+                    "minimum": 1,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Maximum number of exception events ingested per bucket for the entire project. Null removes the limit."
+        }
+    },
+    "type": "object"
+}

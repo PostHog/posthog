@@ -1,9 +1,9 @@
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { PostgresUse } from '~/utils/db/postgres'
 
-import { insertTagger } from '../_tests/fixtures'
+import { insertModelConfiguration, insertProviderKey, insertTagger } from '../_tests/fixtures'
 import { Tagger } from '../types'
 import { TaggerManagerService } from './tagger-manager.service'
 
@@ -173,5 +173,25 @@ describe('TaggerManagerService', () => {
 
         const unknown = await manager.getTagger('00000000-0000-0000-0000-000000000000')
         expect(unknown).toBeNull()
+    })
+
+    it('returns tagger type and provider key id from model configuration', async () => {
+        const providerKey = await insertProviderKey(hub.postgres, teamId1)
+        const modelConfiguration = await insertModelConfiguration(hub.postgres, teamId1, {
+            provider_key_id: providerKey.id,
+        })
+
+        await hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE llm_analytics_tagger SET model_configuration_id = $1, updated_at = NOW() WHERE id = $2`,
+            [modelConfiguration.id, taggers[0].id],
+            'setTaggerModelConfiguration'
+        )
+
+        manager['onTaggersReloaded'](teamId1, [taggers[0].id])
+
+        const items = await manager.getTaggersForTeam(teamId1)
+        expect(items[0].tagger_type).toEqual('llm')
+        expect(items[0].provider_key_id).toEqual(providerKey.id)
     })
 })

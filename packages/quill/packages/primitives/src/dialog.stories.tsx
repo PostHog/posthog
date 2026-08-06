@@ -142,3 +142,30 @@ export const ScrollableContent: Story = {
         </Dialog>
     ),
 } satisfies Story
+
+export const FullBleedBody: Story = {
+    render: () => (
+        <Dialog>
+            <DialogTrigger render={<Button variant="outline" size="sm" />}>Open dialog</DialogTrigger>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Full-bleed body</DialogTitle>
+                    <DialogDescription>
+                        viewportClassName="p-0" drops the default 1rem viewport padding so rows run edge to edge.
+                    </DialogDescription>
+                </DialogHeader>
+                <DialogBody viewportClassName="p-0">
+                    {Array.from({ length: 20 }).map((_, index) => (
+                        <div key={index} className="px-4 py-2 odd:bg-muted">
+                            Row {index + 1}
+                        </div>
+                    ))}
+                </DialogBody>
+                <DialogFooter>
+                    <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+                    <Button variant="primary">Confirm</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    ),
+} satisfies Story

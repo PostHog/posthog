@@ -22,20 +22,81 @@ def execute_hogql_query_with_timings(*args, **kwargs):
 def pretty_print_in_tests(query: str | None, team_id: int) -> str:
     if query is None:
         return ""
-    query = (
-        query.replace("SELECT", "\nSELECT")
-        .replace("FROM", "\nFROM")
-        .replace("WHERE", "\nWHERE")
-        .replace("GROUP", "\nGROUP")
-        .replace("HAVING", "\nHAVING")
-        .replace("LIMIT", "\nLIMIT")
-        .replace("SETTINGS", "\nSETTINGS")
-        .replace(f"team_id, {team_id})", "team_id, 420)")
+
+    # Newline before each top-level clause keyword for readable snapshots, but skip keywords already at the
+    # start of a (possibly indented) line so we don't stack a blank line on top of pretty-printed input. The \b
+    # boundaries keep keywords that are substrings of longer tokens intact (e.g. the WHERE inside PREWHERE).
+    def _newline_before_clause(match: "re.Match[str]") -> str:
+        start = match.start()
+        if start > 0 and match.string[start - 1] == "\n":
+            return match.group(0)
+        whitespace, keyword = match.group(1), match.group(2)
+        return f"{whitespace}\n{keyword}"
+
+    query = re.sub(
+        r"([ \t]*)\b(SELECT|FROM|PREWHERE|WHERE|GROUP|HAVING|QUALIFY|WINDOW|ORDER|LIMIT|OFFSET|SETTINGS)\b",
+        _newline_before_clause,
+        query,
     )
+    query = query.replace(f"team_id, {team_id})", "team_id, 420)")
     query = re.sub(r"in_cohort__[0-9]+", "in_cohort__XX", query)
     query = re.sub(r"cohort_id, [0-9]+", "cohort_id, XX", query)
     query = re.sub(r"RANDOM_TEST_ID::[a-f0-9\-]+", "RANDOM_TEST_ID::UUID", query)
-    return query
+    return _indent_nested_sql(query)
+
+
+# A line that opens a clause: the keywords we split on, plus WITH (a clause too, just never split before).
+_CLAUSE_LINE = re.compile(
+    r"(?:WITH|SELECT|FROM|PREWHERE|WHERE|GROUP|HAVING|QUALIFY|WINDOW|ORDER|LIMIT|OFFSET|SETTINGS)\b"
+)
+
+
+def _indent_nested_sql(query: str) -> str:
+    # Indent each already-split line by its bracket-nesting depth so nested subqueries read as nested rather
+    # than as one flat sequence, and give continuation lines (a clause body the production printer wrapped
+    # onto its own line) one extra level so they sit under their keyword. Naive about brackets inside string
+    # literals other than single-quoted ones, which we skip; good enough for test snapshots, no real tokenizer.
+    openers, closers = "([{", ")]}"
+    depth = 0
+    indented_lines: list[str] = []
+    for line in query.split("\n"):
+        content = line.lstrip(" \t")
+        if not content:
+            indented_lines.append("")
+            continue
+
+        # A line that starts by closing brackets lines up with its opener, so dedent for those leading closers.
+        leading_closers = 0
+        for char in content:
+            if char in closers:
+                leading_closers += 1
+            else:
+                break
+        indent = max(depth - leading_closers, 0)
+        # Continuation lines — a clause body the printer wrapped onto its own line — nest one deeper than the
+        # keyword above them. Lines that open a clause, a comment header, or a bracket (structural, or a data
+        # repr passed through this helper) stay at the bracket-depth indent.
+        if not (content.startswith("--") or content[0] in openers + closers or _CLAUSE_LINE.match(content)):
+            indent += 1
+        indented_lines.append("  " * indent + content)
+
+        # Carry the running depth forward by the net brackets on this line, ignoring single-quoted strings.
+        opens = shuts = 0
+        in_string = escaped = False
+        for char in content:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == "'":
+                in_string = not in_string
+            elif not in_string and char in openers:
+                opens += 1
+            elif not in_string and char in closers:
+                shuts += 1
+        depth = max(depth + opens - shuts, 0)
+
+    return "\n".join(indented_lines)
 
 
 def pretty_print_response_in_tests(response: Any, team_id: int) -> str:

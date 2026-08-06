@@ -6,7 +6,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
-import { autoCaptureEventToDescription } from 'lib/utils'
+import { autoCaptureEventToDescription } from 'lib/utils/events'
 import {
     applyDataAttributeSelector,
     applySubmitProperty,

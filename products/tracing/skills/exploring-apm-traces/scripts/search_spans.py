@@ -4,8 +4,9 @@ Usage:
   SEARCH="db.query" python3 scripts/search_spans.py FILE
   SEARCH="payment-service" python3 scripts/search_spans.py FILE
 
-NOTE: The apm-trace-get payload does NOT include span attributes (e.g. http.method,
-http.status_code, custom k8s labels). For attribute-based searches, use the MCP tools
+NOTE: This script scans only name/service/ID fields, not the span `attributes` map (which
+IS in the payload). To search the whole dataset by an attribute (e.g. http.method,
+http.status_code) or by a resource attribute (k8s labels), use the MCP tools
 posthog:apm-attributes-list and posthog:apm-attribute-values-list, then re-issue
 posthog:query-apm-spans with a filterGroup of type 'span_attribute' or
 'span_resource_attribute'.
@@ -76,5 +77,5 @@ for span in spans:
 
 print(f"\nMatched {hits} span(s) for '{term}' across {len(spans)} scanned.")
 if hits == 0:
-    print("\nReminder: span attributes (http.method, k8s labels, etc.) are NOT in this payload.")
-    print("Use posthog:apm-attribute-values-list to discover them, then filter via posthog:query-apm-spans.")
+    print("\nReminder: this script scans name/service/IDs only. Span attributes (http.method, etc.) ARE")
+    print("in each span's `attributes` map — or filter the dataset via posthog:query-apm-spans filterGroup.")

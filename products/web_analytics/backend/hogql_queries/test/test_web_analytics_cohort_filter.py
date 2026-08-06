@@ -13,10 +13,10 @@ from posthog.schema import (
     WebStatsTableQuery,
 )
 
-from posthog.models import Cohort
 from posthog.models.utils import uuid7
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_goals import WebGoalsQueryRunner
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner

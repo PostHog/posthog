@@ -1,7 +1,8 @@
 // Adapted from https://github.com/clauderic/dnd-kit/pull/805 to fix an issue where variable
 // height items in a sortable container were not always firing collisions correctly.
-// Should be possible to remove this custom collision detection algorithm once a proper fix
-// is merged into dnd-kit.
+//
+// That PR got closed because dnd-kit is now exposing new React bindings. We should eventually
+// try and move to that to see if this is still needed.
 import { CollisionDetection, DroppableContainer, UniqueIdentifier } from '@dnd-kit/core'
 
 export const verticalSortableListCollisionDetection: CollisionDetection = (args) => {

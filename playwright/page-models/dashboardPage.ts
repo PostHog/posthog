@@ -28,7 +28,7 @@ export class DashboardPage {
     }
 
     async createNew(dashboardName?: string): Promise<DashboardPage> {
-        // CI occasionally hits net::ERR_NETWORK_CHANGED on goto; retry the navigation only.
+        // CI occasionally hits net::ERR_NETWORK_CHANGED on this goto.
         await expect(async () => {
             await this.page.goto(urls.dashboards())
         }).toPass({ timeout: 60000 })
@@ -70,6 +70,7 @@ export class DashboardPage {
                 '[data-attr="create-dashboard-from-template"], [data-attr="create-dashboard-from-template-featured"]'
             )
             .filter({ hasText: 'Website Metrics' })
+            .first()
         await expect(templateOption).toBeVisible()
         await templateOption.click()
 
@@ -270,7 +271,7 @@ export class DashboardPage {
     }
 
     async editPopoverTitle(newTitle: string): Promise<void> {
-        await this.popoverTitleField.click()
+        await this.popoverTitleField.locator('.EditableField__display').click()
         const input = this.popoverTitleField.locator('input')
         await expect(input).toBeVisible()
         await input.fill(newTitle)
@@ -278,7 +279,7 @@ export class DashboardPage {
     }
 
     async editPopoverDescription(description: string): Promise<void> {
-        await this.popoverDescriptionField.click()
+        await this.popoverDescriptionField.locator('.EditableField__display').click()
         const textarea = this.popoverDescriptionField.locator('textarea')
         await expect(textarea).toBeVisible()
         await textarea.fill(description)

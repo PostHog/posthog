@@ -26,6 +26,16 @@
             "anyOf": [
                 {
                     "properties": {
+                        "filterTestAccounts": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
                         "properties": {
                             "description": "AND/OR group containing cohort filters. Named to avoid collision with analytics Group model.",
                             "properties": {
@@ -47,8 +57,7 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     },
                                                     "bytecode_error": {
                                                         "anyOf": [
@@ -58,8 +67,7 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     },
                                                     "conditionHash": {
                                                         "anyOf": [
@@ -69,8 +77,7 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     },
                                                     "event_filters": {
                                                         "anyOf": [
@@ -90,8 +97,7 @@
                                                                                         {
                                                                                             "type": "null"
                                                                                         }
-                                                                                    ],
-                                                                                    "default": null
+                                                                                    ]
                                                                                 },
                                                                                 "type": {
                                                                                     "enum": ["event", "element"],
@@ -111,9 +117,7 @@
                                                                                     "const": "hogql",
                                                                                     "type": "string"
                                                                                 },
-                                                                                "value": {
-                                                                                    "default": null
-                                                                                }
+                                                                                "value": {}
                                                                             },
                                                                             "required": ["type", "key"],
                                                                             "type": "object"
@@ -125,8 +129,7 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     },
                                                     "event_type": {
                                                         "type": "string"
@@ -139,8 +142,7 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     },
                                                     "explicit_datetime_to": {
                                                         "anyOf": [
@@ -150,8 +152,7 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     },
                                                     "key": {
                                                         "anyOf": [
@@ -171,8 +172,7 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     },
                                                     "negation": {
                                                         "default": false,
@@ -186,8 +186,7 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     },
                                                     "operator_value": {
                                                         "anyOf": [
@@ -197,8 +196,7 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     },
                                                     "seq_event": {
                                                         "anyOf": [
@@ -211,8 +209,7 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     },
                                                     "seq_event_type": {
                                                         "anyOf": [
@@ -222,8 +219,7 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     },
                                                     "seq_time_interval": {
                                                         "anyOf": [
@@ -233,8 +229,7 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     },
                                                     "seq_time_value": {
                                                         "anyOf": [
@@ -244,8 +239,7 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     },
                                                     "time_interval": {
                                                         "anyOf": [
@@ -255,8 +249,7 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     },
                                                     "time_value": {
                                                         "anyOf": [
@@ -266,8 +259,7 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     },
                                                     "total_periods": {
                                                         "anyOf": [
@@ -277,8 +269,7 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     },
                                                     "type": {
                                                         "const": "behavioral",
@@ -302,8 +293,7 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     },
                                                     "bytecode_error": {
                                                         "anyOf": [
@@ -313,8 +303,7 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     },
                                                     "conditionHash": {
                                                         "anyOf": [
@@ -324,8 +313,7 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     },
                                                     "key": {
                                                         "const": "id",
@@ -357,8 +345,7 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     },
                                                     "bytecode_error": {
                                                         "anyOf": [
@@ -368,8 +355,7 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     },
                                                     "conditionHash": {
                                                         "anyOf": [
@@ -379,8 +365,7 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     },
                                                     "key": {
                                                         "type": "string"
@@ -397,16 +382,73 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     },
                                                     "type": {
                                                         "const": "person",
                                                         "type": "string"
                                                     },
-                                                    "value": {
-                                                        "default": null
-                                                    }
+                                                    "value": {}
+                                                },
+                                                "required": ["type", "key"],
+                                                "type": "object"
+                                            },
+                                            {
+                                                "description": "Filter on a top-level persons-table column (e.g. created_at) rather than the\nproperties JSON. The matching key must be one of PERSON_METADATA_FIELDS.",
+                                                "properties": {
+                                                    "bytecode": {
+                                                        "anyOf": [
+                                                            {
+                                                                "items": {},
+                                                                "type": "array"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "bytecode_error": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "conditionHash": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "key": {
+                                                        "type": "string"
+                                                    },
+                                                    "negation": {
+                                                        "default": false,
+                                                        "type": "boolean"
+                                                    },
+                                                    "operator": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "type": {
+                                                        "const": "person_metadata",
+                                                        "type": "string"
+                                                    },
+                                                    "value": {}
                                                 },
                                                 "required": ["type", "key"],
                                                 "type": "object"

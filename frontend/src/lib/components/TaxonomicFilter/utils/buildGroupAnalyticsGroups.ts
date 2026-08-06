@@ -1,7 +1,8 @@
 import { combineUrl } from 'kea-router'
 
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { capitalizeFirstLetter, toParams } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { toParams } from 'lib/utils/url'
 import { getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 

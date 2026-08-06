@@ -153,6 +153,10 @@
         --toolbar-width-expanded: 460px;
     }
 
+    &--extra-buttons-4 {
+        --toolbar-width-expanded: 502px;
+    }
+
     &--minimized {
         width: var(--toolbar-width-minimized); // Account for border
 

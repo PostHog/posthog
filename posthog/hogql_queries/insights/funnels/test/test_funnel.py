@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Optional
 
 from freezegun import freeze_time
 from posthog.test.base import (
@@ -13,6 +14,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from django.conf import settings
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -24,6 +26,7 @@ from posthog.schema import (
     BaseMathType,
     BreakdownFilter,
     BreakdownType,
+    CompareFilter,
     DateRange,
     EventPropertyFilter,
     EventsNode,
@@ -58,13 +61,14 @@ from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
 )
 from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from posthog.models import Element
-from posthog.models.cohort.cohort import Cohort
+from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
 from posthog.models.group.util import create_group
 from posthog.models.utils import uuid7
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 
@@ -199,26 +203,27 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             )
 
         if properties is not None:
-            query = FunnelsQuery(
-                **query.model_dump(exclude_defaults=True, exclude_none=True, mode="json"),
-                properties={
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": key,
-                                    "operator": "exact",
-                                    "type": "event",
-                                    "value": value,
-                                }
-                                for key, value in properties.items()
-                            ],
-                        }
-                    ],
-                },
-            )
+            # exclude_defaults would strip the default-valued `kind` from series items,
+            # which the discriminated series union requires on re-validation
+            query_data = query.model_dump(exclude_none=True, mode="json")
+            query_data["properties"] = {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": key,
+                                "operator": "exact",
+                                "type": "event",
+                                "value": value,
+                            }
+                            for key, value in properties.items()
+                        ],
+                    }
+                ],
+            }
+            query = FunnelsQuery(**query_data)
 
         return FunnelsQueryRunner(query=query, team=self.team)
 
@@ -264,7 +269,9 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         # KLUDGE: We need to do this to ensure create_person_id_override_by_distinct_id
         # works correctly. Worth considering other approaches as we generally like to
         # avoid truncating tables in tests for speed.
-        sync_execute("TRUNCATE TABLE sharded_events")
+        sync_execute(f"TRUNCATE TABLE {EVENTS_DATA_TABLE()}")
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            sync_execute(f"TRUNCATE TABLE {EVENTS_JSON_DATA_TABLE}")
         with freeze_time("2012-01-01T03:21:34.000Z"):
             funnel = self._basic_funnel()
 
@@ -4131,6 +4138,69 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[1]["average_conversion_time"], 1_207_020)
         self.assertEqual(results[1]["median_conversion_time"], 1_207_020)
 
+    def test_total_median_conversion_time(self):
+        _create_person(distinct_ids=["user_fast"], team=self.team)
+        _create_person(distinct_ids=["user_mid"], team=self.team)
+        _create_person(distinct_ids=["user_slow"], team=self.team)
+        _create_person(distinct_ids=["user_dropoff"], team=self.team)
+
+        # Three completers convert in 100s / 200s / 900s; the dropoff never reaches step 2 and is excluded.
+        # Browser is set so we can verify the median stays global (breakdown-agnostic) below.
+        events_by_person = {
+            "user_fast": [
+                {
+                    "event": "$pageview",
+                    "timestamp": datetime(2024, 3, 1, 12, 0, 0),
+                    "properties": {"$browser": "Chrome"},
+                },
+                {"event": "user signed up", "timestamp": datetime(2024, 3, 1, 12, 1, 40)},
+            ],
+            "user_mid": [
+                {
+                    "event": "$pageview",
+                    "timestamp": datetime(2024, 3, 1, 12, 0, 0),
+                    "properties": {"$browser": "Chrome"},
+                },
+                {"event": "user signed up", "timestamp": datetime(2024, 3, 1, 12, 3, 20)},
+            ],
+            "user_slow": [
+                {
+                    "event": "$pageview",
+                    "timestamp": datetime(2024, 3, 1, 12, 0, 0),
+                    "properties": {"$browser": "Safari"},
+                },
+                {"event": "user signed up", "timestamp": datetime(2024, 3, 1, 12, 15, 0)},
+            ],
+            "user_dropoff": [
+                {
+                    "event": "$pageview",
+                    "timestamp": datetime(2024, 3, 1, 12, 0, 0),
+                    "properties": {"$browser": "Safari"},
+                },
+            ],
+        }
+        journeys_for(events_by_person, self.team)
+
+        series = [
+            EventsNode(event="$pageview", name="$pageview"),
+            EventsNode(event="user signed up", name="user signed up"),
+        ]
+        date_range = DateRange(date_from="2024-02-17", date_to="2024-03-18")
+
+        query = FunnelsQuery(dateRange=date_range, series=series)
+        response = FunnelsQueryRunner(query=query, team=self.team).calculate()
+        # Median of [100, 200, 900] is 200; the dropoff has no full-funnel time and doesn't count.
+        self.assertEqual(response.total_median_conversion_time, 200)
+
+        # With a breakdown active the median is still computed over all completers, not per browser.
+        breakdown_query = FunnelsQuery(
+            dateRange=date_range,
+            series=series,
+            breakdownFilter=BreakdownFilter(breakdown="$browser", breakdown_type=BreakdownType.EVENT),
+        )
+        breakdown_response = FunnelsQueryRunner(query=breakdown_query, team=self.team).calculate()
+        self.assertEqual(breakdown_response.total_median_conversion_time, 200)
+
     def test_parses_breakdowns_correctly(self):
         _create_person(
             distinct_ids=[f"user_1"],
@@ -6000,3 +6070,225 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         bing = groups_by_breakdown[("bing.com",)]
         assert bing[0]["count"] == 1
         assert bing[1]["count"] == 1
+
+
+@override_settings(IN_UNIT_TESTING=True)
+class TestFunnelStepsCompareUDF(ClickhouseTestMixin, APIBaseTest):
+    """Compare-to-previous on the default funnel STEPS (bar) viz. Reuses the tagged-row contract
+    established for TRENDS in slice 1 — each step dict in `results` is tagged with `compare_label`."""
+
+    maxDiff = None
+
+    def _build_query(
+        self,
+        date_from: str = "2021-06-07 00:00:00",
+        date_to: str = "2021-06-13 23:59:59",
+        compare: bool = True,
+        compare_to: Optional[str] = None,
+    ) -> FunnelsQuery:
+        return FunnelsQuery(
+            dateRange=DateRange(date_from=date_from, date_to=date_to),
+            interval="day",
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="steps",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+            compareFilter=CompareFilter(compare=compare, compare_to=compare_to),
+        )
+
+    def test_compare_default_previous_period_tags_steps(self):
+        # Current window 2021-06-07 .. 2021-06-13; default previous is the prior 7-day window
+        # (2021-05-31 .. 2021-06-06). One full conversion lands in each window.
+        journeys_for(
+            {
+                "current_user": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 8, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 8, 11)},
+                ],
+                "previous_user": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 1, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 1, 11)},
+                ],
+            },
+            self.team,
+        )
+
+        results = FunnelsQueryRunner(query=self._build_query(), team=self.team).calculate().results
+
+        # No breakdown: results is a flat list of step dicts. With compare on, both periods'
+        # steps are present and tagged. Current steps come first, then previous.
+        current_steps = [row for row in results if row["compare_label"] == "current"]
+        previous_steps = [row for row in results if row["compare_label"] == "previous"]
+
+        self.assertEqual([s["order"] for s in current_steps], [0, 1])
+        self.assertEqual([s["order"] for s in previous_steps], [0, 1])
+
+        # One person completed both steps in each period.
+        self.assertEqual([s["count"] for s in current_steps], [1, 1])
+        self.assertEqual([s["count"] for s in previous_steps], [1, 1])
+
+    def test_compare_with_custom_offset_shifts_previous_window(self):
+        # Custom offset `-30d` puts the previous window 30 days before the current window's start
+        # (2021-05-08 .. 2021-05-14), regardless of window length. Two conversions land there; a
+        # third lands in the *default* previous window (2021-05-31 .. 2021-06-06), which `-30d`
+        # must exclude. So the previous count is 2, not 1 — proving the offset shifted the window.
+        journeys_for(
+            {
+                "current_user": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 8, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 8, 11)},
+                ],
+                "offset_user_a": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 8, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 8, 11)},
+                ],
+                "offset_user_b": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 10, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 10, 11)},
+                ],
+                "noise_user": [
+                    # In the default previous window but NOT the -30d window: must be ignored.
+                    {"event": "step one", "timestamp": datetime(2021, 6, 1, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 1, 11)},
+                ],
+            },
+            self.team,
+        )
+
+        results = FunnelsQueryRunner(query=self._build_query(compare_to="-30d"), team=self.team).calculate().results
+
+        previous_steps = [row for row in results if row["compare_label"] == "previous"]
+        self.assertEqual([s["count"] for s in previous_steps], [2, 2])
+
+    def test_compare_with_empty_previous_period(self):
+        # Only the current period has events. The previous side must still return a tagged step
+        # skeleton (zeroed) so the chart can render two bars per step — a missing previous side
+        # would leave steps with a single bar and break the grouped-bar layout.
+        journeys_for(
+            {
+                "current_user": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 8, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 8, 11)},
+                ],
+            },
+            self.team,
+        )
+
+        results = FunnelsQueryRunner(query=self._build_query(), team=self.team).calculate().results
+
+        current_steps = [row for row in results if row["compare_label"] == "current"]
+        previous_steps = [row for row in results if row["compare_label"] == "previous"]
+
+        self.assertEqual([s["count"] for s in current_steps], [1, 1])
+        # Skeleton intact: same steps, zeroed counts.
+        self.assertEqual([s["order"] for s in previous_steps], [0, 1])
+        self.assertEqual([s["count"] for s in previous_steps], [0, 0])
+        self.assertEqual([s["name"] for s in previous_steps], ["step one", "step two"])
+
+
+@override_settings(IN_UNIT_TESTING=True)
+class TestFunnelStepsBreakdownCompareUDF(ClickhouseTestMixin, APIBaseTest):
+    """Compare-to-previous composed with a breakdown on the funnel STEPS viz. A breakdown funnel
+    returns N inner funnels (a list-of-lists); with compare on it returns 2·N — N current and N
+    previous — each inner funnel preserving its breakdown_value and each step tagged compare_label."""
+
+    maxDiff = None
+
+    def _build_query(
+        self,
+        breakdown: str = "$browser",
+        date_from: str = "2021-06-07 00:00:00",
+        date_to: str = "2021-06-13 23:59:59",
+        compare: bool = True,
+        compare_to: Optional[str] = None,
+    ) -> FunnelsQuery:
+        return FunnelsQuery(
+            dateRange=DateRange(date_from=date_from, date_to=date_to),
+            interval="day",
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            breakdownFilter=BreakdownFilter(breakdown=breakdown),
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="steps",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+            compareFilter=CompareFilter(compare=compare, compare_to=compare_to),
+        )
+
+    @staticmethod
+    def _by_label_and_value(results) -> dict[tuple[str, tuple], list[dict]]:
+        # results is a list of inner funnels (list-of-lists). Key each by (compare_label, breakdown_value).
+        return {(group[0]["compare_label"], tuple(group[0]["breakdown_value"])): group for group in results}
+
+    def _conversion(self, browser: str, day: int) -> list[dict]:
+        return [
+            {"event": "step one", "timestamp": datetime(2021, 6, day, 10), "properties": {"$browser": browser}},
+            {"event": "step two", "timestamp": datetime(2021, 6, day, 11), "properties": {"$browser": browser}},
+        ]
+
+    @parameterized.expand(
+        [
+            (
+                # Both values convert in both periods (current 2021-06-07..13, default previous
+                # 2021-05-31..06-06) → 2 values × 2 periods = 4 inner funnels, all populated.
+                "all_values_in_both_periods",
+                {
+                    "current_chrome": ("Chrome", 8),
+                    "current_safari": ("Safari", 9),
+                    "previous_chrome": ("Chrome", 1),
+                    "previous_safari": ("Safari", 2),
+                },
+                {
+                    ("current", ("Chrome",)): [1, 1],
+                    ("current", ("Safari",)): [1, 1],
+                    ("previous", ("Chrome",)): [1, 1],
+                    ("previous", ("Safari",)): [1, 1],
+                },
+            ),
+            (
+                # Chrome converts in both periods, Safari only in current, Firefox only in previous.
+                # Each one-sided value is still represented on the missing side as a zeroed inner
+                # funnel (the union across periods), so the chart draws a pair for every value.
+                "one_sided_values_zeroed_on_missing_period",
+                {
+                    "current_chrome": ("Chrome", 8),
+                    "current_safari": ("Safari", 9),
+                    "previous_chrome": ("Chrome", 1),
+                    "previous_firefox": ("Firefox", 2),
+                },
+                {
+                    ("current", ("Chrome",)): [1, 1],
+                    ("current", ("Safari",)): [1, 1],
+                    ("current", ("Firefox",)): [0, 0],
+                    ("previous", ("Chrome",)): [1, 1],
+                    ("previous", ("Safari",)): [0, 0],
+                    ("previous", ("Firefox",)): [1, 1],
+                },
+            ),
+        ]
+    )
+    def test_breakdown_compare_aligns_inner_funnels_by_value(self, _name, journeys, expected_counts):
+        journeys_for(
+            {key: self._conversion(browser, day) for key, (browser, day) in journeys.items()},
+            self.team,
+        )
+
+        results = FunnelsQueryRunner(query=self._build_query(), team=self.team).calculate().results
+
+        # One inner funnel per (period, breakdown value), spanning the union of values across both
+        # periods. Every inner funnel — populated or zeroed — carries the full step skeleton tagged
+        # by period and value, so the chart draws a current/previous pair of bars for every value.
+        self.assertEqual(len(results), len(expected_counts))
+        for group in results:
+            self.assertEqual([s["order"] for s in group], [0, 1])
+            self.assertEqual([s["name"] for s in group], ["step one", "step two"])
+            for step in group:
+                self.assertIn(step["compare_label"], ("current", "previous"))
+                self.assertIsNotNone(step["breakdown_value"])
+
+        groups = self._by_label_and_value(results)
+        self.assertEqual(set(groups.keys()), set(expected_counts.keys()))
+        for key, counts in expected_counts.items():
+            self.assertEqual([s["count"] for s in groups[key]], counts)

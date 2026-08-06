@@ -44,7 +44,7 @@ class InkeepProvider:
         trace_id: str | None = None,
         properties: dict | None = None,
         groups: dict | None = None,
-    ) -> Generator[str, None, None]:
+    ) -> Generator[str]:
         """
         Generator function that yields SSE formatted data
         """

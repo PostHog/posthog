@@ -1,3 +1,5 @@
+import secrets
+from dataclasses import dataclass, field
 from typing import Optional
 
 from django.contrib.auth.hashers import check_password, make_password
@@ -50,18 +52,26 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
 
         try:
             # nosemgrep: idor-lookup-without-org (SCIM bearer token auth, domain_id is tenant identifier)
-            domain = OrganizationDomain.objects.get(id=domain_id)
+            domain = OrganizationDomain.objects.select_related("identity_provider_config").get(id=domain_id)
         except OrganizationDomain.DoesNotExist:
             raise exceptions.AuthenticationFailed("Invalid organization domain")
 
-        if not domain.has_scim:
+        # Read the linked IdP config directly (the source of truth) rather than through the
+        # empty-config fallback, so a domain with no config fails clearly here instead of falling
+        # through to a misleading "Invalid bearer token" on a null hash below.
+        #
+        # The domain must also be verified: SCIM can be enabled on a config independently of any
+        # domain (the config API has no verification gate), so re-check verification here to keep
+        # provisioning gated behind a verified domain.
+        config = domain.identity_provider_config
+        if not domain.is_verified or config is None or not config.has_scim:
             raise exceptions.AuthenticationFailed("SCIM not configured for this domain")
 
         if not domain.organization.is_feature_available(AvailableFeature.SCIM):
             raise exceptions.AuthenticationFailed("Your organization does not have the required license to use SCIM")
 
-        # Verify the bearer token matches the stored hashed token
-        if not check_password(token, domain.scim_bearer_token):
+        # Verify the bearer token matches the stored hashed token (sourced from the IdP config)
+        if not check_password(token, config.scim_bearer_token):
             raise exceptions.AuthenticationFailed("Invalid bearer token")
 
         return (SCIMAuthToken(domain), domain)
@@ -77,13 +87,15 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
         return None
 
 
-def generate_scim_token() -> tuple[str, str]:
-    """
-    Generate a new SCIM bearer token.
-    Returns (plain_token, hashed_token) tuple.
-    """
-    import secrets
+@dataclass(frozen=True)
+class ScimToken:
+    # `plain` is shown to the user once. Only `hashed` is persisted.
+    plain: str = field(repr=False)
+    hashed: str
 
+
+def generate_scim_token() -> ScimToken:
+    """Generate a new SCIM bearer token."""
     plain_token = secrets.token_urlsafe(32)
     hashed_token = make_password(plain_token)
-    return plain_token, hashed_token
+    return ScimToken(plain=plain_token, hashed=hashed_token)

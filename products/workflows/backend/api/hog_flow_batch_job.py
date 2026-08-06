@@ -25,10 +25,24 @@ class HogFlowBatchJobSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "filters",
             "created_at",
             "created_by",
             "updated_at",
         ]
+        extra_kwargs = {
+            "status": {
+                "help_text": (
+                    "Not currently tracked — stays at its initial value. Use the workflow logs/metrics "
+                    "endpoints for run outcome."
+                )
+            },
+            "hog_flow": {"help_text": "ID of the workflow this batch run belongs to."},
+            "filters": {
+                "help_text": "Audience snapshot the run fanned out to, taken from the workflow's batch trigger filters."
+            },
+            "variables": {"help_text": "Variable value overrides applied to this run."},
+        }
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFlowBatchJob:
         request = self.context["request"]

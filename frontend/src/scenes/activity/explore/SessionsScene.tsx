@@ -15,9 +15,9 @@ import { ActivityTab } from '~/types'
 import { createSessionsRowTransformer, getSessionsColumns } from './sessionsColumns'
 import { sessionsSceneLogic } from './sessionsSceneLogic'
 
-export function SessionsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
-    const { query } = useValues(sessionsSceneLogic({ tabId }))
-    const { setQuery } = useActions(sessionsSceneLogic({ tabId }))
+export function SessionsScene(): JSX.Element {
+    const { query } = useValues(sessionsSceneLogic())
+    const { setQuery } = useActions(sessionsSceneLogic())
 
     // Create the row transformer based on the current query
     const dataTableRowsTransformer = useMemo(() => createSessionsRowTransformer(query as DataTableNode), [query])
@@ -33,9 +33,8 @@ export function SessionsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                 }}
             />
             <Query
-                attachTo={sessionsSceneLogic({ tabId })}
-                uniqueKey={`sessions-scene-${tabId}`}
-                tabId={tabId}
+                attachTo={sessionsSceneLogic()}
+                uniqueKey="sessions-scene"
                 query={query}
                 setQuery={setQuery}
                 context={{

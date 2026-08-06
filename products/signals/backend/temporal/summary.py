@@ -1,8 +1,12 @@
+"""Temporal workflow that generates and persists signal report summaries."""
+
 import json
 import asyncio
 from dataclasses import dataclass, field
 from datetime import timedelta
+from typing import Any
 
+from django.conf import settings
 from django.db import transaction
 
 import structlog
@@ -10,7 +14,8 @@ import temporalio
 import posthoganalytics
 from structlog.types import FilteringBoundLogger
 from temporalio import workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.workflow import ParentClosePolicy
 
 from posthog.event_usage import groups
 from posthog.kafka_client.routing import get_producer
@@ -18,10 +23,17 @@ from posthog.kafka_client.topics import KAFKA_SIGNALS_REPORT_COMPLETED
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.models import SignalReport
+from products.signals.backend.quota import (
+    capture_signal_report_quota_paused,
+    record_quota_check_failed_open,
+    self_driving_quota_gate,
+)
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.agentic.report import (
     RunAgenticReportInput,
     RunAgenticReportOutput,
@@ -31,13 +43,21 @@ from products.signals.backend.temporal.agentic.select_repository import (
     SelectRepositoryInput,
     select_repository_activity,
 )
+from products.signals.backend.temporal.inbox_notification import (
+    InboxNotificationInput,
+    SignalReportInboxNotificationWorkflow,
+)
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, report_safety_judge_activity
 from products.signals.backend.temporal.signal_queries import (
     FetchSignalsForReportInput,
     FetchSignalsForReportOutput,
     fetch_signals_for_report_activity,
 )
-from products.signals.backend.temporal.types import SignalData, SignalReportSummaryWorkflowInputs
+from products.signals.backend.temporal.types import (
+    RERESEARCH_MAX_SIGNALS,
+    SignalData,
+    SignalReportSummaryWorkflowInputs,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -52,6 +72,7 @@ def _capture_report_event(
     source_products: list[str],
     result: str | None = None,
     failure_reason: str | None = None,
+    pending_reason: str | None = None,
 ) -> None:
     properties: dict = {
         "report_id": report_id,
@@ -63,6 +84,12 @@ def _capture_report_event(
         properties["result"] = result
     if failure_reason is not None:
         properties["failure_reason"] = failure_reason
+    if pending_reason is not None:
+        properties["pending_reason"] = pending_reason
+
+    if event == "signal_report_completed" and result is not None:
+        metrics.increment_report_completed(result)
+
     try:
         posthoganalytics.capture(
             event=event,
@@ -86,6 +113,14 @@ class ReportDecision:
     summary: str
     choice: ActionabilityChoice
     explanation: str
+    # Resolved chart payload to store with the title/summary (see `RunAgenticReportOutput.charts`):
+    # a JSON set, `[]` to clear, or `None` to leave the column alone. `None` for the no-repo branch,
+    # which does no research.
+    charts: list[dict[str, Any]] | None = None
+    # Which of the two doors into PENDING_INPUT produced this decision, so telemetry can tell a
+    # broken repo-selection integration apart from the agent legitimately asking for human input.
+    # Irrelevant (left `None`) unless `choice == ActionabilityChoice.REQUIRES_HUMAN_INPUT`.
+    pending_reason: str | None = None
 
 
 @temporalio.workflow.defn(name="signal-report-summary")
@@ -124,6 +159,13 @@ class SignalReportSummaryWorkflow:
         # Bind team_id + report_id so all logs flow to the log_entries sink (the Temporal
         # structlog renderer skips producing when team_id isn't in the event dict).
         log = logger.bind(team_id=inputs.team_id, report_id=inputs.report_id)
+        # Wait before researching so a burst of signals lands in one run. This workflow already holds
+        # the report's workflow ID, so every signal arriving while it waits is swallowed by the
+        # WorkflowAlreadyStartedError handler in grouping rather than spawning its own run, and the
+        # fetch below then picks up the whole burst. patched(): in-flight histories predate the timer.
+        if inputs.debounce_seconds and workflow.patched("signals-research-debounce"):
+            log.info("Debouncing research", debounce_seconds=inputs.debounce_seconds)
+            await workflow.sleep(timedelta(seconds=inputs.debounce_seconds))
         # If new signals arrived after the report was generated - loop back to process them also
         max_iterations = 10  # Basic safety guard
         for _ in range(max_iterations):
@@ -137,8 +179,33 @@ class SignalReportSummaryWorkflow:
             max_iterations=max_iterations,
         )
 
+    async def _quota_gate_pauses(self, inputs: SignalReportSummaryWorkflowInputs, stage: str) -> bool:
+        return await workflow.execute_activity(
+            check_report_quota_gate_activity,
+            CheckReportQuotaGateInput(team_id=inputs.team_id, report_id=inputs.report_id, stage=stage),
+            start_to_close_timeout=timedelta(minutes=1),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+    async def _revert_report_to_candidate(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
+        await workflow.execute_activity(
+            revert_report_to_candidate_activity,
+            RevertReportToCandidateInput(team_id=inputs.team_id, report_id=inputs.report_id),
+            start_to_close_timeout=timedelta(minutes=1),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
     async def _run_once(self, inputs: SignalReportSummaryWorkflowInputs, log: FilteringBoundLogger) -> bool:
         """Run a single report generation cycle. Returns True if new signals arrived and another cycle is needed."""
+        # 0. Quota gate: a team whose org is over its self-driving credits quota gets no new research or PRs. The
+        # report stays candidate and re-promotes on the first matching signal after the quota
+        # lifts. patched(): executions recorded before the gate existed replay the old command
+        # sequence (see also the two mid-run gates below, same patch id).
+        if workflow.patched("self-driving-quota-gates") and await self._quota_gate_pauses(
+            inputs, stage="summary_entry"
+        ):
+            log.info("Report run paused: org over self-driving credits quota", stage="summary_entry")
+            return False
         # 1. Fetch signals for the report
         fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
             fetch_signals_for_report_activity,
@@ -207,6 +274,16 @@ class SignalReportSummaryWorkflow:
                 )
                 # No loop, as report is unsafe
                 return False
+            # Quota re-check before each sandbox-heavy step: the team can cross its limit while
+            # this workflow is between activities (e.g. a parallel report's PR landed). The report
+            # is in_progress here, so a pause must revert it to candidate rather than just exit,
+            # or no promotion rule would ever pick it up again.
+            if workflow.patched("self-driving-quota-gates") and await self._quota_gate_pauses(
+                inputs, stage="pre_repo_selection"
+            ):
+                log.info("Report run paused: org over self-driving credits quota", stage="pre_repo_selection")
+                await self._revert_report_to_candidate(inputs)
+                return False
             # 4. Select repository for the agentic research
             repo_result: RepoSelectionResult = await workflow.execute_activity(
                 select_repository_activity,
@@ -232,8 +309,15 @@ class SignalReportSummaryWorkflow:
                     summary=f"Could not automatically select a repository: {repo_result.reason}",
                     choice=ActionabilityChoice.REQUIRES_HUMAN_INPUT,
                     explanation=repo_result.reason,
+                    pending_reason="repo_selection_required",
                 )
             else:
+                if workflow.patched("self-driving-quota-gates") and await self._quota_gate_pauses(
+                    inputs, stage="pre_research"
+                ):
+                    log.info("Report run paused: org over self-driving credits quota", stage="pre_research")
+                    await self._revert_report_to_candidate(inputs)
+                    return False
                 # 5. Run the agentic report research flow with the selected repository to use code/MCP data to assess signals
                 agentic_result: RunAgenticReportOutput = await workflow.execute_activity(
                     run_agentic_report_activity,
@@ -253,6 +337,8 @@ class SignalReportSummaryWorkflow:
                     summary=agentic_result.summary,
                     choice=agentic_result.choice,
                     explanation=agentic_result.explanation,
+                    charts=agentic_result.charts,
+                    pending_reason="agent_requested",
                 )
             if decision.choice == ActionabilityChoice.NOT_ACTIONABLE:
                 log.info(
@@ -288,6 +374,8 @@ class SignalReportSummaryWorkflow:
                         reason=f"Requires human input: {decision.explanation}",
                         signal_count=signal_count,
                         source_products=source_products,
+                        charts=decision.charts,
+                        pending_reason=decision.pending_reason,
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -304,6 +392,7 @@ class SignalReportSummaryWorkflow:
                     summary=decision.summary,
                     processed_signal_count=signal_count,
                     source_products=source_products,
+                    charts=decision.charts,
                 ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
@@ -329,23 +418,37 @@ class SignalReportSummaryWorkflow:
                     workflow.logger.exception(
                         f"Failed to publish report_completed notification for {inputs.report_id}",
                     )
-                # Slack notifications to suggested reviewers — separate from the Kafka
-                # publish above so a Slack outage doesn't suppress the inbox event,
-                # and a Kafka outage doesn't suppress Slack delivery.
+                # Slack notification is detached (ABANDON) so it can wait out the implementation PR.
+                # patched(): summary workflows already in flight at deploy replay the prior inline path.
                 try:
-                    await workflow.execute_activity(
-                        dispatch_inbox_slack_notifications_activity,
-                        DispatchInboxSlackNotificationsInput(
-                            team_id=inputs.team_id,
-                            report_id=inputs.report_id,
-                            source_products=source_products,
-                        ),
-                        start_to_close_timeout=timedelta(minutes=2),
-                        retry_policy=RetryPolicy(maximum_attempts=2),
-                    )
+                    if workflow.patched("signals-deferred-inbox-notification"):
+                        await workflow.start_child_workflow(
+                            SignalReportInboxNotificationWorkflow.run,
+                            InboxNotificationInput(team_id=inputs.team_id, report_id=inputs.report_id),
+                            id=SignalReportInboxNotificationWorkflow.workflow_id_for(inputs.team_id, inputs.report_id),
+                            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                            parent_close_policy=ParentClosePolicy.ABANDON,
+                            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                            execution_timeout=timedelta(
+                                seconds=settings.SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS + 600
+                            ),
+                        )
+                    else:
+                        await workflow.execute_activity(
+                            dispatch_inbox_slack_notifications_activity,
+                            DispatchInboxSlackNotificationsInput(
+                                team_id=inputs.team_id,
+                                report_id=inputs.report_id,
+                                source_products=source_products,
+                            ),
+                            start_to_close_timeout=timedelta(minutes=2),
+                            retry_policy=RetryPolicy(maximum_attempts=2),
+                        )
+                except temporalio.exceptions.WorkflowAlreadyStartedError:
+                    pass
                 except Exception:
                     workflow.logger.exception(
-                        f"Failed to dispatch inbox Slack notifications for {inputs.report_id}",
+                        f"Failed to dispatch inbox notification for {inputs.report_id}",
                     )
             return has_new_signals
         except Exception as e:
@@ -366,6 +469,71 @@ class SignalReportSummaryWorkflow:
 
 
 @dataclass
+class CheckReportQuotaGateInput:
+    team_id: int
+    report_id: str
+    stage: str
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def check_report_quota_gate_activity(input: CheckReportQuotaGateInput) -> bool:
+    """Whether the summary workflow must pause at `stage`: the team's org is over its self-driving
+    credits quota and enforcement is on. Emits `signal_report_quota_paused` whenever the team is limited,
+    enforced or not, so the dark-launch would-block volume is measurable. Never raises: any
+    failure resolves to False (run proceeds), matching the quota module's fail-open policy.
+    """
+    try:
+        team = await Team.objects.select_related("organization").aget(pk=input.team_id)
+        gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(team)
+        if gate.limited:
+            capture_signal_report_quota_paused(
+                team, report_id=input.report_id, stage=input.stage, enforced=gate.enforced
+            )
+        return gate.enforced
+    except Exception:
+        record_quota_check_failed_open()
+        logger.exception(
+            "Self-driving quota gate check failed open",
+            report_id=input.report_id,
+            team_id=input.team_id,
+            stage=input.stage,
+        )
+        return False
+
+
+@dataclass
+class RevertReportToCandidateInput:
+    team_id: int
+    report_id: str
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def revert_report_to_candidate_activity(input: RevertReportToCandidateInput) -> None:
+    """Return a report paused mid-run by the quota gate from in_progress to candidate, so the next
+    matching signal re-promotes it (no promotion rule ever picks up an in_progress report).
+    """
+
+    @transaction.atomic
+    def do_update() -> None:
+        report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
+        if report.status != SignalReport.Status.IN_PROGRESS:
+            return
+        updated_fields = report.transition_to(SignalReport.Status.CANDIDATE)
+        report.save(update_fields=updated_fields)
+
+    await database_sync_to_async(do_update, thread_sensitive=False)()
+    logger.info(
+        "Reverted quota-paused report to candidate",
+        report_id=input.report_id,
+        team_id=input.team_id,
+    )
+
+
+@dataclass
 class MarkReportInProgressInput:
     team_id: int
     report_id: str
@@ -375,6 +543,7 @@ class MarkReportInProgressInput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> None:
     """Mark a report as in_progress and advance signals_at_run by 3.
 
@@ -433,10 +602,15 @@ class MarkReportReadyInput:
     summary: str
     processed_signal_count: int
     source_products: list[str] = field(default_factory=list)
+    # Chart payload to write alongside title/summary, in the same transaction: the JSON set to store,
+    # `[]` to clear, or `None` to leave the column untouched. Defaults to `None` so an older workflow
+    # history that predates this field replays cleanly.
+    charts: list[dict[str, Any]] | None = None
 
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
     """Mark a report as ready. Returns True if new signals arrived during the run."""
     try:
@@ -450,8 +624,13 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 # Previous attempt took the re-promotion branch; preserve has_new_signals=True.
                 return True, report.run_count, True
             updated_fields = report.transition_to(SignalReport.Status.READY, title=input.title, summary=input.summary)
+            if input.charts is not None:
+                report.charts = input.charts
+                updated_fields = [*updated_fields, "charts"]
             report.save(update_fields=updated_fields)
-            has_new_signals = report.signal_count > input.processed_signal_count
+            # Loop to re-research only if new signals arrived and we're within the cap; past
+            # RERESEARCH_MAX_SIGNALS the report stays READY instead of re-running over a large set.
+            has_new_signals = input.processed_signal_count < report.signal_count <= RERESEARCH_MAX_SIGNALS
             if has_new_signals:
                 # If more signals arrived while the report was being processed, we want to
                 # re-promote it back to candidate and loop to also process new signals
@@ -507,6 +686,7 @@ class MarkReportFailedInput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
     """Mark a report as failed and store the error message."""
     try:
@@ -563,10 +743,16 @@ class MarkReportPendingInput:
     reason: str
     signal_count: int = 0
     source_products: list[str] = field(default_factory=list)
+    # See MarkReportReadyInput.charts — written in the same transaction as the draft title/summary.
+    charts: list[dict[str, Any]] | None = None
+    # Coarse cause of the transition ("repo_selection_required" / "agent_requested"), see
+    # ReportDecision.pending_reason.
+    pending_reason: str | None = None
 
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> None:
     """Mark a report as pending human input, storing the draft title/summary for human review."""
     try:
@@ -579,6 +765,12 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
             updated_fields = report.transition_to(
                 SignalReport.Status.PENDING_INPUT, title=input.title, summary=input.summary, error=input.reason
             )
+            if input.charts is not None:
+                report.charts = input.charts
+                updated_fields = [*updated_fields, "charts"]
+            # Read by capture_status_change_analytics's post_save receiver (same instance, same
+            # transaction) — not a model field, so it never persists past this save.
+            report._pending_reason = input.pending_reason  # type: ignore[attr-defined]
             report.save(update_fields=updated_fields)
             return report.run_count, False
 
@@ -607,6 +799,7 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
         run_count=run_count,
         source_products=input.source_products,
         result="pending_input",
+        pending_reason=input.pending_reason,
     )
     logger.debug(
         f"Marked report {input.report_id} as pending_input",
@@ -626,6 +819,7 @@ class ResetReportToPotentialInput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def reset_report_to_potential_activity(input: ResetReportToPotentialInput) -> None:
     """Reset a report's weight to 0 and status to potential (e.g. when deemed not actionable)."""
     try:
@@ -679,17 +873,11 @@ class DispatchInboxSlackNotificationsInput:
     source_products: list[str] = field(default_factory=list)
 
 
+# Deprecated: replaced by SignalReportInboxNotificationWorkflow (see the "signals-deferred-inbox-notification"
+# patch above). Retained one release so summary workflows in flight at deploy can replay the old path.
 @temporalio.activity.defn
 @scoped_temporal()
-async def dispatch_inbox_slack_notifications_activity(
-    input: DispatchInboxSlackNotificationsInput,
-) -> int:
-    """Send Slack notifications for a newly-READY report to suggested reviewers
-    who have configured Slack notifications in their signal autonomy config.
-
-    Returns the number of messages dispatched (informational; failures are
-    swallowed inside the dispatcher and logged).
-    """
+async def dispatch_inbox_slack_notifications_activity(input: DispatchInboxSlackNotificationsInput) -> int:
     from products.signals.backend.slack_inbox_notifications import dispatch_inbox_item_notifications
 
     return await database_sync_to_async(dispatch_inbox_item_notifications, thread_sensitive=False)(

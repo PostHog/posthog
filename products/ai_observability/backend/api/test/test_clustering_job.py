@@ -211,7 +211,7 @@ class TestClusteringJobViewSet(APIBaseTest):
         return {"key": "id", "value": cohort_id, "type": "cohort"}
 
     def test_create_with_valid_cohort_filter(self):
-        from posthog.models.cohort import Cohort
+        from products.cohorts.backend.models.cohort import Cohort
 
         cohort = Cohort.objects.create(team=self.team, name="VIPs")
         response = self.client.post(
@@ -245,7 +245,7 @@ class TestClusteringJobViewSet(APIBaseTest):
         self.assertIn("not found or deleted", str(response.json()))
 
     def test_create_rejects_soft_deleted_cohort_filter(self):
-        from posthog.models.cohort import Cohort
+        from products.cohorts.backend.models.cohort import Cohort
 
         cohort = Cohort.objects.create(team=self.team, name="Stale", deleted=True)
         response = self.client.post(

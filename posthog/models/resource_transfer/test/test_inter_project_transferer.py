@@ -130,7 +130,7 @@ class TestBuildResourceDuplicationGraph(BaseTest):
         assert len(graph) == 0
 
     def test_raises_for_unvisitable_model(self) -> None:
-        from posthog.models import Annotation
+        from products.annotations.backend.models.annotation import Annotation
 
         annotation = Annotation.objects.create(team=self.team, content="My annotation")
         with self.assertRaises(TypeError):

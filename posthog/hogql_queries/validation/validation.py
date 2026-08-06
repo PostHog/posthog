@@ -24,7 +24,7 @@ class SupportsQueryValidation(Protocol[Q_co]):
 
 @dataclass(frozen=True)
 class QueryValidationContext(Generic[Q_co]):
-    query: Q_co
+    query: Q_co  # type: ignore[misc]
     team: Team
     user: User | None
     runner: SupportsQueryValidation[Q_co]

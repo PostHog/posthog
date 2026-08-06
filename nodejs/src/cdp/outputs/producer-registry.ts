@@ -1,4 +1,5 @@
-import { KafkaProducerRegistryBuilder } from '../../ingestion/outputs/kafka-producer-registry-builder'
+import { KafkaProducerRegistryBuilder } from '~/common/outputs/kafka-producer-registry-builder'
+
 import {
     WAREHOUSE_PRODUCER,
     WAREHOUSE_PRODUCER_CONFIG_MAP,
@@ -15,9 +16,10 @@ import {
  *
  * - `WARPSTREAM_INGESTION_PRODUCER` — hog function monitoring (app metrics +
  *   log entries). Targets the warpstream-ingestion cluster.
- * - `WARPSTREAM_CALCULATED_EVENTS_PRODUCER` — dedicated cluster for the
- *   precalculated-filters consumer's outputs (`clickhouse_prefiltered_events`,
- *   `clickhouse_precalculated_person_properties`).
+ * - `WARPSTREAM_CALCULATED_EVENTS_PRODUCER` — dedicated calculated-events
+ *   cluster. No CDP output routes to it now that the precalculated-filters
+ *   consumer is gone; kept registered because charts still supply its env vars
+ *   and registration is lazy. Reuse it for the next calculated-events output.
  * - `WARPSTREAM_CYCLOTRON_PRODUCER` — Cyclotron Warpstream cluster used for
  *   batch hogflow request enqueue. Distinct env-var prefix from the legacy
  *   `KAFKA_CDP_PRODUCER_*` so output routing is decoupled from the cyclotron

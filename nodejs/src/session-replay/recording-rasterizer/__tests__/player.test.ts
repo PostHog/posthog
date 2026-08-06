@@ -1,19 +1,19 @@
 import type { PlayerConfig, PlayerMessage } from '@posthog/replay-headless/protocol'
 import { PLAYER_CONFIG_KEY, PLAYER_EMIT_FN, PLAYER_START_EVENT } from '@posthog/replay-headless/protocol'
 
-import { BlockProxy } from '../capture/block-proxy'
-import { CapturePage } from '../capture/capture-page'
-import { PlayerController } from '../capture/player'
-import { RasterizationError } from '../errors'
+import { BlockProxy } from '~/session-replay/recording-rasterizer/capture/block-proxy'
+import { CapturePage } from '~/session-replay/recording-rasterizer/capture/capture-page'
+import { PlayerController } from '~/session-replay/recording-rasterizer/capture/player'
+import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
 
-jest.mock('../capture/request-interceptor', () => ({
+jest.mock('~/session-replay/recording-rasterizer/capture/request-interceptor', () => ({
     RequestInterceptor: jest.fn().mockImplementation(() => ({
         install: jest.fn().mockResolvedValue(undefined),
         waitForSettled: jest.fn().mockResolvedValue(undefined),
     })),
 }))
 
-jest.mock('../logger', () => ({
+jest.mock('~/session-replay/recording-rasterizer/logger', () => ({
     createLogger: () => ({
         info: jest.fn(),
         warn: jest.fn(),
@@ -153,6 +153,26 @@ describe('PlayerController', () => {
         await expect(startPromise).rejects.toBeInstanceOf(RasterizationError)
     })
 
+    it('waitForStart() keeps a retryable NO_SNAPSHOTS retryable', async () => {
+        // A scan can start once replay metadata exists but before the snapshot blocks are readable, and that render
+        // succeeds on a later attempt. Downgrading NO_SNAPSHOTS to non-retryable here would strand those recordings as
+        // permanently ineligible, so the player's own verdict has to survive.
+        const mp = mockCapturePage()
+        const controller = new PlayerController(mp.capturePage, mockBlockProxy, jest.fn())
+        await controller.load(basePlayerConfig())
+
+        const startPromise = controller.waitForStart(basePlayerConfig(), 5000)
+
+        mp._emit({
+            type: 'error',
+            code: 'NO_SNAPSHOTS',
+            message: 'No snapshots after processing',
+            retryable: true,
+        })
+
+        await expect(startPromise).rejects.toMatchObject({ code: 'NO_SNAPSHOTS', retryable: true })
+    })
+
     it('isEnded() returns true after ended message', async () => {
         const mp = mockCapturePage()
         const controller = new PlayerController(mp.capturePage, mockBlockProxy, jest.fn())
@@ -172,15 +192,15 @@ describe('PlayerController', () => {
 
         mp._emit({
             type: 'error',
-            code: 'PLAYBACK_ERROR',
+            code: 'SOME_FUTURE_CODE',
             message: 'rendering failed',
             retryable: true,
         })
 
         const err = controller.getError()
         expect(err).toBeInstanceOf(RasterizationError)
-        expect(err!.message).toBe('[PLAYBACK_ERROR] rendering failed')
-        expect(err!.code).toBe('PLAYBACK_ERROR')
+        expect(err!.message).toBe('[SOME_FUTURE_CODE] rendering failed')
+        expect(err!.code).toBe('OTHER')
         expect(err!.retryable).toBe(true)
     })
 

@@ -8,19 +8,18 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.models.organization import OrganizationMembership
 
+from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.enqueue_claims import release_enqueue_claim
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.quota import compute_quota_snapshot
 from products.replay_vision.backend.temporal.decorators import track_activity
+from products.replay_vision.backend.temporal.metrics import record_consent_skip, record_quota_exhausted_skip
 from products.replay_vision.backend.temporal.types import (
     CreateObservationInputs,
     CreateObservationOutput,
     ScannerSnapshot,
 )
-
-
-def _emits_embeddings(scanner_config: dict) -> bool:
-    return bool(scanner_config.get("emits_embeddings", False))
 
 
 def _build_scanner_snapshot(scanner: ReplayScanner) -> dict[str, Any]:
@@ -38,10 +37,37 @@ def _build_scanner_snapshot(scanner: ReplayScanner) -> dict[str, Any]:
 @activity.defn
 @track_activity()
 def create_observation_activity(inputs: CreateObservationInputs) -> CreateObservationOutput:
-    """Snapshot the full scanner state and INSERT the row in `pending`. Returns `was_created=False` on UNIQUE conflict."""
-    scanner = ReplayScanner.objects.filter(pk=inputs.scanner_id, team_id=inputs.team_id).select_related("team").first()
+    """Snapshot the full scanner state and INSERT the row in `pending`; UNIQUE conflicts return `was_created=False` unless the row is this workflow's own lost-result insert, which is reclaimed."""
+    try:
+        return _create_observation(inputs)
+    finally:
+        # Every exit resolves the row's existence, so the enqueue claim is done; TTL covers a crash.
+        release_enqueue_claim(team_id=inputs.team_id, scanner_id=inputs.scanner_id, workflow_id=inputs.workflow_id)
+
+
+def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOutput:
+    # team__organization is prefetched for the AI-consent check below.
+    scanner = (
+        # `all_origins`: this is the persistence step for every scan, inline ones included.
+        ReplayScanner.all_origins.filter(pk=inputs.scanner_id, team_id=inputs.team_id)
+        .select_related("team", "team__organization")
+        .first()
+    )
     if scanner is None:
         raise ValueError(f"ReplayScanner {inputs.scanner_id} not found for team {inputs.team_id}")
+
+    # No AI processing of recordings without organization consent, even for scanners created earlier.
+    if not scanner.team.organization.is_ai_data_processing_approved:
+        record_consent_skip(scanner.scanner_type)
+        activity.logger.info(
+            "Skipping observation: AI data processing not approved for organization",
+            extra={"scanner_id": str(inputs.scanner_id), "team_id": inputs.team_id, "session_id": inputs.session_id},
+        )
+        return CreateObservationOutput(
+            observation_id=None,
+            was_created=False,
+            scanner_type=scanner.scanner_type,
+        )
 
     if inputs.triggered_by_user_id is not None:
         # The activity is the persistence boundary, so re-check team membership rather than trusting the trigger.
@@ -54,7 +80,10 @@ def create_observation_activity(inputs: CreateObservationInputs) -> CreateObserv
                 f"User {inputs.triggered_by_user_id} is not a member of scanner {inputs.scanner_id}'s organization"
             )
 
-    if compute_quota_snapshot(scanner.team.organization_id).exhausted:
+    # Deliberately check-then-act: the snapshot doesn't count enqueue claims, so a concurrent burst can
+    # overshoot by at most the in-flight caps allow, which is accepted.
+    if compute_quota_snapshot(scanner.team.organization_id).would_exceed(observation_credits_for_model(scanner.model)):
+        record_quota_exhausted_skip(scanner.scanner_type)
         activity.logger.info(
             "Skipping observation: monthly quota exhausted",
             extra={"scanner_id": str(inputs.scanner_id), "team_id": inputs.team_id, "session_id": inputs.session_id},
@@ -90,16 +119,16 @@ def create_observation_activity(inputs: CreateObservationInputs) -> CreateObserv
             )
         # Route through the validator so a malformed legacy snapshot surfaces as a tagged non-retryable error.
         existing_snapshot = ScannerSnapshot.load_for(existing.id, existing.scanner_snapshot)
+        # A still-PENDING row stamped with our own workflow id is our earlier lost-result insert — reclaim it.
+        reclaimed = existing.workflow_id == inputs.workflow_id and existing.status == ObservationStatus.PENDING
         return CreateObservationOutput(
             observation_id=existing.id,
-            was_created=False,
+            was_created=reclaimed,
             scanner_type=existing_snapshot.scanner_type,
-            emits_embeddings=_emits_embeddings(existing_snapshot.scanner_config),
         )
 
     return CreateObservationOutput(
         observation_id=observation.id,
         was_created=True,
         scanner_type=scanner.scanner_type,
-        emits_embeddings=_emits_embeddings(scanner.scanner_config),
     )

@@ -1,3 +1,4 @@
+use crate::cohorts::cohort_models::MembershipStampPolicy;
 use common_continuous_profiling::ContinuousProfilingConfig;
 use common_cookieless::CookielessConfig;
 use common_types::TeamId;
@@ -376,13 +377,43 @@ pub struct Config {
     #[envconfig(default = "")]
     pub behavioral_cohorts_read_database_url: String,
 
+    // Decryption keys for encrypted remote-config flag payloads (comma-separated, ordered:
+    // Django encrypts with the first key, this service only decrypts and tries all of them).
+    // Empty falls back to SECRET_KEY, matching Django's FLAGS_SECRET_KEYS default for
+    // self-hosted. See flags::flag_payload_decryptor.
+    #[envconfig(from = "FLAGS_SECRET_KEYS", default = "")]
+    pub flags_secret_keys: String,
+
+    // Django SECRET_KEY, used only as the FLAGS_SECRET_KEYS fallback (self-hosted).
+    #[envconfig(from = "SECRET_KEY", default = "")]
+    pub secret_key: String,
+
     // Team-scoped gate for realtime cohort evaluation. When "none" (default), the
     // realtime cohort block in prepare_flag_evaluation_state is skipped entirely, even
     // if the behavioral cohorts DB is configured and cohorts with CohortType::Realtime
     // exist. Set to "all", specific team IDs, or ranges to enable realtime cohort
     // membership lookups on the hot path for those teams.
+    //
+    // Routing also requires `condition_type`, which was never backfilled, so every team listed
+    // here needs `python manage.py resave_cohorts --team-id <id>` first. Without it behavioral
+    // cohorts read as condition_type = NULL and fall back to dynamic evaluation, which resolves
+    // every person as a non-member rather than just evaluating slower.
+    //
+    // A team listed here must also be in Django's REALTIME_COHORT_TEAM_ALLOWLIST: the stamps
+    // this predicate trusts are only invalidated on edit for allowlisted teams, so without it
+    // an edited cohort keeps routing to a membership table computed for its old definition.
     #[envconfig(from = "REALTIME_COHORT_EVALUATION_TEAM_IDS", default = "none")]
     pub realtime_cohort_evaluation_team_ids: TeamIdCollection,
+
+    // Which cohort stamps the routing predicate accepts as proof the PG `cohort_membership`
+    // table is populated (see `MembershipStampPolicy`). "any_backfill_stamp" also accepts the
+    // overloaded `last_backfill_person_properties_at`; "events_or_calculation_stamp" does not,
+    // and is what Django's BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED gate waits on.
+    #[envconfig(
+        from = "REALTIME_COHORT_MEMBERSHIP_STAMP_POLICY",
+        default = "any_backfill_stamp"
+    )]
+    pub realtime_cohort_membership_stamp_policy: MembershipStampPolicy,
 
     // Cache TTL for realtime cohort membership lookups (seconds).
     #[envconfig(from = "COHORT_MEMBERSHIP_CACHE_TTL_SECONDS", default = "60")]
@@ -392,6 +423,16 @@ pub struct Config {
     // Each entry represents one (team_id, person_uuid) pair with a map of cohort memberships.
     #[envconfig(from = "COHORT_MEMBERSHIP_CACHE_MAX_ENTRIES", default = "500000")]
     pub cohort_membership_cache_max_entries: u64,
+
+    // Upper bound on a single realtime cohort membership lookup (pool acquire + query).
+    // Keeps an unreachable behavioral cohorts DB from stalling flag requests for the
+    // pool's full 2s acquire timeout; on timeout the lookup degrades to non-membership.
+    // The default matches the pool's 1s statement timeout: a tighter client-side bound
+    // would discard answers the DB would still deliver, flipping flags for the person,
+    // so this bound only adds cover where statement_timeout cannot reach (pool acquire
+    // stalls, network black holes).
+    #[envconfig(from = "REALTIME_COHORT_LOOKUP_TIMEOUT_MS", default = "1000")]
+    pub realtime_cohort_lookup_timeout_ms: u64,
 
     #[envconfig(default = "1000")]
     pub max_concurrency: usize,
@@ -440,6 +481,13 @@ pub struct Config {
     // true = Mode 3: read and write dedicated Redis only (cutover complete)
     #[envconfig(default = "false")]
     pub flags_redis_enabled: FlexBool,
+
+    // Kill-switch for the flag-definitions self-heal path. When enabled, a
+    // /flags/definitions cache miss enqueues a (debounced) rebuild request that a
+    // Celery worker drains and rebuilds. Default on; set to "false" to instantly
+    // stop enqueuing if it ever misbehaves in prod.
+    #[envconfig(from = "FLAG_DEFINITIONS_SELF_HEAL_ENABLED", default = "true")]
+    pub flag_definitions_self_heal_enabled: FlexBool,
 
     // S3 configuration for HyperCache fallback
     #[envconfig(default = "posthog")]
@@ -637,6 +685,13 @@ pub struct Config {
     #[envconfig(from = "LOCAL_EVAL_RATE_LIMITS", default = "")]
     pub flag_definitions_rate_limits: FlagDefinitionsRateLimits,
 
+    // Per-credential rate limit for the remote_config endpoint (requests per minute).
+    // Matches Django's RemoteConfigThrottle default of 600/minute. Django's per-project
+    // REMOTE_CONFIG_RATE_LIMITS override is not ported: it can't apply to a per-credential
+    // bucket, is rarely set, and was already mis-keyed (team id vs project id) in Django.
+    #[envconfig(from = "REMOTE_CONFIG_DEFAULT_RATE_PER_MINUTE", default = "600")]
+    pub remote_config_default_rate_per_minute: u32,
+
     // Teams that bypass rate limiting entirely (comma-separated team IDs)
     // Matches Django's RATE_LIMITING_ALLOW_LIST_TEAMS behavior
     #[envconfig(from = "RATE_LIMITING_ALLOW_LIST_TEAMS", default = "")]
@@ -751,6 +806,19 @@ pub struct Config {
     // When provided via Authorization header and matches this token, the request is not billed
     #[envconfig(from = "INTERNAL_REQUEST_TOKEN")]
     pub internal_request_token: Option<String>,
+
+    // Hard ceiling on page size for the internal batch flag evaluation endpoint
+    // (static cohort generation); requests above it are rejected with 400. This is a
+    // safety cap, not a recommended page size: a page evaluates persons sequentially, so
+    // the Django caller should page well below this to stay within the request timeout.
+    #[envconfig(from = "BATCH_FLAG_EVAL_MAX_LIMIT", default = "10000")]
+    pub batch_flag_eval_max_limit: i64,
+
+    // Request timeout for the internal batch flag evaluation endpoint.
+    // Separate from REQUEST_TIMEOUT_MS because a batch page evaluates up to
+    // BATCH_FLAG_EVAL_MAX_LIMIT persons sequentially.
+    #[envconfig(from = "BATCH_FLAG_EVAL_TIMEOUT_MS", default = "120000")]
+    pub batch_flag_eval_timeout_ms: u64,
 
     // Redis compression configuration
     // When enabled, uses zstd compression for Redis values above threshold
@@ -980,6 +1048,7 @@ impl Config {
             flags_redis_url: "".to_string(),
             flags_redis_reader_url: "".to_string(),
             flags_redis_enabled: FlexBool(false),
+            flag_definitions_self_heal_enabled: FlexBool(false),
             redis_response_timeout_ms: 100,
             redis_connection_timeout_ms: 5000,
             write_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog"
@@ -991,9 +1060,13 @@ impl Config {
                 .to_string(),
             behavioral_cohorts_read_database_url:
                 "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
+            flags_secret_keys: String::new(),
+            secret_key: "test-secret-key-at-least-32-bytes-long".to_string(),
             realtime_cohort_evaluation_team_ids: TeamIdCollection::None,
+            realtime_cohort_membership_stamp_policy: MembershipStampPolicy::default(),
             cohort_membership_cache_ttl_seconds: 60,
             cohort_membership_cache_max_entries: 50_000,
+            realtime_cohort_lookup_timeout_ms: 1000,
             max_concurrency: 1000,
             max_pg_connections: 10,
             min_non_persons_reader_connections: 0,
@@ -1034,6 +1107,7 @@ impl Config {
             flags_session_replay_quota_check: false,
             flag_definitions_default_rate_per_minute: 600,
             flag_definitions_rate_limits: FlagDefinitionsRateLimits::default(),
+            remote_config_default_rate_per_minute: 600,
             rate_limiting_allow_list_teams: RateLimitingAllowList::default(),
             flags_log_bodies_teams: BodyLogTeams::default(),
             flags_log_bodies_request_max_bytes: 65_536,
@@ -1072,6 +1146,8 @@ impl Config {
             service_mode: ServiceMode::All,
             auth_token_cache_ttl_seconds: 300,
             internal_request_token: None,
+            batch_flag_eval_max_limit: 10_000,
+            batch_flag_eval_timeout_ms: 120_000,
             billing_flush_interval_ms: 100,
             billing_max_pending_entries: 500_000,
             billing_per_flush_batch_size: 200,
@@ -1150,6 +1226,7 @@ impl Config {
             shutdown_flush_timeout: std::time::Duration::from_millis(
                 self.billing_shutdown_flush_timeout_ms,
             ),
+            jitter_override: None,
         }
     }
 
@@ -1635,6 +1712,7 @@ mod service_mode_tests {
         assert_eq!(bcfg.max_pending_entries, 99);
         assert_eq!(bcfg.per_flush_batch_size, 7);
         assert_eq!(bcfg.shutdown_flush_timeout, Duration::from_millis(5_000));
+        assert_eq!(bcfg.jitter_override, None);
     }
 }
 

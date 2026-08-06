@@ -5,7 +5,7 @@
  * vars share the same prefix so deployment config is unambiguous (e.g.
  * `WARPSTREAM_INGESTION_PRODUCER` ↔ `KAFKA_WARPSTREAM_INGESTION_PRODUCER_*`).
  */
-import { AllowedConfigKey } from '../../ingestion/outputs/kafka-producer-config'
+import { AllowedConfigKey } from '~/common/outputs/kafka-producer-config'
 
 /** Targets the shared Warpstream cluster used by ingestion. Current default for CDP. */
 export const WARPSTREAM_INGESTION_PRODUCER = 'WARPSTREAM_INGESTION_PRODUCER' as const
@@ -16,8 +16,9 @@ export const WAREHOUSE_PRODUCER = 'WAREHOUSE_PRODUCER' as const
 export type WarehouseProducer = typeof WAREHOUSE_PRODUCER
 
 /**
- * Targets the dedicated Warpstream cluster for clickhouse precalculated /
- * prefiltered events (`KAFKA_WARPSTREAM_CALCULATED_EVENTS_PRODUCER_*`).
+ * Targets the dedicated Warpstream calculated-events cluster
+ * (`KAFKA_WARPSTREAM_CALCULATED_EVENTS_PRODUCER_*`). Currently unused — see
+ * `createCdpProducerRegistry` for why it stays registered.
  */
 export const WARPSTREAM_CALCULATED_EVENTS_PRODUCER = 'WARPSTREAM_CALCULATED_EVENTS_PRODUCER' as const
 export type WarpstreamCalculatedEventsProducer = typeof WARPSTREAM_CALCULATED_EVENTS_PRODUCER

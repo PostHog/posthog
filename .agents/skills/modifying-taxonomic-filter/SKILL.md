@@ -1,6 +1,6 @@
 ---
 name: modifying-taxonomic-filter
-description: Guides safe modification of the TaxonomicFilter — PostHog's multi-tab picker for events, actions, properties, cohorts, and more. Front-loads the empirical product reality (what users actually pick and search for) so changes can be judged against real behavior, not architectural taste. Use when adding features, fixing bugs, or refactoring TaxonomicFilter.
+description: Guides safe modification of the TaxonomicFilter — PostHog's multi-tab picker for events, actions, properties, cohorts, and more. Front-loads the empirical product reality (what users actually pick and search for) plus the three live variants (legacy-control, legacy-pill behind TAXONOMIC_FILTER_CATEGORY_DROPDOWN, and the opt-in rebuild menu behind TAXONOMIC_FILTER_MENU_REBUILD) so changes are judged against real behavior and mirrored across surfaces, not made against one arm in isolation. Use when adding features, fixing bugs, or refactoring TaxonomicFilter, the rebuild menu, or the headless filter panel.
 ---
 
 # Modifying the TaxonomicFilter
@@ -10,10 +10,18 @@ knows about" — events, properties, actions, cohorts, groups. It's the
 on-ramp into almost every analytics and replay configuration. Code lives
 in `frontend/src/lib/components/TaxonomicFilter/`.
 
-**The unbreakable rule:** changes that demote items users _actually pick_
-are regressions, even with all tests passing. Read "Product reality"
-before deciding any change is safe. Ordering, promotion, or position-0
-changes need explicit human sign-off — don't let an agent decide alone.
+**Two unbreakable rules:**
+
+1. Changes that demote items users _actually pick_ are regressions, even
+   with all tests passing. Read "Product reality" before deciding any
+   change is safe. Ordering, promotion, or position-0 changes need
+   explicit human sign-off — don't let an agent decide alone.
+2. There are **three live variants** behind two feature flags, and the
+   rebuild is a parallel reimplementation of the legacy data + group
+   layer — not a skin over it. A behaviour change usually has to land in
+   **both** the legacy code and the rebuild, or the two arms of the
+   experiment diverge. Read "Three variants" and "Mirroring changes"
+   before assuming one edit is enough.
 
 ## Product reality (last refreshed 2026-05-02, 90-day window)
 
@@ -75,23 +83,96 @@ aggregation, and shortcut routing are how they get to the right answer.
 
 ## Telemetry is a contract
 
-Five events validate every change. Treat property shapes as a public API:
+Treat property shapes as a public API. Every `taxonomic filter *` event now
+carries a `surface` property (`legacy-control` / `legacy-pill` /
+`rebuild-menu`) so the experiment arms are distinguishable by an explicit
+property, not a feature-flag join. The legacy stamp comes from
+`legacyTaxonomicSurface()` in `taxonomicFilterSurface.ts`; the rebuild stamps
+`rebuild-menu` from `menu/TaxonomicFilterMenu.tsx`.
 
-- `taxonomic filter closed` — `dwellMs`, `hadSelection`
-- `taxonomic filter item selected` — `sourceGroupType`, `wasFromRecents`, `wasFromPinnedList`, `wasQuickFilter`, `hadSearchInput`, `position`, `query`
-- `taxonomic_filter_search_query` — `searchQuery`, `groupType`, `inputMode`, `pastedFraction`
-- `taxonomic filter empty result` — `groupType`, `searchQuery`
-- `taxonomic filter category dropdown opened` — A/B variant
+Shared events both surfaces emit (keep these comparable across arms):
 
-Adding properties: fine. Removing dead ones: fine. **Renaming or
-repurposing silently is the worst case** — dashboards keep working and
-start lying.
+- `taxonomic filter closed` — `surface`, `dwellMs`, `hadSelection` (legacy
+  also sends `groupType`; the rebuild omits it — there's no single active
+  tab at close)
+- `taxonomic filter item selected` — `surface`, `groupType`,
+  `sourceGroupType`, `wasFromRecents`, `wasFromPinnedList`, `wasQuickFilter`,
+  `hadSearchInput`, `position`, `query`, `wasStale`
 
-## Variants you might not see locally
+Legacy-only: `taxonomic_filter_search_query`
+(`searchQuery`, `groupType`, `inputMode`, `pastedFraction`),
+`taxonomic filter empty result` (`groupType`, `searchQuery`),
+`taxonomic filter include stale toggled`,
+`taxonomic filter category dropdown opened` (pill only).
 
-`TAXONOMIC_FILTER_CATEGORY_DROPDOWN` resolves to `'control'` (tab pills)
-or `'pill'` (suffix dropdown). Bug reports that don't reproduce locally
-are usually a variant mismatch. Touching tab rendering means testing both.
+Rebuild-only menu events: `taxonomic filter menu opened` / `drilled` /
+`closed` / `option clicked` / `item selected`.
+
+When you add a property to a **shared** event, add it to **both** emitters
+or the arms stop being comparable. Adding properties: fine. Removing dead
+ones: fine. **Renaming or repurposing silently is the worst case** —
+dashboards keep working and start lying.
+
+## Three variants
+
+Two feature flags, three surfaces. A bug report that doesn't reproduce
+locally is almost always a variant mismatch — confirm which surface the
+reporter is on first.
+
+| Surface          | Flag                                 | Value       | What renders                                      |
+| ---------------- | ------------------------------------ | ----------- | ------------------------------------------------- |
+| `legacy-control` | `TAXONOMIC_FILTER_CATEGORY_DROPDOWN` | `'control'` | original tab-pill UI                              |
+| `legacy-pill`    | `TAXONOMIC_FILTER_CATEGORY_DROPDOWN` | `'pill'`    | suffix category dropdown (`CategoryDropdown.tsx`) |
+| `rebuild-menu`   | `TAXONOMIC_FILTER_MENU_REBUILD`      | on          | ground-up rewrite in `menu/` over `headless/`     |
+
+- **legacy-control vs legacy-pill** is the same A/B we've always had —
+  one codebase (`taxonomicFilterLogic.tsx` + `InfiniteList`), two render
+  paths. Owner `@pauldambra`, multivariate `control,pill`. The direction
+  of travel is to move everyone from control onto pill.
+- **rebuild-menu** is a separate, opt-in experiment (`@adamleith`) being
+  tested internally. It is a **fresh implementation**: the `menu/` dropdown
+  and combobox UI on top of `headless/` (a hooks-based filter panel). It
+  does **not** route through `taxonomicFilterLogic`/`infiniteListLogic`;
+  it has its own group definitions, fetch/pagination, and ordering. See
+  `headless/UX_SPEC.md` for its design source of truth.
+
+The rebuild is opt-in in exactly **two consumer wrappers**:
+`TaxonomicPopover.tsx` and
+`PropertyFilters/components/TaxonomicPropertyFilter.tsx`. Both check
+`TAXONOMIC_FILTER_MENU_REBUILD` and render `<TaxonomicFilterMenu>` or the
+legacy `<TaxonomicFilter>`. Call sites that build their own popover (e.g.
+`ActionFilterRow`) never see the rebuild — so "does this reach the
+rebuild?" depends on the call site, not a single global switch.
+
+**Touching tab/group rendering means testing all three surfaces.**
+
+## Mirroring changes across variants
+
+The rebuild reimplements the legacy data layer rather than reusing it, so
+the same concern lives in two files. There is **no lint rule or test**
+enforcing parity — the only guard is "Mirrors the legacy…" comments. When
+you change one, change the other (or flag to the human that you can't).
+
+| Concern                                                  | Legacy                                                               | Rebuild                                                                           |
+| -------------------------------------------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Group definitions (endpoint, excluded props, group meta) | `taxonomicFilterLogic.tsx` `taxonomicGroups` selector                | `utils/buildTaxonomicGroups.tsx`                                                  |
+| Group ordering + SuggestedFilters injection              | `taxonomicFilterLogic.tsx` `taxonomicGroupTypes` selector            | `hooks/useTaxonomicFilter.ts` `resolveTaxonomicGroupTypes`                        |
+| Per-tab fetch / pagination / min-query-length            | `infiniteListLogic.ts`                                               | `hooks/useGroupList.ts` + `useTaxonomicResource.ts` + `fetchTaxonomicListPage.ts` |
+| Data-warehouse config flow                               | inline in `InfiniteList.tsx`                                         | `menu/DwhFlow.tsx`                                                                |
+| `taxonomic filter item selected` / `closed` telemetry    | `taxonomicFilterLogic.tsx`                                           | `menu/TaxonomicFilterMenu.tsx`                                                    |
+| New `TaxonomicFilterGroupType` enum value                | `types.ts` (shared) — then add group config in **both** tables above |                                                                                   |
+| Logic-backed group data (Actions, Dashboards, …)         | already in kea                                                       | also register in `hooks/useTaxonomicLocalOverrides.ts`                            |
+
+**Genuinely shared — change once:** `types.ts` (the enum),
+`utils/promoteProperties.ts` (`PROMOTED_PROPERTIES_BY_SEARCH_TERM`),
+`utils/redistributeTopMatches.ts`, `recentTaxonomicFiltersLogic.ts` and
+`taxonomicFilterPinnedPropertiesLogic.ts` (the rebuild reads recents/pinned
+through these via a bridge, it doesn't fork them).
+
+One intentional divergence is already documented in
+`useTaxonomicFilter.ts`: the rebuild **always** leads with SuggestedFilters,
+whereas legacy gates that on the pill variant. Preserve documented
+divergences; don't "fix" them into parity.
 
 ## Pre-change checklist
 
@@ -99,9 +180,14 @@ are usually a variant mismatch. Touching tab rendering means testing both.
       [common-pitfalls](references/common-pitfalls.md) (X/Y matrix),
       [call-sites](references/call-sites-and-blast-radius.md) (smoke tests),
       [testing-patterns](references/testing-patterns.md)
-- [ ] Test both `control` and `pill` dropdown variants if you touched tabs
-- [ ] Confirm telemetry payloads still have the same property shape
+- [ ] Decide whether the change must mirror across legacy and rebuild
+      (see "Mirroring changes") — if you can only do one, say so explicitly
+- [ ] Test all three surfaces if you touched tabs/groups: `legacy-control`,
+      `legacy-pill`, `rebuild-menu`
+- [ ] Confirm shared telemetry payloads still match across both emitters
 - [ ] Ordering / promotion / position-0 -> human sign-off, not agent judgement
+- [ ] Flag the ongoing experiments to the human reviewer: the
+      control->pill rollout and the internal `rebuild-menu` opt-in
 
 ```bash
 hogli test frontend/src/lib/components/TaxonomicFilter/

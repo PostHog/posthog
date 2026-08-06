@@ -1,11 +1,20 @@
 import { ToolbarParams } from '~/types'
 
+// Keep the real toolbar posthog-js instance (rendering depends on it) but spy on
+// the exception capture helper so we can assert what does and doesn't get reported.
+jest.mock('~/toolbar/toolbarPosthogJS', () => ({
+    ...jest.requireActual('~/toolbar/toolbarPosthogJS'),
+    captureToolbarException: jest.fn(),
+}))
+
 // Mock window and fetch
 const mockFetch = jest.fn()
-global.fetch = mockFetch
 
 describe('Toolbar flag loading', () => {
     beforeEach(() => {
+        // Assigned per-test: the MSW harness's beforeAll (src/mocks/jest.ts) replaces
+        // global.fetch after module evaluation, so a module-level assignment is clobbered.
+        global.fetch = mockFetch
         jest.clearAllMocks()
         mockFetch.mockClear()
         jest.resetModules()
@@ -62,6 +71,7 @@ describe('Toolbar flag loading', () => {
 
     it('should handle fetch errors gracefully', async () => {
         const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()
 
         await import('./index')
 
@@ -86,10 +96,12 @@ describe('Toolbar flag loading', () => {
         expect(mockPostHog.featureFlags.overrideFeatureFlags).not.toHaveBeenCalled()
 
         consoleErrorSpy.mockRestore()
+        consoleWarnSpy.mockRestore()
     })
 
     it('should handle non-ok responses gracefully', async () => {
         const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()
 
         await import('./index')
 
@@ -117,6 +129,57 @@ describe('Toolbar flag loading', () => {
         expect(mockPostHog.featureFlags.overrideFeatureFlags).not.toHaveBeenCalled()
 
         consoleErrorSpy.mockRestore()
+        consoleWarnSpy.mockRestore()
+    })
+
+    it.each([
+        {
+            name: 'transient network failure (fetch rejects)',
+            setupMock: () => mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch')),
+        },
+        {
+            name: 'unusable response body (null JSON)',
+            setupMock: () => mockFetch.mockResolvedValueOnce({ json: async () => null }),
+        },
+        {
+            name: 'non-JSON response body (proxy error page)',
+            setupMock: () =>
+                mockFetch.mockResolvedValueOnce({
+                    json: async () => {
+                        throw new SyntaxError('Unexpected token < in JSON')
+                    },
+                }),
+        },
+    ])('never reports preload failures to error tracking: $name', async ({ setupMock }) => {
+        // Every failure mode of the flags preload is request-shaped (network, proxy,
+        // malformed body) - it must be logged, never captured as an exception.
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()
+
+        await import('./index')
+        const { captureToolbarException } = await import('~/toolbar/toolbarPosthogJS')
+
+        const mockPostHog = {
+            featureFlags: {
+                overrideFeatureFlags: jest.fn(),
+            },
+        }
+
+        const toolbarParams: ToolbarParams = {
+            apiURL: 'http://localhost:8010',
+            toolbarFlagsKey: 'test-key-123',
+            token: 'test-token',
+        }
+
+        setupMock()
+
+        await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
+
+        expect(captureToolbarException).not.toHaveBeenCalled()
+        expect(consoleWarnSpy.mock.calls.length + consoleErrorSpy.mock.calls.length).toBeGreaterThan(0)
+
+        consoleErrorSpy.mockRestore()
+        consoleWarnSpy.mockRestore()
     })
 
     it('should not fetch flags when toolbarFlagsKey is not present', async () => {
@@ -142,6 +205,9 @@ describe('Toolbar flag loading', () => {
     })
 
     it('should still load toolbar even if flag fetching fails', async () => {
+        // The failed flags fetch is reported through toolbarLogger's console.warn by design
+        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()
+
         await import('./index')
 
         const mockPostHog = {
@@ -164,5 +230,7 @@ describe('Toolbar flag loading', () => {
         // Verify toolbar container was created
         const container = document.querySelector('div')
         expect(container).toBeTruthy()
+
+        consoleWarnSpy.mockRestore()
     })
 })

@@ -55,12 +55,12 @@ export async function loadClusterMetrics(
                 WHERE event = '$ai_generation'
                     AND timestamp >= parseDateTimeBestEffort(${windowStart})
                     AND timestamp <= parseDateTimeBestEffort(${windowEnd})
-                    AND toString(uuid) IN ${allItemIds}
+                    AND uuid IN ${allItemIds}
                 LIMIT ${allItemIds.length}
             `
             : hogql`
                 SELECT
-                    JSONExtractString(properties, '$ai_trace_id') as item_id,
+                    properties.$ai_trace_id as item_id,
                     sum(toFloat(properties.$ai_total_cost_usd)) as cost,
                     max(toFloat(properties.$ai_latency)) as latency,
                     sum(toInt(properties.$ai_input_tokens)) as input_tokens,
@@ -70,7 +70,7 @@ export async function loadClusterMetrics(
                 WHERE event IN ('$ai_generation', '$ai_embedding', '$ai_span')
                     AND timestamp >= parseDateTimeBestEffort(${windowStart})
                     AND timestamp <= parseDateTimeBestEffort(${windowEnd})
-                    AND JSONExtractString(properties, '$ai_trace_id') IN ${allItemIds}
+                    AND properties.$ai_trace_id IN ${allItemIds}
                 GROUP BY item_id
                 LIMIT ${allItemIds.length}
             `,

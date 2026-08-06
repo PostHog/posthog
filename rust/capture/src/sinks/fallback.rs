@@ -108,7 +108,7 @@ impl Event for FallbackSink {
 mod tests {
     use super::*;
     use crate::sinks::print::PrintSink;
-    use crate::utils::uuid_v7;
+    use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::{DataType, ProcessedEventMetadata};
     use common_types::CapturedEvent;
     use std::time::Duration;
@@ -134,9 +134,12 @@ mod tests {
         let fallback_sink = FallbackSink::new(fail_sink, print_sink);
 
         // Create test event
+        let timestamp = chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
         let event = ProcessedEvent {
             event: CapturedEvent {
-                uuid: uuid_v7(),
+                uuid: uuid_v7_from_datetime(timestamp),
                 distinct_id: "test_id".to_string(),
                 session_id: None,
                 ip: "127.0.0.1".to_string(),
@@ -145,9 +148,7 @@ mod tests {
                 sent_at: None,
                 token: "test_token".to_string(),
                 event: "test_event".to_string(),
-                timestamp: chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
-                    .unwrap()
-                    .with_timezone(&chrono::Utc),
+                timestamp,
                 is_cookieless_mode: false,
                 historical_migration: false,
             },
@@ -162,6 +163,7 @@ mod tests {
                 redirect_to_topic: None,
                 skip_heatmap_processing: false,
                 overflow_reason: None,
+                distinct_id_truncated_from: None,
             },
         };
 
@@ -185,9 +187,12 @@ mod tests {
         let fallback_sink = FallbackSink::new(fail_sink.clone(), fail_sink);
 
         // Create test event
+        let timestamp = chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
         let event = ProcessedEvent {
             event: CapturedEvent {
-                uuid: uuid_v7(),
+                uuid: uuid_v7_from_datetime(timestamp),
                 distinct_id: "test_id".to_string(),
                 session_id: None,
                 ip: "127.0.0.1".to_string(),
@@ -196,9 +201,7 @@ mod tests {
                 sent_at: None,
                 token: "test_token".to_string(),
                 event: "test_event".to_string(),
-                timestamp: chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
-                    .unwrap()
-                    .with_timezone(&chrono::Utc),
+                timestamp,
                 is_cookieless_mode: false,
                 historical_migration: false,
             },
@@ -213,6 +216,7 @@ mod tests {
                 redirect_to_topic: None,
                 skip_heatmap_processing: false,
                 overflow_reason: None,
+                distinct_id_truncated_from: None,
             },
         };
 

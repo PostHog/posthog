@@ -134,6 +134,20 @@
         border-top-right-radius: 0;
     }
 
+    /*
+     * Menu items show no focus ring — the `[data-highlighted]` background fill
+     * is the sole active-item indicator for both mouse and keyboard. Suppress
+     * both the `data-highlighted` ring and the `:focus-visible` ring Button
+     * carries. (Hover never paints a ring, so `:not(:hover)` only serves to
+     * outrank Button's `[data-highlighted]:not(:hover)` rule regardless of
+     * stylesheet order.)
+     */
+    :is(.quill-menu__content, .quill-menu__sub-content)
+        .quill-button--variant-default:is([data-highlighted], :focus-visible):not(:hover) {
+        border-color: transparent;
+        box-shadow: none;
+    }
+
     /* Menubar root */
     .quill-menubar {
         height: 2.25rem;

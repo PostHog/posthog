@@ -1,10 +1,7 @@
-from collections import defaultdict, namedtuple
-from copy import deepcopy
-from datetime import datetime
+from collections import namedtuple
 from numbers import Number
-from typing import Literal, Optional, Union, cast
+from typing import Any, Literal, Optional, Union, cast
 
-import posthoganalytics
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -22,6 +19,7 @@ from posthog.schema import (
     HogQLPropertyFilter,
     HogQLQueryModifiers,
     InsightActorsQuery,
+    PersonMetadataPropertyFilter,
     PersonPropertyFilter,
     PersonsOnEventsMode,
     PropertyGroupFilterValue,
@@ -46,26 +44,162 @@ from posthog.hogql.query import HogQLQueryExecutor
 from posthog.constants import PropertyOperatorType
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Cohort, Filter, Property, Team
-from posthog.models.property import PropertyGroup
-from posthog.queries.cohort_query import CohortQuery
-from posthog.queries.foss_cohort_query import (
-    INTERVAL_TO_SECONDS,
-    FOSSCohortQuery,
-    parse_and_validate_positive_integer,
-    validate_interval,
-)
+from posthog.models import Filter, Property, Team, User
+from posthog.models.property import OperatorInterval, PropertyGroup
+from posthog.ph_client import feature_enabled_or_false
 from posthog.types import AnyPropertyFilter
 
+from products.cohorts.backend.models.cohort import Cohort
 
-class TestWrapperCohortQuery(CohortQuery):
+INTERVAL_TO_SECONDS = {
+    "minute": 60,
+    "hour": 3600,
+    "day": 86400,
+    "week": 604800,
+    "month": 2592000,
+    "year": 31536000,
+}
+
+
+def validate_interval(interval: Optional[OperatorInterval]) -> OperatorInterval:
+    if interval is None or interval not in INTERVAL_TO_SECONDS.keys():
+        raise ValueError(f"Invalid interval: {interval}")
+    else:
+        return interval
+
+
+def parse_and_validate_positive_integer(value: Optional[Union[str, int]], value_name: str) -> int:
+    if value is None:
+        raise ValueError(f"{value_name} cannot be None")
+    try:
+        parsed_value = int(value)
+    except (ValueError, TypeError):
+        raise ValueError(f"{value_name} must be an integer, got {value}")
+    if parsed_value <= 0:
+        raise ValueError(f"{value_name} must be greater than 0, got {value}")
+    return parsed_value
+
+
+def _require_select_query(query: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
+    # A constant `select=["id"]` actors query never yields a set query. Fail loudly rather than
+    # via a strippable assert if that invariant ever breaks.
+    if not isinstance(query, ast.SelectQuery):
+        raise ValueError("Expected a single SELECT query from the actors query, got a set query")
+    return query
+
+
+def unwrap_cohort(filter: Filter, team_id: int, team: Optional[Team] = None, cohort: Optional[Cohort] = None) -> Filter:
+    """Flatten cohort-typed properties into nested static/dynamic-cohort PropertyGroups.
+
+    Each ``cohort``/``precalculated-cohort`` property is replaced by an AND group holding a
+    single ``static-cohort``/``dynamic-cohort`` property, while sibling properties are wrapped
+    into AND groups too, propagating negation per De Morgan's law.
+    """
+
+    def _unwrap(property_group: PropertyGroup, negate_group: bool = False) -> PropertyGroup:
+        nonlocal team
+        if len(property_group.values):
+            if isinstance(property_group.values[0], PropertyGroup):
+                # dealing with a list of property groups, so unwrap each one
+                # Propogate the negation to the children and handle as necessary with respect to deMorgan's law
+                if not negate_group:
+                    return PropertyGroup(
+                        type=property_group.type,
+                        values=[_unwrap(v) for v in cast(list[PropertyGroup], property_group.values)],
+                    )
+                else:
+                    return PropertyGroup(
+                        type=(
+                            PropertyOperatorType.AND
+                            if property_group.type == PropertyOperatorType.OR
+                            else PropertyOperatorType.OR
+                        ),
+                        values=[_unwrap(v, True) for v in cast(list[PropertyGroup], property_group.values)],
+                    )
+
+            elif isinstance(property_group.values[0], Property):
+                # dealing with a list of properties
+                # if any single one is a cohort property, unwrap it into a property group
+                # which implies converting everything else in the list into a property group too
+
+                new_property_group_list: list[PropertyGroup] = []
+                for prop in property_group.values:
+                    prop = cast(Property, prop)
+                    current_negation = prop.negation or False
+                    negation_value = not current_negation if negate_group else current_negation
+                    if prop.type in ["cohort", "precalculated-cohort"]:
+                        try:
+                            # Use passed cohort object if it matches the requested cohort ID
+                            if cohort is not None and str(cohort.pk) == str(prop.value):
+                                prop_cohort = cohort
+                            else:
+                                # Use passed team object if available, otherwise fetch from database
+                                if team is None:
+                                    team = Team.objects.get(pk=team_id)
+                                prop_cohort = Cohort.objects.get(
+                                    pk=cast(str | int, prop.value), team__project_id=team.project_id
+                                )
+                            new_property_group_list.append(
+                                PropertyGroup(
+                                    type=PropertyOperatorType.AND,
+                                    values=[
+                                        Property(
+                                            type="static-cohort" if prop_cohort.is_static else "dynamic-cohort",
+                                            key="id",
+                                            value=prop_cohort.pk,
+                                            negation=negation_value,
+                                        )
+                                    ],
+                                )
+                            )
+                        except Cohort.DoesNotExist:
+                            new_property_group_list.append(
+                                PropertyGroup(
+                                    type=PropertyOperatorType.AND,
+                                    values=[
+                                        Property(
+                                            key="fake_key_01r2ho",
+                                            value="0",
+                                            type="person",
+                                        )
+                                    ],
+                                )
+                            )
+                    else:
+                        prop.negation = negation_value
+                        new_property_group_list.append(PropertyGroup(type=PropertyOperatorType.AND, values=[prop]))
+                if not negate_group:
+                    return PropertyGroup(type=property_group.type, values=new_property_group_list)
+                else:
+                    return PropertyGroup(
+                        type=(
+                            PropertyOperatorType.AND
+                            if property_group.type == PropertyOperatorType.OR
+                            else PropertyOperatorType.OR
+                        ),
+                        values=new_property_group_list,
+                    )
+
+        return property_group
+
+    new_props = _unwrap(filter.property_groups)
+    return filter.shallow_clone({"properties": new_props.to_dict()})
+
+
+class TestWrapperCohortQuery:
+    """Runs a filter through HogQLCohortQuery for the cohort-query test suite.
+
+    ``hogql_result`` holds the executed result the tests assert membership against;
+    ``clickhouse_query`` / ``get_query`` expose the generated SQL.
+    """
+
     def __init__(self, filter: Filter, team: Team):
-        cohort_query = CohortQuery(filter=filter, team=team)
-        executor = HogQLCohortQuery(cohort_query=cohort_query).get_query_executor()
+        executor = HogQLCohortQuery(filter=filter, team=team).get_query_executor()
         self.hogql_result = executor.execute()
         self.clickhouse_query = executor.clickhouse_sql
-        super().__init__(filter=filter, team=team)
+
+    def get_query(self) -> tuple[str, dict[str, Any]]:
+        return self.clickhouse_query or "", {}
 
 
 def convert_property(prop: Property) -> PersonPropertyFilter:
@@ -94,17 +228,31 @@ def convert(prop: PropertyGroup) -> PropertyGroupFilterValue:
     return r
 
 
+def _person_test_account_properties(team: Team) -> list[Property]:
+    """Person-property filters from team.test_account_filters.
+
+    Event/element/hogql-scoped test filters can't be standalone cohort conditions, and
+    cohort-typed ones are excluded here to avoid self-referential cohorts (a team test
+    filter can point at the very cohort being calculated).
+    """
+    return [
+        Property(**prop)
+        for prop in (team.test_account_filters or [])
+        if isinstance(prop, dict) and prop.get("type") == "person"
+    ]
+
+
 class HogQLCohortQuery:
     def __init__(
         self,
-        cohort_query: Optional[CohortQuery] = None,
+        filter: Optional[Filter] = None,
         cohort: Optional[Cohort] = None,
         team: Optional[Team] = None,
     ):
         if cohort is not None:
             self.hogql_context = HogQLContext(team_id=cohort.team.pk, enable_select_queries=True)
             self.team = team or cohort.team
-            filter = FOSSCohortQuery.unwrap_cohort(
+            unwrapped = unwrap_cohort(
                 Filter(
                     data={"properties": cohort.properties},
                     team=cohort.team,
@@ -114,15 +262,30 @@ class HogQLCohortQuery:
                 self.team,
                 cohort,
             )
-            self.property_groups = filter.property_groups
-        elif cohort_query is not None:
-            self.hogql_context = HogQLContext(team_id=cohort_query._team_id, enable_select_queries=True)
-            self.property_groups = cohort_query._filter.property_groups
-            self.team = team or cohort_query._team
+            property_groups = unwrapped.property_groups
+            if (cohort.filters or {}).get("filterTestAccounts"):
+                test_props = _person_test_account_properties(self.team)
+                if test_props:
+                    property_groups = PropertyGroup(
+                        type=PropertyOperatorType.AND,
+                        values=[
+                            property_groups,
+                            PropertyGroup(type=PropertyOperatorType.AND, values=test_props),
+                        ],
+                    )
+            self.property_groups = property_groups
+        elif filter is not None:
+            if team is None:
+                raise ValueError("HogQLCohortQuery requires a team when constructed from a filter")
+            self.hogql_context = HogQLContext(team_id=team.pk, enable_select_queries=True)
+            self.team = team
+            self.property_groups = unwrap_cohort(filter, team.pk, team).property_groups
         else:
-            raise
+            raise ValueError("HogQLCohortQuery requires either a cohort or a filter")
 
-    def get_query_executor(self) -> HogQLQueryExecutor:
+    def get_query_executor(
+        self, *, user: Optional[User] = None, bypass_warehouse_access_control: bool = False
+    ) -> HogQLQueryExecutor:
         return HogQLQueryExecutor(
             query_type="HogQLCohortQuery",
             query=self.get_query(),
@@ -130,6 +293,8 @@ class HogQLCohortQuery:
             team=self.team,
             limit_context=LimitContext.COHORT_CALCULATION,
             settings=HogQLGlobalSettings(),
+            user=user,
+            bypass_warehouse_access_control=bypass_warehouse_access_control,
         )
 
     def get_query(self) -> SelectQuery | SelectSetQuery:
@@ -153,7 +318,7 @@ class HogQLCohortQuery:
             source=source,
             select=["id"],
         )
-        return ActorsQueryRunner(team=self.team, query=actors_query).to_query()
+        return _require_select_query(ActorsQueryRunner(team=self.team, query=actors_query).to_query())
 
     def get_performed_event_condition(self, prop: Property, first_time: bool = False) -> ast.SelectQuery:
         math = None
@@ -398,28 +563,50 @@ class HogQLCohortQuery:
             select=["id"],
         )
         query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
-        return query_runner.to_query()
+        return _require_select_query(query_runner.to_query())
+
+    def get_person_metadata_condition(self, prop: Property) -> ast.SelectQuery:
+        # type = "person_metadata"
+        # key = "created_at" (a top-level column on the persons table, not properties JSON)
+        actors_query = ActorsQuery(
+            properties=[
+                PersonMetadataPropertyFilter(
+                    key=prop.key, value=prop.value, operator=prop.operator or PropertyOperator.EXACT
+                )
+            ],
+            select=["id"],
+        )
+        query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
+        return _require_select_query(query_runner.to_query())
 
     def get_static_cohort_condition(self, prop: Property) -> ast.SelectQuery:
-        cohort = Cohort.objects.get(pk=cast(int, prop.value), team__project_id=self.team.project_id)
+        # Convert the cohort id to an int (not the no-op typing.cast) and bind it as a parameter.
+        # prop.value is normally a cohort pk, but an internal cohort property smuggled through the
+        # unvalidated legacy `groups` field could carry an arbitrary string; binding it (rather than
+        # interpolating into parse_select) keeps it out of the query structure.
+        if isinstance(prop.value, list):
+            raise ValueError(f"cohort id must be an integer, got {prop.value}")
+        cohort = Cohort.objects.get(
+            pk=parse_and_validate_positive_integer(prop.value, "cohort id"), team__project_id=self.team.project_id
+        )
         return cast(
             ast.SelectQuery,
             parse_select(
-                f"SELECT person_id as id FROM static_cohort_people WHERE cohort_id = {cohort.pk} AND team_id = {self.team.pk}",
+                "SELECT person_id as id FROM static_cohort_people WHERE cohort_id = {cohort_id} AND team_id = {team_id}",
+                {"cohort_id": ast.Constant(value=cohort.pk), "team_id": ast.Constant(value=self.team.pk)},
             ),
         )
 
     def get_dynamic_cohort_condition(self, prop: Property) -> ast.SelectQuery:
-        cohort_id = cast(int, prop.value)
-
+        # See get_static_cohort_condition: convert + bind so a non-int value can't alter the query.
+        if isinstance(prop.value, list):
+            raise ValueError(f"cohort id must be an integer, got {prop.value}")
+        cohort_id = parse_and_validate_positive_integer(prop.value, "cohort id")
         return cast(
             ast.SelectQuery,
             parse_select(
-                f"""
-                SELECT person_id as id FROM cohort_people
-                WHERE cohort_id = {cohort_id}
-                AND team_id = {self.team.pk}
-                """,
+                "SELECT person_id as id FROM cohort_people WHERE cohort_id = {cohort_id} AND team_id = {team_id}",
+                {"cohort_id": ast.Constant(value=cohort_id), "team_id": ast.Constant(value=self.team.pk)},
             ),
         )
 
@@ -443,6 +630,8 @@ class HogQLCohortQuery:
                 raise ValueError(f"Invalid behavioral property value for Cohort: {prop.value}")
         elif prop.type == "person":
             return self.get_person_condition(prop)
+        elif prop.type == "person_metadata":
+            return self.get_person_metadata_condition(prop)
         elif prop.type == "static-cohort":  # static cohorts are handled by flattening during initialization
             return self.get_static_cohort_condition(prop)
         elif prop.type == "dynamic-cohort":
@@ -451,7 +640,7 @@ class HogQLCohortQuery:
             raise ValueError(f"Invalid property type for Cohort queries: {prop.type}")
 
     def _should_combine_person_properties_and(self) -> bool:
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             "hogql-cohort-combine-person-properties",
             str(self.team.uuid),
             groups={
@@ -471,7 +660,7 @@ class HogQLCohortQuery:
         )
 
     def _should_combine_person_properties_or(self) -> bool:
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             "hogql-cohort-combine-person-properties-or",
             str(self.team.uuid),
             groups={
@@ -540,7 +729,7 @@ class HogQLCohortQuery:
                 select=["id"],
             )
             query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
-            return query_runner.to_query()
+            return _require_select_query(query_runner.to_query())
 
         def build_conditions(
             prop: Optional[Union[PropertyGroup, Property]],
@@ -612,642 +801,3 @@ class HogQLCohortQuery:
         if condition.negation:
             raise ValidationError("Top level condition cannot be negated", str(self.property_groups))
         return condition.query
-
-
-class HogQLRealtimeCohortQuery(HogQLCohortQuery):
-    """
-    Realtime cohort query that uses prefiltered_events for behavioral conditions
-    and cohort_membership for child cohort filters.
-
-    This extends HogQLCohortQuery and overrides the methods that need to query
-    different tables for realtime cohort calculation.
-    """
-
-    # Operators that support merging into IN clauses
-    MERGEABLE_OPERATORS = {"icontains", "not_icontains", "exact", "is_not"}
-
-    def __init__(
-        self,
-        cohort_query: Optional[CohortQuery] = None,
-        cohort: Optional[Cohort] = None,
-        team: Optional[Team] = None,
-    ):
-        super().__init__(cohort_query=cohort_query, cohort=cohort, team=team)
-        self.cohort = cohort
-        # Preprocess to merge properties with same key and operator
-        self.property_groups = self._preprocess_property_groups(self.property_groups)  # type: ignore[assignment]
-
-    def _should_combine_person_properties_and(self) -> bool:
-        """Realtime cohorts should not use AND combining optimization."""
-        return False
-
-    def _should_combine_person_properties_or(self) -> bool:
-        """Realtime cohorts should not use OR combining optimization."""
-        return False
-
-    def _is_mergeable_property(self, prop: Property) -> bool:
-        """Check if a property can be merged with others."""
-        return (
-            prop.type == "person"
-            and prop.operator in self.MERGEABLE_OPERATORS
-            and not prop.negation
-            and hasattr(prop, "conditionHash")
-            and bool(prop.conditionHash)
-        )
-
-    def _deduplicate_hashes(self, hashes: list[str]) -> list[str]:
-        """
-        Deduplicate hashes while preserving order.
-
-        Deduplication is necessary for an edge case: if the same filter appears twice
-        (e.g., user accidentally added "email contains @gmail.com" twice), we need to
-        ensure the count matches the distinct conditions in the GROUP BY condition query.
-        Without deduplication, HAVING matching_count = 2 would fail because IN would only
-        match 1 distinct condition.
-        """
-        # dict.fromkeys() preserves insertion order in Python 3.7+ and is more efficient
-        return list(dict.fromkeys(hashes))
-
-    def _create_merged_property(self, template: Property, unique_hashes: list[str], is_or_group: bool) -> Property:
-        """
-        Create a merged property from a template with multiple condition hashes.
-
-        Args:
-            template: Property to use as template for the merged property
-            unique_hashes: List of condition hashes to merge (must be non-empty)
-            is_or_group: Whether this merge is for OR semantics (True) or AND semantics (False)
-
-        Raises:
-            ValueError: If unique_hashes is empty
-        """
-        if not unique_hashes:
-            raise ValueError(f"Cannot create merged property with empty unique_hashes. Template property: {template}")
-
-        merged_prop = deepcopy(template)
-        merged_prop._merged_condition_hashes = unique_hashes  # type: ignore[attr-defined]
-        merged_prop._is_or_group = is_or_group  # type: ignore[attr-defined]
-        return merged_prop
-
-    def _unwrap_single_property_groups(
-        self, prop_or_group: Union[Property, PropertyGroup]
-    ) -> Union[Property, PropertyGroup]:
-        """
-        Unwrap PropertyGroups that contain only a single child.
-
-        FOSSCohortQuery.unwrap_cohort creates nested PropertyGroups like:
-        PropertyGroup(AND) -> PropertyGroup(AND) -> Property
-
-        This unwraps them to just: Property
-        """
-        if not isinstance(prop_or_group, PropertyGroup):
-            return prop_or_group
-
-        # Recursively unwrap children first
-        unwrapped_values: list[Union[Property, PropertyGroup]] = [
-            self._unwrap_single_property_groups(v) for v in prop_or_group.values
-        ]
-        prop_or_group.values = cast(Union[list[Property], list[PropertyGroup]], unwrapped_values)
-
-        # If this group has only one child, return the child instead
-        if len(prop_or_group.values) == 1:
-            return prop_or_group.values[0]
-
-        return prop_or_group
-
-    def _preprocess_property_groups(self, prop_group: Optional[PropertyGroup]) -> Optional[PropertyGroup]:
-        """
-        Preprocess property groups to merge person properties with same key and operator.
-
-        For example, multiple email contains filters become a single merged property with
-        multiple conditionHashes that will be queried with IN clause.
-        """
-
-        if not prop_group or not isinstance(prop_group, PropertyGroup):
-            return prop_group
-
-        # First, unwrap deeply nested single-property groups
-        unwrapped = self._unwrap_single_property_groups(prop_group)
-        if not isinstance(unwrapped, PropertyGroup):
-            # If unwrapping resulted in a single Property, wrap it back in a PropertyGroup
-            # so it can be processed normally
-            single_property_group = PropertyGroup(type=PropertyOperatorType.AND, values=[unwrapped])
-            return single_property_group
-        prop_group = unwrapped
-
-        # Process both AND and OR groups for merging
-        is_and_group = prop_group.type == PropertyOperatorType.AND
-        is_or_group = prop_group.type == PropertyOperatorType.OR
-
-        if not is_and_group and not is_or_group:
-            # For other group types, just recursively process children
-            processed_values: list[Union[Property, PropertyGroup]] = [
-                cast(Union[Property, PropertyGroup], self._preprocess_property_groups(v))
-                if isinstance(v, PropertyGroup)
-                else v
-                for v in prop_group.values
-            ]
-            prop_group.values = cast(Union[list[Property], list[PropertyGroup]], processed_values)
-            return prop_group
-
-        # Group person properties by (key, operator)
-        groups: dict[tuple[str, str], list[Property]] = defaultdict(list)
-        non_mergeable: list[Union[Property, PropertyGroup]] = []
-
-        for value in prop_group.values:
-            if isinstance(value, PropertyGroup):
-                processed = self._preprocess_property_groups(value)
-                if processed is not None:
-                    non_mergeable.append(processed)
-            elif isinstance(value, Property):
-                if self._is_mergeable_property(value):
-                    key = (value.key, str(value.operator))
-                    groups[key].append(value)
-                else:
-                    non_mergeable.append(value)
-
-        # Merge groups with 2+ properties
-        merged_values: list[Union[Property, PropertyGroup]] = []
-        for props in groups.values():
-            if len(props) >= 2:
-                # Collect and deduplicate hashes
-                hashes = [p.conditionHash for p in props if p.conditionHash]
-                unique_hashes = self._deduplicate_hashes(hashes)
-                # Only create merged property if we have condition hashes to merge
-                if unique_hashes:
-                    # Create merged property
-                    merged_prop = self._create_merged_property(props[0], unique_hashes, is_or_group)
-                    merged_values.append(merged_prop)
-                else:
-                    # No condition hashes available, keep properties as-is
-                    merged_values.extend(props)
-            else:
-                merged_values.extend(props)
-
-        merged_values.extend(non_mergeable)
-        prop_group.values = cast(Union[list[Property], list[PropertyGroup]], merged_values)
-
-        # After merging within groups, also merge sibling single-property groups
-        prop_group = self._merge_sibling_single_property_groups(prop_group)
-
-        return prop_group
-
-    def _merge_sibling_single_property_groups(self, prop_group: PropertyGroup) -> PropertyGroup:
-        """
-        Merge sibling single-property groups under an OR that have the same key and operator.
-
-        Example:
-        OR:
-          - AND: [email icontains @gmail.com, email is_not user2@gmail.com]
-            ↑ Can't merge: multi-value group with different operators (icontains vs is_not)
-          - OR: [email icontains yahoo.com]  # single property, can merge
-          - OR: [email icontains @protonmail.com, email icontains @live.com]  # already merged
-
-        Result: Last two OR groups merge into one with 3 hashes (yahoo + protonmail + live).
-        The AND group stays separate because it has multiple values and mixed operators.
-        """
-        if prop_group.type != PropertyOperatorType.OR:
-            return prop_group
-
-        # Collect hashes by (key, operator) and track templates for creating merged properties
-        mergeable_by_key: dict[tuple[str, str], list[str]] = defaultdict(list)
-        first_property_by_key: dict[tuple[str, str], Property] = {}
-        other_values: list[Union[Property, PropertyGroup]] = []
-
-        for value in prop_group.values:
-            # Extract child from single-value groups or plain properties
-            child = None
-            if isinstance(value, PropertyGroup) and len(value.values) == 1:
-                child = value.values[0]
-            elif isinstance(value, Property):
-                child = value
-            else:
-                # Multi-value groups can't be merged
-                other_values.append(value)
-                continue
-
-            if isinstance(child, Property) and self._is_mergeable_property(child):
-                key = (child.key, str(child.operator))
-
-                # Collect hashes: property may already be merged (has multiple hashes) or single hash
-                if hasattr(child, "_merged_condition_hashes"):
-                    mergeable_by_key[key].extend(child._merged_condition_hashes)
-                elif hasattr(child, "conditionHash") and child.conditionHash:
-                    mergeable_by_key[key].append(child.conditionHash)
-                else:
-                    other_values.append(value)
-                    continue
-
-                # Save first property as template for merged property
-                if key not in first_property_by_key:
-                    first_property_by_key[key] = child
-            else:
-                other_values.append(value)
-
-        # Create merged properties for each (key, operator) with 2+ unique hashes
-        merged_values: list[Union[Property, PropertyGroup]] = []
-        for key, hashes in mergeable_by_key.items():
-            unique_hashes = self._deduplicate_hashes(hashes)
-
-            if len(unique_hashes) >= 2:
-                template = first_property_by_key[key]
-                merged_prop = self._create_merged_property(template, unique_hashes, is_or_group=True)
-                merged_values.append(merged_prop)
-            elif len(unique_hashes) == 1:
-                # Single hash after dedup: wrap back in group to preserve structure
-                template = first_property_by_key[key]
-                single_prop = deepcopy(template)
-                # Safely remove merged attributes if they exist
-                for attr in ["_merged_condition_hashes", "_is_or_group"]:
-                    if hasattr(single_prop, attr):
-                        delattr(single_prop, attr)
-                merged_values.append(PropertyGroup(type=PropertyOperatorType.OR, values=[single_prop]))
-
-        merged_values.extend(other_values)
-        prop_group.values = cast(Union[list[Property], list[PropertyGroup]], merged_values)
-        return prop_group
-
-    def _should_combine_person_properties(self) -> bool:
-        """
-        Override parent class to disable person property combining optimization for realtime cohorts.
-
-        Why disabled:
-        - Parent class (HogQLCohortQuery) combines multiple person properties into a single query
-          against the `persons` table using AND(condition1, condition2, ...) logic
-        - Realtime cohorts use `precalculated_person_properties` table where each property
-          has a unique conditionHash for fast lookup
-        - Each conditionHash must be queried separately or combined using IN clauses
-        - Our property merging optimization (in _preprocess_property_groups) already handles
-          combining properties with the same key+operator using IN clauses
-
-        Returns:
-            False to disable the parent's combining optimization
-        """
-        return False
-
-    def get_performed_event_condition(self, prop: Property, first_time: bool = False) -> ast.SelectQuery:
-        """
-        Query precalculated_events using conditionHash for realtime behavioral matching.
-        Uses the precalculated_events table populated by CdpRealtimeCohortsConsumer.
-        """
-        condition_hash = getattr(prop, "conditionHash", None)
-        if not condition_hash:
-            cohort_id = self.cohort.id if self.cohort else "unknown"
-            raise ValueError(
-                f"BUG: Realtime cohort (cohort_id={cohort_id}) has behavioral property without conditionHash. "
-                f"All realtime cohorts MUST have conditionHash for behavioral filters. Property: {prop}"
-            )
-
-        # Extract date_from using same logic as parent class
-        if prop.explicit_datetime:
-            # Explicit datetime filter, can be a relative or absolute date
-            date_from_str = prop.explicit_datetime
-            date_to_str = prop.explicit_datetime_to
-        else:
-            date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
-            date_interval = validate_interval(prop.time_interval)
-            date_from_str = f"-{date_value}{date_interval[:1]}"
-            date_to_str = None
-
-        # Parse the date string using QueryDateRange to get actual datetime
-        date_range = DateRange(date_from=date_from_str, date_to=date_to_str)
-        query_date_range = QueryDateRange(
-            date_range=date_range,
-            team=self.team,
-            interval=None,
-            now=datetime.now(),
-        )
-        date_from_datetime = query_date_range.date_from()
-        date_to_datetime = query_date_range.date_to() if date_to_str else None
-
-        # Build date filter - include date_to if provided for range filtering
-        date_filter = "date >= toDate({date_from})"
-        if date_to_datetime:
-            date_filter = "date >= toDate({date_from}) AND date <= toDate({date_to})"
-
-        # Build query using precalculated_events
-        query_str = f"""
-            SELECT DISTINCT
-                person_id as id
-            FROM precalculated_events
-            WHERE
-                team_id = {{team_id}}
-                AND condition = {{condition_hash}}
-                AND {date_filter}
-        """
-
-        query_params: dict[str, ast.Expr] = {
-            "team_id": ast.Constant(value=self.team.pk),
-            "condition_hash": ast.Constant(value=condition_hash),
-            "date_from": ast.Constant(value=date_from_datetime),
-        }
-        if date_to_datetime:
-            query_params["date_to"] = ast.Constant(value=date_to_datetime)
-
-        return cast(ast.SelectQuery, parse_select(query_str, query_params))
-
-    def get_performed_event_multiple(self, prop: Property) -> ast.SelectQuery:
-        """
-        Query precalculated_events with count aggregation for multiple event occurrences.
-        Supports operators: gte, lte, gt, lt, eq.
-        """
-        condition_hash = getattr(prop, "conditionHash", None)
-        if not condition_hash:
-            cohort_id = self.cohort.id if self.cohort else "unknown"
-            raise ValueError(
-                f"Realtime cohort (cohort_id={cohort_id}) has behavioral property without conditionHash. "
-                f"All realtime cohorts MUST have conditionHash for behavioral filters. Property: {prop}"
-            )
-
-        min_matches = parse_and_validate_positive_integer(prop.operator_value, "operator_value")
-
-        # Extract date_from using same logic as parent class
-        if prop.explicit_datetime:
-            # Explicit datetime filter, can be a relative or absolute date
-            date_from_str = prop.explicit_datetime
-            date_to_str = prop.explicit_datetime_to
-        else:
-            date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
-            date_interval = validate_interval(prop.time_interval)
-            date_from_str = f"-{date_value}{date_interval[:1]}"
-            date_to_str = None
-
-        # Parse the date string using QueryDateRange to get actual datetime
-        date_range = DateRange(date_from=date_from_str, date_to=date_to_str)
-        query_date_range = QueryDateRange(
-            date_range=date_range,
-            team=self.team,
-            interval=None,
-            now=datetime.now(),
-        )
-        date_from_datetime = query_date_range.date_from()
-        date_to_datetime = query_date_range.date_to() if date_to_str else None
-
-        # Map operator to SQL comparison - validated to prevent SQL injection
-        VALID_OPERATORS: dict[str, str] = {
-            "gte": ">=",
-            "lte": "<=",
-            "gt": ">",
-            "lt": "<",
-            "eq": "=",
-            "exact": "=",
-        }
-        operator_str = str(prop.operator) if prop.operator else "eq"
-        if operator_str not in VALID_OPERATORS:
-            raise ValidationError(
-                f"Invalid operator for performed_event_multiple: {prop.operator}. "
-                f"Must be one of: {', '.join(VALID_OPERATORS.keys())}"
-            )
-        sql_operator = VALID_OPERATORS[operator_str]
-
-        # Build date filter - include date_to if provided for range filtering
-        date_filter = "date >= toDate({date_from})"
-        if date_to_datetime:
-            date_filter = "date >= toDate({date_from}) AND date <= toDate({date_to})"
-
-        query_str = f"""
-            SELECT
-                person_id as id
-            FROM precalculated_events
-            WHERE
-                team_id = {{team_id}}
-                AND condition = {{condition_hash}}
-                AND {date_filter}
-            GROUP BY person_id
-            HAVING count() {sql_operator} {{min_matches}}
-        """
-
-        query_params: dict[str, ast.Expr] = {
-            "team_id": ast.Constant(value=self.team.pk),
-            "condition_hash": ast.Constant(value=condition_hash),
-            "date_from": ast.Constant(value=date_from_datetime),
-            "min_matches": ast.Constant(value=min_matches),
-        }
-        if date_to_datetime:
-            query_params["date_to"] = ast.Constant(value=date_to_datetime)
-
-        return cast(
-            ast.SelectQuery,
-            parse_select(query_str, query_params),
-        )
-
-    def get_dynamic_cohort_condition(self, prop: Property) -> ast.SelectQuery:
-        """
-        Query cohort_membership table for realtime cohort membership.
-        Filters most recent status='entered' to find current members.
-        """
-        cohort_id = cast(int, prop.value)
-
-        return cast(
-            ast.SelectQuery,
-            parse_select(
-                """
-                SELECT person_id as id FROM (
-                    SELECT person_id, argMax(status, last_updated) as status
-                    FROM cohort_membership
-                    WHERE cohort_id = {cohort_id}
-                    AND team_id = {team_id}
-                    GROUP BY person_id
-                    HAVING status = 'entered'
-                )
-                """,
-                {
-                    "cohort_id": ast.Constant(value=cohort_id),
-                    "team_id": ast.Constant(value=self.team.pk),
-                },
-            ),
-        )
-
-    def _build_or_semantics_query(self, merged_hashes: list[str]) -> ast.SelectQuery:
-        """
-        Build query for OR semantics where at least ONE condition must match.
-
-        For example: email contains X OR email contains Y
-        Uses HAVING matching_count >= 1
-
-        Args:
-            merged_hashes: List of condition hashes to match against
-
-        Returns:
-            SelectQuery AST that returns person_ids matching at least one condition
-        """
-        query_str = """
-            SELECT
-                person_id as id
-            FROM
-            (
-                SELECT
-                    person_id,
-                    condition,
-                    argMax(matches, (_timestamp, _offset)) as latest_matches
-                FROM precalculated_person_properties
-                WHERE
-                    team_id = {team_id}
-                    AND condition IN {condition_hashes}
-                GROUP BY person_id, condition
-            )
-            GROUP BY person_id
-            HAVING countIf(latest_matches = 1) >= 1
-        """
-
-        return cast(
-            ast.SelectQuery,
-            parse_select(
-                query_str,
-                {
-                    "team_id": ast.Constant(value=self.team.pk),
-                    "condition_hashes": ast.Tuple(exprs=[ast.Constant(value=h) for h in merged_hashes]),
-                },
-            ),
-        )
-
-    def _build_and_semantics_query(self, merged_hashes: list[str]) -> ast.SelectQuery:
-        """
-        Build query for AND semantics where ALL conditions must match.
-
-        For example: email contains X AND email contains Y
-        Uses HAVING matching_count = len(merged_hashes)
-
-        Args:
-            merged_hashes: List of condition hashes that all must match
-
-        Returns:
-            SelectQuery AST that returns person_ids matching all conditions
-        """
-        query_str = """
-            SELECT
-                person_id as id
-            FROM
-            (
-                SELECT
-                    person_id,
-                    condition,
-                    argMax(matches, (_timestamp, _offset)) as latest_matches
-                FROM precalculated_person_properties
-                WHERE
-                    team_id = {team_id}
-                    AND condition IN {condition_hashes}
-                GROUP BY person_id, condition
-            )
-            GROUP BY person_id
-            HAVING countIf(latest_matches = 1) = {num_conditions}
-        """
-
-        return cast(
-            ast.SelectQuery,
-            parse_select(
-                query_str,
-                {
-                    "team_id": ast.Constant(value=self.team.pk),
-                    "condition_hashes": ast.Tuple(exprs=[ast.Constant(value=h) for h in merged_hashes]),
-                    "num_conditions": ast.Constant(value=len(merged_hashes)),
-                },
-            ),
-        )
-
-    def get_person_condition(self, prop: Property) -> ast.SelectQuery:
-        """
-        Query precalculated_person_properties using conditionHash for realtime person property matching.
-        Table for precalculated person properties evaluations populated by CdpRealtimeCohortsConsumer and backfill workflows.
-
-        If prop has _merged_condition_hashes, uses IN clause to combine multiple conditions.
-        """
-        # Check if this property was merged in preprocessing
-        merged_hashes = getattr(prop, "_merged_condition_hashes", None)
-
-        if merged_hashes is not None:
-            # Validate that merged_hashes is not empty to prevent invalid SQL generation
-            if not merged_hashes:
-                cohort_id = self.cohort.id if self.cohort else "unknown"
-                raise ValueError(
-                    f"BUG: Realtime cohort (cohort_id={cohort_id}) has merged property with empty condition hashes. "
-                    f"This would generate invalid SQL with empty IN clause. Property: {prop}"
-                )
-
-            # Check if this is from an OR group (OR semantics) or AND group (AND semantics)
-            is_or_group = getattr(prop, "_is_or_group", False)
-
-            if is_or_group:
-                return self._build_or_semantics_query(merged_hashes)
-            else:
-                return self._build_and_semantics_query(merged_hashes)
-        else:
-            # Single condition - original logic
-            condition_hash = getattr(prop, "conditionHash", None)
-            if not condition_hash:
-                cohort_id = self.cohort.id if self.cohort else "unknown"
-                raise ValueError(
-                    f"BUG: Realtime cohort (cohort_id={cohort_id}) has person property without conditionHash. "
-                    f"All realtime cohorts MUST have conditionHash for person property filters. Property: {prop}"
-                )
-
-            query_str = """
-                SELECT
-                    person_id as id
-                FROM precalculated_person_properties
-                WHERE
-                    team_id = {team_id}
-                    AND condition = {condition_hash}
-                GROUP BY person_id
-                HAVING argMax(matches, (_timestamp, _offset)) = 1
-            """
-
-            return cast(
-                ast.SelectQuery,
-                parse_select(
-                    query_str,
-                    {
-                        "team_id": ast.Constant(value=self.team.pk),
-                        "condition_hash": ast.Constant(value=condition_hash),
-                    },
-                ),
-            )
-
-    def get_static_cohort_condition(self, prop: Property) -> ast.SelectQuery:
-        """
-        Realtime cohorts do not support static cohorts.
-        Static cohorts use manually uploaded CSV data and are not compatible with realtime calculation.
-        """
-        raise ValueError(
-            "Realtime cohorts do not support static cohort filters. "
-            "Only dynamic cohorts and behavioral filters are supported for realtime calculation."
-        )
-
-    def get_performed_event_sequence(self, prop: Property) -> ast.SelectQuery:
-        """
-        Realtime cohorts do not support performed_event_sequence.
-        Only performed_event and performed_event_multiple are supported by build_behavioral_event_expr.
-        """
-        raise ValueError(
-            "Realtime cohorts do not support 'performed_event_sequence'. "
-            "Only 'performed_event' and 'performed_event_multiple' are supported."
-        )
-
-    def get_stopped_performing_event(self, prop: Property) -> ast.SelectSetQuery:
-        """
-        Realtime cohorts do not support stopped_performing_event.
-        Only performed_event and performed_event_multiple are supported by build_behavioral_event_expr.
-        """
-        raise ValueError(
-            "Realtime cohorts do not support 'stopped_performing_event'. "
-            "Only 'performed_event' and 'performed_event_multiple' are supported."
-        )
-
-    def get_restarted_performing_event(self, prop: Property) -> ast.SelectSetQuery:
-        """
-        Realtime cohorts do not support restarted_performing_event.
-        Only performed_event and performed_event_multiple are supported by build_behavioral_event_expr.
-        """
-        raise ValueError(
-            "Realtime cohorts do not support 'restarted_performing_event'. "
-            "Only 'performed_event' and 'performed_event_multiple' are supported."
-        )
-
-    def get_performed_event_regularly(self, prop: Property) -> ast.SelectQuery:
-        """
-        Realtime cohorts do not support performed_event_regularly.
-        Only performed_event and performed_event_multiple are supported by build_behavioral_event_expr.
-        """
-        raise ValueError(
-            "Realtime cohorts do not support 'performed_event_regularly'. "
-            "Only 'performed_event' and 'performed_event_multiple' are supported."
-        )

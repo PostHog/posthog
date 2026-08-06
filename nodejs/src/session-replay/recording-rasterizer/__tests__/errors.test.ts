@@ -1,12 +1,12 @@
-import { RasterizationError } from '../errors'
+import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
 
 describe('RasterizationError', () => {
     it('sets name, message, retryable, and code', () => {
-        const err = new RasterizationError('something broke', true, 'PLAYBACK_ERROR')
+        const err = new RasterizationError('something broke', true, 'TIMEOUT')
         expect(err.name).toBe('RasterizationError')
         expect(err.message).toBe('something broke')
         expect(err.retryable).toBe(true)
-        expect(err.code).toBe('PLAYBACK_ERROR')
+        expect(err.code).toBe('TIMEOUT')
         expect(err).toBeInstanceOf(Error)
     })
 
@@ -17,7 +17,7 @@ describe('RasterizationError', () => {
 
     it('stores cause when provided', () => {
         const cause = new Error('root cause')
-        const err = new RasterizationError('wrapper', true, 'TEST', cause)
+        const err = new RasterizationError('wrapper', true, 'BLOCK_LISTING_FAILED', cause)
         expect(err.cause).toBe(cause)
     })
 
@@ -38,7 +38,7 @@ describe('RasterizationError', () => {
         })
 
         it('does not include cause or stack in JSON', () => {
-            const err = new RasterizationError('test', true, 'ERR', new Error('cause'))
+            const err = new RasterizationError('test', true, 'INVALID_INPUT', new Error('cause'))
             const json = err.toJSON()
             expect(json).not.toHaveProperty('cause')
             expect(json).not.toHaveProperty('stack')

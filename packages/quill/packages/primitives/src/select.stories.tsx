@@ -74,6 +74,27 @@ export const Default: Story = {
     ),
 } satisfies Story
 
+// No SelectGroup and no label — items sit straight in SelectContent. The list
+// picks up the group's padding so the items still inset from the popup edge.
+export const NoGroups: Story = {
+    render: () => (
+        <div className="max-w-48 mt-32">
+            <Select items={allItems}>
+                <SelectTrigger className="w-full max-w-48" render={<Button variant="outline" />}>
+                    <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                    {fruits.slice(0, 5).map((item) => (
+                        <SelectItem key={item.value} value={item.value}>
+                            {item.label}
+                        </SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+        </div>
+    ),
+} satisfies Story
+
 export const GroupsAndSeparators: Story = {
     render: () => (
         <div className="max-w-48 mt-32">
@@ -110,12 +131,7 @@ export const MultipleSelection: Story = {
         const [value, setValue] = useState<string[]>(['apple', 'blueberry', 'grapes', 'pineapple', 'watermelon'])
         return (
             <div className="max-w-64 mt-32">
-                <Select
-                    multiple
-                    value={value}
-                    onValueChange={setValue}
-                    items={fruits}
-                >
+                <Select multiple value={value} onValueChange={setValue} items={fruits}>
                     <SelectTrigger className="w-full max-w-64" render={<Button variant="outline" />}>
                         <SelectValue placeholder="Select fruits..." />
                     </SelectTrigger>

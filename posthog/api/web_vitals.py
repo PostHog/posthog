@@ -44,6 +44,7 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 ],
                 "series": [
                     {
+                        "kind": "EventsNode",
                         "event": "$web_vitals",
                         "name": "INP",
                         "custom_name": "INP",
@@ -51,6 +52,7 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         "math_property": "$web_vitals_INP_value",
                     },
                     {
+                        "kind": "EventsNode",
                         "event": "$web_vitals",
                         "name": "LCP",
                         "custom_name": "LCP",
@@ -58,6 +60,7 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         "math_property": "$web_vitals_LCP_value",
                     },
                     {
+                        "kind": "EventsNode",
                         "event": "$web_vitals",
                         "name": "CLS",
                         "custom_name": "CLS",
@@ -65,6 +68,7 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         "math_property": "$web_vitals_CLS_value",
                     },
                     {
+                        "kind": "EventsNode",
                         "event": "$web_vitals",
                         "name": "FCP",
                         "custom_name": "FCP",

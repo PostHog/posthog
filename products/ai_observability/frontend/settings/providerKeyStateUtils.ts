@@ -1,9 +1,25 @@
-import { LLMProvider, LLMProviderKeyState, LLM_PROVIDER_LABELS } from './llmProviderKeysLogic'
+import { LLMProvider, LLMProviderKey, LLMProviderKeyState, LLM_PROVIDER_LABELS } from './llmProviderKeysLogic'
 
-const UNHEALTHY_PROVIDER_KEY_STATES = new Set<LLMProviderKeyState>(['invalid', 'error'])
+const UNHEALTHY_PROVIDER_KEY_STATES = new Set<LLMProviderKeyState>(['unknown', 'invalid', 'error'])
 
 export function isUnhealthyProviderKeyState(state: LLMProviderKeyState): boolean {
     return UNHEALTHY_PROVIDER_KEY_STATES.has(state)
+}
+
+export function getUnhealthyProviderKey(
+    providerKeys: LLMProviderKey[],
+    providerKeyId?: string | null
+): LLMProviderKey | null {
+    if (!providerKeyId) {
+        return null
+    }
+
+    const providerKey = providerKeys.find((key) => key.id === providerKeyId)
+    if (!providerKey || !isUnhealthyProviderKeyState(providerKey.state)) {
+        return null
+    }
+
+    return providerKey
 }
 
 export function providerKeyStateLabel(state: LLMProviderKeyState): string {
@@ -38,6 +54,9 @@ export function providerKeyStateSuffix(state: LLMProviderKeyState): string {
     }
     if (state === 'error') {
         return ' (Error)'
+    }
+    if (state === 'unknown') {
+        return ' (Unknown status)'
     }
     return ''
 }

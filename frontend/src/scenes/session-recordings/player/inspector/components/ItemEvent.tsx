@@ -1,5 +1,3 @@
-import './ImagePreview.scss'
-
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
@@ -7,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { IconCollapse, IconExpand, IconShare } from '@posthog/icons'
 import { LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
 
+import { AutocapturePreviewImage } from 'lib/components/AutocapturePreviewImage/AutocapturePreviewImage'
 import { ErrorDisplay, idFrom } from 'lib/components/Errors/ErrorDisplay'
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { getExceptionAttributes } from 'lib/components/Errors/utils'
@@ -19,9 +18,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { autoCaptureEventToDescription, capitalizeFirstLetter, ceilMsToClosestSecond, isString } from 'lib/utils'
-import { AutocapturePreviewImage } from 'lib/utils/autocapture-previews'
-import { getPrimaryPropertyForEvent } from 'lib/utils/primaryEventProperty'
+import { ceilMsToClosestSecond } from 'lib/utils/durations'
+import { autoCaptureEventToDescription } from 'lib/utils/events'
+import { getPrimaryPropertyForEvent } from 'lib/utils/events'
+import { isString } from 'lib/utils/guards'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
@@ -31,6 +32,7 @@ import { ItemTimeDisplay } from '../../../components/ItemTimeDisplay'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
 import { InspectorListItemEvent } from '../playerInspectorLogic'
 import { AIEventExpanded, AIEventSummary } from './AIEventItems'
+import { EventFlagsTab } from './EventFlagsTab'
 import { PinPrimaryPropertyButton } from './PinPrimaryPropertyButton'
 
 export interface ItemEventProps {
@@ -186,10 +188,10 @@ export function ItemEventMenu({ item }: ItemEventProps): JSX.Element {
                     ? {
                           label: 'View issue in Error Tracking',
                           icon: <IconOpenInNew />,
-                          to: urls.errorTrackingIssue(
-                              item.data.properties.$exception_issue_id,
-                              item.data.properties.$exception_fingerprint
-                          ),
+                          to: urls.errorTrackingIssue(item.data.properties.$exception_issue_id, {
+                              fingerprint: item.data.properties.$exception_fingerprint,
+                              timestamp: item.data.timestamp,
+                          }),
                           targetBlank: true,
                       }
                     : null,
@@ -263,7 +265,7 @@ function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
                             <>
                                 <p>
                                     "Set once" person properties sent with this event. Will replace any property value
-                                    that have never been set on this person profile before now.{' '}
+                                    that has never been set on this person profile before now.{' '}
                                     <Link to="https://posthog.com/docs/getting-started/person-properties">
                                         Learn more
                                     </Link>
@@ -279,7 +281,13 @@ function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
                             </>
                         )
                     case 'error_display':
-                        return <ErrorDisplay eventProperties={properties} eventId={idFrom(event as ErrorEventType)} />
+                        return (
+                            <ErrorDisplay
+                                eventProperties={properties}
+                                eventId={idFrom(event as ErrorEventType)}
+                                eventTimestamp={event.timestamp}
+                            />
+                        )
                     case 'properties':
                         return (
                             <SimpleKeyValueList
@@ -288,6 +296,8 @@ function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
                                 rowActions={primaryPropertyActions}
                             />
                         )
+                    case 'flags':
+                        return <EventFlagsTab properties={properties} promotedKeys={promotedKeys} />
                     default:
                         return <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
                 }

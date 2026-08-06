@@ -24,7 +24,6 @@ from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
-from products.ai_observability.backend.api.trace_reviews import TraceReviewFeatureFlagPermission
 from products.ai_observability.backend.models.review_queues import ReviewQueue, ReviewQueueItem
 from products.ai_observability.backend.models.trace_reviews import TraceReview
 
@@ -301,7 +300,7 @@ class ReviewQueueItemFilter(django_filters.FilterSet):
 
 class ReviewQueueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ModelViewSet):
     scope_object = "llm_analytics"
-    permission_classes = [TraceReviewFeatureFlagPermission, AccessControlPermission]
+    permission_classes = [AccessControlPermission]
     serializer_class = ReviewQueueSerializer
     queryset = ReviewQueue.objects.all()
     filter_backends = [DjangoFilterBackend]
@@ -423,7 +422,7 @@ class ReviewQueueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Mode
 
 class ReviewQueueItemViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ModelViewSet):
     scope_object = "llm_analytics"
-    permission_classes = [TraceReviewFeatureFlagPermission, AccessControlPermission]
+    permission_classes = [AccessControlPermission]
     serializer_class = ReviewQueueItemSerializer
     queryset = ReviewQueueItem.objects.all()
     filter_backends = [DjangoFilterBackend]

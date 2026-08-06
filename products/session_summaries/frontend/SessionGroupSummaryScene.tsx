@@ -15,7 +15,7 @@ import {
 
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { debounce } from 'lib/utils'
+import { debounce } from 'lib/utils/async'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'

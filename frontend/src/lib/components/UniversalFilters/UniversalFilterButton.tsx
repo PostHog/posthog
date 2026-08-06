@@ -9,7 +9,7 @@ import { LemonButton, PopoverReferenceContext } from '@posthog/lemon-ui'
 
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { IconWithCount } from 'lib/lemon-ui/icons'
-import { midEllipsis } from 'lib/utils'
+import { midEllipsis } from 'lib/utils/strings'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -113,16 +113,20 @@ const EventLabel = ({
     return (
         <div className="flex truncate  items-center deprecated-space-x-1">
             <EntityFilterInfo filter={filter} />
-            <LemonButton
-                size="xsmall"
-                icon={
-                    <IconWithCount count={filter.properties?.length || 0} showZero={false}>
-                        <IconFilter />
-                    </IconWithCount>
-                }
-                className="p-0.5"
-                onClick={onClick}
-            />
+            {/* The count button is the only way into an event's property filters, so without a handler to open
+                them it would be a dead button — read-only consumers render the properties themselves instead. */}
+            {onClick && (
+                <LemonButton
+                    size="xsmall"
+                    icon={
+                        <IconWithCount count={filter.properties?.length || 0} showZero={false}>
+                            <IconFilter />
+                        </IconWithCount>
+                    }
+                    className="p-0.5"
+                    onClick={onClick}
+                />
+            )}
         </div>
     )
 }

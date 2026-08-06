@@ -4,16 +4,18 @@ from datetime import timedelta
 from typing import cast
 from urllib.parse import quote, unquote
 
+import pytest
 from freezegun.api import freeze_time
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, NonAtomicBaseTest
 from unittest import mock
 from unittest.mock import ANY, patch
 
-from django.conf import settings
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.core.cache import cache
-from django.test import override_settings
+from django.db import connection
+from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -24,15 +26,26 @@ from rest_framework import status
 from social_django.models import UserSocialAuth
 
 from posthog.api.email_verification import email_verification_token_generator
-from posthog.api.oauth.test_dcr import generate_rsa_key
+from posthog.api.oauth.toolbar_service import ToolbarOAuthState, build_toolbar_oauth_state, new_state_nonce
+from posthog.api.user import UserSerializer
+from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.instance_setting import set_instance_setting
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.user import default_ui_configuration_for_new_users
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.temporal.tests.delete_teams.inline import execute_deletion_workflows_inline
 
 from products.dashboards.backend.models.dashboard import Dashboard
+
+try:
+    from ee.models.rbac.access_control import AccessControl
+except ImportError:
+    pass
 
 
 def create_user(email: str, password: str, organization: Organization):
@@ -132,6 +145,44 @@ class TestUserAPI(APIBaseTest):
             ],
         )
 
+    def test_me_membership_queries_do_not_scale_with_org_count(self):
+        def me_membership_queries(user: User) -> tuple[int, dict]:
+            self.client.force_login(user)
+            with CaptureQueriesContext(connection) as ctx:
+                response = self.client.get("/api/users/@me/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            count = sum(
+                1
+                for q in ctx.captured_queries
+                if "posthog_organizationmembership" in q["sql"] and q["sql"].lstrip()[:6].upper() == "SELECT"
+            )
+            return count, response.json()
+
+        user_in_one_org = create_user(
+            "one-org@example.com", self.CONFIG_PASSWORD, Organization.objects.create(name="Solo Org")
+        )
+
+        owner_org = Organization.objects.create(name="Owner Org")
+        user_in_many_orgs = create_user("many-orgs@example.com", self.CONFIG_PASSWORD, owner_org)
+        OrganizationMembership.objects.filter(organization=owner_org, user=user_in_many_orgs).update(
+            level=OrganizationMembership.Level.OWNER
+        )
+        member_orgs = [Organization.objects.create(name=f"Member Org {i}") for i in range(5)]
+        for org in member_orgs:
+            OrganizationMembership.objects.create(
+                organization=org, user=user_in_many_orgs, level=OrganizationMembership.Level.MEMBER
+            )
+
+        few, _ = me_membership_queries(user_in_one_org)
+        many, many_body = me_membership_queries(user_in_many_orgs)
+
+        assert few > 0, "membership query predicate matched nothing; the table/SELECT filter is wrong"
+        assert many == few, f"membership_level is N+1: {many} membership queries for 6 orgs vs {few} for 1 org"
+
+        levels_by_org = {org["id"]: org["membership_level"] for org in many_body["organizations"]}
+        assert levels_by_org[str(owner_org.id)] == OrganizationMembership.Level.OWNER
+        assert levels_by_org[str(member_orgs[0].id)] == OrganizationMembership.Level.MEMBER
+
     def test_current_user_includes_pending_invites(self):
         from posthog.models import OrganizationInvite
 
@@ -213,6 +264,35 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"a bag": "of data"}
 
+    def test_can_update_ui_configuration(self):
+        configuration = {
+            "version": 1,
+            "sidebar": {
+                "sections": {"recents": {"visible": False}},
+                "items": {"data": {"visible": False}},
+            },
+        }
+
+        response = self.client.patch("/api/users/@me/", {"ui_configuration": configuration})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["ui_configuration"], configuration)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.ui_configuration, configuration)
+
+    def test_cannot_update_ui_configuration_not_matching_schema(self):
+        configuration_before = self.user.ui_configuration
+
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"ui_configuration": {"version": 1, "sidebar": {"items": {"bogus": {"visible": False}}}}},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "ui_configuration")
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.ui_configuration, configuration_before)
+
     def test_users_me_includes_active_realtime_notification_types(self):
         self.client.force_login(self.user)
         response = self.client.get("/api/users/@me/")
@@ -223,13 +303,24 @@ class TestUserAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unreviewed_no_keys", False, False, False),
-            ("unreviewed_with_keys", False, True, True),
-            ("reviewed_with_keys", True, True, False),
-            ("reviewed_no_keys", True, False, False),
+            ("unreviewed_nothing", False, False, False, False),
+            ("unreviewed_pat_only", False, True, False, True),
+            ("unreviewed_passkey_only", False, False, True, True),
+            ("unreviewed_pat_and_passkey", False, True, True, True),
+            ("reviewed_pat_only", True, True, False, False),
+            ("reviewed_passkey_only", True, False, True, False),
+            ("reviewed_pat_and_passkey", True, True, True, False),
+            ("reviewed_nothing", True, False, False, False),
         ]
     )
-    def test_requires_credential_review(self, _name: str, reviewed: bool, with_key: bool, expected: bool):
+    def test_requires_credential_review(
+        self,
+        _name: str,
+        reviewed: bool,
+        with_key: bool,
+        with_passkey: bool,
+        expected: bool,
+    ):
         self.user.credentials_reviewed_at = timezone.now() if reviewed else None
         self.user.save(update_fields=["credentials_reviewed_at"])
         if with_key:
@@ -239,9 +330,37 @@ class TestUserAPI(APIBaseTest):
                 secure_value=hash_key_value("phx_test_value_1234567890"),
                 scopes=["*"],
             )
+        if with_passkey:
+            WebauthnCredential.objects.create(
+                user=self.user,
+                label="Test passkey",
+                credential_id=b"test-credential-id",
+                public_key=b"test-public-key",
+                algorithm=-7,
+                transports=["internal"],
+                verified=True,
+            )
         response = self.client.get("/api/users/@me/")
         assert response.status_code == 200
         assert response.json()["requires_credential_review"] is expected
+
+    def test_requires_credential_review_unverified_passkey(self):
+        # Unverified passkeys are the realistic pre-claim attack artifact - a partner
+        # session can register a credential without ever completing verification.
+        self.user.credentials_reviewed_at = None
+        self.user.save(update_fields=["credentials_reviewed_at"])
+        WebauthnCredential.objects.create(
+            user=self.user,
+            label="Unverified passkey",
+            credential_id=b"unverified-credential-id",
+            public_key=b"test-public-key",
+            algorithm=-7,
+            transports=["internal"],
+            verified=False,
+        )
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == 200
+        assert response.json()["requires_credential_review"] is True
 
     def test_credentials_review_complete_endpoint(self):
         User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
@@ -755,6 +874,75 @@ class TestUserAPI(APIBaseTest):
         assert self.user.pending_email is None
         mock_send_email_change_emails.assert_not_called()
 
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch("posthog.api.user.EmailVerifier.send_verification_email")
+    def test_email_change_allowed_between_two_sso_enforced_domains_of_same_org(
+        self,
+        mock_send_email_verification,
+        mock_is_email_available,
+    ):
+        self.user.email = "alice@example.com"
+        self.user.save()
+        for domain in ("example.com", "example.org"):
+            OrganizationDomain.objects.create(
+                organization=self.organization,
+                domain=domain,
+                verified_at=timezone.now(),
+                sso_enforcement="google-oauth2",
+            )
+
+        with patch(
+            "posthog.models.organization_domain.OrganizationDomainManager.get_sso_enforcement_for_email_address",
+            side_effect=lambda email, organization=None: (
+                "google-oauth2" if email.split("@")[-1] in ("example.com", "example.org") else None
+            ),
+        ):
+            with self.is_cloud(True):
+                response = self.client.patch("/api/users/@me/", {"email": "alice@example.org"})
+
+        assert response.status_code == status.HTTP_200_OK
+        self.user.refresh_from_db()
+        assert self.user.pending_email == "alice@example.org"
+        mock_send_email_verification.assert_called_once()
+
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    def test_email_change_blocked_to_sso_enforced_domain_of_another_org(
+        self,
+        mock_send_email_change_emails,
+        mock_is_email_available,
+    ):
+        self.user.email = "alice@example.com"
+        self.user.save()
+        OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="example.com",
+            verified_at=timezone.now(),
+            sso_enforcement="google-oauth2",
+        )
+        other_org = Organization.objects.create(name="Attacker Org")
+        OrganizationDomain.objects.create(
+            organization=other_org,
+            domain="example.net",
+            verified_at=timezone.now(),
+            sso_enforcement="google-oauth2",
+        )
+
+        with patch(
+            "posthog.models.organization_domain.OrganizationDomainManager.get_sso_enforcement_for_email_address",
+            side_effect=lambda email, organization=None: (
+                "google-oauth2" if email.split("@")[-1] in ("example.com", "example.net") else None
+            ),
+        ):
+            with self.is_cloud(True):
+                response = self.client.patch("/api/users/@me/", {"email": "alice@example.net"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "sso_enforced_current_email"
+        self.user.refresh_from_db()
+        assert self.user.email == "alice@example.com"
+        assert self.user.pending_email is None
+
     @patch("posthog.tasks.email.send_email_change_emails.delay")
     def test_verify_email_without_pending_email_keeps_social_auth_connections(self, mock_send_email_change_emails):
         social_auth = UserSocialAuth.objects.create(
@@ -773,6 +961,67 @@ class TestUserAPI(APIBaseTest):
         self.user.refresh_from_db()
         assert UserSocialAuth.objects.filter(id=social_auth.id).exists()
         mock_send_email_change_emails.assert_not_called()
+
+    @patch("posthog.api.user.login")
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    def test_email_change_verification_skips_auto_login_for_sso_enforced_domain(self, _, mock_login):
+        self.user.pending_email = "alice@example.com"
+        self.user.save()
+
+        with patch(
+            "posthog.models.organization_domain.OrganizationDomainManager.get_sso_enforcement_for_email_address",
+            side_effect=lambda email, organization=None: "google-oauth2" if email == "alice@example.com" else None,
+        ):
+            token = email_verification_token_generator.make_token(self.user)
+            response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["requires_sso"] is True
+        self.user.refresh_from_db()
+        assert self.user.email == "alice@example.com"
+        # No password-backend session is handed out for an SSO-enforced account; they must log in via SSO.
+        mock_login.assert_not_called()
+
+    @patch("posthog.api.user.login")
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    def test_initial_email_verification_skips_auto_login_for_sso_enforced_domain(self, _, mock_login):
+        self.user.email = "alice@example.com"
+        self.user.pending_email = None
+        self.user.save()
+
+        with patch(
+            "posthog.models.organization_domain.OrganizationDomainManager.get_sso_enforcement_for_email_address",
+            side_effect=lambda email, organization=None: "google-oauth2" if email == "alice@example.com" else None,
+        ):
+            token = email_verification_token_generator.make_token(self.user)
+            response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["requires_sso"] is True
+        mock_login.assert_not_called()
+
+    @patch("posthog.api.user.login")
+    def test_email_verification_skips_auto_login_for_blocked_member(self, mock_login):
+        # A blocked member gets their email verified but no session; only blocked admins get the
+        # gated session (covered in the password login tests).
+        self.client.logout()
+        # The class fixture joins the user to a second organization; drop it so no organization
+        # admits them and the blocked path is the one exercised.
+        OrganizationMembership.objects.filter(user=self.user).exclude(organization=self.organization).delete()
+        self.organization.enforce_verified_domains = True
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+        token = email_verification_token_generator.make_token(self.user)
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["requires_login"] is True
+        self.user.refresh_from_db()
+        assert self.user.is_email_verified is True
+        mock_login.assert_not_called()
 
     @patch("posthog.api.user.is_email_available", return_value=True)
     @patch("posthog.tasks.email.send_email_change_emails.delay")
@@ -890,6 +1139,20 @@ class TestUserAPI(APIBaseTest):
         self.user.refresh_from_db()
         self.assertEqual(self.user.current_team, first_team)
         self.assertEqual(self.user.current_organization, org)
+
+    def test_cannot_switch_current_organization_into_one_that_blocks_the_member(self):
+        # /api/users/@me/ is on the enforcement whitelist, so the switch must refuse on its own —
+        # otherwise a blocked member could point their session back at the org that moved them off.
+        blocking_org = Organization.objects.create(name="Enforcing org", enforce_verified_domains=True)
+        OrganizationMembership.objects.create(organization=blocking_org, user=self.user)
+        OrganizationDomain.objects.create(domain="hogflix.com", organization=blocking_org, verified_at=timezone.now())
+
+        response = self.client.patch("/api/users/@me/", {"set_current_organization": str(blocking_org.id)})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "verified_domain_required")
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.current_organization, self.organization)
 
     def test_cannot_set_an_organization_without_permissions(self):
         org = Organization.objects.create(name="Isolated Org")
@@ -1348,42 +1611,6 @@ class TestUserAPI(APIBaseTest):
             event="user account deleted",
             properties=mock.ANY,
         )
-
-    @patch("posthoganalytics.capture")
-    def test_can_delete_account_after_deleting_only_organization(self, mock_capture):
-        org = Organization.objects.create(name="Solo Org")
-        user = User.objects.create(email="solo@posthog.com", password="testpassword")
-        OrganizationMembership.objects.create(
-            user=user,
-            organization=org,
-            level=OrganizationMembership.Level.OWNER,
-        )
-        self.client.force_login(user)
-
-        # User belongs to exactly one organization
-        response = self.client.get("/api/users/@me/")
-        assert response.status_code == status.HTTP_200_OK
-        assert len(response.json()["organizations"]) == 1
-
-        # Cannot delete account while still a member of an organization
-        response = self.client.delete("/api/users/@me/")
-        assert response.status_code == status.HTTP_409_CONFLICT
-
-        # Delete the organization
-        response = self.client.delete(f"/api/organizations/{org.id}")
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-
-        # Membership is removed synchronously so the user immediately
-        # sees zero organizations, even before the async Celery task runs
-        assert not OrganizationMembership.objects.filter(user=user).exists()
-        response = self.client.get("/api/users/@me/")
-        assert response.status_code == status.HTTP_200_OK
-        assert len(response.json()["organizations"]) == 0
-
-        # Now the user can delete their account
-        response = self.client.delete("/api/users/@me/")
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-        assert not User.objects.filter(pk=user.pk).exists()
 
     def test_cannot_delete_another_user_with_no_org_memberships(self):
         user = self._create_user("deleteanotheruser@posthog.com", password="test")
@@ -1988,6 +2215,283 @@ class TestUserAPI(APIBaseTest):
                 "pipeline_notifications_disabled": {},  # Default value
             },
         )
+
+
+class TestUserUIConfigurationValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("not_an_object", ["version"]),
+            ("missing_version", {"sidebar": {}}),
+            ("unknown_section", {"version": 1, "sidebar": {"sections": {"bogus": {"visible": False}}}}),
+            ("unknown_item", {"version": 1, "sidebar": {"items": {"bogus": {"visible": False}}}}),
+            ("activity_not_customizable", {"version": 1, "sidebar": {"items": {"activity": {"visible": False}}}}),
+            ("non_boolean_visible", {"version": 1, "sidebar": {"items": {"home": {"visible": "nope"}}}}),
+            ("unknown_node_key", {"version": 1, "sidebar": {"items": {"home": {"visible": False, "size": 1}}}}),
+        ]
+    )
+    def test_invalid_ui_configuration_is_rejected(self, _name, value):
+        serializer = UserSerializer(data={"ui_configuration": value}, partial=True)
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("ui_configuration", serializer.errors)
+
+    @parameterized.expand(
+        [
+            ("null", None),
+            ("minimal", {"version": 1}),
+            ("unknown_top_level_key", {"version": 1, "surprise": True}),
+            ("unknown_sidebar_key", {"version": 1, "sidebar": {"density": "compact", "surprise": True}}),
+            (
+                "full",
+                {
+                    "version": 1,
+                    "sidebar": {
+                        "sections": {"project": {"visible": True}, "recents": {}, "my_tools": {"visible": False}},
+                        "items": {
+                            "home": {"visible": False},
+                            "inbox": {"visible": False},
+                            "data": {"visible": False},
+                            "files": {"visible": False},
+                            "tools": {"visible": False},
+                            "starred": {"visible": False},
+                            "notifications": {"visible": False},
+                            "help": {"visible": False},
+                        },
+                    },
+                },
+            ),
+            ("new_user_default", default_ui_configuration_for_new_users()),
+        ]
+    )
+    def test_valid_ui_configuration_is_accepted(self, _name, value):
+        serializer = UserSerializer(data={"ui_configuration": value}, partial=True)
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["ui_configuration"], value)
+
+
+@pytest.mark.ee
+class TestToolbarAccessControl(APIBaseTest):
+    """The toolbar launch endpoints must respect the `toolbar` resource's access control."""
+
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self.team.app_urls = ["http://127.0.0.1:8010"]
+        self.team.save()
+
+    def _deny_toolbar_access(self):
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="toolbar",
+            resource_id=None,
+            access_level="none",
+            organization_member=membership,
+        )
+
+    def test_redirect_to_site_denied_without_toolbar_access(self):
+        self._deny_toolbar_access()
+
+        response = self.client.get("/api/user/redirect_to_site/?appUrl=http%3A%2F%2F127.0.0.1%3A8010")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_redirect_to_site_allowed_with_default_access(self):
+        response = self.client.get("/api/user/redirect_to_site/?appUrl=http%3A%2F%2F127.0.0.1%3A8010")
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+    def test_redirect_to_site_returns_404_without_crashing_when_user_has_no_team(self):
+        """`team.app_urls` must not be dereferenced before the `team is None` guard, or a
+        session-authed user with no current project crashes with an AttributeError instead of
+        getting the expected 404."""
+        new_user = User.objects.create_user(email="no-team@posthog.com", password="testpass123", first_name="")
+        self.client.force_login(new_user)
+
+        response = self.client.get("/api/user/redirect_to_site/?appUrl=http%3A%2F%2F127.0.0.1%3A8010")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch("posthog.api.user.get_or_create_toolbar_oauth_application")
+    def test_toolbar_oauth_authorize_denied_without_toolbar_access(self, mock_get_or_create_app):
+        self._deny_toolbar_access()
+
+        response = self.client.get(
+            "/toolbar_oauth/authorize/?redirect=http%3A%2F%2F127.0.0.1%3A8010&code_challenge=abc"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get_or_create_app.assert_not_called()
+
+    def test_get_toolbar_preloaded_flags_denied_without_toolbar_access(self):
+        cache.set("toolbar_flags_test-key", {"feature_flags": {"a-flag": True}, "team_id": self.team.id}, timeout=300)
+        self._deny_toolbar_access()
+
+        response = self.client.get("/api/user/get_toolbar_preloaded_flags/?key=test-key")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("posthog.api.user.get_flags_from_service")
+    def test_prepare_toolbar_preloaded_flags_denied_without_toolbar_access(self, mock_get_flags):
+        mock_get_flags.return_value = {"flags": {}}
+        self._deny_toolbar_access()
+
+        response = self.client.post(
+            "/api/user/prepare_toolbar_preloaded_flags/", {"distinct_id": "user123"}, content_type="application/json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get_flags.assert_not_called()
+
+    def test_toolbar_oauth_callback_denied_without_toolbar_access(self):
+        self._deny_toolbar_access()
+
+        response = self.client.get("/toolbar_oauth/callback?code=abc123&state=fake-state")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_toolbar_oauth_callback_narrows_grant_to_verified_team(self):
+        """The generic first-party OAuth auto-approval issues the grant with scoped_teams=[]
+        (unrestricted across every team in the org) since it has no notion of which team a toolbar
+        launch was verified for. The callback must narrow it to that team, or the resulting tokens
+        could be replayed against a different team in the same org where toolbar access is denied."""
+        oauth_app = OAuthApplication.objects.create(
+            name="Test Toolbar OAuth App",
+            client_id="test_toolbar_client_id_scoping",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+        grant = OAuthGrant.objects.create(
+            application=oauth_app,
+            user=self.user,
+            code="test-grant-code",
+            expires=timezone.now() + timedelta(minutes=10),
+            redirect_uri="https://example.com/callback",
+            scope="openid",
+            code_challenge="abc",
+            code_challenge_method="S256",
+            scoped_teams=[],
+            scoped_organizations=[str(self.organization.id)],
+        )
+        signed_state, _ = build_toolbar_oauth_state(
+            ToolbarOAuthState(
+                nonce=new_state_nonce(),
+                user_id=self.user.id,
+                team_id=self.team.id,
+                app_url="http://127.0.0.1:8010",
+            )
+        )
+
+        with patch("posthog.api.user.get_or_create_toolbar_oauth_application", return_value=oauth_app):
+            response = self.client.get(f"/toolbar_oauth/callback?code={grant.code}&state={signed_state}")
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        grant.refresh_from_db()
+        self.assertEqual(grant.scoped_teams, [self.team.id])
+
+    def test_toolbar_oauth_refresh_denied_after_access_revoked(self):
+        """A refresh token minted before access was revoked must not be usable to mint new
+        tokens afterwards - the refresh endpoint has no session auth, so it must re-check
+        the token owner's current toolbar access itself."""
+        oauth_app = OAuthApplication.objects.create(
+            name="Test Toolbar OAuth App",
+            client_id="test_toolbar_client_id",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+        refresh_token = OAuthRefreshToken.objects.create(
+            user=self.user,
+            application=oauth_app,
+            token="test_toolbar_refresh_token",
+            scoped_teams=[self.team.id],
+        )
+        self._deny_toolbar_access()
+
+        with patch("posthog.api.user.refresh_tokens") as mock_refresh_tokens:
+            response = self.client.post(
+                "/api/user/toolbar_oauth_refresh/",
+                {"refresh_token": refresh_token.token, "client_id": oauth_app.client_id},
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_refresh_tokens.assert_not_called()
+
+    def test_toolbar_oauth_refresh_denied_when_access_revoked_in_scoped_team_despite_switching_active_team(self):
+        """The refresh check must gate on the token's scoped team, not the user's mutable current
+        team - otherwise a user whose access was revoked in the project the token is scoped to
+        could keep refreshing it by switching their active team to one where access remains."""
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        oauth_app = OAuthApplication.objects.create(
+            name="Test Toolbar OAuth App",
+            client_id="test_toolbar_client_id_team_switch",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+        refresh_token = OAuthRefreshToken.objects.create(
+            user=self.user,
+            application=oauth_app,
+            token="test_toolbar_refresh_token_team_switch",
+            scoped_teams=[self.team.id],
+        )
+        self._deny_toolbar_access()
+        self.user.current_team = other_team
+        self.user.save()
+
+        with patch("posthog.api.user.refresh_tokens") as mock_refresh_tokens:
+            response = self.client.post(
+                "/api/user/toolbar_oauth_refresh/",
+                {"refresh_token": refresh_token.token, "client_id": oauth_app.client_id},
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_refresh_tokens.assert_not_called()
+
+    def test_toolbar_oauth_refresh_denied_when_token_owner_has_no_team(self):
+        """A refresh token with no scoped team (e.g. one minted before grants were narrowed to a
+        single verified team) must be denied rather than allowed through - the check fails closed
+        when it can't resolve exactly one scoped team to verify access against."""
+        no_team_user = User.objects.create_user(
+            email="no-team-refresh@posthog.com", password="testpass123", first_name=""
+        )
+        oauth_app = OAuthApplication.objects.create(
+            name="Test Toolbar OAuth App",
+            client_id="test_toolbar_client_id_no_team",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=no_team_user,
+        )
+        refresh_token = OAuthRefreshToken.objects.create(
+            user=no_team_user,
+            application=oauth_app,
+            token="test_toolbar_refresh_token_no_team",
+        )
+
+        with patch("posthog.api.user.refresh_tokens") as mock_refresh_tokens:
+            response = self.client.post(
+                "/api/user/toolbar_oauth_refresh/",
+                {"refresh_token": refresh_token.token, "client_id": oauth_app.client_id},
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_refresh_tokens.assert_not_called()
 
 
 class TestSessionAuthEndpoints(APIBaseTest):
@@ -2750,12 +3254,6 @@ class TestUserTwoFactor(APIBaseTest):
         # Verify email was triggered
         mock_send_email.delay.assert_called_once_with(self.user.id)
 
-    @override_settings(
-        OAUTH2_PROVIDER={
-            **settings.OAUTH2_PROVIDER,
-            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-        }
-    )
     def test_team_scoped_oauth_token_with_user_read_can_access_me_endpoint(self):
         oauth_app = OAuthApplication.objects.create(
             name="Test OAuth App",
@@ -2781,3 +3279,49 @@ class TestUserTwoFactor(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["uuid"], str(self.user.uuid))
+
+
+class TestUserDeletionAfterOrgDeletion(NonAtomicBaseTest):
+    """Deleting a user's only organization (which runs on Temporal) must let them delete their account.
+
+    The org-deletion workflow runs inline so the membership cascade actually completes; that requires a
+    non-atomic test case, since the workflow's activities run on their own database connections.
+    """
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @patch("posthoganalytics.capture")
+    def test_can_delete_account_after_deleting_only_organization(self, mock_capture):
+        org = Organization.objects.create(name="Solo Org")
+        user = User.objects.create(email="solo@posthog.com", password="testpassword")
+        OrganizationMembership.objects.create(
+            user=user,
+            organization=org,
+            level=OrganizationMembership.Level.OWNER,
+        )
+        self.client.force_login(user)
+
+        # User belongs to exactly one organization
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["organizations"]) == 1
+
+        # Cannot delete account while still a member of an organization
+        response = self.client.delete("/api/users/@me/")
+        assert response.status_code == status.HTTP_409_CONFLICT
+
+        # Delete the organization (runs the deletion workflow to completion)
+        with execute_deletion_workflows_inline():
+            response = self.client.delete(f"/api/organizations/{org.id}")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        # The membership cascade removed the user's memberships, so they now see zero organizations
+        assert not OrganizationMembership.objects.filter(user=user).exists()
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["organizations"]) == 0
+
+        # Now the user can delete their account
+        response = self.client.delete("/api/users/@me/")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not User.objects.filter(pk=user.pk).exists()

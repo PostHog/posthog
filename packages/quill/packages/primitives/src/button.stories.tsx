@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { TrashIcon } from 'lucide-react'
+import { useState } from 'react'
 
 import { Button } from './button'
 import { Kbd } from './kbd'
@@ -18,6 +19,7 @@ const meta = {
             options: ['default', 'xs', 'sm', 'lg', 'icon', 'icon-xs', 'icon-sm', 'icon-lg'],
         },
         disabled: { control: 'boolean' },
+        loading: { control: 'boolean' },
     },
 } satisfies Meta<typeof Button>
 
@@ -184,6 +186,41 @@ export const Disabled = {
             </Button>
         </div>
     ),
+} satisfies Story
+
+export const Loading = {
+    render: () => {
+        const [saving, setSaving] = useState(false)
+        const simulateSave = (): void => {
+            setSaving(true)
+            setTimeout(() => setSaving(false), 2000)
+        }
+        return (
+            <div className="flex flex-col gap-4">
+                <div className="flex flex-wrap items-center gap-2">
+                    <Button loading>Default</Button>
+                    <Button variant="primary" loading>
+                        Primary
+                    </Button>
+                    <Button variant="outline" loading>
+                        Outline
+                    </Button>
+                    <Button variant="destructive" loading>
+                        Destructive
+                    </Button>
+                    <Button size="icon" loading aria-label="Delete">
+                        <TrashIcon />
+                    </Button>
+                </div>
+                {/* Click to see the rest → loading transition; resolves after 2s. */}
+                <div className="flex flex-wrap gap-2">
+                    <Button variant="primary" loading={saving} onClick={simulateSave}>
+                        Save changes
+                    </Button>
+                </div>
+            </div>
+        )
+    },
 } satisfies Story
 
 export const Misc = {

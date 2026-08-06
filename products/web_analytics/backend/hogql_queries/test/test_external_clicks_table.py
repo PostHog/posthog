@@ -15,6 +15,7 @@ from posthog.schema import (
     SessionTableVersion,
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
+    WebAnalyticsPreComputeStrategy,
     WebExternalClicksTableQuery,
 )
 
@@ -84,8 +85,10 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         return runner.calculate()
 
     def test_no_crash_when_no_data(self):
-        results = self._run_external_clicks_table_query("2023-12-08", "2023-12-15").results
-        self.assertEqual([], results)
+        response = self._run_external_clicks_table_query("2023-12-08", "2023-12-15")
+        self.assertEqual([], response.results)
+        # Always-live runner — never serves from a precompute path.
+        self.assertEqual(response.preComputeStrategy, WebAnalyticsPreComputeStrategy.LIVE)
 
     def test_increase_in_users(
         self,

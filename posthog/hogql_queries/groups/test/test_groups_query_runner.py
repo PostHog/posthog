@@ -11,8 +11,8 @@ from django.utils import timezone
 from posthog.schema import GroupPropertyFilter, GroupsQuery, PropertyOperator
 
 from posthog.hogql_queries.groups.groups_query_runner import GroupsQueryRunner
-from posthog.models import GroupTypeMapping
 from posthog.models.group.util import create_group, raw_create_group_ch
+from posthog.test.persons import create_group_type_mapping, update_group
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
@@ -63,6 +63,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             group_type_index=0,
             limit=10,
             offset=0,
+            orderBy=["key"],
         )
         query_runner = GroupsQueryRunner(query=query, team=self.team)
         result = query_runner.calculate()
@@ -74,6 +75,39 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result.results[2][0], {"display_name": "org2.inc", "key": "org2"})
 
     @freeze_time("2025-01-01")
+    def test_groups_query_runner_with_numeric_name_property(self):
+        # Regression: a numeric `name` property type made coalesce(properties.name, key)
+        # resolve to Variant(Float64, String), which clickhouse_driver can't deserialize.
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="name",
+            property_type=PropertyType.Numeric,
+            is_numerical=True,
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=0,
+        )
+        for i in range(3):
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=f"org{i}",
+                properties={"name": i * 10},
+            )
+
+        query = GroupsQuery(group_type_index=0, limit=10, offset=0, orderBy=["key"])
+        query_runner = GroupsQueryRunner(query=query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.results), 3)
+        self.assertEqual(result.columns, ["group_name"])
+        self.assertEqual(result.results[0][0], {"display_name": "0", "key": "org0"})
+        self.assertEqual(result.results[1][0], {"display_name": "10", "key": "org1"})
+        self.assertEqual(result.results[2][0], {"display_name": "20", "key": "org2"})
+
+    @freeze_time("2025-01-01")
     @snapshot_clickhouse_queries
     def test_groups_query_runner_with_offset(self):
         self.create_standard_test_groups()
@@ -81,6 +115,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             group_type_index=0,
             limit=10,
             offset=2,
+            orderBy=["key"],
         )
 
         query_runner = GroupsQueryRunner(query=query, team=self.team)
@@ -99,6 +134,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             limit=10,
             offset=0,
             select=["group_name", "key", "properties.arr"],
+            orderBy=["key"],
         )
 
         query_runner = GroupsQueryRunner(query=query, team=self.team)
@@ -133,7 +169,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2025-01-01")
     @snapshot_clickhouse_queries
     def test_search_ranking(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
         test_groups = [
@@ -174,7 +210,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_search_ranking_with_key_fallback(self):
         """Test search ranking when groups don't have name property and fall back to key"""
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
         test_groups = [
@@ -210,7 +246,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_search_ordering_with_user_orderby(self):
         """Test that similarity ordering comes after user-specified orderBy, not after default created_at DESC"""
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
         test_groups = [
@@ -386,7 +422,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         # Saving in Postgres won't update ClickHouse
         group.group_properties["arr"] = 200
-        group.save()
+        update_group(group)
         # ... so we need to update ClickHouse too.
         raw_create_group_ch(
             team_id=self.team.pk,

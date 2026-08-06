@@ -18,9 +18,9 @@ export const EffectiveMembershipLevelEnumApi = {
 
 /**
  * * `0` - none
- * `3` - config
- * `6` - install
- * `9` - root
+ * * `3` - config
+ * * `6` - install
+ * * `9` - root
  */
 export type PluginsAccessLevelEnumApi = (typeof PluginsAccessLevelEnumApi)[keyof typeof PluginsAccessLevelEnumApi]
 
@@ -33,7 +33,7 @@ export const PluginsAccessLevelEnumApi = {
 
 /**
  * * `bayesian` - Bayesian
- * `frequentist` - Frequentist
+ * * `frequentist` - Frequentist
  */
 export type DefaultExperimentStatsMethodEnumApi =
     (typeof DefaultExperimentStatsMethodEnumApi)[keyof typeof DefaultExperimentStatsMethodEnumApi]
@@ -78,9 +78,21 @@ export interface OrganizationApi {
     readonly customer_id: string | null
     /** @nullable */
     enforce_2fa?: boolean | null
+    /**
+     * When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.
+     * @nullable
+     */
+    enforce_verified_domains?: boolean | null
     /** @nullable */
     members_can_invite?: boolean | null
+    /**
+     * When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.
+     * @nullable
+     */
+    members_can_create_projects?: boolean | null
     members_can_use_personal_api_keys?: boolean
+    /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
+    members_can_see_org_members?: boolean
     allow_publicly_shared_resources?: boolean
     readonly member_count: number
     /** @nullable */
@@ -103,9 +115,9 @@ export interface OrganizationApi {
     /** @nullable */
     readonly is_hipaa: boolean | null
     /** Default statistical method for new experiments in this organization.
-
-  * `bayesian` - Bayesian
-  * `frequentist` - Frequentist */
+     *
+     * * `bayesian` - Bayesian
+     * * `frequentist` - Frequentist */
     default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
@@ -169,9 +181,21 @@ export interface PatchedOrganizationApi {
     readonly customer_id?: string | null
     /** @nullable */
     enforce_2fa?: boolean | null
+    /**
+     * When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.
+     * @nullable
+     */
+    enforce_verified_domains?: boolean | null
     /** @nullable */
     members_can_invite?: boolean | null
+    /**
+     * When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.
+     * @nullable
+     */
+    members_can_create_projects?: boolean | null
     members_can_use_personal_api_keys?: boolean
+    /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
+    members_can_see_org_members?: boolean
     allow_publicly_shared_resources?: boolean
     readonly member_count?: number
     /** @nullable */
@@ -194,9 +218,9 @@ export interface PatchedOrganizationApi {
     /** @nullable */
     readonly is_hipaa?: boolean | null
     /** Default statistical method for new experiments in this organization.
-
-  * `bayesian` - Bayesian
-  * `frequentist` - Frequentist */
+     *
+     * * `bayesian` - Bayesian
+     * * `frequentist` - Frequentist */
     default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
@@ -222,15 +246,21 @@ export interface PatchedOrganizationApi {
     readonly is_pending_deletion?: boolean | null
 }
 
+export interface OrganizationAIAccessRequestResponseApi {
+    /** Whether the access request was accepted and the organization admins were notified. */
+    success: boolean
+}
+
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `student` - Student
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -242,6 +272,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -273,8 +304,8 @@ export interface UserBasicApi {
 
 /**
  * * `1` - member
- * `8` - administrator
- * `15` - owner
+ * * `8` - administrator
+ * * `15` - owner
  */
 export type OrganizationMembershipLevelEnumApi =
     (typeof OrganizationMembershipLevelEnumApi)[keyof typeof OrganizationMembershipLevelEnumApi]
@@ -283,6 +314,13 @@ export const OrganizationMembershipLevelEnumApi = {
     Number1: 1,
     Number8: 8,
     Number15: 15,
+} as const
+
+export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
+
+export const SearchMatchTypeEnumApi = {
+    Exact: 'exact',
+    Similar: 'similar',
 } as const
 
 export interface OrganizationMemberApi {
@@ -294,6 +332,8 @@ export interface OrganizationMemberApi {
     readonly is_2fa_enabled: boolean
     readonly has_social_auth: boolean
     readonly last_login: string
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
 export interface PaginatedOrganizationMemberListApi {
@@ -314,6 +354,66 @@ export interface PatchedOrganizationMemberApi {
     readonly is_2fa_enabled?: boolean
     readonly has_social_auth?: boolean
     readonly last_login?: string
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
+    readonly search_match_type?: SearchMatchTypeEnumApi | null
+}
+
+export interface OrganizationMemberGithubLoginApi {
+    /**
+     * The member's GitHub username (login), resolved from their linked GitHub integration or OAuth identity. Null when the member has no GitHub identity linked.
+     * @nullable
+     */
+    github_login: string | null
+}
+
+export interface OrganizationPersonalAPIKeyOwnerApi {
+    /** First name of the key's owner. */
+    readonly first_name: string
+    /** Last name of the key's owner. */
+    readonly last_name: string
+    /** Email address of the key's owner. */
+    readonly email: string
+}
+
+export interface OrganizationPersonalAPIKeyProjectScopeApi {
+    /** Project (team) ID the key is scoped to. */
+    id: number
+    /** Name of the project the key is scoped to. */
+    name: string
+}
+
+export interface OrganizationPersonalAPIKeyAccessScopeApi {
+    /** Breadth of access: 'all' (every project the owner can reach), 'organization' (this whole organization), or 'projects' (specific projects listed under 'projects'). */
+    type: string
+    /** Projects within this organization the key is scoped to, present only when type is 'projects'. */
+    projects?: OrganizationPersonalAPIKeyProjectScopeApi[]
+}
+
+export interface OrganizationPersonalAPIKeyApi {
+    /** The organization member who owns this key. */
+    readonly owner: OrganizationPersonalAPIKeyOwnerApi
+    /** Masked, display-safe hint of the key value (e.g. 'phx_***1234'). Not the secret. The owner sees the same masked value in their own settings, so it can be used to identify a key. */
+    readonly mask_value: string
+    /** API scopes granted to the key, e.g. 'insight:read'. A single '*' means full access. */
+    readonly scopes: readonly string[]
+    /** Where the key's scopes apply within this organization. */
+    readonly access_scope: OrganizationPersonalAPIKeyAccessScopeApi
+    /**
+     * When the key was last used to authenticate, if ever.
+     * @nullable
+     */
+    readonly last_used_at: string | null
+    /** When the key was created. */
+    readonly created_at: string
+}
+
+export interface PaginatedOrganizationPersonalAPIKeyListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: OrganizationPersonalAPIKeyApi[]
 }
 
 export type RoleApiMembersItem = { [key: string]: unknown }
@@ -377,9 +477,9 @@ export interface _WelcomeInviterApi {
 
 /**
  * * `today` - today
- * `this_week` - this_week
- * `inactive` - inactive
- * `never` - never
+ * * `this_week` - this_week
+ * * `inactive` - inactive
+ * * `never` - never
  */
 export type LastActiveEnumApi = (typeof LastActiveEnumApi)[keyof typeof LastActiveEnumApi]
 
@@ -474,12 +574,12 @@ export interface ActivityLogApi {
 }
 
 export interface PaginatedActivityLogListApi {
-    count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
     results: ActivityLogApi[]
+    count?: number
 }
 
 /**
@@ -560,26 +660,24 @@ export interface PatchedApprovalPolicyApi {
 
 /**
  * * `valid` - Valid
- * `invalid` - Invalid
- * `expired` - Expired
- * `stale` - Stale (resource changed)
+ * * `invalid` - Invalid
+ * * `stale` - Stale (resource changed)
  */
 export type ValidationStatusEnumApi = (typeof ValidationStatusEnumApi)[keyof typeof ValidationStatusEnumApi]
 
 export const ValidationStatusEnumApi = {
     Valid: 'valid',
     Invalid: 'invalid',
-    Expired: 'expired',
     Stale: 'stale',
 } as const
 
 /**
  * * `pending` - Pending
- * `approved` - Approved (awaiting application)
- * `applied` - Applied
- * `rejected` - Rejected
- * `expired` - Expired
- * `failed` - Failed to apply
+ * * `approved` - Approved (awaiting application)
+ * * `applied` - Applied
+ * * `rejected` - Rejected
+ * * `expired` - Expired
+ * * `failed` - Failed to apply
  */
 export type ChangeRequestStateEnumApi = (typeof ChangeRequestStateEnumApi)[keyof typeof ChangeRequestStateEnumApi]
 
@@ -641,9 +739,41 @@ export interface PaginatedChangeRequestListApi {
     results: ChangeRequestApi[]
 }
 
+export interface ChangeRequestApproveApi {
+    /** Optional note recorded with the approval vote explaining the decision. */
+    reason?: string
+}
+
+export interface ChangeRequestDecisionResponseApi {
+    /** The change request's resulting state after the vote (e.g. 'pending', 'approved', 'applied', 'rejected'). */
+    status: string
+    /** Human-readable summary of what happened. */
+    message: string
+    /** The change request after the vote was recorded. */
+    change_request: ChangeRequestApi
+    /** Present only when the vote reached quorum and the change was applied immediately: details of the affected resource (e.g. resource_id, resource_version). */
+    result?: unknown
+}
+
+export interface ChangeRequestRejectApi {
+    /** Reason for rejecting the change request. Required — recorded with the rejection vote and shown to the requester. */
+    reason: string
+}
+
+export interface CommentSlackThreadRefApi {
+    /** Slack channel ID this discussion is mirrored to. */
+    channel_id: string
+    /** Deep link that opens the mirrored Slack thread. */
+    url: string
+}
+
 export interface CommentApi {
     readonly id: string
-    readonly created_by: UserBasicApi
+    readonly created_by: UserBasicApi | null
+    /** @maxLength 79 */
+    scope?: string
+    /** Metadata for the comment target, anchor, thread state, and owning task. */
+    item_context?: unknown
     /** @nullable */
     deleted?: boolean | null
     mentions?: number[]
@@ -652,6 +782,8 @@ export interface CommentApi {
     is_task?: boolean
     /** The user who marked this task complete. Null for open tasks and non-task comments. */
     readonly completed_by: UserBasicApi | null
+    /** The Slack thread this comment's discussion is mirrored to, or null. Set only on a tracked thread-root comment; used to surface an 'Open in Slack' link and hide re-sending. */
+    readonly slack_thread: CommentSlackThreadRefApi | null
     /** @nullable */
     content?: string | null
     rich_content?: unknown
@@ -662,9 +794,6 @@ export interface CommentApi {
      * @nullable
      */
     item_id?: string | null
-    item_context?: unknown
-    /** @maxLength 79 */
-    scope: string
     /**
      * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
      * @nullable
@@ -684,7 +813,11 @@ export interface PaginatedCommentListApi {
 
 export interface PatchedCommentApi {
     readonly id?: string
-    readonly created_by?: UserBasicApi
+    readonly created_by?: UserBasicApi | null
+    /** @maxLength 79 */
+    scope?: string
+    /** Metadata for the comment target, anchor, thread state, and owning task. */
+    item_context?: unknown
     /** @nullable */
     deleted?: boolean | null
     mentions?: number[]
@@ -693,6 +826,8 @@ export interface PatchedCommentApi {
     is_task?: boolean
     /** The user who marked this task complete. Null for open tasks and non-task comments. */
     readonly completed_by?: UserBasicApi | null
+    /** The Slack thread this comment's discussion is mirrored to, or null. Set only on a tracked thread-root comment; used to surface an 'Open in Slack' link and hide re-sending. */
+    readonly slack_thread?: CommentSlackThreadRefApi | null
     /** @nullable */
     content?: string | null
     rich_content?: unknown
@@ -703,9 +838,6 @@ export interface PatchedCommentApi {
      * @nullable
      */
     item_id?: string | null
-    item_context?: unknown
-    /** @maxLength 79 */
-    scope?: string
     /**
      * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
      * @nullable
@@ -715,12 +847,41 @@ export interface PatchedCommentApi {
     source_comment?: string | null
 }
 
-export interface PromotedProductIntentApi {
+export interface SendCommentToSlackApi {
+    /** ID of the Slack integration (kind='slack') whose bot posts the thread. */
+    integration_id: number
     /**
-     * The product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured for this team.
+     * Slack channel ID to create the mirrored thread in. The bot must be a member of the channel.
+     * @maxLength 255
+     */
+    channel_id: string
+}
+
+export interface CommentSlackThreadApi {
+    readonly id: string
+    /** Resource type of the mirrored discussion (e.g. Insight). */
+    readonly scope: string
+    /**
+     * ID of the resource the discussion is attached to.
      * @nullable
      */
-    product_key: string | null
+    readonly item_id: string | null
+    /** The thread-root comment whose replies mirror to the Slack thread. */
+    readonly source_comment: string
+    /** Slack integration used to post to and read from the thread. */
+    readonly integration: number
+    /** Slack channel the mirrored thread lives in. */
+    readonly slack_channel_id: string
+    /** Slack thread timestamp anchoring the mirrored thread. */
+    readonly slack_thread_ts: string
+    /**
+     * Slack workspace ID, used to route inbound replies back.
+     * @nullable
+     */
+    readonly slack_team_id: string | null
+    readonly created_at: string
+    /** User who mirrored the discussion. Null if since deleted. */
+    readonly created_by: UserBasicApi | null
 }
 
 export interface PinnedSceneTabApi {
@@ -796,9 +957,20 @@ export type MembersListParams = {
      */
     order?: string
     /**
-     * Fuzzy match against member `first_name`, `last_name`, and `email` using Postgres trigram word similarity. Supports typos and prefix-as-you-type. Capped at 200 characters.
+     * Match against member `first_name`, `last_name`, and `email`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.
      */
     search?: string
+}
+
+export type PersonalApiKeysListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type RolesListParams = {
@@ -830,82 +1002,105 @@ export type ActivityLogListParams = {
      */
     item_id?: string
     /**
+     * Sort by when the entry was created. Defaults to newest first. Use created_at for oldest first when polling for new entries, so a saved cursor picks up where the last request stopped.
+     *
+     * * `-created_at` - -created_at
+     * * `created_at` - created_at
+     * @minLength 1
+     */
+    ordering?: string
+    /**
      * Page number for pagination. When provided, uses page-based pagination ordered by most recent first.
      * @minimum 1
      */
     page?: number
     /**
-     * Number of results per page (default: 100, max: 1000). Only used with page-based pagination.
+     * Number of results per page (default: 100, max: 1000).
      * @minimum 1
      * @maximum 1000
      */
     page_size?: number
     /**
- * Filter by a single activity scope, e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment".
-
-* `Cohort` - Cohort
-* `FeatureFlag` - FeatureFlag
-* `Person` - Person
-* `Group` - Group
-* `Insight` - Insight
-* `Plugin` - Plugin
-* `PluginConfig` - PluginConfig
-* `HogFunction` - HogFunction
-* `HogFlow` - HogFlow
-* `DataManagement` - DataManagement
-* `EventDefinition` - EventDefinition
-* `PropertyDefinition` - PropertyDefinition
-* `Notebook` - Notebook
-* `Endpoint` - Endpoint
-* `EndpointVersion` - EndpointVersion
-* `Dashboard` - Dashboard
-* `Replay` - Replay
-* `Experiment` - Experiment
-* `ExperimentHoldout` - ExperimentHoldout
-* `ExperimentSavedMetric` - ExperimentSavedMetric
-* `Survey` - Survey
-* `EarlyAccessFeature` - EarlyAccessFeature
-* `SessionRecordingPlaylist` - SessionRecordingPlaylist
-* `Comment` - Comment
-* `Team` - Team
-* `Project` - Project
-* `ErrorTrackingIssue` - ErrorTrackingIssue
-* `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
-* `LegalDocument` - LegalDocument
-* `Organization` - Organization
-* `OrganizationDomain` - OrganizationDomain
-* `OrganizationMembership` - OrganizationMembership
-* `Role` - Role
-* `UserGroup` - UserGroup
-* `BatchExport` - BatchExport
-* `BatchImport` - BatchImport
-* `Integration` - Integration
-* `Annotation` - Annotation
-* `Tag` - Tag
-* `TaggedItem` - TaggedItem
-* `Subscription` - Subscription
-* `PersonalAPIKey` - PersonalAPIKey
-* `ProjectSecretAPIKey` - ProjectSecretAPIKey
-* `User` - User
-* `Action` - Action
-* `AlertConfiguration` - AlertConfiguration
-* `Threshold` - Threshold
-* `AlertSubscription` - AlertSubscription
-* `ExternalDataSource` - ExternalDataSource
-* `ExternalDataSchema` - ExternalDataSchema
-* `Evaluation` - Evaluation
-* `LLMTrace` - LLMTrace
-* `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
-* `CustomerProfileConfig` - CustomerProfileConfig
-* `Log` - Log
-* `LogsAlertConfiguration` - LogsAlertConfiguration
-* `LogsExclusionRule` - LogsExclusionRule
-* `DashboardWidget` - DashboardWidget
-* `ProductTour` - ProductTour
-* `Ticket` - Ticket
-* `InstanceSetting` - InstanceSetting
- * @minLength 1
- */
+     * Filter by a single activity scope, e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment".
+     *
+     * * `Cohort` - Cohort
+     * * `FeatureFlag` - FeatureFlag
+     * * `Person` - Person
+     * * `Group` - Group
+     * * `Insight` - Insight
+     * * `Plugin` - Plugin
+     * * `PluginConfig` - PluginConfig
+     * * `HogFunction` - HogFunction
+     * * `HogFlow` - HogFlow
+     * * `DataManagement` - DataManagement
+     * * `EventDefinition` - EventDefinition
+     * * `PropertyDefinition` - PropertyDefinition
+     * * `Notebook` - Notebook
+     * * `Endpoint` - Endpoint
+     * * `EndpointVersion` - EndpointVersion
+     * * `Dashboard` - Dashboard
+     * * `Replay` - Replay
+     * * `Experiment` - Experiment
+     * * `ExperimentHoldout` - ExperimentHoldout
+     * * `ExperimentSavedMetric` - ExperimentSavedMetric
+     * * `Survey` - Survey
+     * * `EarlyAccessFeature` - EarlyAccessFeature
+     * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
+     * * `Comment` - Comment
+     * * `Team` - Team
+     * * `Project` - Project
+     * * `ErrorTrackingIssue` - ErrorTrackingIssue
+     * * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
+     * * `LegalDocument` - LegalDocument
+     * * `Organization` - Organization
+     * * `OrganizationDomain` - OrganizationDomain
+     * * `IdentityProviderConfig` - IdentityProviderConfig
+     * * `OrganizationMembership` - OrganizationMembership
+     * * `Role` - Role
+     * * `UserGroup` - UserGroup
+     * * `BatchExport` - BatchExport
+     * * `BatchImport` - BatchImport
+     * * `ExportedAsset` - ExportedAsset
+     * * `Integration` - Integration
+     * * `Annotation` - Annotation
+     * * `Tag` - Tag
+     * * `TaggedItem` - TaggedItem
+     * * `Subscription` - Subscription
+     * * `PersonalAPIKey` - PersonalAPIKey
+     * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
+     * * `OAuthApplication` - OAuthApplication
+     * * `User` - User
+     * * `Action` - Action
+     * * `AlertConfiguration` - AlertConfiguration
+     * * `Threshold` - Threshold
+     * * `AlertSubscription` - AlertSubscription
+     * * `ExternalDataSource` - ExternalDataSource
+     * * `ExternalDataSchema` - ExternalDataSchema
+     * * `Evaluation` - Evaluation
+     * * `EvaluationDirectory` - EvaluationDirectory
+     * * `LLMPrompt` - LLMPrompt
+     * * `LLMPromptLabel` - LLMPromptLabel
+     * * `LLMTrace` - LLMTrace
+     * * `AIGatewayCredit` - AIGatewayCredit
+     * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
+     * * `CustomerProfileConfig` - CustomerProfileConfig
+     * * `Log` - Log
+     * * `LogsAlertConfiguration` - LogsAlertConfiguration
+     * * `LogsExclusionRule` - LogsExclusionRule
+     * * `LogsRetentionRule` - LogsRetentionRule
+     * * `DashboardWidget` - DashboardWidget
+     * * `ProductTour` - ProductTour
+     * * `Ticket` - Ticket
+     * * `InstanceSetting` - InstanceSetting
+     * * `SignalReport` - SignalReport
+     * * `SignalScoutConfig` - SignalScoutConfig
+     * * `StreamlitApp` - StreamlitApp
+     * * `Metric` - Metric
+     * * `TableCertification` - TableCertification
+     * * `Billing` - Billing
+     * * `Loop` - Loop
+     * @minLength 1
+     */
     scope?: ActivityLogListScope
     /**
      * Filter by multiple activity scopes, comma-separated. Values must be valid ActivityScope enum values. E.g. "FeatureFlag,Insight".
@@ -951,11 +1146,13 @@ export const ActivityLogListScope = {
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',
     OrganizationDomain: 'OrganizationDomain',
+    IdentityProviderConfig: 'IdentityProviderConfig',
     OrganizationMembership: 'OrganizationMembership',
     Role: 'Role',
     UserGroup: 'UserGroup',
     BatchExport: 'BatchExport',
     BatchImport: 'BatchImport',
+    ExportedAsset: 'ExportedAsset',
     Integration: 'Integration',
     Annotation: 'Annotation',
     Tag: 'Tag',
@@ -963,6 +1160,7 @@ export const ActivityLogListScope = {
     Subscription: 'Subscription',
     PersonalAPIKey: 'PersonalAPIKey',
     ProjectSecretAPIKey: 'ProjectSecretAPIKey',
+    OAuthApplication: 'OAuthApplication',
     User: 'User',
     Action: 'Action',
     AlertConfiguration: 'AlertConfiguration',
@@ -971,80 +1169,107 @@ export const ActivityLogListScope = {
     ExternalDataSource: 'ExternalDataSource',
     ExternalDataSchema: 'ExternalDataSchema',
     Evaluation: 'Evaluation',
+    EvaluationDirectory: 'EvaluationDirectory',
+    LLMPrompt: 'LLMPrompt',
+    LLMPromptLabel: 'LLMPromptLabel',
     LLMTrace: 'LLMTrace',
+    AIGatewayCredit: 'AIGatewayCredit',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
     CustomerProfileConfig: 'CustomerProfileConfig',
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
+    LogsRetentionRule: 'LogsRetentionRule',
     DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
     InstanceSetting: 'InstanceSetting',
+    SignalReport: 'SignalReport',
+    SignalScoutConfig: 'SignalScoutConfig',
+    StreamlitApp: 'StreamlitApp',
+    Metric: 'Metric',
+    TableCertification: 'TableCertification',
+    Billing: 'Billing',
+    Loop: 'Loop',
 } as const
 
 /**
  * * `Cohort` - Cohort
- * `FeatureFlag` - FeatureFlag
- * `Person` - Person
- * `Group` - Group
- * `Insight` - Insight
- * `Plugin` - Plugin
- * `PluginConfig` - PluginConfig
- * `HogFunction` - HogFunction
- * `HogFlow` - HogFlow
- * `DataManagement` - DataManagement
- * `EventDefinition` - EventDefinition
- * `PropertyDefinition` - PropertyDefinition
- * `Notebook` - Notebook
- * `Endpoint` - Endpoint
- * `EndpointVersion` - EndpointVersion
- * `Dashboard` - Dashboard
- * `Replay` - Replay
- * `Experiment` - Experiment
- * `ExperimentHoldout` - ExperimentHoldout
- * `ExperimentSavedMetric` - ExperimentSavedMetric
- * `Survey` - Survey
- * `EarlyAccessFeature` - EarlyAccessFeature
- * `SessionRecordingPlaylist` - SessionRecordingPlaylist
- * `Comment` - Comment
- * `Team` - Team
- * `Project` - Project
- * `ErrorTrackingIssue` - ErrorTrackingIssue
- * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
- * `LegalDocument` - LegalDocument
- * `Organization` - Organization
- * `OrganizationDomain` - OrganizationDomain
- * `OrganizationMembership` - OrganizationMembership
- * `Role` - Role
- * `UserGroup` - UserGroup
- * `BatchExport` - BatchExport
- * `BatchImport` - BatchImport
- * `Integration` - Integration
- * `Annotation` - Annotation
- * `Tag` - Tag
- * `TaggedItem` - TaggedItem
- * `Subscription` - Subscription
- * `PersonalAPIKey` - PersonalAPIKey
- * `ProjectSecretAPIKey` - ProjectSecretAPIKey
- * `User` - User
- * `Action` - Action
- * `AlertConfiguration` - AlertConfiguration
- * `Threshold` - Threshold
- * `AlertSubscription` - AlertSubscription
- * `ExternalDataSource` - ExternalDataSource
- * `ExternalDataSchema` - ExternalDataSchema
- * `Evaluation` - Evaluation
- * `LLMTrace` - LLMTrace
- * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
- * `CustomerProfileConfig` - CustomerProfileConfig
- * `Log` - Log
- * `LogsAlertConfiguration` - LogsAlertConfiguration
- * `LogsExclusionRule` - LogsExclusionRule
- * `DashboardWidget` - DashboardWidget
- * `ProductTour` - ProductTour
- * `Ticket` - Ticket
- * `InstanceSetting` - InstanceSetting
+ * * `FeatureFlag` - FeatureFlag
+ * * `Person` - Person
+ * * `Group` - Group
+ * * `Insight` - Insight
+ * * `Plugin` - Plugin
+ * * `PluginConfig` - PluginConfig
+ * * `HogFunction` - HogFunction
+ * * `HogFlow` - HogFlow
+ * * `DataManagement` - DataManagement
+ * * `EventDefinition` - EventDefinition
+ * * `PropertyDefinition` - PropertyDefinition
+ * * `Notebook` - Notebook
+ * * `Endpoint` - Endpoint
+ * * `EndpointVersion` - EndpointVersion
+ * * `Dashboard` - Dashboard
+ * * `Replay` - Replay
+ * * `Experiment` - Experiment
+ * * `ExperimentHoldout` - ExperimentHoldout
+ * * `ExperimentSavedMetric` - ExperimentSavedMetric
+ * * `Survey` - Survey
+ * * `EarlyAccessFeature` - EarlyAccessFeature
+ * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
+ * * `Comment` - Comment
+ * * `Team` - Team
+ * * `Project` - Project
+ * * `ErrorTrackingIssue` - ErrorTrackingIssue
+ * * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
+ * * `LegalDocument` - LegalDocument
+ * * `Organization` - Organization
+ * * `OrganizationDomain` - OrganizationDomain
+ * * `IdentityProviderConfig` - IdentityProviderConfig
+ * * `OrganizationMembership` - OrganizationMembership
+ * * `Role` - Role
+ * * `UserGroup` - UserGroup
+ * * `BatchExport` - BatchExport
+ * * `BatchImport` - BatchImport
+ * * `ExportedAsset` - ExportedAsset
+ * * `Integration` - Integration
+ * * `Annotation` - Annotation
+ * * `Tag` - Tag
+ * * `TaggedItem` - TaggedItem
+ * * `Subscription` - Subscription
+ * * `PersonalAPIKey` - PersonalAPIKey
+ * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
+ * * `OAuthApplication` - OAuthApplication
+ * * `User` - User
+ * * `Action` - Action
+ * * `AlertConfiguration` - AlertConfiguration
+ * * `Threshold` - Threshold
+ * * `AlertSubscription` - AlertSubscription
+ * * `ExternalDataSource` - ExternalDataSource
+ * * `ExternalDataSchema` - ExternalDataSchema
+ * * `Evaluation` - Evaluation
+ * * `EvaluationDirectory` - EvaluationDirectory
+ * * `LLMPrompt` - LLMPrompt
+ * * `LLMPromptLabel` - LLMPromptLabel
+ * * `LLMTrace` - LLMTrace
+ * * `AIGatewayCredit` - AIGatewayCredit
+ * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
+ * * `CustomerProfileConfig` - CustomerProfileConfig
+ * * `Log` - Log
+ * * `LogsAlertConfiguration` - LogsAlertConfiguration
+ * * `LogsExclusionRule` - LogsExclusionRule
+ * * `LogsRetentionRule` - LogsRetentionRule
+ * * `DashboardWidget` - DashboardWidget
+ * * `ProductTour` - ProductTour
+ * * `Ticket` - Ticket
+ * * `InstanceSetting` - InstanceSetting
+ * * `SignalReport` - SignalReport
+ * * `SignalScoutConfig` - SignalScoutConfig
+ * * `StreamlitApp` - StreamlitApp
+ * * `Metric` - Metric
+ * * `TableCertification` - TableCertification
+ * * `Billing` - Billing
+ * * `Loop` - Loop
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
 
@@ -1080,11 +1305,13 @@ export const ActivityLogListScopesItem = {
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',
     OrganizationDomain: 'OrganizationDomain',
+    IdentityProviderConfig: 'IdentityProviderConfig',
     OrganizationMembership: 'OrganizationMembership',
     Role: 'Role',
     UserGroup: 'UserGroup',
     BatchExport: 'BatchExport',
     BatchImport: 'BatchImport',
+    ExportedAsset: 'ExportedAsset',
     Integration: 'Integration',
     Annotation: 'Annotation',
     Tag: 'Tag',
@@ -1092,6 +1319,7 @@ export const ActivityLogListScopesItem = {
     Subscription: 'Subscription',
     PersonalAPIKey: 'PersonalAPIKey',
     ProjectSecretAPIKey: 'ProjectSecretAPIKey',
+    OAuthApplication: 'OAuthApplication',
     User: 'User',
     Action: 'Action',
     AlertConfiguration: 'AlertConfiguration',
@@ -1100,16 +1328,28 @@ export const ActivityLogListScopesItem = {
     ExternalDataSource: 'ExternalDataSource',
     ExternalDataSchema: 'ExternalDataSchema',
     Evaluation: 'Evaluation',
+    EvaluationDirectory: 'EvaluationDirectory',
+    LLMPrompt: 'LLMPrompt',
+    LLMPromptLabel: 'LLMPromptLabel',
     LLMTrace: 'LLMTrace',
+    AIGatewayCredit: 'AIGatewayCredit',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
     CustomerProfileConfig: 'CustomerProfileConfig',
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
+    LogsRetentionRule: 'LogsRetentionRule',
     DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
     InstanceSetting: 'InstanceSetting',
+    SignalReport: 'SignalReport',
+    SignalScoutConfig: 'SignalScoutConfig',
+    StreamlitApp: 'StreamlitApp',
+    Metric: 'Metric',
+    TableCertification: 'TableCertification',
+    Billing: 'Billing',
+    Loop: 'Loop',
 } as const
 
 export type AdvancedActivityLogsListParams = {
@@ -1130,9 +1370,17 @@ export type AdvancedActivityLogsListParams = {
      */
     end_date?: string
     /**
+     * Keep the next link valid after the last entry, so the same cursor can be re-polled as new entries arrive. Only applies with oldest-first ordering. When following, stop on an empty results list rather than on a null next link.
+     */
+    follow?: boolean
+    /**
      * Reserved for future HogQL-based filtering.
      */
     hogql_filter?: string
+    /**
+     * Include the previous and new values of changed fields. Only applies when schema is ocsf. Values can contain the content of the changed object, which makes responses larger and sends that content to your security tool.
+     */
+    include_values?: boolean
     /**
      * Filter by client IP addresses. Accepts exact IPv4/IPv6 values or wildcard patterns using `*` (e.g. `203.0.113.*`). Multiple entries are OR-combined.
      */
@@ -1147,16 +1395,31 @@ export type AdvancedActivityLogsListParams = {
      */
     item_ids?: string[]
     /**
+     * Sort by when the entry was created. Defaults to newest first. Use created_at for oldest first when polling for new entries, so a saved cursor picks up where the last request stopped.
+     *
+     * * `-created_at` - -created_at
+     * * `created_at` - created_at
+     * @minLength 1
+     */
+    ordering?: string
+    /**
      * Page number for pagination. When provided, uses page-based pagination ordered by most recent first.
      * @minimum 1
      */
     page?: number
     /**
-     * Number of results per page (default: 100, max: 1000). Only used with page-based pagination.
+     * Number of results per page (default: 100, max: 1000).
      * @minimum 1
      * @maximum 1000
      */
     page_size?: number
+    /**
+     * Response format. Set to ocsf to return Open Cybersecurity Schema Framework events for ingestion into a security tool. Omit for the default PostHog format.
+     *
+     * * `ocsf` - ocsf
+     * @minLength 1
+     */
+    schema?: AdvancedActivityLogsListSchema
     /**
      * Filter by activity scopes (e.g. "FeatureFlag", "Insight").
      */
@@ -1183,6 +1446,13 @@ export type AdvancedActivityLogsListParams = {
      */
     was_impersonated?: boolean | null
 }
+
+export type AdvancedActivityLogsListSchema =
+    (typeof AdvancedActivityLogsListSchema)[keyof typeof AdvancedActivityLogsListSchema]
+
+export const AdvancedActivityLogsListSchema = {
+    Ocsf: 'ocsf',
+} as const
 
 export type ApprovalPoliciesListParams = {
     /**
@@ -1216,13 +1486,13 @@ export type ChangeRequestsListParams = {
 
 export type CommentsListParams = {
     /**
- * When kind=task, restrict to open (incomplete) or completed tasks. Ignored when kind is not 'task'. Defaults to 'any' (no filter).
-
-* `any` - any
-* `open` - open
-* `completed` - completed
- * @minLength 1
- */
+     * When kind=task, restrict to open (incomplete) or completed tasks. Ignored when kind is not 'task'. Defaults to 'any' (no filter).
+     *
+     * * `any` - any
+     * * `open` - open
+     * * `completed` - completed
+     * @minLength 1
+     */
     completed?: CommentsListCompleted
     /**
      * The pagination cursor value.
@@ -1234,16 +1504,16 @@ export type CommentsListParams = {
      */
     item_id?: string
     /**
- * Filter by comment kind. 'task' returns only items intentionally created as actionable. 'comment' excludes tasks. Defaults to 'any' (no filter).
-
-* `any` - any
-* `comment` - comment
-* `task` - task
- * @minLength 1
- */
+     * Filter by comment kind. 'task' returns only items intentionally created as actionable. 'comment' excludes tasks. Defaults to 'any' (no filter).
+     *
+     * * `any` - any
+     * * `comment` - comment
+     * * `task` - task
+     * @minLength 1
+     */
     kind?: CommentsListKind
     /**
-     * Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay).
+     * Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay). Support-ticket scopes (Ticket, conversations_ticket) additionally require ticket API scope access.
      * @minLength 1
      */
     scope?: string
@@ -1257,6 +1527,10 @@ export type CommentsListParams = {
      * @minLength 1
      */
     source_comment?: string
+    /**
+     * Owning task for task, task_artifact, and desktop_canvas comment scopes.
+     */
+    task_id?: string
 }
 
 export type CommentsListCompleted = (typeof CommentsListCompleted)[keyof typeof CommentsListCompleted]

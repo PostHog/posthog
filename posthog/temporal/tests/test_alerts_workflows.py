@@ -3,7 +3,7 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 
@@ -27,14 +27,54 @@ from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import AlertEvaluationResult
 from posthog.temporal.alerts.activities import evaluate_alert, notify_alert, prepare_alert
 from posthog.temporal.alerts.schedule import create_schedule_due_alert_checks_schedule
-from posthog.temporal.alerts.types import CheckAlertWorkflowInputs, SkipReason
-from posthog.temporal.alerts.workflows import CheckAlertWorkflow
+from posthog.temporal.alerts.types import AlertInfo, CheckAlertWorkflowInputs, SkipReason
+from posthog.temporal.alerts.workflows import CheckAlertWorkflow, ScheduleDueAlertChecksWorkflow
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.product_analytics.backend.models.insight import Insight
 
 CHECK_ALERT_ACTIVITIES: list[Callable[..., Any]] = [prepare_alert, evaluate_alert, notify_alert]
+
+
+@pytest.mark.asyncio
+async def test_schedule_due_alert_checks_adds_shared_slo_context() -> None:
+    alert = AlertInfo(
+        alert_id="alert-1",
+        team_id=42,
+        distinct_id="user-1",
+        calculation_interval=AlertCalculationInterval.DAILY.value,
+        insight_id=123,
+    )
+
+    with (
+        patch(
+            "posthog.temporal.alerts.workflows.temporalio.workflow.execute_activity",
+            new=AsyncMock(return_value=[alert]),
+        ),
+        patch(
+            "posthog.temporal.alerts.workflows.temporalio.workflow.execute_child_workflow", new=AsyncMock()
+        ) as execute_child,
+    ):
+        await ScheduleDueAlertChecksWorkflow().run()
+
+    inputs = execute_child.call_args.args[1]
+    assert isinstance(inputs, CheckAlertWorkflowInputs)
+    assert inputs.slo is not None
+    assert inputs.slo.operation == SloOperation.ALERT_CHECK
+    assert inputs.slo.area == SloArea.ANALYTIC_PLATFORM
+    assert inputs.slo.team_id == 42
+    assert inputs.slo.resource_id == "alert-1"
+    assert inputs.slo.distinct_id == "user-1"
+    assert inputs.slo.start_properties == {
+        "alert_type": "insight",
+        "calculation_interval": AlertCalculationInterval.DAILY.value,
+        "insight_id": 123,
+    }
+    assert inputs.slo.completion_properties == inputs.slo.start_properties
+
+    inputs.slo.completion_properties["alert_state"] = AlertState.FIRING
+    assert "alert_state" not in inputs.slo.start_properties
 
 
 def test_schedule_is_registered_in_init_schedules():
@@ -59,6 +99,11 @@ def _build_alert(
     config: dict | None = None,
 ) -> AlertConfiguration:
     insight = Insight.objects.create(team=ateam, name="insight", query=_valid_trends_query(), deleted=insight_deleted)
+    threshold = Threshold.objects.create(
+        team=ateam,
+        insight=insight,
+        configuration={"type": "absolute", "bounds": {"upper": 100.0}},
+    )
     return AlertConfiguration.objects.create(
         team=ateam,
         insight=insight,
@@ -67,6 +112,7 @@ def _build_alert(
         calculation_interval=AlertCalculationInterval.DAILY.value,
         config=config if config is not None else {"type": "TrendsAlertConfig", "series_index": 0},
         condition={"type": "absolute_value"},
+        threshold=threshold,
     )
 
 
@@ -142,11 +188,13 @@ async def _run_check_alert_workflow(alert_id: str, slo: SloConfig, team_id: int,
             )
 
 
-def _completed_slo_props(mock_slo_analytics: MagicMock) -> dict:
+def _completed_slo_props(mock_slo_analytics: MagicMock, operation: SloOperation = SloOperation.ALERT_CHECK) -> dict:
     completed = [
-        c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
+        c
+        for c in mock_slo_analytics.capture.call_args_list
+        if c.kwargs.get("event") == "slo_operation_completed" and c.kwargs["properties"]["operation"] == operation
     ]
-    assert len(completed) == 1, f"expected 1 SLO completion event, got {len(completed)}"
+    assert len(completed) == 1, f"expected 1 {operation} SLO completion event, got {len(completed)}"
     return completed[0].kwargs["properties"]
 
 
@@ -188,6 +236,11 @@ async def test_check_alert_workflow_firing_drives_full_chain_with_slo(
     assert completed_props["outcome"] == SloOutcome.SUCCESS
     assert completed_props["alert_state"] == AlertState.FIRING
     assert completed_props["calculation_interval"] == alert_with_subscriber.calculation_interval
+
+    delivery_props = _completed_slo_props(mock_slo_analytics, SloOperation.ALERT_DELIVERY)
+    assert delivery_props["outcome"] == SloOutcome.SUCCESS
+    assert delivery_props["alert_type"] == "insight"
+    assert delivery_props["region"] == "HOBBY"
 
 
 @pytest.mark.parametrize(

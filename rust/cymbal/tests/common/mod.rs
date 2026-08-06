@@ -18,31 +18,35 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use cymbal::error::{ResolveError, UnhandledError};
 use cymbal::frames::{Frame, RawFrame};
-use cymbal::langs::apple::AppleDebugImage;
-use cymbal::stages::pipeline::ExceptionEventPipelineItem;
+use cymbal::langs::native::DebugImage;
+use cymbal::stages::pipeline::ParsedPipelineItem;
 use cymbal::stages::resolution::{
+    event_release::ReleaseCache,
     remote::{
         config::RemoteResolutionConfig, pool::EndpointPool, resolver::RemoteResolutionContext,
     },
-    symbol::SymbolResolver,
     ResolutionStage,
 };
-use cymbal::symbol_store::chunk_id::OrChunkId;
-use cymbal::symbol_store::proguard::ProguardRef;
+use cymbal::symbolication::symbol::SymbolResolver;
+use cymbal::symbolication::symbol_store::chunk_id::OrChunkId;
+use cymbal::symbolication::symbol_store::proguard::ProguardRef;
 use cymbal::types::{
-    batch::Batch, exception_properties::ExceptionProperties, operator::TeamId, stage::Stage,
-    Exception, ExceptionList, Stacktrace,
+    batch::Batch,
+    event::AnyEvent,
+    exception_event::{ExceptionEvent, Parsed, Resolved},
+    operator::TeamId,
+    stage::Stage,
+    Exception, Stacktrace,
 };
 use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_server::{
     CymbalResolution, CymbalResolutionServer,
 };
 use cymbal_proto::cymbal::resolution::v1::{
-    resolve_outcome, Done, Error as ItemError, ErrorKind, LoadEvent, ResolveItem, ResolveOutcome,
-    Retry, SubscribeRequest,
+    resolve_outcome, Accepted, Done, Error as ItemError, ErrorKind, LoadEvent, ResolveItem,
+    ResolveOutcome, Retry, SubscribeRequest,
 };
 use futures::{Stream, StreamExt};
 use tokio::sync::mpsc;
-use tokio::sync::Semaphore;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -73,6 +77,9 @@ pub enum ServerBehavior {
     /// Echo each item back as Done with the input exception unchanged but
     /// sleep `delay` before emitting each outcome.
     HappyDelayed { delay: Duration },
+    /// Emit Accepted immediately, then emit Done after `delay` without blocking
+    /// reads for subsequent items.
+    AcceptedThenDoneDelayed { delay: Duration },
     /// Fail the Resolve stream during setup with Status::Unavailable.
     AlwaysUnavailable,
     /// Fail the Resolve stream during setup with Status::InvalidArgument.
@@ -106,7 +113,7 @@ impl CymbalResolution for StubServer {
     type ResolveStream = ResolveStream;
     type SubscribeStream = SubscribeStream;
 
-    /// Default Subscribe behaviour: emit freshness/draining-only `LoadEvent`s
+    /// Default Subscribe behaviour: emit freshness/draining/load `LoadEvent`s
     /// on a fast tick so snapshot-required routing can warm up quickly.
     async fn subscribe(
         &self,
@@ -126,6 +133,8 @@ impl CymbalResolution for StubServer {
                     draining: false,
                     sequence,
                     message: String::new(),
+                    in_flight: 0,
+                    max_in_flight: 64,
                 };
                 if tx.send(Ok(event)).await.is_err() {
                     return;
@@ -161,7 +170,12 @@ impl CymbalResolution for StubServer {
                         let item = match next {
                             Ok(item) => item,
                             Err(err) => {
-                                let _ignored = tx.send(Err(err)).await;
+                                // The client may close its request half as soon as every in-flight
+                                // item has a terminal outcome. Tonic can surface that as an h2 body
+                                // read error on the server task; don't turn client-side shutdown into
+                                // an extra response-stream failure after the fixture has already sent
+                                // the outcomes the test cares about.
+                                drop(err);
                                 return;
                             }
                         };
@@ -170,11 +184,21 @@ impl CymbalResolution for StubServer {
 
                         match behavior {
                             ServerBehavior::Happy => {
+                                send_outcome(&tx, accepted_outcome(&item)).await;
                                 send_outcome(&tx, done_outcome(&item)).await;
                             }
                             ServerBehavior::HappyDelayed { delay } => {
+                                send_outcome(&tx, accepted_outcome(&item)).await;
                                 tokio::time::sleep(delay).await;
                                 send_outcome(&tx, done_outcome(&item)).await;
+                            }
+                            ServerBehavior::AcceptedThenDoneDelayed { delay } => {
+                                send_outcome(&tx, accepted_outcome(&item)).await;
+                                let item_tx = tx.clone();
+                                tokio::spawn(async move {
+                                    tokio::time::sleep(delay).await;
+                                    send_outcome(&item_tx, done_outcome(&item)).await;
+                                });
                             }
                             ServerBehavior::Retry => {
                                 send_outcome(&tx, retry_outcome(&item)).await;
@@ -185,18 +209,22 @@ impl CymbalResolution for StubServer {
                             }
                             ServerBehavior::InterruptAfterFirst => {
                                 if seen == 1 {
+                                    send_outcome(&tx, accepted_outcome(&item)).await;
                                     send_outcome(&tx, done_outcome(&item)).await;
                                     let _ignored = tx
                                         .send(Err(Status::internal("simulated interruption")))
                                         .await;
                                     return;
                                 }
+                                send_outcome(&tx, accepted_outcome(&item)).await;
                                 send_outcome(&tx, done_outcome(&item)).await;
                             }
                             ServerBehavior::ErrorAfterFirst { kind } => {
                                 if seen == 1 {
+                                    send_outcome(&tx, accepted_outcome(&item)).await;
                                     send_outcome(&tx, done_outcome(&item)).await;
                                 } else {
+                                    send_outcome(&tx, accepted_outcome(&item)).await;
                                     send_outcome(&tx, error_outcome(&item, kind)).await;
                                 }
                             }
@@ -216,6 +244,13 @@ impl CymbalResolution for StubServer {
 
 async fn send_outcome(tx: &mpsc::Sender<Result<ResolveOutcome, Status>>, outcome: ResolveOutcome) {
     let _ignored = tx.send(Ok(outcome)).await;
+}
+
+fn accepted_outcome(item: &ResolveItem) -> ResolveOutcome {
+    ResolveOutcome {
+        id: item.id,
+        result: Some(resolve_outcome::Result::Accepted(Accepted {})),
+    }
 }
 
 fn done_outcome(item: &ResolveItem) -> ResolveOutcome {
@@ -300,14 +335,6 @@ pub fn unbound_addr() -> SocketAddr {
 }
 
 pub fn make_config(max_retries: u32, deadline: Duration) -> RemoteResolutionConfig {
-    make_config_with_sample_rate(max_retries, deadline, 1.0)
-}
-
-pub fn make_config_with_sample_rate(
-    max_retries: u32,
-    deadline: Duration,
-    sample_rate: f64,
-) -> RemoteResolutionConfig {
     RemoteResolutionConfig {
         host: "test-only".to_string(),
         port: 0,
@@ -320,8 +347,8 @@ pub fn make_config_with_sample_rate(
         // production defaults are tuned for thundering-herd mitigation.
         retry_backoff: Duration::from_millis(1),
         retry_max_backoff: Duration::from_millis(2),
-        sample_rate,
         routing_jitter: 0.0,
+        routing_acceptance_concurrency: 10,
         overload_ejection_initial: Duration::ZERO,
         overload_ejection_max: Duration::ZERO,
         overload_ejection_decay: Duration::from_secs(30),
@@ -343,21 +370,7 @@ pub async fn make_ctx(
     if !addrs.is_empty() {
         wait_until_routable(&pool).await;
     }
-    RemoteResolutionContext { pool, config }
-}
-
-pub async fn make_ctx_with_sample_rate(
-    addrs: &[SocketAddr],
-    max_retries: u32,
-    deadline: Duration,
-    sample_rate: f64,
-) -> RemoteResolutionContext {
-    let config = make_config_with_sample_rate(max_retries, deadline, sample_rate);
-    let pool = EndpointPool::from_addrs(config.clone(), addrs).expect("build pool");
-    if !addrs.is_empty() {
-        wait_until_routable(&pool).await;
-    }
-    RemoteResolutionContext { pool, config }
+    RemoteResolutionContext::new(pool, config)
 }
 
 /// Wait until the pool has at least one routable endpoint (a fresh
@@ -387,7 +400,7 @@ impl SymbolResolver for NoopResolver {
         &self,
         _team_id: TeamId,
         _frame: &RawFrame,
-        _debug_images: &[AppleDebugImage],
+        _debug_images: &[DebugImage],
     ) -> Result<Vec<Frame>, UnhandledError> {
         Ok(Vec::new())
     }
@@ -413,32 +426,37 @@ impl SymbolResolver for NoopResolver {
 
 pub fn remote_stage(ctx: RemoteResolutionContext) -> ResolutionStage {
     ResolutionStage {
-        symbol_resolver: Arc::new(NoopResolver),
-        symbol_resolution_limiter: Arc::new(Semaphore::new(4)),
-        remote: Some(ctx),
-    }
-}
-
-pub fn local_stage() -> ResolutionStage {
-    ResolutionStage {
-        symbol_resolver: Arc::new(NoopResolver),
-        symbol_resolution_limiter: Arc::new(Semaphore::new(4)),
-        remote: None,
+        remote: ctx,
+        // Never connected: fixture events carry no release identifiers, so the release
+        // resolver never issues a query.
+        posthog_pool: sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://unused/unused")
+            .expect("lazy pool construction does not connect"),
+        release_cache: ReleaseCache::new(0, Duration::from_secs(0)),
     }
 }
 
 pub async fn process_one(
     stage: ResolutionStage,
-    evt: ExceptionProperties,
-) -> Result<ExceptionProperties, UnhandledError> {
-    let batch: Batch<ExceptionEventPipelineItem> = Batch::from(vec![Ok(evt)]);
+    evt: ExceptionEvent<Parsed>,
+) -> Result<ExceptionEvent<Resolved>, UnhandledError> {
+    let batch: Batch<ParsedPipelineItem> = Batch::from(vec![Ok(evt)]);
     let result = stage.process(batch).await?;
     let mut items: Vec<_> = result.into_iter().collect();
     assert_eq!(items.len(), 1, "single-event batch must produce one output");
     Ok(items.remove(0).expect("event must not be EventError"))
 }
 
-pub fn build_event(num_exceptions: usize) -> ExceptionProperties {
+pub fn build_event(num_exceptions: usize) -> ExceptionEvent<Parsed> {
+    build_event_with(num_exceptions, 7, Uuid::now_v7(), Vec::new())
+}
+
+pub fn build_event_with(
+    num_exceptions: usize,
+    team_id: i32,
+    uuid: Uuid,
+    debug_images: Vec<DebugImage>,
+) -> ExceptionEvent<Parsed> {
     let exceptions: Vec<Exception> = (0..num_exceptions)
         .map(|i| Exception {
             exception_id: None,
@@ -450,25 +468,17 @@ pub fn build_event(num_exceptions: usize) -> ExceptionProperties {
             stack: Some(Stacktrace::Raw { frames: vec![] }),
         })
         .collect();
-    ExceptionProperties {
-        exception_list: ExceptionList::from(exceptions),
-        exception_sources: None,
-        exception_types: None,
-        exception_messages: None,
-        exception_functions: None,
-        exception_handled: None,
-        exception_releases: Default::default(),
-        fingerprint: None,
-        proposed_fingerprint: None,
-        fingerprint_record: None,
-        issue_id: None,
-        proposed_issue_name: None,
-        proposed_issue_description: None,
-        debug_images: Vec::new(),
-        props: Default::default(),
-        uuid: Uuid::now_v7(),
+    AnyEvent {
+        uuid,
+        event: "$exception".to_string(),
+        properties: serde_json::json!({
+            "$exception_list": exceptions,
+            "$debug_images": debug_images,
+        }),
         timestamp: String::new(),
-        team_id: 7,
-        issue: None,
+        team_id,
+        others: Default::default(),
     }
+    .try_into()
+    .expect("test event is valid")
 }

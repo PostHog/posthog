@@ -16,7 +16,7 @@ describe('customerAnalyticsSceneLogic', () => {
         localStorage.clear()
         sceneLogic.mount()
         router.actions.push(urls.customerAnalytics())
-        logic = customerAnalyticsSceneLogic({ tabId: sceneLogic.values.activeTabId || '' })
+        logic = customerAnalyticsSceneLogic()
         logic.mount()
     })
 

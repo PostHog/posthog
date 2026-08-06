@@ -2,6 +2,8 @@ from typing import Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
+
 from posthog.schema import (
     AutocompleteCompletionItemKind,
     HogLanguage,
@@ -17,13 +19,15 @@ from posthog.hogql.database.models import StringDatabaseField
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PERSONS_FIELDS
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.product_analytics.backend.models.insight_variable import InsightVariable
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSource,
+)
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
@@ -570,12 +574,19 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert "some_view" not in [x.label for x in results.suggestions]
         assert "DELETED" not in [x.label for x in results.suggestions]
 
-    def test_autocomplete_empty_source_query(self):
+    @parameterized.expand(
+        [
+            ("empty", ""),
+            # An unquoted reserved keyword used as an alias makes the source query unparseable.
+            ("reserved_keyword_alias", "select 1 as team_id"),
+        ]
+    )
+    def test_autocomplete_degrades_gracefully_for_bad_source_query(self, _name: str, source_query: str):
         autocomplete = HogQLAutocomplete(
             kind="HogQLAutocomplete",
             query="SELECT * FROM e",
             language=HogLanguage.HOG_QL,
-            sourceQuery=HogQLQuery(query=""),  # Empty source query
+            sourceQuery=HogQLQuery(query=source_query),
             startPosition=15,
             endPosition=15,
         )

@@ -27,6 +27,9 @@ class EvaluationContext(UUIDModel):
     name = models.CharField(max_length=255)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="evaluation_context_set")
     created_at = models.DateTimeField(auto_now_add=True)
+    # When True, this context name is hidden from the flag editor's suggestion list. The row and any
+    # flags already using it are left untouched — this only affects what gets suggested.
+    hidden_from_suggestions = models.BooleanField(default=False, db_default=False)
 
     class Meta:
         unique_together = [["team", "name"]]

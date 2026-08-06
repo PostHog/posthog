@@ -15,6 +15,7 @@ export const fromNodeTypeToLabel: Omit<
     | NotebookNodeType.Mention
     | NotebookNodeType.Embed
     | NotebookNodeType.Latex
+    | NotebookNodeType.MarkdownNotebook
 > = {
     [NotebookNodeType.FeatureFlag]: 'Feature flags',
     [NotebookNodeType.FeatureFlagCodeExample]: 'Feature flag Code Examples',
@@ -25,8 +26,10 @@ export const fromNodeTypeToLabel: Omit<
     [NotebookNodeType.Person]: 'Persons',
     [NotebookNodeType.Query]: 'Queries',
     [NotebookNodeType.Python]: 'Python',
+    [NotebookNodeType.PythonV2]: 'Python (v2)',
     [NotebookNodeType.DuckSQL]: 'SQL (DuckDB)',
     [NotebookNodeType.HogQLSQL]: 'SQL (HogQL)',
+    [NotebookNodeType.SQLV2]: 'SQL (v2)',
     [NotebookNodeType.Recording]: 'Session recordings',
     [NotebookNodeType.RecordingPlaylist]: 'Session replay playlists',
     [NotebookNodeType.ReplayTimestamp]: 'Session recording comments',

@@ -1,7 +1,7 @@
 import { LemonCollapse, Lettermark, LettermarkColor } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { alphabet } from 'lib/utils'
+import { alphabet } from 'lib/utils/strings'
 
 import { FeatureFlagType, MultivariateFlagVariant } from '~/types'
 

@@ -1,0 +1,798 @@
+"""Trace-level evaluation workflow.
+
+The evaluation scheduler starts this workflow when the first $ai_generation matching a
+trace-target evaluation arrives. The workflow id (`llma-trace-eval-{evaluation_id}-{trace_id}`)
+plus the USE_EXISTING conflict policy make every later matching event of the same trace a
+no-op while a run is pending or in flight, and ALLOW_DUPLICATE_FAILED_ONLY prevents
+re-evaluating a trace once a run completed. The workflow sleeps for an aggregation window so
+the rest of the trace can arrive, then pulls the whole trace from ClickHouse and evaluates it
+in one shot.
+
+Temporal payloads are capped at ~2 MiB, so trace content never flows through the workflow:
+each execute activity fetches the trace itself and returns only the small verdict dict.
+"""
+
+import json
+import asyncio
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+import structlog
+import temporalio
+import posthoganalytics
+from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
+
+from posthog.schema import DateRange, LLMTrace, QueryLogTags, TraceQuery
+
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+
+from posthog.api.capture import CaptureInternalError, capture_internal
+from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
+from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
+from posthog.models.team import Team
+from posthog.sync import database_sync_to_async
+from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
+from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
+from posthog.temporal.ai_observability.evaluation_hog import (
+    build_hog_event_global,
+    execute_hog_eval_bytecode,
+    finalize_hog_eval_result,
+    hog_bytecode_references_global,
+)
+from posthog.temporal.ai_observability.evaluation_llm_judge import (
+    LLM_JUDGE_RETRY_POLICY,
+    call_llm_judge,
+    get_output_type_config,
+)
+from posthog.temporal.ai_observability.evaluation_payload import (
+    PAYLOAD_BYTES_EXPR,
+    payload_budget_bytes,
+    should_skip_for_payload,
+)
+from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
+from posthog.temporal.ai_observability.evaluation_workflow_activities import (
+    EmitInternalTelemetryInputs,
+    RunEvaluationInputs,
+    build_evaluation_event_properties,
+    emit_internal_telemetry_activity,
+    fetch_evaluation_activity,
+)
+from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
+from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome, increment_errors
+from posthog.temporal.ai_observability.run_evaluation import (
+    WorkflowResult,
+    handle_llm_judge_activity_error,
+    handle_terminal_user_error_result,
+)
+from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.utils import close_db_connections
+
+from products.ai_observability.backend.models.evaluation_configs import (
+    EVALUATION_TEST_LOOKBACK_DAYS,
+    TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
+    TRACE_EVAL_MAX_WINDOW_SECONDS,
+)
+from products.ai_observability.backend.text_repr.formatters import (
+    FormatterOptions,
+    format_trace_text_repr,
+    llm_trace_to_formatter_format,
+)
+
+logger = structlog.get_logger(__name__)
+
+# How far back from the workflow start to look for trace events. The trigger is the first
+# *matching* generation, so earlier events of the same trace (spans, prior generations) are
+# expected; client-set timestamps far in the past fall outside this window by design.
+TRACE_EVENTS_LOOKBACK = timedelta(hours=24)
+
+# Guard against degenerate traces (e.g. a bug attaching everything to trace id "0"): traces
+# above this event count are skipped without fetching their payload.
+MAX_TRACE_EVAL_EVENTS = 500
+
+# Char budget for the judge transcript. The shared formatter defaults to ~2M chars (sized to
+# fill an LLM context window for summarization); a per-trace judge verdict doesn't need that
+# much, so we cap lower to bound cost. Over budget, the formatter uniformly samples lines.
+JUDGE_TRACE_MAX_CHARS = 150_000
+
+# Written against ai_events; query_ai_events rewrites it for the events table when ai_events
+# returns nothing. HAVING makes a zero count return no rows, which both triggers the events-table
+# fallback and keeps "no events" distinguishable without a second query.
+_TRACE_EVENT_COUNT_SQL = """
+SELECT count() AS event_count
+FROM posthog.ai_events AS ai_events
+WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
+  AND trace_id = {trace_id}
+  AND timestamp >= {date_from}
+  AND timestamp <= {date_to}
+HAVING event_count > 0
+"""
+
+_SKIP_REASONING = {
+    "trace_not_found": "No trace events were found within the evaluation window; evaluation skipped.",
+    "trace_too_large": (
+        f"Trace exceeds {MAX_TRACE_EVAL_EVENTS} events — likely a shared or runaway trace id; evaluation skipped."
+    ),
+}
+
+
+@dataclass
+class RunTraceEvaluationInputs:
+    evaluation_id: str
+    team_id: int
+    trace_id: str
+    distinct_id: str
+    session_id: str | None = None
+    window_seconds: int = TRACE_EVAL_DEFAULT_WINDOW_SECONDS
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        """Properties for PostHogClientInterceptor error capture."""
+        return {
+            "evaluation_id": self.evaluation_id,
+            "team_id": self.team_id,
+            "trace_id": self.trace_id,
+        }
+
+
+@dataclass
+class ExecuteTraceEvaluationInputs:
+    evaluation: dict[str, Any]
+    team_id: int
+    trace_id: str
+    window_start: str
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {
+            "team_id": self.team_id,
+            "evaluation_id": self.evaluation.get("id"),
+            "trace_id": self.trace_id,
+        }
+
+
+@dataclass
+class TraceFetchOutcome:
+    trace: LLMTrace | None
+    skip_reason: str | None
+    event_count: int
+
+
+def _count_trace_events(team: Team, trace_id: str, date_from: datetime, date_to: datetime) -> int:
+    result = query_ai_events(
+        query=parse_select(_TRACE_EVENT_COUNT_SQL),
+        placeholders={
+            "trace_id": ast.Constant(value=trace_id),
+            "date_from": ast.Constant(value=date_from),
+            "date_to": ast.Constant(value=date_to),
+        },
+        team=team,
+        query_type="TraceEvaluationEventCount",
+        fall_back_to_events=True,
+    )
+    if not result.results:
+        return 0
+    return int(result.results[0][0])
+
+
+_TRACE_PAYLOAD_BYTES_SQL = f"""
+SELECT {PAYLOAD_BYTES_EXPR} AS payload_bytes
+FROM posthog.ai_events AS ai_events
+WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
+  AND trace_id = {{trace_id}}
+  AND timestamp >= {{date_from}}
+  AND timestamp <= {{date_to}}
+"""
+
+
+def _sum_trace_payload_bytes(team: Team, trace_id: str, date_from: datetime, date_to: datetime) -> int:
+    result = query_ai_events(
+        query=parse_select(_TRACE_PAYLOAD_BYTES_SQL),
+        placeholders={
+            "trace_id": ast.Constant(value=trace_id),
+            "date_from": ast.Constant(value=date_from),
+            "date_to": ast.Constant(value=date_to),
+        },
+        team=team,
+        query_type="TraceEvaluationPayloadBytes",
+        fall_back_to_events=False,
+    )
+    if not result.results:
+        return 0
+    return int(result.results[0][0] or 0)
+
+
+def _fetch_trace(team: Team, trace_id: str, date_from: datetime, date_to: datetime) -> TraceFetchOutcome:
+    """Fetch a single full trace from ClickHouse over an explicit window, with a cheap count
+    preflight so degenerate traces are skipped before pulling their payload."""
+    event_count = _count_trace_events(team, trace_id, date_from, date_to)
+    if event_count == 0:
+        return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=0)
+    if event_count > MAX_TRACE_EVAL_EVENTS:
+        return TraceFetchOutcome(trace=None, skip_reason="trace_too_large", event_count=event_count)
+
+    # Log-only for trace. `should_skip_for_payload` returns False for this target by design: trace
+    # evaluations already run in production, and enforcing a brand-new dimension on them would start
+    # skipping units that grade fine today. The metric supplies the distribution needed to set a
+    # trace budget with evidence, and flipping it to enforcing is a deliberate follow-up.
+    should_skip_for_payload(
+        target="trace",
+        payload_bytes=_sum_trace_payload_bytes(team, trace_id, date_from, date_to),
+        budget_bytes=payload_budget_bytes(JUDGE_TRACE_MAX_CHARS),
+    )
+
+    runner = TraceQueryRunner(
+        team=team,
+        query=TraceQuery(
+            traceId=trace_id,
+            dateRange=DateRange(date_from=date_from.isoformat(), date_to=date_to.isoformat()),
+            tags=QueryLogTags(productKey="AIObservability"),
+        ),
+    )
+    response = runner.calculate()
+    if not response.results:
+        return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=event_count)
+    return TraceFetchOutcome(trace=response.results[0], skip_reason=None, event_count=event_count)
+
+
+def fetch_trace_for_evaluation(team_id: int, trace_id: str, window_start: datetime) -> TraceFetchOutcome:
+    """Fetch the full trace for an online evaluation run, looking back from the workflow start."""
+    team = Team.objects.get(id=team_id)
+    date_from = window_start - TRACE_EVENTS_LOOKBACK
+    date_to = datetime.now(UTC)
+    return _fetch_trace(team, trace_id, date_from, date_to)
+
+
+@dataclass
+class TraceHogTestResult:
+    """One trace's outcome from `run_hog_eval_over_recent_traces`, shaped for the editor test
+    endpoint and Max's authoring tool rather than for online emission."""
+
+    trace_id: str
+    verdict: bool | None
+    reasoning: str
+    error: str | None
+    input_preview: str
+    output_preview: str
+
+
+@dataclass(frozen=True)
+class TraceHogTestSample:
+    trace_id: str
+    trigger_timestamp: datetime
+
+
+def _coerce_trace_test_timestamp(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        timestamp = value
+    elif isinstance(value, str):
+        timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    else:
+        raise TypeError(f"Unexpected trace sample timestamp type: {type(value).__name__}")
+
+    return timestamp if timestamp.tzinfo is not None else timestamp.replace(tzinfo=UTC)
+
+
+def _sample_recent_traces(
+    team: Team,
+    condition_filter: ast.Expr | None,
+    sample_count: int,
+    date_from: datetime,
+    date_to: datetime,
+) -> list[TraceHogTestSample]:
+    """Pick the most recent distinct trace ids whose *triggering* generation matches the
+    evaluation's conditions — mirroring the online scheduler, which starts a trace-eval run
+    from the first matching `$ai_generation`. Historical previews use that event timestamp as
+    the closest available proxy for the workflow start time."""
+    where_exprs: list[ast.Expr] = [
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=ast.Field(chain=["event"]),
+            right=ast.Constant(value=["$ai_generation"]),
+        ),
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.NotEq,
+            left=ast.Field(chain=["trace_id"]),
+            right=ast.Constant(value=""),
+        ),
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=ast.Field(chain=["timestamp"]),
+            right=ast.Constant(value=date_from),
+        ),
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.LtEq,
+            left=ast.Field(chain=["timestamp"]),
+            right=ast.Constant(value=date_to),
+        ),
+    ]
+    if condition_filter is not None:
+        where_exprs.append(condition_filter)
+
+    query = ast.SelectQuery(
+        select=[
+            ast.Field(chain=["trace_id"]),
+            ast.Alias(alias="trigger_timestamp", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
+            ast.Alias(alias="latest", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
+        ],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "ai_events"]), alias="ai_events"),
+        where=ast.Placeholder(expr=ast.Field(chain=["where_clause"])),
+        group_by=[ast.Field(chain=["trace_id"])],
+        order_by=[ast.OrderExpr(expr=ast.Field(chain=["latest"]), order="DESC")],
+        limit=ast.Constant(value=sample_count),
+    )
+    response = query_ai_events(
+        query=query,
+        placeholders={"where_clause": ast.And(exprs=where_exprs)},
+        team=team,
+        query_type="EvaluationTestHogTraceSample",
+        fall_back_to_events=True,
+    )
+    return [
+        TraceHogTestSample(trace_id=str(row[0]), trigger_timestamp=_coerce_trace_test_timestamp(row[1]))
+        for row in (response.results or [])
+    ]
+
+
+def _trace_io_preview(trace: LLMTrace) -> tuple[str, str]:
+    """First non-empty input and last non-empty output across the trace's events, for a compact
+    preview. The Hog body still sees the full trace globals; this is only for display."""
+    input_preview = ""
+    output_preview = ""
+    for event in trace.events or []:
+        input_raw, output_raw = extract_event_io(event.event, event.properties)
+        if not input_preview:
+            input_preview = extract_text_from_messages(input_raw)[:200]
+        output_text = extract_text_from_messages(output_raw)[:200]
+        if output_text:
+            output_preview = output_text
+    return input_preview, output_preview
+
+
+def run_hog_eval_over_recent_traces(
+    *,
+    team: Team,
+    bytecode: list[Any],
+    condition_filter: ast.Expr | None,
+    sample_count: int,
+    allows_na: bool,
+    window_seconds: int = TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
+    lookback_days: int = EVALUATION_TEST_LOOKBACK_DAYS,
+) -> list[TraceHogTestResult]:
+    """Sample recent traces matching the conditions and run trace-level Hog bytecode against each.
+
+    Shared by the editor `test_hog` endpoint and Max's authoring tool so a trace-target eval is
+    previewed the same way it runs online — whole trace, trace globals — instead of against a
+    single generation.
+    """
+    now = datetime.now(UTC)
+    window = timedelta(seconds=window_seconds)
+    # Only sample triggers whose full aggregation window has elapsed.
+    sample_date_to = now - window
+    sample_date_from = sample_date_to - timedelta(days=lookback_days)
+    trace_samples = _sample_recent_traces(
+        team,
+        condition_filter,
+        sample_count,
+        sample_date_from,
+        sample_date_to,
+    )
+
+    results: list[TraceHogTestResult] = []
+    for sample in trace_samples:
+        trace_date_from = sample.trigger_timestamp - TRACE_EVENTS_LOOKBACK
+        trace_date_to = sample.trigger_timestamp + window
+        outcome = _fetch_trace(team, sample.trace_id, trace_date_from, trace_date_to)
+        if outcome.skip_reason or outcome.trace is None:
+            results.append(
+                TraceHogTestResult(
+                    trace_id=sample.trace_id,
+                    verdict=None,
+                    reasoning="",
+                    error=_SKIP_REASONING.get(outcome.skip_reason or "trace_not_found", "Evaluation skipped."),
+                    input_preview="",
+                    output_preview="",
+                )
+            )
+            continue
+
+        globals_dict = build_trace_hog_globals(outcome.trace, sample.trace_id, bytecode=bytecode)
+        result = execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=allows_na)
+        input_preview, output_preview = _trace_io_preview(outcome.trace)
+        results.append(
+            TraceHogTestResult(
+                trace_id=sample.trace_id,
+                verdict=result["verdict"],
+                reasoning=result["reasoning"],
+                error=result["error"],
+                input_preview=input_preview,
+                output_preview=output_preview,
+            )
+        )
+    return results
+
+
+def _build_trace_skip_result(allows_na: bool, skip_reason: str) -> EvaluationActivityResult:
+    """Mirror of `_build_errored_trace_result` for trace-level skips — no LLM call is made,
+    so model/provider are omitted and downstream cost attribution stays clean."""
+    result: EvaluationActivityResult = {
+        "result_type": "boolean",
+        "verdict": None if allows_na else False,
+        "reasoning": _SKIP_REASONING.get(skip_reason, "Evaluation skipped."),
+        "allows_na": allows_na,
+        "skipped": True,
+        "skip_reason": skip_reason,
+    }
+    if allows_na:
+        result["applicable"] = False
+    return result
+
+
+def build_trace_system_prompt(prompt: str, allows_na: bool) -> str:
+    """Trace-level variant of `build_system_prompt` — frames the unit under evaluation as the
+    whole trace rather than a single generation."""
+    config = get_output_type_config(allows_na)
+    return f"""You are an evaluator. Evaluate the following AI trace — the full sequence of LLM calls and operations from one execution — according to this criteria:
+
+{prompt}
+
+{config.instructions}"""
+
+
+def format_trace_for_judge(trace: LLMTrace) -> str:
+    """Serialize a trace into the canonical text representation for the LLM judge.
+
+    Delegates to the shared `text_repr` formatter — the same plain-text rendering the trace
+    view shows users and the trace-summarization workflow feeds its own LLM. Using it here
+    means the judge grades exactly what a user sees when they open the trace to debug a
+    verdict, and there's one trace serializer to maintain across the product, not a private
+    fork. `include_markers=False` drops the frontend expand/collapse markers; the output is
+    uniformly sampled down to `JUDGE_TRACE_MAX_CHARS` to bound judge cost and context.
+    """
+    trace_dict, hierarchy = llm_trace_to_formatter_format(trace)
+    options: FormatterOptions = {
+        "include_markers": False,
+        "collapsed": False,
+        "truncated": True,
+        "include_line_numbers": True,
+        "max_length": JUDGE_TRACE_MAX_CHARS,
+    }
+    text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
+    return text
+
+
+def build_trace_hog_globals(trace: LLMTrace, trace_id: str, *, bytecode: list[Any] | None = None) -> dict[str, Any]:
+    """Build Hog globals for a trace-level eval.
+
+    `events` and `trace` keep their original shapes for saved trace Hog source. New target-independent
+    source uses `evaluation_events`, which adds readable text projections, and `target`.
+
+    Existing bytecode receives the original globals. Bytecode that uses a new shared global only
+    builds the event collections it references, avoiding duplicate HogVM and worker memory cost.
+    """
+    trace_events = trace.events or []
+    references_target = bytecode is not None and hog_bytecode_references_global(bytecode, "target")
+    references_events = bytecode is not None and hog_bytecode_references_global(bytecode, "events")
+    references_evaluation_events = bytecode is not None and hog_bytecode_references_global(
+        bytecode, "evaluation_events"
+    )
+    can_skip_compatibility_events = (references_target or references_evaluation_events) and not references_events
+    globals_dict: dict[str, Any] = {
+        "trace": {"id": trace_id, "event_count": len(trace_events)},
+    }
+    if bytecode is None or references_target:
+        globals_dict["target"] = {
+            "type": "trace",
+            "id": trace_id,
+            "total_cost_usd": trace.totalCost,
+            "total_latency_seconds": trace.totalLatency,
+        }
+    if bytecode is None or not can_skip_compatibility_events:
+        globals_dict["events"] = [
+            build_hog_event_global(
+                event.event,
+                event.properties,
+                event_uuid=event.id,
+                timestamp=event.createdAt,
+                include_text=False,
+            )
+            for event in trace_events
+        ]
+    if bytecode is None or references_evaluation_events:
+        globals_dict["evaluation_events"] = [
+            build_hog_event_global(
+                event.event,
+                event.properties,
+                event_uuid=event.id,
+                timestamp=event.createdAt,
+            )
+            for event in trace_events
+        ]
+    return globals_dict
+
+
+@temporalio.activity.defn
+@close_db_connections
+@posthoganalytics.scoped()
+def execute_trace_llm_judge_activity(inputs: ExecuteTraceEvaluationInputs) -> EvaluationActivityResult:
+    """Fetch the whole trace and run the LLM judge over its transcript.
+
+    Fetch and judge happen in one activity on purpose: returning the trace through the
+    workflow would hit Temporal's ~2 MiB payload limit on large traces.
+    """
+    evaluation = inputs.evaluation
+
+    if evaluation["evaluation_type"] != "llm_judge":
+        raise ApplicationError(
+            f"Unsupported evaluation type: {evaluation['evaluation_type']}",
+            non_retryable=True,
+        )
+
+    prompt = evaluation.get("evaluation_config", {}).get("prompt")
+    if not prompt:
+        raise ApplicationError("Missing prompt in evaluation_config", non_retryable=True)
+
+    if evaluation["output_type"] != "boolean":
+        raise ApplicationError(
+            f"Unsupported output type: {evaluation['output_type']}. Supported types: 'boolean'.",
+            non_retryable=True,
+        )
+
+    allows_na = evaluation.get("output_config", {}).get("allows_na", False)
+
+    outcome = fetch_trace_for_evaluation(inputs.team_id, inputs.trace_id, datetime.fromisoformat(inputs.window_start))
+    if outcome.skip_reason or outcome.trace is None:
+        return _build_trace_skip_result(allows_na, outcome.skip_reason or "trace_not_found")
+
+    return call_llm_judge(
+        evaluation=evaluation,
+        system_prompt=build_trace_system_prompt(prompt, allows_na),
+        user_prompt=format_trace_for_judge(outcome.trace),
+        allows_na=allows_na,
+    )
+
+
+@temporalio.activity.defn
+async def execute_trace_hog_eval_activity(inputs: ExecuteTraceEvaluationInputs) -> EvaluationActivityResult:
+    """Fetch the whole trace and run Hog bytecode against trace-level globals."""
+    evaluation = inputs.evaluation
+
+    if evaluation["evaluation_type"] != "hog":
+        raise ApplicationError(
+            f"Unsupported evaluation type: {evaluation['evaluation_type']}",
+            non_retryable=True,
+        )
+
+    bytecode = evaluation.get("evaluation_config", {}).get("bytecode")
+    if not bytecode:
+        raise ApplicationError("Missing bytecode in evaluation_config", non_retryable=True)
+
+    allows_na = evaluation.get("output_config", {}).get("allows_na", False)
+
+    def _execute() -> tuple[dict[str, Any] | None, str | None]:
+        outcome = fetch_trace_for_evaluation(
+            inputs.team_id, inputs.trace_id, datetime.fromisoformat(inputs.window_start)
+        )
+        if outcome.skip_reason or outcome.trace is None:
+            return None, outcome.skip_reason or "trace_not_found"
+        globals_dict = build_trace_hog_globals(outcome.trace, inputs.trace_id, bytecode=bytecode)
+        return execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=allows_na), None
+
+    result, skip_reason = await database_sync_to_async(_execute, thread_sensitive=False)()
+
+    if skip_reason or result is None:
+        return _build_trace_skip_result(allows_na, skip_reason or "trace_not_found")
+
+    return finalize_hog_eval_result(result, allows_na=allows_na, unit_label="trace")
+
+
+@dataclass
+class EmitTraceEvaluationEventInputs:
+    evaluation: dict[str, Any]
+    team_id: int
+    trace_id: str
+    distinct_id: str
+    session_id: str | None
+    result: EvaluationActivityResult
+    start_time: datetime
+    target: str = "trace"
+    ai_session_id: str | None = None
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {
+            "team_id": self.team_id,
+            "evaluation_id": self.evaluation.get("id"),
+            "trace_id": self.trace_id,
+            "target": self.target,
+        }
+
+
+@temporalio.activity.defn
+async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventInputs) -> None:
+    """Emit the $ai_evaluation event for a trace-level run, targeting the trace id."""
+
+    def _emit():
+        try:
+            team = Team.objects.get(id=inputs.team_id)
+        except Team.DoesNotExist:
+            logger.exception("Team not found", team_id=inputs.team_id)
+            raise ValueError(f"Team {inputs.team_id} not found")
+
+        # No single source event to inherit from, so SOURCE_AI_PROPERTIES_TO_COPY (span/parent
+        # linkage copied in the generation path) intentionally does not apply here.
+        properties = build_evaluation_event_properties(inputs.evaluation, inputs.result, inputs.start_time)
+        if inputs.target == "session" and inputs.ai_session_id:
+            properties.update(
+                {
+                    "$ai_target_id": inputs.ai_session_id,
+                    "$ai_target_type": "session_id",
+                    # Makes the verdict session-scoped so the session view can read it. No
+                    # $ai_trace_id: the verdict belongs to the session, not to any one trace, and
+                    # inventing a trace id would make it render as that trace's verdict.
+                    "$ai_session_id": inputs.ai_session_id,
+                    "$session_id": inputs.session_id,
+                }
+            )
+        else:
+            properties.update(
+                {
+                    "$ai_target_id": inputs.trace_id,
+                    "$ai_target_type": "trace_id",
+                    # The eval event carries the trace id itself so it shows up inside the trace view.
+                    "$ai_trace_id": inputs.trace_id,
+                    "$session_id": inputs.session_id,
+                }
+            )
+
+        capture_result = capture_internal(
+            token=team.api_token,
+            event_name="$ai_evaluation",
+            event_source="llm_analytics_evaluation",
+            distinct_id=inputs.distinct_id,
+            timestamp=datetime.now(UTC),
+            properties=properties,
+            process_person_profile=True,
+        )
+        capture_result.raise_for_status()
+
+    try:
+        await database_sync_to_async(_emit, thread_sensitive=False)()
+        increment_emit_event_outcome("success")
+    except CaptureInternalError as e:
+        if e.is_billing_limit_exceeded:
+            increment_emit_event_outcome("dropped_billing_limited")
+            logger.info("Skipping eval event emission; team over billing quota", team_id=inputs.team_id)
+            return
+        increment_emit_event_outcome("failed")
+        raise
+    except Exception:
+        increment_emit_event_outcome("failed")
+        raise
+
+
+@temporalio.workflow.defn(name="run-trace-evaluation")
+class RunTraceEvaluationWorkflow(PostHogWorkflow):
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> RunTraceEvaluationInputs:
+        return RunTraceEvaluationInputs(**json.loads(inputs[0]))
+
+    @temporalio.workflow.run
+    async def run(self, inputs: RunTraceEvaluationInputs) -> WorkflowResult:
+        # Every #71518-era run recorded the "remove-trial-evals" patch marker; accept those
+        # histories for one release, then delete this call (temporal-workflow-versioning rule).
+        temporalio.workflow.deprecate_patch("remove-trial-evals")
+
+        window_start = temporalio.workflow.now()
+
+        # Wait for the rest of the trace to arrive. Timers are server-side, so sleeping
+        # workflows don't hold worker slots.
+        window_seconds = min(max(inputs.window_seconds, 0), TRACE_EVAL_MAX_WINDOW_SECONDS)
+        if window_seconds:
+            await asyncio.sleep(window_seconds)
+
+        eval_start = temporalio.workflow.now()
+
+        evaluation = await temporalio.workflow.execute_activity(
+            fetch_evaluation_activity,
+            RunEvaluationInputs(evaluation_id=inputs.evaluation_id, event_data={"team_id": inputs.team_id}),
+            schedule_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        evaluation_type = evaluation.get("evaluation_type", "llm_judge")
+
+        # The evaluation may have been paused or deleted during the aggregation window —
+        # bail out instead of running against config the user just turned off.
+        if evaluation["deleted"] or not evaluation["enabled"]:
+            disabled_result: WorkflowResult = {
+                "verdict": None,
+                "skipped": True,
+                "skip_reason": "evaluation_deleted" if evaluation["deleted"] else "evaluation_disabled",
+                "evaluation_id": inputs.evaluation_id,
+                "evaluation_type": evaluation_type,
+            }
+            return disabled_result
+
+        execute_inputs = ExecuteTraceEvaluationInputs(
+            evaluation=evaluation,
+            team_id=inputs.team_id,
+            trace_id=inputs.trace_id,
+            window_start=window_start.isoformat(),
+        )
+
+        if evaluation_type == "hog":
+            # Unlike single-event hog evals, this activity includes a ClickHouse fetch, so
+            # allow one retry for transient query failures (the bytecode is deterministic).
+            result = await temporalio.workflow.execute_activity(
+                execute_trace_hog_eval_activity,
+                execute_inputs,
+                schedule_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+        else:
+            try:
+                result = await temporalio.workflow.execute_activity(
+                    execute_trace_llm_judge_activity,
+                    execute_inputs,
+                    # > single-event judge timeout: the activity also fetches the trace from ClickHouse
+                    schedule_to_close_timeout=timedelta(minutes=8),
+                    retry_policy=LLM_JUDGE_RETRY_POLICY,
+                )
+            except temporalio.exceptions.ActivityError as e:
+                handled = await handle_llm_judge_activity_error(e, evaluation, evaluation_type)
+                if handled is not None:
+                    return handled
+                raise
+
+        if is_terminal_user_error_result(result):
+            return await handle_terminal_user_error_result(
+                evaluation=evaluation,
+                evaluation_type=evaluation_type,
+                result=result,
+            )
+
+        try:
+            await temporalio.workflow.execute_activity(
+                emit_trace_evaluation_event_activity,
+                EmitTraceEvaluationEventInputs(
+                    evaluation=evaluation,
+                    team_id=inputs.team_id,
+                    trace_id=inputs.trace_id,
+                    distinct_id=inputs.distinct_id,
+                    session_id=inputs.session_id,
+                    result=result,
+                    start_time=eval_start,
+                ),
+                schedule_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        except Exception:
+            increment_errors("emit_evaluation_event_failed", provider=result.get("provider"))
+            raise
+
+        if not result.get("skipped"):
+            await temporalio.workflow.execute_activity(
+                emit_internal_telemetry_activity,
+                EmitInternalTelemetryInputs(
+                    evaluation=evaluation,
+                    team_id=inputs.team_id,
+                    result=result,
+                ),
+                schedule_to_close_timeout=timedelta(seconds=30),
+            )
+
+        workflow_result: WorkflowResult = {
+            "verdict": result["verdict"],
+            "reasoning": result["reasoning"],
+            "evaluation_id": evaluation["id"],
+            "evaluation_type": evaluation_type,
+            "is_byok": result.get("is_byok", False),
+            "skipped": result.get("skipped", False),
+        }
+        if result.get("skipped"):
+            skip_reason = result.get("skip_reason")
+            if skip_reason is not None:
+                workflow_result["skip_reason"] = skip_reason
+        return workflow_result

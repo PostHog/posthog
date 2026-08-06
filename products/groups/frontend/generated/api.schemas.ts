@@ -80,6 +80,10 @@ export type GroupsFindRetrieveParams = {
      * Specify the group type to find
      */
     group_type_index: number
+    /**
+     * When true, do not lazily create the group's CRM notebook. Use for read-only lookups (e.g. resolving a group's display name) that should not have side effects.
+     */
+    skip_create_notebook?: boolean
 }
 
 export type GroupsRelatedRetrieveParams = {

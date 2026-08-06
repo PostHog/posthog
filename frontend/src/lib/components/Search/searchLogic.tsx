@@ -1,16 +1,21 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
-import { IconBell, IconClock, IconDownload, IconLeave, IconNotification } from '@posthog/icons'
+import { IconBell, IconBuilding, IconClock, IconDownload, IconLeave, IconNotification } from '@posthog/icons'
 
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { toSentenceCase } from 'lib/utils'
+import { preflightLogic } from 'lib/logic/preflightLogic'
+import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { newInternalTab } from 'lib/utils/newInternalTab'
+import { toSentenceCase } from 'lib/utils/strings'
 import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
-import { matchesFlagDefinition } from 'scenes/settings/settingsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -21,15 +26,22 @@ import { groupsModel } from '~/models/groupsModel'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
-import { SETTINGS_MAP } from '~/scenes/settings/SettingsMap'
-import { Setting, SettingSectionId } from '~/scenes/settings/types'
+import { matchesFlagDefinition } from '~/scenes/settings/flagGating'
+import { Setting, SettingSection, SettingSectionId } from '~/scenes/settings/types'
 import { ActivityTab, FileSystemIconColor, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
 
-import type { searchLogicType } from './searchLogicType'
+import { accountsList } from 'products/customer_analytics/frontend/generated/api'
+import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+
+import type { Noun } from '../../../models/groupsModel'
+import type { FileSystemImport } from '../../../queries/schema/schema-general'
+import type { GroupType, IntegrationType, UserType } from '../../../types'
+import type { FeatureFlagsSet } from '../../logic/featureFlagLogic'
 import { filterSearchItems } from './utils'
 
 let cachedProductIconColorByType: Map<string, FileSystemIconColor> | null = null
 let cachedProductDisplayLabelByPath: Map<string, string> | null = null
+let cachedProductIconTypeByPath: Map<string, string> | null = null
 
 const getProductIconColorByType = (): Map<string, FileSystemIconColor> => {
     if (cachedProductIconColorByType === null) {
@@ -56,6 +68,19 @@ const getProductDisplayLabelByPath = (): Map<string, string> => {
     return cachedProductDisplayLabelByPath
 }
 
+const getProductIconTypeByPath = (): Map<string, string> => {
+    if (cachedProductIconTypeByPath === null) {
+        cachedProductIconTypeByPath = new Map()
+        for (const product of getTreeItemsProducts()) {
+            const iconType = product.type || product.iconType
+            if (iconType) {
+                cachedProductIconTypeByPath.set(product.path, iconType)
+            }
+        }
+    }
+    return cachedProductIconTypeByPath
+}
+
 const fileSystemEntryToSearchItem = (
     item: FileSystemEntry,
     overrides: { id: string; category: string; searchKeywords?: string[] }
@@ -63,14 +88,19 @@ const fileSystemEntryToSearchItem = (
     const name = splitPath(item.path).pop()
     const itemName = name ? unescapePath(name) : item.path
     const displayName = getProductDisplayLabelByPath().get(itemName)
-    const productIconColor = item.type ? getProductIconColorByType().get(item.type) : undefined
+    // Older starred shortcuts (e.g. Logs, Web analytics) were saved with a blank (empty-string)
+    // type because their product only defines `iconType`. The `||` (not `??`) is deliberate: an
+    // empty string must fall through to the product registry, keyed by name, so the icon resolves.
+    const itemType = item.type || getProductIconTypeByPath().get(itemName) || null
+    const productIconColor = itemType ? getProductIconColorByType().get(itemType) : undefined
     return {
         name: itemName,
         displayName,
         href: item.href || '#',
         lastViewedAt: item.last_viewed_at ?? null,
-        itemType: item.type ?? null,
+        itemType,
         record: { ...item, iconColor: productIconColor },
+        disabledReason: getEntryAccessDisabledReason(item),
         ...overrides,
     }
 }
@@ -94,6 +124,9 @@ export interface SearchItem {
     searchKeywords?: string[]
     record?: Record<string, unknown>
     rank?: number | null // PostgreSQL full-text search rank (from unified search API)
+    /** When set, the item is shown greyed out and non-clickable, with this reason as tooltip
+     * (e.g. the user has no access to the product or resource). */
+    disabledReason?: string
 }
 
 export interface SearchCategory {
@@ -114,6 +147,334 @@ const SEARCH_LIMIT = 5
 /** Safely extract a string — returns undefined for objects/arrays to avoid rendering [object Object]. */
 const safeString = (val: unknown): string | undefined => (typeof val === 'string' ? val : undefined)
 
+/**
+ * Lean projection of SETTINGS_MAP for search. The full map statically imports every
+ * settings component (the whole configuration UI graph), so it is loaded dynamically
+ * on mount and only the searchable metadata is kept.
+ */
+export interface SettingsSectionSummary {
+    id: SettingSection['id']
+    level: SettingSection['level']
+    titleString: string | null
+    hideFromNavigation?: boolean
+    flag?: SettingSection['flag']
+    to?: string
+    settings: {
+        id: string
+        hasTitle: boolean
+        titleString: string | null
+        descriptionString: string | null
+        keywords?: string[]
+    }[]
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface searchLogicValues {
+    isCommandOpen: boolean // commandLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
+    aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
+    groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
+    organizationIntegrations: IntegrationType[] | null // organizationIntegrationsLogic
+    isDev: boolean | undefined // preflightLogic
+    cachedStarred: FileSystemEntry[] // projectTreeDataLogic
+    shortcutDataHasLoaded: boolean // projectTreeDataLogic
+    treeGroupItems: FileSystemImport[] // projectTreeDataLogic
+    cachedRecents: FileSystemEntry[] // recentItemsModel
+    recentsHasLoaded: boolean // recentItemsModel
+    sceneLogViewsByRef: Record<string, string> // recentItemsModel
+    sceneLogViewsHasLoaded: boolean // recentItemsModel
+    currentTeamId: number | null // teamLogic
+    user: UserType | null // userLogic
+    accountItems: SearchItem[]
+    accountSearchResults: AccountApi[]
+    accountSearchResultsLoading: boolean
+    allCategories: SearchCategory[]
+    dataManagementItems: SearchItem[]
+    groupItems: SearchItem[]
+    groupSearchResults: Partial<Record<GroupTypeIndex, GroupQueryResult[]>>
+    groupSearchResultsLoading: boolean
+    healthItems: SearchItem[]
+    isSearching: boolean
+    loadingStates: {
+        accountSearchResultsLoading: boolean
+        groupSearchResultsLoading: boolean
+        isToolsLoading: boolean
+        personSearchResultsLoading: boolean
+        playlistSearchResultsLoading: boolean
+        recentsHasLoaded: boolean
+        recentsLoading: boolean
+        starredHasLoaded: boolean
+        starredLoading: boolean
+        unifiedSearchResultsLoading: boolean
+    }
+    miscItems: SearchItem[]
+    newItems: SearchItem[]
+    peopleItems: SearchItem[]
+    personItems: SearchItem[]
+    personSearchResults: PersonType[]
+    personSearchResultsLoading: boolean
+    playlistItems: SearchItem[]
+    playlistSearchResults: FileSystemEntry[]
+    playlistSearchResultsLoading: boolean
+    recentItems: SearchItem[]
+    search: string
+    searchPending: boolean
+    searchedRecents: FileSystemEntry[] | null
+    searchedRecentsLoading: boolean
+    settingsItems: SearchItem[]
+    settingsSections: SettingsSectionSummary[]
+    starredItems: SearchItem[]
+    toolsItems: SearchItem[]
+    unifiedSearchItems: Record<string, SearchItem[]>
+    unifiedSearchResults: SearchResponse | null
+    unifiedSearchResultsLoading: boolean
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface searchLogicActions {
+    loadAccountSearchResults: ({ searchTerm }: { searchTerm: string }) => {
+        searchTerm: string
+    }
+    loadAccountSearchResultsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadAccountSearchResultsSuccess: (
+        accountSearchResults: AccountApi[],
+        payload?: {
+            searchTerm: string
+        }
+    ) => {
+        accountSearchResults: AccountApi[]
+        payload?: {
+            searchTerm: string
+        }
+    }
+    loadGroupSearchResults: ({ searchTerm }: { searchTerm: string }) => {
+        searchTerm: string
+    }
+    loadGroupSearchResultsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadGroupSearchResultsSuccess: (
+        groupSearchResults: Partial<Record<GroupTypeIndex, GroupQueryResult[]>>,
+        payload?: {
+            searchTerm: string
+        }
+    ) => {
+        groupSearchResults: Partial<Record<GroupTypeIndex, GroupQueryResult[]>>
+        payload?: {
+            searchTerm: string
+        }
+    }
+    loadPersonSearchResults: ({ searchTerm }: { searchTerm: string }) => {
+        searchTerm: string
+    }
+    loadPersonSearchResultsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPersonSearchResultsSuccess: (
+        personSearchResults: PersonType[],
+        payload?: {
+            searchTerm: string
+        }
+    ) => {
+        personSearchResults: PersonType[]
+        payload?: {
+            searchTerm: string
+        }
+    }
+    loadPlaylistSearchResults: ({ searchTerm }: { searchTerm: string }) => {
+        searchTerm: string
+    }
+    loadPlaylistSearchResultsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPlaylistSearchResultsSuccess: (
+        playlistSearchResults: FileSystemEntry[],
+        payload?: {
+            searchTerm: string
+        }
+    ) => {
+        playlistSearchResults: FileSystemEntry[]
+        payload?: {
+            searchTerm: string
+        }
+    }
+    loadUnifiedSearchResults: ({ searchTerm }: { searchTerm: string }) => {
+        searchTerm: string
+    }
+    loadUnifiedSearchResultsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadUnifiedSearchResultsSuccess: (
+        unifiedSearchResults: SearchResponse | null,
+        payload?: {
+            searchTerm: string
+        }
+    ) => {
+        unifiedSearchResults: SearchResponse | null
+        payload?: {
+            searchTerm: string
+        }
+    }
+    searchRecents: ({ search }: { search: string }) => {
+        search: string
+    }
+    searchRecentsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    searchRecentsSuccess: (
+        searchedRecents: FileSystemEntry[] | null,
+        payload?: {
+            search: string
+        }
+    ) => {
+        searchedRecents: FileSystemEntry[] | null
+        payload?: {
+            search: string
+        }
+    }
+    setSearch: (search: string) => {
+        search: string
+    }
+    setSettingsSections: (sections: SettingsSectionSummary[]) => {
+        sections: SettingsSectionSummary[]
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface searchLogicMeta {
+    key: string
+    __keaTypeGenInternalSelectorTypes: {
+        isSearching: (
+            searchedRecentsLoading: boolean,
+            unifiedSearchResultsLoading: boolean,
+            groupSearchResultsLoading: boolean,
+            personSearchResultsLoading: boolean,
+            accountSearchResultsLoading: boolean,
+            playlistSearchResultsLoading: boolean,
+            searchPending: boolean,
+            search: string
+        ) => boolean
+        recentItems: (
+            searchedRecents: FileSystemEntry[] | null,
+            cachedRecents: FileSystemEntry[],
+            search: string
+        ) => SearchItem[]
+        starredItems: (cachedStarred: FileSystemEntry[]) => SearchItem[]
+        toolsItems: (
+            featureFlags: FeatureFlagsSet,
+            isDev: boolean | undefined,
+            user: UserType | null,
+            sceneLogViewsByRef: Record<string, string>
+        ) => SearchItem[]
+        dataManagementItems: (
+            featureFlags: FeatureFlagsSet,
+            isDev: boolean | undefined,
+            user: UserType | null,
+            sceneLogViewsByRef: Record<string, string>
+        ) => SearchItem[]
+        newItems: (
+            featureFlags: FeatureFlagsSet,
+            isDev: boolean | undefined,
+            user: UserType | null,
+            arg: string
+        ) => SearchItem[]
+        peopleItems: (treeGroupItems: FileSystemImport[], sceneLogViewsByRef: Record<string, string>) => SearchItem[]
+        groupItems: (
+            groupSearchResults: Partial<Record<GroupTypeIndex, GroupQueryResult[]>>,
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
+        ) => SearchItem[]
+        personItems: (personSearchResults: PersonType[]) => SearchItem[]
+        accountItems: (accountSearchResults: AccountApi[]) => SearchItem[]
+        playlistItems: (playlistSearchResults: FileSystemEntry[]) => SearchItem[]
+        healthItems: (sceneLogViewsByRef: Record<string, string>) => SearchItem[]
+        miscItems: (sceneLogViewsByRef: Record<string, string>) => SearchItem[]
+        settingsItems: (
+            featureFlags: FeatureFlagsSet,
+            organizationIntegrations: IntegrationType[] | null,
+            settingsSections: SettingsSectionSummary[]
+        ) => SearchItem[]
+        unifiedSearchItems: (unifiedSearchResults: SearchResponse | null) => Record<string, SearchItem[]>
+        loadingStates: (
+            unifiedSearchResultsLoading: boolean,
+            recentsHasLoaded: boolean,
+            shortcutDataHasLoaded: boolean,
+            sceneLogViewsHasLoaded: boolean,
+            personSearchResultsLoading: boolean,
+            groupSearchResultsLoading: boolean,
+            accountSearchResultsLoading: boolean,
+            playlistSearchResultsLoading: boolean
+        ) => {
+            accountSearchResultsLoading: boolean
+            groupSearchResultsLoading: boolean
+            isToolsLoading: boolean
+            personSearchResultsLoading: boolean
+            playlistSearchResultsLoading: boolean
+            recentsHasLoaded: boolean
+            recentsLoading: boolean
+            starredHasLoaded: boolean
+            starredLoading: boolean
+            unifiedSearchResultsLoading: boolean
+        }
+        allCategories: (
+            recentItems: SearchItem[],
+            starredItems: SearchItem[],
+            toolsItems: SearchItem[],
+            dataManagementItems: SearchItem[],
+            peopleItems: SearchItem[],
+            healthItems: SearchItem[],
+            miscItems: SearchItem[],
+            settingsItems: SearchItem[],
+            newItems: SearchItem[],
+            personItems: SearchItem[],
+            groupItems: SearchItem[],
+            accountItems: SearchItem[],
+            playlistItems: SearchItem[],
+            unifiedSearchItems: Record<string, SearchItem[]>,
+            loadingStates: {
+                accountSearchResultsLoading: boolean
+                groupSearchResultsLoading: boolean
+                isToolsLoading: boolean
+                personSearchResultsLoading: boolean
+                playlistSearchResultsLoading: boolean
+                recentsHasLoaded: boolean
+                recentsLoading: boolean
+                starredHasLoaded: boolean
+                starredLoading: boolean
+                unifiedSearchResultsLoading: boolean
+            },
+            search: string
+        ) => SearchCategory[]
+    }
+}
+
+export type searchLogicType = MakeLogicType<searchLogicValues, searchLogicActions, SearchLogicProps, searchLogicMeta>
+
 export const searchLogic = kea<searchLogicType>([
     path((logicKey) => ['lib', 'components', 'Search', 'searchLogic', logicKey]),
     props({} as SearchLogicProps),
@@ -130,6 +491,8 @@ export const searchLogic = kea<searchLogicType>([
             ['isDev'],
             userLogic,
             ['user'],
+            teamLogic,
+            ['currentTeamId'],
             recentItemsModel,
             ['recents as cachedRecents', 'recentsHasLoaded', 'sceneLogViewsByRef', 'sceneLogViewsHasLoaded'],
             projectTreeDataLogic,
@@ -140,6 +503,7 @@ export const searchLogic = kea<searchLogicType>([
     })),
     actions({
         setSearch: (search: string) => ({ search }),
+        setSettingsSections: (sections: SettingsSectionSummary[]) => ({ sections }),
     }),
     loaders(({ values }) => ({
         searchedRecents: [
@@ -237,6 +601,26 @@ export const searchLogic = kea<searchLogicType>([
                 },
             },
         ],
+        accountSearchResults: [
+            [] as AccountApi[],
+            {
+                loadAccountSearchResults: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
+                    const trimmed = searchTerm.trim()
+
+                    if (trimmed === '' || !values.currentTeamId) {
+                        return []
+                    }
+
+                    const response = await accountsList(String(values.currentTeamId), {
+                        search: trimmed,
+                        limit: SEARCH_LIMIT,
+                    })
+                    breakpoint()
+
+                    return response.results
+                },
+            },
+        ],
         playlistSearchResults: [
             [] as FileSystemEntry[],
             {
@@ -274,6 +658,12 @@ export const searchLogic = kea<searchLogicType>([
                 loadUnifiedSearchResultsFailure: () => false,
             },
         ],
+        settingsSections: [
+            [] as SettingsSectionSummary[],
+            {
+                setSettingsSections: (_, { sections }) => sections,
+            },
+        ],
     }),
     selectors({
         isSearching: [
@@ -282,6 +672,7 @@ export const searchLogic = kea<searchLogicType>([
                 s.unifiedSearchResultsLoading,
                 s.groupSearchResultsLoading,
                 s.personSearchResultsLoading,
+                s.accountSearchResultsLoading,
                 s.playlistSearchResultsLoading,
                 s.searchPending,
                 s.search,
@@ -291,6 +682,7 @@ export const searchLogic = kea<searchLogicType>([
                 unifiedSearchResultsLoading: boolean,
                 groupSearchResultsLoading: boolean,
                 personSearchResultsLoading: boolean,
+                accountSearchResultsLoading: boolean,
                 playlistSearchResultsLoading: boolean,
                 searchPending: boolean,
                 search: string
@@ -299,20 +691,25 @@ export const searchLogic = kea<searchLogicType>([
                     unifiedSearchResultsLoading ||
                     groupSearchResultsLoading ||
                     personSearchResultsLoading ||
+                    accountSearchResultsLoading ||
                     playlistSearchResultsLoading ||
                     searchPending) &&
                 search.trim() !== '',
         ],
         recentItems: [
             (s) => [s.searchedRecents, s.cachedRecents, s.search],
-            (searchedRecents, cachedRecents, search): SearchItem[] => {
+            (
+                searchedRecents: FileSystemEntry[] | null,
+                cachedRecents: FileSystemEntry[],
+                search: string
+            ): SearchItem[] => {
                 const source = search.trim() ? (searchedRecents ?? []) : cachedRecents.slice(0, RECENTS_LIMIT)
                 return source.map((item) => fileSystemEntryToSearchItem(item, { id: item.path, category: 'recents' }))
             },
         ],
         starredItems: [
             (s) => [s.cachedStarred],
-            (cachedStarred): SearchItem[] => {
+            (cachedStarred: FileSystemEntry[]): SearchItem[] => {
                 return cachedStarred
                     .filter((e) => e.type !== 'folder')
                     .slice(0, STARRED_LIMIT)
@@ -325,10 +722,18 @@ export const searchLogic = kea<searchLogicType>([
                     )
             },
         ],
-        appsItems: [
+        toolsItems: [
             (s) => [s.featureFlags, s.isDev, s.user, s.sceneLogViewsByRef],
-            (featureFlags, isDev, user, sceneLogViewsByRef): SearchItem[] => {
+            (
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
+                isDev: boolean | undefined,
+                user: null | import('~/types').UserType,
+                sceneLogViewsByRef: Record<string, string>
+            ): SearchItem[] => {
                 const allProducts = getTreeItemsProducts()
+                const productSearchKeywords: Record<string, string[]> = {
+                    'Product analytics': ['insights'],
+                }
                 const filteredProducts = allProducts.filter((product) => {
                     if (!product.href) {
                         return false
@@ -346,12 +751,14 @@ export const searchLogic = kea<searchLogicType>([
                     id: `app-${product.path}`,
                     name: product.path,
                     displayName: product.displayLabel ?? product.path,
-                    category: 'apps',
+                    category: 'tools',
                     productCategory: product.category || null,
                     href: product.href || '#',
                     itemType: product.iconType || product.type || null,
                     tags: product.tags,
+                    searchKeywords: productSearchKeywords[product.path],
                     lastViewedAt: product.sceneKey ? (sceneLogViewsByRef[product.sceneKey] ?? null) : null,
+                    disabledReason: getProductAccessDisabledReason(product),
                     record: {
                         type: product.type || product.iconType,
                         iconType: product.iconType,
@@ -362,7 +769,7 @@ export const searchLogic = kea<searchLogicType>([
                     id: 'app-activity',
                     name: 'Activity',
                     displayName: 'Activity',
-                    category: 'apps',
+                    category: 'tools',
                     productCategory: null,
                     href: urls.activity(ActivityTab.ExploreEvents),
                     icon: <IconClock />,
@@ -393,7 +800,12 @@ export const searchLogic = kea<searchLogicType>([
         ],
         dataManagementItems: [
             (s) => [s.featureFlags, s.isDev, s.user, s.sceneLogViewsByRef],
-            (featureFlags, isDev, user, sceneLogViewsByRef): SearchItem[] => {
+            (
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
+                isDev: boolean | undefined,
+                user: null | import('~/types').UserType,
+                sceneLogViewsByRef: Record<string, string>
+            ): SearchItem[] => {
                 const allMetadata = getTreeItemsMetadata()
                 const filteredMetadata = allMetadata.filter((item) => {
                     if (!isDev && !user?.is_staff && item.category === 'Unreleased') {
@@ -420,6 +832,7 @@ export const searchLogic = kea<searchLogicType>([
                     tags: item.tags,
                     searchKeywords: item.category ? categorySearchKeywords[item.category] : undefined,
                     lastViewedAt: item.sceneKey ? (sceneLogViewsByRef[item.sceneKey] ?? null) : null,
+                    disabledReason: getProductAccessDisabledReason(item),
                     record: {
                         type: item.type || item.iconType,
                         iconType: item.iconType,
@@ -443,8 +856,13 @@ export const searchLogic = kea<searchLogicType>([
             },
         ],
         newItems: [
-            (s) => [s.featureFlags, s.isDev, s.user],
-            (featureFlags, isDev, user): SearchItem[] => {
+            (s) => [s.featureFlags, s.isDev, s.user, (_, props: SearchLogicProps) => props.logicKey],
+            (
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
+                isDev: boolean | undefined,
+                user: null | import('~/types').UserType,
+                logicKey: string
+            ): SearchItem[] => {
                 const allNewItems = getTreeItemsNew()
                 const filteredItems = allNewItems.filter((item) => {
                     if (!isDev && !user?.is_staff && item.category === 'Unreleased') {
@@ -456,7 +874,7 @@ export const searchLogic = kea<searchLogicType>([
                     return true
                 })
 
-                return filteredItems.map((item) => {
+                const items: SearchItem[] = filteredItems.map((item) => {
                     // Format display name:
                     // "Insight/Lifecycle" -> "New Lifecycle insight"
                     // "Data/Destination" -> "New Destination" (no suffix for Data)
@@ -489,11 +907,39 @@ export const searchLogic = kea<searchLogicType>([
                         },
                     }
                 })
+
+                // Blank SQL query in a new browser tab (inheriting the active warehouse connection when
+                // triggered from within the SQL editor). Scoped to the command palette: it relies on
+                // onSelect + newInternalTab, and only the 'command' Search surface honors onSelect —
+                // the new-tab scene and AI-first homepage are href-only and would render a dead item.
+                if (logicKey === 'command') {
+                    items.push({
+                        id: 'new-sql-query-tab',
+                        name: 'New SQL query',
+                        displayName: 'New SQL query',
+                        category: 'create',
+                        productCategory: null,
+                        itemType: 'insight/hog',
+                        searchKeywords: ['sql', 'hogql', 'query', 'blank sql', 'new tab'],
+                        record: { type: 'insight', iconType: 'insight/hog' },
+                        onSelect: () => {
+                            const onSqlEditor =
+                                removeProjectIdIfPresent(router.values.location.pathname) === urls.sqlEditor()
+                            const connectionId = onSqlEditor ? router.values.hashParams?.c : undefined
+                            newInternalTab(urls.sqlEditor(connectionId ? { connectionId } : {}))
+                        },
+                    })
+                }
+
+                return items
             },
         ],
         peopleItems: [
             (s) => [s.treeGroupItems, s.sceneLogViewsByRef],
-            (treeGroupItems, sceneLogViewsByRef): SearchItem[] => {
+            (
+                treeGroupItems: import('~/queries/schema/schema-general').FileSystemImport[],
+                sceneLogViewsByRef: Record<string, string>
+            ): SearchItem[] => {
                 const combined = [...getDefaultTreePersons(), ...treeGroupItems]
                 return combined.map((item) => ({
                     id: `people-${item.path}`,
@@ -515,7 +961,13 @@ export const searchLogic = kea<searchLogicType>([
         ],
         groupItems: [
             (s) => [s.groupSearchResults, s.aggregationLabel],
-            (groupSearchResults, aggregationLabel): SearchItem[] => {
+            (
+                groupSearchResults: Partial<Record<GroupTypeIndex, GroupQueryResult[]>>,
+                aggregationLabel: (
+                    groupTypeIndex: number | null | undefined,
+                    deferToUserWording?: boolean
+                ) => import('~/models/groupsModel').Noun
+            ): SearchItem[] => {
                 const items: SearchItem[] = []
                 for (const [groupTypeIndexString, groups] of Object.entries(groupSearchResults)) {
                     const groupTypeIndex = parseInt(groupTypeIndexString, 10) as GroupTypeIndex
@@ -544,7 +996,7 @@ export const searchLogic = kea<searchLogicType>([
         ],
         personItems: [
             (s) => [s.personSearchResults],
-            (personSearchResults): SearchItem[] => {
+            (personSearchResults: PersonType[]): SearchItem[] => {
                 return personSearchResults
                     .filter((person) => person.uuid) // Skip persons without uuid to avoid invalid URLs
                     .map((person) => {
@@ -570,9 +1022,27 @@ export const searchLogic = kea<searchLogicType>([
                     })
             },
         ],
+        accountItems: [
+            (s) => [s.accountSearchResults],
+            (accountSearchResults: AccountApi[]): SearchItem[] => {
+                return accountSearchResults.map((account) => {
+                    const displayName = account.name || account.external_id || account.id
+                    return {
+                        id: `account-${account.id}`,
+                        name: displayName,
+                        displayName,
+                        category: 'accounts',
+                        href: urls.customerAnalyticsAccount(account.id),
+                        icon: <IconBuilding />,
+                        itemType: 'account',
+                        record: { type: 'account', id: account.id },
+                    }
+                })
+            },
+        ],
         playlistItems: [
             (s) => [s.playlistSearchResults],
-            (playlistSearchResults): SearchItem[] => {
+            (playlistSearchResults: FileSystemEntry[]): SearchItem[] => {
                 return playlistSearchResults.map((item) => {
                     const name = splitPath(item.path).pop()
                     return {
@@ -581,6 +1051,7 @@ export const searchLogic = kea<searchLogicType>([
                         category: 'session_recording_playlist',
                         href: item.href || '#',
                         itemType: 'session_recording_playlist',
+                        disabledReason: getEntryAccessDisabledReason(item),
                         record: item as unknown as Record<string, unknown>,
                     }
                 })
@@ -588,7 +1059,7 @@ export const searchLogic = kea<searchLogicType>([
         ],
         healthItems: [
             (s) => [s.sceneLogViewsByRef],
-            (sceneLogViewsByRef): SearchItem[] => [
+            (sceneLogViewsByRef: Record<string, string>): SearchItem[] => [
                 {
                     id: 'health-pipeline-status',
                     name: 'Pipeline status',
@@ -600,20 +1071,20 @@ export const searchLogic = kea<searchLogicType>([
                     record: { type: 'pipeline_status', iconType: 'pipeline_status' },
                 },
                 {
-                    id: 'health-sdk-doctor',
-                    name: 'SDK doctor',
-                    displayName: 'SDK doctor',
+                    id: 'health-sdk-health',
+                    name: 'SDK health',
+                    displayName: 'SDK health',
                     category: 'health',
-                    href: urls.sdkDoctor(),
-                    itemType: 'sdk_doctor',
-                    lastViewedAt: sceneLogViewsByRef['SdkDoctor'] ?? null,
-                    record: { type: 'sdk_doctor', iconType: 'sdk_doctor' },
+                    href: urls.sdkHealth(),
+                    itemType: 'sdk_health',
+                    lastViewedAt: sceneLogViewsByRef['SdkHealth'] ?? null,
+                    record: { type: 'sdk_health', iconType: 'sdk_health' },
                 },
             ],
         ],
         miscItems: [
             (s) => [s.sceneLogViewsByRef],
-            (sceneLogViewsByRef): SearchItem[] => [
+            (sceneLogViewsByRef: Record<string, string>): SearchItem[] => [
                 {
                     id: 'misc-exports',
                     name: 'Exports',
@@ -661,8 +1132,12 @@ export const searchLogic = kea<searchLogicType>([
             ],
         ],
         settingsItems: [
-            (s) => [s.featureFlags, s.organizationIntegrations],
-            (featureFlags, organizationIntegrations): SearchItem[] => {
+            (s) => [s.featureFlags, s.organizationIntegrations, s.settingsSections],
+            (
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
+                organizationIntegrations: import('~/types').IntegrationType[] | null,
+                settingsSections: SettingsSectionSummary[]
+            ): SearchItem[] => {
                 const checkFlag = (flagKey: Pick<Setting, 'flag'>['flag']): boolean =>
                     matchesFlagDefinition(flagKey, featureFlags)
 
@@ -671,7 +1146,7 @@ export const searchLogic = kea<searchLogicType>([
                 // Skip project-level sections as they are duplicates of environment sections
                 const seenSectionIds = new Set<string>()
 
-                for (const section of SETTINGS_MAP) {
+                for (const section of settingsSections) {
                     // Skip sections hidden from navigation (they are only accessible
                     // from their product's own configuration page)
                     if (section.hideFromNavigation) {
@@ -709,19 +1184,16 @@ export const searchLogic = kea<searchLogicType>([
                     const levelPrefix = toSentenceCase(effectiveLevel)
 
                     const settings = section.settings
-                        .filter((setting) => !!setting.title)
+                        .filter((setting) => setting.hasTitle)
                         .flatMap((setting) => [
                             toSentenceCase(setting.id.replace(/[-]/g, ' ')),
-                            ...(typeof setting.title === 'string' ? [setting.title] : []),
-                            ...(typeof setting.description === 'string' ? [setting.description] : []),
+                            ...(setting.titleString ? [setting.titleString] : []),
+                            ...(setting.descriptionString ? [setting.descriptionString] : []),
                             ...(setting.keywords ?? []),
                         ])
 
                     // Create the display name for each settings section
-                    const displayName =
-                        typeof section.title === 'string'
-                            ? section.title
-                            : toSentenceCase(section.id.replace(/[-]/g, ' '))
+                    const displayName = section.titleString ?? toSentenceCase(section.id.replace(/[-]/g, ' '))
 
                     const displayNameSuffix =
                         displayName === 'General' || displayName === 'Danger zone' || displayName === 'Integrations'
@@ -748,7 +1220,7 @@ export const searchLogic = kea<searchLogicType>([
         ],
         unifiedSearchItems: [
             (s) => [s.unifiedSearchResults],
-            (unifiedSearchResults): Record<string, SearchItem[]> => {
+            (unifiedSearchResults: SearchResponse | null): Record<string, SearchItem[]> => {
                 if (!unifiedSearchResults) {
                     return {}
                 }
@@ -822,6 +1294,7 @@ export const searchLogic = kea<searchLogicType>([
                         href,
                         itemType: result.type,
                         rank: result.rank,
+                        disabledReason: getEntryAccessDisabledReason(result),
                         record: {
                             type: result.type,
                             ...result.extra_fields,
@@ -840,6 +1313,7 @@ export const searchLogic = kea<searchLogicType>([
                 s.sceneLogViewsHasLoaded,
                 s.personSearchResultsLoading,
                 s.groupSearchResultsLoading,
+                s.accountSearchResultsLoading,
                 s.playlistSearchResultsLoading,
             ],
             (
@@ -849,6 +1323,7 @@ export const searchLogic = kea<searchLogicType>([
                 sceneLogViewsHasLoaded: boolean,
                 personSearchResultsLoading: boolean,
                 groupSearchResultsLoading: boolean,
+                accountSearchResultsLoading: boolean,
                 playlistSearchResultsLoading: boolean
             ) => ({
                 unifiedSearchResultsLoading,
@@ -856,9 +1331,10 @@ export const searchLogic = kea<searchLogicType>([
                 recentsHasLoaded,
                 starredLoading: !shortcutDataHasLoaded,
                 starredHasLoaded: shortcutDataHasLoaded,
-                isAppsLoading: !sceneLogViewsHasLoaded,
+                isToolsLoading: !sceneLogViewsHasLoaded,
                 personSearchResultsLoading,
                 groupSearchResultsLoading,
+                accountSearchResultsLoading,
                 playlistSearchResultsLoading,
             }),
         ],
@@ -866,7 +1342,7 @@ export const searchLogic = kea<searchLogicType>([
             (s) => [
                 s.recentItems,
                 s.starredItems,
-                s.appsItems,
+                s.toolsItems,
                 s.dataManagementItems,
                 s.peopleItems,
                 s.healthItems,
@@ -875,6 +1351,7 @@ export const searchLogic = kea<searchLogicType>([
                 s.newItems,
                 s.personItems,
                 s.groupItems,
+                s.accountItems,
                 s.playlistItems,
                 s.unifiedSearchItems,
                 s.loadingStates,
@@ -883,7 +1360,7 @@ export const searchLogic = kea<searchLogicType>([
             (
                 recentItems: SearchItem[],
                 starredItems: SearchItem[],
-                appsItems: SearchItem[],
+                toolsItems: SearchItem[],
                 dataManagementItems: SearchItem[],
                 peopleItems: SearchItem[],
                 healthItems: SearchItem[],
@@ -892,6 +1369,7 @@ export const searchLogic = kea<searchLogicType>([
                 newItems: SearchItem[],
                 personItems: SearchItem[],
                 groupItems: SearchItem[],
+                accountItems: SearchItem[],
                 playlistItems: SearchItem[],
                 unifiedSearchItems: Record<string, SearchItem[]>,
                 loadingStates: {
@@ -900,9 +1378,10 @@ export const searchLogic = kea<searchLogicType>([
                     recentsHasLoaded: boolean
                     starredLoading: boolean
                     starredHasLoaded: boolean
-                    isAppsLoading: boolean
+                    isToolsLoading: boolean
                     personSearchResultsLoading: boolean
                     groupSearchResultsLoading: boolean
+                    accountSearchResultsLoading: boolean
                     playlistSearchResultsLoading: boolean
                 },
                 search: string
@@ -913,9 +1392,10 @@ export const searchLogic = kea<searchLogicType>([
                     recentsHasLoaded,
                     starredLoading,
                     starredHasLoaded,
-                    isAppsLoading,
+                    isToolsLoading,
                     personSearchResultsLoading,
                     groupSearchResultsLoading,
+                    accountSearchResultsLoading,
                     playlistSearchResultsLoading,
                 } = loadingStates
 
@@ -945,16 +1425,16 @@ export const searchLogic = kea<searchLogicType>([
                     isLoading: isStarredLoading,
                 })
 
-                // Filter apps and data management by search
-                const filteredApps = filterBySearch(appsItems)
+                // Filter tools and data management by search
+                const filteredTools = filterBySearch(toolsItems)
                 const filteredDataManagement = filterBySearch(dataManagementItems)
 
-                // Show apps if not searching or has matching results
-                if (!hasSearch || filteredApps.length > 0) {
+                // Show tools if not searching or has matching results
+                if (!hasSearch || filteredTools.length > 0) {
                     categories.push({
-                        key: 'apps',
-                        items: isAppsLoading ? [] : filteredApps,
-                        isLoading: isAppsLoading,
+                        key: 'tools',
+                        items: isToolsLoading ? [] : filteredTools,
+                        isLoading: isToolsLoading,
                     })
                 }
 
@@ -962,8 +1442,8 @@ export const searchLogic = kea<searchLogicType>([
                 if (!hasSearch || filteredDataManagement.length > 0) {
                     categories.push({
                         key: 'data-management',
-                        items: isAppsLoading ? [] : filteredDataManagement,
-                        isLoading: isAppsLoading,
+                        items: isToolsLoading ? [] : filteredDataManagement,
+                        isLoading: isToolsLoading,
                     })
                 }
 
@@ -1091,6 +1571,15 @@ export const searchLogic = kea<searchLogicType>([
                         })
                     }
 
+                    // Add accounts
+                    if (accountItems.length > 0 || accountSearchResultsLoading) {
+                        categories.push({
+                            key: 'accounts',
+                            items: accountItems,
+                            isLoading: accountSearchResultsLoading,
+                        })
+                    }
+
                     // Add persons
                     if (personItems.length > 0 || personSearchResultsLoading) {
                         categories.push({
@@ -1114,7 +1603,7 @@ export const searchLogic = kea<searchLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setSearch: async ({ search }, breakpoint) => {
             await breakpoint(150)
 
@@ -1123,8 +1612,38 @@ export const searchLogic = kea<searchLogicType>([
                 actions.loadUnifiedSearchResults({ searchTerm: search })
                 actions.loadPersonSearchResults({ searchTerm: search })
                 actions.loadGroupSearchResults({ searchTerm: search })
+                if (values.featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
+                    actions.loadAccountSearchResults({ searchTerm: search })
+                }
                 actions.loadPlaylistSearchResults({ searchTerm: search })
             }
         },
     })),
+    afterMount(({ actions }) => {
+        import('~/scenes/settings/SettingsMap')
+            .then(({ SETTINGS_MAP }) => {
+                actions.setSettingsSections(
+                    SETTINGS_MAP.map((section) => ({
+                        id: section.id,
+                        level: section.level,
+                        titleString: typeof section.title === 'string' ? section.title : null,
+                        hideFromNavigation: section.hideFromNavigation,
+                        flag: section.flag,
+                        to: section.to,
+                        settings: section.settings.map((setting) => ({
+                            id: setting.id,
+                            // A JSX-titled setting has no title string to search but must stay
+                            // findable via its id token — hasTitle preserves that distinction.
+                            hasTitle: !!setting.title,
+                            titleString: typeof setting.title === 'string' ? setting.title : null,
+                            descriptionString: typeof setting.description === 'string' ? setting.description : null,
+                            keywords: setting.keywords,
+                        })),
+                    }))
+                )
+            })
+            .catch((error) => {
+                console.error('Failed to load SETTINGS_MAP for settings search:', error)
+            })
+    }),
 ])

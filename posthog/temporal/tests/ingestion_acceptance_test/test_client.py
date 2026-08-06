@@ -28,7 +28,7 @@ def mock_posthog_sdk() -> MagicMock:
 
 
 @pytest.fixture
-def client(config: Config, mock_posthog_sdk: MagicMock) -> Generator[PostHogClient, None, None]:
+def client(config: Config, mock_posthog_sdk: MagicMock) -> Generator[PostHogClient]:
     client = PostHogClient(config, mock_posthog_sdk)
     yield client
     client.shutdown()

@@ -1,5 +1,19 @@
-import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { forms } from 'kea-forms'
+import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
@@ -7,12 +21,14 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { objectsEqual } from 'lib/utils'
-import { sceneLogic } from 'scenes/sceneLogic'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
+import { objectsEqual } from 'lib/utils/objects'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 import {
+    DataWarehouseSyncInterval,
     ExternalDataJob,
     ExternalDataJobStatus,
     ExternalDataSchemaStatus,
@@ -20,15 +36,16 @@ import {
     ExternalDataSourceSchema,
 } from '~/types'
 
+import { groupTablesBySchema } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
+import { SYNC_FREQUENCY_ORDER, clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
+
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
 import { SSH_FIELD, getErrorsForFields } from '../../NewSourceScene/sourceWizardLogic'
 import { sourceSceneLogic } from '../SourceScene'
-import type { sourceSettingsLogicType } from './sourceSettingsLogicType'
 
 export interface SourceSettingsLogicProps {
     id: string
-    tabId?: string
     availableSources?: Record<string, SourceConfig>
 }
 
@@ -42,6 +59,8 @@ export interface CdcStatus {
     slot_exists?: boolean
     publication_exists?: boolean
     lag_bytes?: number | null
+    published_tables?: string[]
+    schedule_paused?: boolean
 }
 
 const REFRESH_INTERVAL = 5000
@@ -63,9 +82,30 @@ function nextJobsPollDelay(softFailureCount: number): number {
     return exponential * (0.5 + Math.random() * 0.5)
 }
 
+// Read-only/derived fields to keep out of bulk-update payloads. A denylist (not an allowlist of
+// writable fields) so new editable fields are sent automatically — a stale allowlist silently
+// dropped edits like sync_frequency.
+const NON_WRITABLE_SCHEMA_FIELDS = new Set<keyof ExternalDataSourceSchema>([
+    'id',
+    'name',
+    'label',
+    'table',
+    'last_synced_at',
+    'latest_error',
+    'status',
+    'description',
+    'available_columns',
+    'incremental',
+    'should_sync_default',
+])
+
+type SchemaPayloadField = keyof ExternalDataSourceSchema
+
 interface PendingSchemaUpdate {
     revision: number
     schema: ExternalDataSourceSchema
+    // Fields changed vs. server state, accumulated across coalesced edits before a flush.
+    changedFields: Set<SchemaPayloadField>
 }
 
 interface SchemaUpdateCache {
@@ -119,30 +159,59 @@ function applySchemasToSource(
     )
 }
 
+// PATCH body of only the changed fields (+ id). The backend writes every field it receives, so
+// sending an untouched field would clobber it. Nullish → null so a clear is sent (JSON drops undefined).
 function buildSchemaUpdatePayload(
-    schema: ExternalDataSourceSchema
-): Pick<
-    ExternalDataSourceSchema,
-    | 'id'
-    | 'should_sync'
-    | 'sync_type'
-    | 'incremental_field'
-    | 'incremental_field_type'
-    | 'sync_frequency'
-    | 'sync_time_of_day'
-    | 'cdc_table_mode'
-    | 'enabled_columns'
-> {
+    schema: ExternalDataSourceSchema,
+    changedFields: Set<SchemaPayloadField>
+): Partial<ExternalDataSourceSchema> & Pick<ExternalDataSourceSchema, 'id'> {
+    const payload: Partial<ExternalDataSourceSchema> & Pick<ExternalDataSourceSchema, 'id'> = { id: schema.id }
+    const assign = payload as Record<string, unknown>
+
+    for (const field of changedFields) {
+        assign[field] = schema[field] ?? null
+    }
+
+    return payload
+}
+
+// Writable fields whose value changed vs. the current schema. No baseline (source not loaded) =>
+// treat all as changed so the edit still persists.
+function diffSchemaPayloadFields(
+    nextSchema: ExternalDataSourceSchema,
+    baselineSchema: ExternalDataSourceSchema | undefined
+): Set<SchemaPayloadField> {
+    const changed = new Set<SchemaPayloadField>()
+    const fields = new Set<SchemaPayloadField>([
+        ...(Object.keys(nextSchema) as SchemaPayloadField[]),
+        ...((baselineSchema ? Object.keys(baselineSchema) : []) as SchemaPayloadField[]),
+    ])
+
+    for (const field of fields) {
+        if (NON_WRITABLE_SCHEMA_FIELDS.has(field)) {
+            continue
+        }
+        if (!baselineSchema || !objectsEqual(nextSchema[field], baselineSchema[field])) {
+            changed.add(field)
+        }
+    }
+
+    return changed
+}
+
+// A failed flush merges its fields into the newer queued edit so the retry re-sends both; the newer
+// edit wins on overlap. Otherwise the retry would drop the failed edit's fields.
+function foldFailedUpdateIntoPending(failed: PendingSchemaUpdate, pending: PendingSchemaUpdate): PendingSchemaUpdate {
+    const mergedSchema = { ...failed.schema }
+    const assign = mergedSchema as Record<string, unknown>
+    for (const field of pending.changedFields) {
+        assign[field] = pending.schema[field]
+    }
+
     return {
-        id: schema.id,
-        should_sync: schema.should_sync,
-        sync_type: schema.sync_type,
-        incremental_field: schema.incremental_field,
-        incremental_field_type: schema.incremental_field_type,
-        sync_frequency: schema.sync_frequency,
-        sync_time_of_day: schema.sync_time_of_day,
-        cdc_table_mode: schema.cdc_table_mode,
-        enabled_columns: schema.enabled_columns ?? null,
+        schema: mergedSchema,
+        revision: pending.revision,
+        changedFields: new Set([...failed.changedFields, ...pending.changedFields]),
     }
 }
 
@@ -219,10 +288,389 @@ export const removeEmptySensitiveValues = (fields: SourceFieldConfig[], valueObj
     }
 }
 
+export const clonePayloadPreservingFiles = (value: unknown): unknown => {
+    if (value instanceof File) {
+        return value
+    }
+
+    if (Array.isArray(value)) {
+        return value.map((item) => clonePayloadPreservingFiles(item))
+    }
+
+    if (value instanceof Date) {
+        return new Date(value.getTime())
+    }
+    if (value && typeof value === 'object' && value.constructor === Object) {
+        return Object.fromEntries(
+            Object.entries(value as Record<string, unknown>).map(([key, nestedValue]) => [
+                key,
+                clonePayloadPreservingFiles(nestedValue),
+            ])
+        )
+    }
+
+    return value
+}
+
+// Run a per-schema API action across many schemas; returns how many failed.
+export async function runBulkSchemaAction(
+    schemas: ExternalDataSourceSchema[],
+    action: (schemaId: string) => Promise<unknown>
+): Promise<number> {
+    const results = await Promise.allSettled(schemas.map((schema) => action(schema.id)))
+    return results.filter((result) => result.status === 'rejected').length
+}
+
+// Only schemas that are enabled with a configured sync method can be synced on demand.
+export function schemasEligibleForSync(schemas: ExternalDataSourceSchema[]): ExternalDataSourceSchema[] {
+    return schemas.filter((schema) => !!schema.sync_type && schema.should_sync)
+}
+
+// Bulk-enable payloads: already-enabled schemas are skipped; schemas without a sync method ask
+// the backend to discover and fill in default sync settings as part of the same update.
+export function buildBulkEnablePayloads(
+    schemas: ExternalDataSourceSchema[]
+): (Partial<ExternalDataSourceSchema> & Pick<ExternalDataSourceSchema, 'id'> & { apply_sync_defaults?: boolean })[] {
+    return schemas
+        .filter((schema) => !schema.should_sync)
+        .map((schema) =>
+            schema.sync_type
+                ? { id: schema.id, should_sync: true }
+                : { id: schema.id, should_sync: true, apply_sync_defaults: true }
+        )
+}
+
+function reportBulkResult(verb: string, total: number, failed: number, skipped: number, skipReason = ''): void {
+    const succeeded = total - failed
+    const parts = [`${verb} ${pluralize(succeeded, 'schema', 'schemas')}`]
+    if (failed > 0) {
+        parts.push(`${failed} failed`)
+    }
+    if (skipped > 0) {
+        parts.push(`skipped ${skipped}${skipReason ? ` ${skipReason}` : ''}`)
+    }
+    const message = parts.join(', ')
+    if (failed > 0) {
+        lemonToast.error(message)
+    } else {
+        lemonToast.success(message)
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface sourceSettingsLogicValues {
+    availableSources: Record<string, SourceConfig> | null // availableSourcesLogic
+    bulkEnableLoading: boolean
+    canLoadMoreJobs: boolean
+    cdcStatus: CdcStatus | null
+    cdcStatusError: string | null
+    cdcStatusLoading: boolean
+    filteredSchemas: ExternalDataSourceSchema[]
+    frequencyFilter: DataWarehouseSyncInterval | null
+    groupedFilteredSchemas: {
+        schemaName: string
+        tables: ExternalDataSourceSchema[]
+    }[]
+    inProgressRowsBySchema: Record<string, number>
+    isProjectTime: boolean
+    isSourceConfigSubmitting: boolean
+    isSourceConfigValid: boolean
+    jobs: ExternalDataJob[]
+    jobsLoading: boolean
+    pollPauseCount: number
+    refreshingSchemas: boolean
+    schemaFilterOptions: {
+        frequencies: DataWarehouseSyncInterval[]
+        statuses: string[]
+        syncMethods: (Exclude<ExternalDataSourceSchema['sync_type'], null> | 'none')[]
+    }
+    schemaNameFilter: string
+    selectedSchemas: string[]
+    showEnabledSchemasOnly: boolean
+    showSourceConfigErrors: boolean
+    source: ExternalDataSource | null
+    sourceConfig: Record<string, any>
+    sourceConfigAllErrors: Record<string, any>
+    sourceConfigChanged: boolean
+    sourceConfigErrors: DeepPartialMap<Record<string, any>, ValidationErrorType>
+    sourceConfigHasErrors: boolean
+    sourceConfigLoading: boolean
+    sourceConfigManualErrors: Record<string, any>
+    sourceConfigTouched: boolean
+    sourceConfigTouches: Record<string, boolean>
+    sourceConfigValidationErrors: DeepPartialMap<Record<string, any>, ValidationErrorType>
+    sourceFieldConfig: SourceConfig | null
+    sourceId: string
+    sourceLoading: boolean
+    statusFilter: string | null
+    syncMethodFilter: string | null
+    syncingNow: boolean
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface sourceSettingsLogicActions {
+    updateSource: (source: ExternalDataSource) => ExternalDataSource // sourcesDataLogic
+    bulkDeleteData: (schemas: ExternalDataSourceSchema[]) => {
+        schemas: ExternalDataSourceSchema[]
+    }
+    bulkDisable: (schemas: ExternalDataSourceSchema[]) => {
+        schemas: ExternalDataSourceSchema[]
+    }
+    bulkEnable: (schemas: ExternalDataSourceSchema[]) => {
+        schemas: ExternalDataSourceSchema[]
+    }
+    bulkResync: (schemas: ExternalDataSourceSchema[]) => {
+        schemas: ExternalDataSourceSchema[]
+    }
+    bulkSetFrequency: (
+        schemas: ExternalDataSourceSchema[],
+        frequency: DataWarehouseSyncInterval
+    ) => {
+        frequency: DataWarehouseSyncInterval
+        schemas: ExternalDataSourceSchema[]
+    }
+    bulkSyncNow: (schemas: ExternalDataSourceSchema[]) => {
+        schemas: ExternalDataSourceSchema[]
+    }
+    cancelSchema: (schema: ExternalDataSourceSchema) => {
+        schema: ExternalDataSourceSchema
+    }
+    deleteTable: (schema: ExternalDataSourceSchema) => {
+        schema: ExternalDataSourceSchema
+    }
+    loadCdcStatus: () => any
+    loadCdcStatusFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadCdcStatusSuccess: (
+        cdcStatus: {
+            enabled: boolean
+            lag_bytes?: number | null | undefined
+            lag_critical_threshold_mb?: number | undefined
+            lag_warning_threshold_mb?: number | undefined
+            management_mode?: 'posthog' | 'self_managed' | undefined
+            publication_exists?: boolean | undefined
+            publication_name?: string | undefined
+            published_tables?: string[] | undefined
+            schedule_paused?: boolean | undefined
+            slot_exists?: boolean | undefined
+            slot_name?: string | undefined
+        },
+        payload?: any
+    ) => {
+        cdcStatus: {
+            enabled: boolean
+            lag_bytes?: number | null | undefined
+            lag_critical_threshold_mb?: number | undefined
+            lag_warning_threshold_mb?: number | undefined
+            management_mode?: 'posthog' | 'self_managed' | undefined
+            publication_exists?: boolean | undefined
+            publication_name?: string | undefined
+            published_tables?: string[] | undefined
+            schedule_paused?: boolean | undefined
+            slot_exists?: boolean | undefined
+            slot_name?: string | undefined
+        }
+        payload?: any
+    }
+    loadJobs: () => any
+    loadJobsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadJobsSuccess: (
+        jobs: ExternalDataJob[],
+        payload?: any
+    ) => {
+        jobs: ExternalDataJob[]
+        payload?: any
+    }
+    loadMoreJobs: () => any
+    loadMoreJobsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadMoreJobsSuccess: (
+        jobs: ExternalDataJob[],
+        payload?: any
+    ) => {
+        jobs: ExternalDataJob[]
+        payload?: any
+    }
+    loadSource: () => any
+    loadSourceFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSourceSuccess: (
+        source: ExternalDataSource | null,
+        payload?: any
+    ) => {
+        source: ExternalDataSource | null
+        payload?: any
+    }
+    pausePolling: () => {
+        value: true
+    }
+    refreshSchemas: () => {
+        value: true
+    }
+    reloadSchema: (schema: ExternalDataSourceSchema) => {
+        schema: ExternalDataSourceSchema
+    }
+    resetSourceConfig: (values?: Record<string, any>) => {
+        values?: Record<string, any>
+    }
+    resumePolling: () => {
+        value: true
+    }
+    resyncSchema: (schema: ExternalDataSourceSchema) => {
+        schema: ExternalDataSourceSchema
+    }
+    setBulkEnableLoading: (loading: boolean) => {
+        loading: boolean
+    }
+    setCanLoadMoreJobs: (canLoadMoreJobs: boolean) => {
+        canLoadMoreJobs: boolean
+    }
+    setFrequencyFilter: (frequency: DataWarehouseSyncInterval | null) => {
+        frequency: DataWarehouseSyncInterval | null
+    }
+    setIsProjectTime: (isProjectTime: boolean) => {
+        isProjectTime: boolean
+    }
+    setRefreshingSchemas: (refreshing: boolean) => {
+        refreshing: boolean
+    }
+    setSchemaNameFilter: (schemaNameFilter: string) => {
+        schemaNameFilter: string
+    }
+    setSelectedSchemas: (schemaNames: string[]) => {
+        schemaNames: string[]
+    }
+    setShowEnabledSchemasOnly: (showEnabledSchemasOnly: boolean) => {
+        showEnabledSchemasOnly: boolean
+    }
+    setSourceConfigManualErrors: (errors: Record<string, any>) => {
+        errors: Record<string, any>
+    }
+    setSourceConfigValue: (
+        key: FieldName,
+        value: any
+    ) => {
+        name: FieldName
+        value: any
+    }
+    setSourceConfigValues: (values: DeepPartial<Record<string, any>>) => {
+        values: DeepPartial<Record<string, any>>
+    }
+    setSourceId: (id: string) => {
+        id: string
+    }
+    setStatusFilter: (status: string | null) => {
+        status: string | null
+    }
+    setSyncMethodFilter: (syncMethod: string | null) => {
+        syncMethod: string | null
+    }
+    setSyncingNow: (syncing: boolean) => {
+        syncing: boolean
+    }
+    submitSourceConfig: () => {
+        value: boolean
+    }
+    submitSourceConfigFailure: (
+        error: Error,
+        errors: Record<string, any>
+    ) => {
+        error: Error
+        errors: Record<string, any>
+    }
+    submitSourceConfigRequest: (sourceConfig: Record<string, any>) => {
+        sourceConfig: Record<string, any>
+    }
+    submitSourceConfigSuccess: (sourceConfig: Record<string, any>) => {
+        sourceConfig: Record<string, any>
+    }
+    syncNow: () => {
+        value: true
+    }
+    touchSourceConfigField: (key: string) => {
+        key: string
+    }
+    updateSchema: (schema: ExternalDataSourceSchema) => ExternalDataSourceSchema
+    updateSchemaFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject: any
+    }
+    updateSchemaSuccess: (
+        source: ExternalDataSource | null,
+        payload?: ExternalDataSourceSchema
+    ) => {
+        payload: ExternalDataSourceSchema | undefined
+        source: ExternalDataSource | null
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface sourceSettingsLogicMeta {
+    key: string
+    __keaTypeGenInternalSelectorTypes: {
+        sourceFieldConfig: (
+            source: ExternalDataSource | null,
+            availableSources: Record<string, SourceConfig> | null
+        ) => SourceConfig | null
+        inProgressRowsBySchema: (jobs: ExternalDataJob[]) => Record<string, number>
+        filteredSchemas: (
+            source: ExternalDataSource | null,
+            showEnabledSchemasOnly: boolean,
+            schemaNameFilter: string,
+            statusFilter: string | null,
+            syncMethodFilter: string | null,
+            frequencyFilter: DataWarehouseSyncInterval | null
+        ) => ExternalDataSourceSchema[]
+        groupedFilteredSchemas: (
+            filteredSchemas: ExternalDataSourceSchema[],
+            source: ExternalDataSource | null
+        ) => {
+            schemaName: string
+            tables: ExternalDataSourceSchema[]
+        }[]
+        schemaFilterOptions: (source: ExternalDataSource | null) => {
+            frequencies: DataWarehouseSyncInterval[]
+            statuses: string[]
+            syncMethods: (Exclude<ExternalDataSourceSchema['sync_type'], null> | 'none')[]
+        }
+    }
+}
+
+export type sourceSettingsLogicType = MakeLogicType<
+    sourceSettingsLogicValues,
+    sourceSettingsLogicActions,
+    SourceSettingsLogicProps,
+    sourceSettingsLogicMeta
+>
+
 export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
     path(['products', 'dataWarehouse', 'sourceSettingsLogic']),
     props({} as SourceSettingsLogicProps),
-    key(({ id, tabId }) => (tabId ? `${id}-${tabId}` : id)),
+    key(({ id }) => id),
     connect(() => ({
         values: [availableSourcesLogic, ['availableSources']],
         actions: [sourcesDataLogic, ['updateSource']],
@@ -233,11 +681,24 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         resyncSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         cancelSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         deleteTable: (schema: ExternalDataSourceSchema) => ({ schema }),
+        bulkEnable: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
+        setBulkEnableLoading: (loading: boolean) => ({ loading }),
+        bulkDisable: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
+        bulkSetFrequency: (schemas: ExternalDataSourceSchema[], frequency: DataWarehouseSyncInterval) => ({
+            schemas,
+            frequency,
+        }),
+        bulkSyncNow: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
+        bulkResync: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
+        bulkDeleteData: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
         setCanLoadMoreJobs: (canLoadMoreJobs: boolean) => ({ canLoadMoreJobs }),
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
         setSelectedSchemas: (schemaNames: string[]) => ({ schemaNames }),
         setShowEnabledSchemasOnly: (showEnabledSchemasOnly: boolean) => ({ showEnabledSchemasOnly }),
         setSchemaNameFilter: (schemaNameFilter: string) => ({ schemaNameFilter }),
+        setStatusFilter: (status: string | null) => ({ status }),
+        setSyncMethodFilter: (syncMethod: string | null) => ({ syncMethod }),
+        setFrequencyFilter: (frequency: DataWarehouseSyncInterval | null) => ({ frequency }),
         syncNow: true,
         setSyncingNow: (syncing: boolean) => ({ syncing }),
         refreshSchemas: true,
@@ -383,6 +844,26 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 setSchemaNameFilter: (_, { schemaNameFilter }) => schemaNameFilter,
             },
         ],
+        // null = no filter applied (show all). For sync method, the sentinel 'none' matches
+        // schemas with no sync method set up yet.
+        statusFilter: [
+            null as string | null,
+            {
+                setStatusFilter: (_, { status }) => status,
+            },
+        ],
+        syncMethodFilter: [
+            null as string | null,
+            {
+                setSyncMethodFilter: (_, { syncMethod }) => syncMethod,
+            },
+        ],
+        frequencyFilter: [
+            null as DataWarehouseSyncInterval | null,
+            {
+                setFrequencyFilter: (_, { frequency }) => frequency,
+            },
+        ],
         syncingNow: [
             false as boolean,
             {
@@ -395,6 +876,13 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             {
                 setRefreshingSchemas: (_, { refreshing }) => refreshing,
                 refreshSchemas: () => true,
+            },
+        ],
+        bulkEnableLoading: [
+            false as boolean,
+            {
+                bulkEnable: () => true,
+                setBulkEnableLoading: (_, { loading }) => loading,
             },
         ],
         pollPauseCount: [
@@ -424,7 +912,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
     selectors({
         sourceFieldConfig: [
             (s) => [s.source, s.availableSources],
-            (source, availableSources) => {
+            (source: ExternalDataSource | null, availableSources: Record<string, SourceConfig> | null) => {
                 if (!source || !availableSources) {
                     return null
                 }
@@ -432,9 +920,39 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 return availableSources[source.source_type]
             },
         ],
+        // Live row counts for in-progress syncs, keyed by schema id. Lets the Schemas tab show
+        // progress during the first sync — before the warehouse table (and its row_count) exists,
+        // the table column has nothing to render, so we fall back to the running job's rows_synced.
+        inProgressRowsBySchema: [
+            (s) => [s.jobs],
+            (jobs: ExternalDataJob[]): Record<string, number> => {
+                const map: Record<string, number> = {}
+                // jobs arrive newest-first; keep the first (latest) running job per schema.
+                for (const job of jobs) {
+                    if (job.status === ExternalDataJobStatus.Running && !(job.schema.id in map)) {
+                        map[job.schema.id] = job.rows_synced
+                    }
+                }
+                return map
+            },
+        ],
         filteredSchemas: [
-            (s) => [s.source, s.showEnabledSchemasOnly, s.schemaNameFilter],
-            (source, showEnabledSchemasOnly, schemaNameFilter): ExternalDataSourceSchema[] => {
+            (s) => [
+                s.source,
+                s.showEnabledSchemasOnly,
+                s.schemaNameFilter,
+                s.statusFilter,
+                s.syncMethodFilter,
+                s.frequencyFilter,
+            ],
+            (
+                source: ExternalDataSource | null,
+                showEnabledSchemasOnly: boolean,
+                schemaNameFilter: string,
+                statusFilter: string | null,
+                syncMethodFilter: string | null,
+                frequencyFilter: DataWarehouseSyncInterval | null
+            ): ExternalDataSourceSchema[] => {
                 if (!source?.schemas) {
                     return []
                 }
@@ -446,7 +964,64 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     const filter = schemaNameFilter.toLowerCase()
                     schemas = schemas.filter((schema) => (schema.label ?? schema.name).toLowerCase().includes(filter))
                 }
+                if (statusFilter) {
+                    schemas = schemas.filter((schema) => schema.status === statusFilter)
+                }
+                if (syncMethodFilter) {
+                    schemas = schemas.filter((schema) =>
+                        syncMethodFilter === 'none' ? !schema.sync_type : schema.sync_type === syncMethodFilter
+                    )
+                }
+                if (frequencyFilter) {
+                    schemas = schemas.filter((schema) => schema.sync_frequency === frequencyFilter)
+                }
                 return schemas
+            },
+        ],
+        // Multi-schema SQL sources have qualified schema names (`namespace.table`); group them by
+        // namespace so the Schemas tab matches the wizard's grouping. Single-namespace sources
+        // produce one group and render as a flat table.
+        groupedFilteredSchemas: [
+            (s) => [s.filteredSchemas, s.source],
+            (
+                filteredSchemas: ExternalDataSourceSchema[],
+                source: ExternalDataSource | null
+            ): { schemaName: string; tables: ExternalDataSourceSchema[] }[] =>
+                groupTablesBySchema(
+                    filteredSchemas,
+                    (schema) => schema.name,
+                    typeof source?.job_inputs?.schema === 'string' ? source.job_inputs.schema : null
+                ),
+        ],
+        // Distinct values present across the source's schemas, for populating the filter dropdowns.
+        schemaFilterOptions: [
+            (s) => [s.source],
+            (
+                source: ExternalDataSource | null
+            ): {
+                statuses: string[]
+                syncMethods: (Exclude<ExternalDataSourceSchema['sync_type'], null> | 'none')[]
+                frequencies: DataWarehouseSyncInterval[]
+            } => {
+                const schemas = source?.schemas ?? []
+                const statuses = new Set<string>()
+                const syncMethods = new Set<Exclude<ExternalDataSourceSchema['sync_type'], null> | 'none'>()
+                const frequencies = new Set<DataWarehouseSyncInterval>()
+                for (const schema of schemas) {
+                    if (schema.status) {
+                        statuses.add(schema.status)
+                    }
+                    syncMethods.add(schema.sync_type ?? 'none')
+                    if (schema.sync_frequency) {
+                        frequencies.add(schema.sync_frequency)
+                    }
+                }
+                return {
+                    statuses: Array.from(statuses),
+                    syncMethods: Array.from(syncMethods),
+                    // Order shortest→longest for a readable dropdown rather than schema-encounter order.
+                    frequencies: SYNC_FREQUENCY_ORDER.filter((frequency) => frequencies.has(frequency)),
+                }
             },
         ],
     }),
@@ -456,14 +1031,28 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             // `buildKeaFormDefaultFromSourceDetails` + `setJobInputs`/`setSourceConfigValue`.
             // The cast widens the inferred form value type so reads of `access_method`, payload
             // sub-fields, etc. type-check.
-            defaults: { prefix: '', description: '', payload: {} } as Record<string, any>,
+            defaults: {
+                prefix: '',
+                description: '',
+                payload: {},
+                auto_sync_new_schemas: false,
+                auto_sync_schema_patterns: [],
+            } as Record<string, any>,
             errors: (sourceValues) => {
                 return getErrorsForFields(values.sourceFieldConfig?.fields ?? [], sourceValues as any, {
                     allowBlankSensitiveFields: true,
                 })
             },
-            submit: async ({ payload = {}, description, prefix, access_method }) => {
-                const sanitizedPayload = JSON.parse(JSON.stringify(payload)) as Record<string, any>
+            submit: async ({
+                payload = {},
+                description,
+                prefix,
+                access_method,
+                direct_query_enabled,
+                auto_sync_new_schemas,
+                auto_sync_schema_patterns,
+            }) => {
+                const sanitizedPayload = clonePayloadPreservingFiles(payload) as Record<string, any>
                 if (values.sourceFieldConfig?.fields) {
                     removeEmptySensitiveValues(values.sourceFieldConfig.fields, sanitizedPayload)
                 }
@@ -487,8 +1076,11 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                                     fileReader.readAsText(sanitizedPayload[field.name][0])
                                 })
                                 newJobInputs[field.name] = JSON.parse(loadedFile)
-                            } catch {
-                                lemonToast.error('File is not valid')
+                            } catch (e: any) {
+                                posthog.captureException(e)
+                                lemonToast.error(
+                                    `The "${field.name}" file is not valid — it must be a readable JSON file.`
+                                )
                                 return
                             }
                         }
@@ -501,10 +1093,27 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         job_inputs: newJobInputs,
                         prefix: prefix !== undefined ? prefix : values.source?.prefix,
                         access_method: access_method !== undefined ? access_method : values.source?.access_method,
+                        direct_query_enabled:
+                            direct_query_enabled !== undefined
+                                ? direct_query_enabled
+                                : values.source?.direct_query_enabled,
+                        auto_sync_new_schemas:
+                            auto_sync_new_schemas !== undefined
+                                ? auto_sync_new_schemas
+                                : values.source?.auto_sync_new_schemas,
+                        auto_sync_schema_patterns:
+                            auto_sync_schema_patterns !== undefined
+                                ? auto_sync_schema_patterns
+                                : values.source?.auto_sync_schema_patterns,
                         description: description !== '' ? description : (values.source?.description ?? null),
                     })
                     actions.loadSource()
                     lemonToast.success('Source updated')
+                    tryShowMCPHint('data_warehouse_sources.update', {
+                        derivedPrompt: values.source?.source_type
+                            ? `Update the configuration on my ${values.source.source_type} source`
+                            : undefined,
+                    })
                 } catch (e: any) {
                     if (e.message) {
                         lemonToast.error(e.message)
@@ -544,7 +1153,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     try {
                         const updatedSchemas = await api.externalDataSources.bulkUpdateSchemas(
                             values.sourceId,
-                            batchSchemaUpdates.map(({ schema }) => buildSchemaUpdatePayload(schema))
+                            batchSchemaUpdates.map(({ schema, changedFields }) =>
+                                buildSchemaUpdatePayload(schema, changedFields)
+                            )
                         )
 
                         for (const pendingUpdate of batchSchemaUpdates) {
@@ -575,8 +1186,16 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                             scheduleSchemaUpdateFlush()
                         }
                     } catch (error: any) {
-                        for (const pendingUpdate of batchSchemaUpdates) {
-                            delete schemaUpdateCache.inFlightSchemaUpdates[pendingUpdate.schema.id]
+                        for (const failedUpdate of batchSchemaUpdates) {
+                            delete schemaUpdateCache.inFlightSchemaUpdates[failedUpdate.schema.id]
+
+                            // If a newer edit for this schema is queued, fold the failed fields into it
+                            // so the retry doesn't silently drop what this request was carrying.
+                            const pending = schemaUpdateCache.pendingSchemaUpdates[failedUpdate.schema.id]
+                            if (pending) {
+                                schemaUpdateCache.pendingSchemaUpdates[failedUpdate.schema.id] =
+                                    foldFailedUpdateIntoPending(failedUpdate, pending)
+                            }
                         }
 
                         if (Object.keys(schemaUpdateCache.pendingSchemaUpdates).length > 0) {
@@ -597,7 +1216,16 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 const nextRevision = (schemaUpdateCache.schemaUpdateRevisions[schema.id] ?? 0) + 1
 
                 schemaUpdateCache.schemaUpdateRevisions[schema.id] = nextRevision
-                schemaUpdateCache.pendingSchemaUpdates[schema.id] = { schema, revision: nextRevision }
+
+                // Union this edit's changed fields with any not-yet-flushed pending edit's, so
+                // coalesced edits send everything that changed — not just the latest field.
+                const baselineSchema = values.source?.schemas.find((item) => item.id === schema.id)
+                const changedFields = diffSchemaPayloadFields(schema, baselineSchema)
+                for (const field of schemaUpdateCache.pendingSchemaUpdates[schema.id]?.changedFields ?? []) {
+                    changedFields.add(field)
+                }
+
+                schemaUpdateCache.pendingSchemaUpdates[schema.id] = { schema, revision: nextRevision, changedFields }
 
                 const optimisticSource = applyPendingSchemaUpdatesToSource(
                     values.source,
@@ -646,10 +1274,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     }, 'sourceRefreshTimeout')
                 }
 
-                const tabId = props.tabId ?? sceneLogic.findMounted()?.values.activeTabId ?? undefined
                 const sceneLogicInstance =
-                    sourceSceneLogic.findMounted({ id: `managed-${props.id}`, tabId }) ??
-                    sourceSceneLogic.findMounted({ id: props.id, tabId })
+                    sourceSceneLogic.findMounted({ id: `managed-${props.id}` }) ??
+                    sourceSceneLogic.findMounted({ id: props.id })
 
                 sceneLogicInstance?.actions.setBreadcrumbName(breadcrumbName)
             },
@@ -662,6 +1289,13 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         return () => clearTimeout(timerId)
                     }, 'sourceRefreshTimeout')
                 }
+            },
+            pausePolling: () => {
+                // Cancel the refresh already scheduled by the last load. Skipping the *reschedule*
+                // isn't enough on its own — without this, one more poll would still fire within
+                // REFRESH_INTERVAL and re-render the table, dismissing anything open over it (e.g. a
+                // row's "more" menu).
+                cache.disposables.dispose('sourceRefreshTimeout')
             },
             resumePolling: () => {
                 // After the reducer runs we may have dropped to 0 — but no fresh load has been
@@ -676,6 +1310,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     const {
                         added = 0,
                         deleted = 0,
+                        auto_enabled = 0,
                         total_tables_seen = 0,
                     } = await api.externalDataSources.refreshSchemas(values.sourceId)
                     actions.loadSource()
@@ -683,6 +1318,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         sourceType: values.source?.source_type,
                         added,
                         deleted,
+                        auto_enabled,
                         total_tables_seen,
                     })
                     // Connected and got an empty table list — almost always a permissions
@@ -703,7 +1339,11 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         lemonToast.success(`No schema changes — all ${total_tables_seen} table(s) already tracked.`)
                         return
                     }
-                    const counts = [added > 0 ? `${added} added` : null, deleted > 0 ? `${deleted} deleted` : null]
+                    const counts = [
+                        added > 0 ? `${added} added` : null,
+                        deleted > 0 ? `${deleted} deleted` : null,
+                        auto_enabled > 0 ? `${auto_enabled} auto-enabled` : null,
+                    ]
                         .filter(Boolean)
                         .join(' / ')
                     lemonToast.success(`Schemas refreshed: ${counts}`)
@@ -836,6 +1476,109 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         lemonToast.error("Can't delete data at this time")
                     }
                 }
+            },
+            bulkEnable: async ({ schemas }) => {
+                // Guard against concurrent submissions — a rapid double-click (e.g. on the
+                // imperative dialog's Enable button, which can't reactively disable) would
+                // otherwise fire the PATCH twice and prepare duplicate schedule side effects.
+                if (cache.bulkEnableInFlight) {
+                    return
+                }
+                cache.bulkEnableInFlight = true
+                const payloads = buildBulkEnablePayloads(schemas)
+                if (payloads.length === 0) {
+                    lemonToast.info('All selected schemas are already enabled')
+                    actions.setBulkEnableLoading(false)
+                    cache.bulkEnableInFlight = false
+                    return
+                }
+                const defaultsCount = payloads.filter((payload) => payload.apply_sync_defaults).length
+                try {
+                    const updatedSchemas = await api.externalDataSources.bulkUpdateSchemas(values.sourceId, payloads)
+                    const nextSource = applySchemasToSource(values.source, updatedSchemas)
+                    if (nextSource) {
+                        actions.loadSourceSuccess(nextSource)
+                    }
+                    actions.loadJobs()
+                    posthog.capture('schemas bulk enabled', {
+                        sourceType: values.source?.source_type,
+                        count: payloads.length,
+                        defaultsApplied: defaultsCount,
+                    })
+                    lemonToast.success(
+                        defaultsCount > 0
+                            ? `Enabled ${pluralize(payloads.length, 'schema', 'schemas')} (${defaultsCount} set up with default sync settings)`
+                            : `Enabled ${pluralize(payloads.length, 'schema', 'schemas')}`
+                    )
+                } catch (e: any) {
+                    // Partial failures stay committed server-side; reload to show what did apply.
+                    actions.loadSource()
+                    lemonToast.error(e?.message || "Can't enable schemas at this time")
+                } finally {
+                    actions.setBulkEnableLoading(false)
+                    cache.bulkEnableInFlight = false
+                }
+            },
+            bulkDisable: ({ schemas }) => {
+                // Reuse the debounced single-schema update — these coalesce into one bulk PATCH.
+                schemas.forEach((schema) => actions.updateSchema({ ...schema, should_sync: false }))
+                lemonToast.success(`Disabled ${pluralize(schemas.length, 'schema', 'schemas')}`)
+            },
+            bulkSetFrequency: ({ schemas, frequency }) => {
+                // Schemas can't sync faster than every 5 minutes — clamp so a bulk edit never
+                // pushes them below the floor.
+                let clamped = 0
+                schemas.forEach((schema) => {
+                    const effective = clampSyncFrequency(frequency)
+                    if (effective !== frequency) {
+                        clamped++
+                    }
+                    actions.updateSchema({ ...schema, sync_frequency: effective })
+                })
+                const base = `Updated sync frequency for ${pluralize(schemas.length, 'schema', 'schemas')}`
+                lemonToast.success(clamped > 0 ? `${base} (${clamped} kept at their 5 min minimum)` : base)
+            },
+            bulkSyncNow: async ({ schemas }) => {
+                // Only schemas that are enabled with a sync method can sync.
+                const eligible = schemasEligibleForSync(schemas)
+                const skipped = schemas.length - eligible.length
+                if (eligible.length === 0) {
+                    lemonToast.warning('None of the selected schemas are enabled with a sync method')
+                    return
+                }
+                const failed = await runBulkSchemaAction(eligible, (id) => api.externalDataSchemas.reload(id))
+                actions.loadSource()
+                actions.loadJobs()
+                posthog.capture('schemas bulk synced', {
+                    sourceType: values.source?.source_type,
+                    count: eligible.length,
+                })
+                reportBulkResult(
+                    'Started sync for',
+                    eligible.length,
+                    failed,
+                    skipped,
+                    'disabled or missing sync method'
+                )
+            },
+            bulkResync: async ({ schemas }) => {
+                const failed = await runBulkSchemaAction(schemas, (id) => api.externalDataSchemas.resync(id))
+                actions.loadSource()
+                actions.loadJobs()
+                posthog.capture('schemas bulk resynced', {
+                    sourceType: values.source?.source_type,
+                    count: schemas.length,
+                })
+                reportBulkResult('Resyncing', schemas.length, failed, 0)
+            },
+            bulkDeleteData: async ({ schemas }) => {
+                const failed = await runBulkSchemaAction(schemas, (id) => api.externalDataSchemas.delete_data(id))
+                actions.loadSource()
+                posthog.capture('schemas bulk data deleted', {
+                    sourceType: values.source?.source_type,
+                    count: schemas.length,
+                })
+                reportBulkResult('Deleted data for', schemas.length, failed, 0)
             },
         }
     }),

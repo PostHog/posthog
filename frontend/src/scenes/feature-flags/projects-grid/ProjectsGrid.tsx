@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
@@ -10,14 +10,17 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { FeatureFlagType, OrganizationFeatureFlag } from '~/types'
+import { OrganizationFeatureFlag, OrganizationFeatureFlagRow } from '~/types'
 
+import { BulkCopyFlagsModal, BulkCopyToProjectsButton } from '../BulkCopyFlagsModal'
+import { flagSelectionLogic } from '../flagSelectionLogic'
+import { confirmFlagActiveToggleInProject, flagToggleKey } from '../updateFlagActiveInProject'
 import { CellState, ProjectsGridCell } from './ProjectsGridCell'
 import { projectsGridLogic } from './projectsGridLogic'
 import { ProjectsGridToolbar } from './ProjectsGridToolbar'
 
-function cellStateFor(
-    flag: FeatureFlagType,
+export function cellStateFor(
+    flag: OrganizationFeatureFlagRow,
     teamId: number,
     currentTeamId: number,
     accessibleTeamIds: Set<number>,
@@ -29,18 +32,20 @@ function cellStateFor(
         return { kind: 'present', sibling: siblingForTeam }
     }
 
-    // Before siblings load, render the current team's cell from the flag directly
-    // (eval count unavailable until siblings arrive).
-    if (teamId === currentTeamId) {
+    // Before siblings load, render the current team's cell directly from the row's representative
+    // flag, but only when that representative actually belongs to the current team (eval count
+    // unavailable until siblings arrive).
+    if (teamId === currentTeamId && flag.team_id === currentTeamId) {
         return {
             kind: 'present',
             sibling: {
                 flag_id: flag.id,
                 team_id: teamId,
-                created_by: flag.created_by ?? null,
                 filters: flag.filters,
-                created_at: flag.created_at ?? '',
                 active: flag.active,
+                // Not rendered by ProjectsGridCell; the row doesn't carry them to avoid a per-row join.
+                created_by: null,
+                created_at: '',
             },
         }
     }
@@ -63,12 +68,16 @@ export function ProjectsGrid(): JSX.Element {
         accessibleTeamIds,
         siblingsByFlagKey,
         siblingsLoadingKeys,
+        togglingFlagIds,
     } = useValues(projectsGridLogic)
-    const { loadMoreFlags } = useActions(projectsGridLogic)
+    const { loadMoreFlags, toggleFlagActive } = useActions(projectsGridLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const { openBulkCopyModal } = useActions(flagSelectionLogic)
 
     const sentinelRef = useRef<HTMLDivElement>(null)
+    // State (not a ref) so the table re-renders once the toolbar slot mounts and the bar can portal into it
+    const [bulkBarTarget, setBulkBarTarget] = useState<HTMLDivElement | null>(null)
 
     useEffect(() => {
         const el = sentinelRef.current
@@ -98,14 +107,14 @@ export function ProjectsGrid(): JSX.Element {
 
     const columnWidth = `${100 / (visibleColumns.length + 1)}%`
 
-    const columns: LemonTableColumns<FeatureFlagType> = [
+    const columns: LemonTableColumns<OrganizationFeatureFlagRow> = [
         {
             title: 'Flag',
             key: 'flag',
             width: columnWidth,
             render: (_, flag) => (
                 <LemonTableLink
-                    to={urls.featureFlag(flag.id as number)}
+                    to={urls.project(flag.team_id, urls.featureFlag(flag.id))}
                     title={flag.name || flag.key}
                     description={flag.key}
                 />
@@ -122,18 +131,33 @@ export function ProjectsGrid(): JSX.Element {
             ),
             key: `project-${teamId}`,
             width: columnWidth,
-            render: (_: unknown, flag: FeatureFlagType) => (
-                <ProjectsGridCell
-                    state={cellStateFor(
-                        flag,
-                        teamId,
-                        currentTeamId,
-                        accessibleTeamIds,
-                        siblingsByFlagKey[flag.key],
-                        siblingsLoadingKeys.includes(flag.key)
-                    )}
-                />
-            ),
+            render: (_: unknown, flag: OrganizationFeatureFlagRow) => {
+                const state = cellStateFor(
+                    flag,
+                    teamId,
+                    currentTeamId,
+                    accessibleTeamIds,
+                    siblingsByFlagKey[flag.key],
+                    siblingsLoadingKeys.includes(flag.key)
+                )
+                const flagId = state.kind === 'present' ? state.sibling.flag_id : null
+                return (
+                    <ProjectsGridCell
+                        state={state}
+                        toggling={flagId !== null ? togglingFlagIds[flagToggleKey(teamId, flagId)] : false}
+                        onToggle={
+                            flagId !== null
+                                ? (active) =>
+                                      confirmFlagActiveToggleInProject({
+                                          teamName: teamsById.get(teamId)?.name ?? `Project ${teamId}`,
+                                          active,
+                                          onConfirm: () => toggleFlagActive(flag.key, teamId, flagId, active),
+                                      })
+                                : undefined
+                        }
+                    />
+                )
+            },
         })),
     ]
 
@@ -142,7 +166,8 @@ export function ProjectsGrid(): JSX.Element {
             title="Feature flags across projects"
             description="Compare each flag's status, rollout, and recent usage across your organization's projects."
         >
-            <ProjectsGridToolbar />
+            <ProjectsGridToolbar bulkSelectionBarRef={setBulkBarTarget} />
+            <BulkCopyFlagsModal />
             <LemonTable
                 columns={columns}
                 dataSource={flags}
@@ -151,6 +176,26 @@ export function ProjectsGrid(): JSX.Element {
                 emptyState="No flags match your search."
                 data-attr="projects-grid-table"
                 className="[&_table]:table-fixed"
+                bulkSelection={{
+                    getKey: (flag: OrganizationFeatureFlagRow): string => flag.key,
+                    rowAriaLabel: (flag: OrganizationFeatureFlagRow) => `Select feature flag ${flag.key}`,
+                    headerAriaLabel: 'Select all loaded feature flags',
+                    noun: ['flag', 'flags'],
+                    barPortalTarget: bulkBarTarget,
+                    renderActions: (ctx) => (
+                        <BulkCopyToProjectsButton
+                            dataAttr="projects-grid-bulk-copy-button"
+                            selectedCount={ctx.selectedCount}
+                            onOpen={() =>
+                                openBulkCopyModal({
+                                    sourceProjectId: currentTeamId,
+                                    flagKeys: ctx.selectedKeys.map(String),
+                                    sourceSelectable: true,
+                                })
+                            }
+                        />
+                    ),
+                }}
             />
             {flagsPageLoading && flags.length > 0 && <LemonSkeleton className="h-8 my-2" />}
             <div ref={sentinelRef} className="h-1" />

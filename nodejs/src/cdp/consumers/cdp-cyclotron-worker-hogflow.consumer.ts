@@ -1,7 +1,7 @@
 import { instrumented } from '~/common/tracing/tracing-utils'
+import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
 
-import { logger } from '../../utils/logger'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
@@ -57,8 +57,40 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
                 const hogFlowInvocationState = item.state as CyclotronJobInvocationHogFlow['state']
 
-                const personIdOrDistinctId = hogFlowInvocationState.event.distinct_id || hogFlowInvocationState.personId
-                const kind = hogFlowInvocationState.event.distinct_id ? 'distinct_id' : 'person_id'
+                // Warehouse-row invocations don't have a real person — the row is the unit of work
+                // and person-dependent steps no-op for these flows. Explicitly skip the person lookup
+                // rather than relying on event.distinct_id being empty so future changes to the
+                // synthetic event shape don't accidentally re-enable the lookup.
+                const isWarehouseRow = hogFlow.trigger?.type === 'data-warehouse-table'
+                // Account-audience batch invocations carry the account's group key as
+                // event.distinct_id; resolving it as a person distinct_id would attach an
+                // unrelated person to the run. Accounts have no person — skip the lookup.
+                // The state stamp wins over the live trigger, which may have been edited to a
+                // person audience while these children were queued; the trigger check remains
+                // as a fallback for jobs enqueued before the stamp existed.
+                const isAccountAudience =
+                    hogFlowInvocationState.accountAudience === true ||
+                    (hogFlow.trigger?.type === 'batch' && hogFlow.trigger.filters?.audience_type === 'accounts')
+                // The matcher wrote this job's personId anchor: a merge repointed the distinct_id onto a
+                // survivor, or the distinct_id acquired its first person. Resolve by that personId so the step
+                // reads the right person — resolving by the distinct_id would hit its stale ~1min cache entry
+                // (the pre-merge person, or none at all) and e.g. drop an email.
+                const resolveByRepointedPerson =
+                    hogFlowInvocationState.personIdRepointed === true && !!hogFlowInvocationState.personId
+                // One-shot: consume the flag on this wake-resolution only. Later steps fall back to normal
+                // distinct_id-first resolution, which self-heals to the latest survivor if the distinct_id is
+                // repointed again (a second merge onto a non-wait step is out of processMoveBatch's scope).
+                if (resolveByRepointedPerson) {
+                    delete hogFlowInvocationState.personIdRepointed
+                }
+                const personIdOrDistinctId =
+                    isWarehouseRow || isAccountAudience
+                        ? undefined
+                        : resolveByRepointedPerson
+                          ? hogFlowInvocationState.personId
+                          : hogFlowInvocationState.event.distinct_id || hogFlowInvocationState.personId
+                const kind =
+                    resolveByRepointedPerson || !hogFlowInvocationState.event.distinct_id ? 'person_id' : 'distinct_id'
 
                 const [person, groups] = await Promise.all([
                     personIdOrDistinctId
@@ -87,6 +119,14 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     hogFlowInvocationState.event.distinct_id = person.distinct_id
                 }
 
+                // Persist the resolved person UUID into state so a re-parked wait keeps its person_id
+                // even when a later re-resolution transiently misses. clickhouse_person wakes match on
+                // person_id only, so a wait parked with person_id = null could never be woken by a
+                // person-property change — it would depend entirely on the polling backstop.
+                if (person?.id && !hogFlowInvocationState.personId) {
+                    hogFlowInvocationState.personId = person.id
+                }
+
                 const filterGlobals = convertToHogFunctionFilterGlobal({
                     event: hogFlowInvocationState.event,
                     person: person ?? undefined,
@@ -99,6 +139,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     state: hogFlowInvocationState,
                     hogFlow,
                     person: person ?? undefined,
+                    groups,
                     filterGlobals,
                 })
             })

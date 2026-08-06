@@ -1,4 +1,5 @@
 export { AndroidInstallation } from './android'
+export { FlutterInstallation } from './flutter'
 export { GoInstallation } from './go'
 export { IOSInstallation } from './ios'
 export { JavaInstallation } from './java'

@@ -7,10 +7,10 @@ from django.conf import settings
 from temporalio import exceptions, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.models import BatchExportRun
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.models.batch_export import BatchExportRun
 from products.batch_exports.backend.service import (
     BackfillDetails,
     BatchExportField,
@@ -24,6 +24,12 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     insert_into_internal_stage_activity,
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
+from products.batch_exports.backend.temporal.workflow_metadata import (
+    WorkflowDetails,
+    build_logs_link,
+    build_team_admin_link,
+    humanize_bytes,
+)
 
 LOGGER = get_write_only_logger(__name__)
 
@@ -43,6 +49,7 @@ class _BatchExportInputsProtocol(typing.Protocol):
     destination_default_fields: list[BatchExportField] | None = None
     stage_folder: str | None = None
     on_demand: bool = False
+    records_total: int | None = None
 
 
 class _ComposedBatchExportInputsProtocol(typing.Protocol):
@@ -72,7 +79,6 @@ async def execute_batch_export_using_internal_stage(
     maximum_retry_interval_seconds: int = DEFAULT_MAX_RETRY_INTERVAL_SECONDS,
     maximum_stage_retry_interval_seconds: int = DEFAULT_MAX_STAGE_RETRY_INTERVAL_SECONDS,
     override_start_to_close_timeout_seconds: int | None = None,
-    num_partitions: int | None = None,
     is_workflows: bool = False,
 ) -> BatchExportResultType:
     """
@@ -99,8 +105,6 @@ async def execute_batch_export_using_internal_stage(
         override_start_to_close_timeout_seconds: Optionally, override the start-to-close
             timeout of the main activity. If this is lower than the calculated default
             timeout for the main activity, then the default will be preferred.
-        num_partitions: Optionally, set a number of partitions for the internal stage
-            activity.
     """
     if hasattr(inputs, "batch_export"):
         batch_export_inputs: _BatchExportInputsProtocol = inputs.batch_export  # ty: ignore[invalid-assignment]
@@ -110,16 +114,18 @@ async def execute_batch_export_using_internal_stage(
     model_name = batch_export_inputs.batch_export_model.name if batch_export_inputs.batch_export_model else "events"
     get_export_started_metric(model=model_name).add(1)
 
+    data_window = f"`{batch_export_inputs.data_interval_start}` → `{batch_export_inputs.data_interval_end}`"
+    interval_value = data_window if batch_export_inputs.on_demand else f"{interval} {data_window}"
+    details = (
+        WorkflowDetails(footer=build_logs_link(workflow.info().workflow_id))
+        .add("Team", build_team_admin_link(batch_export_inputs.team_id))
+        .add("Interval", interval_value)
+        .add("Model", model_name)
+    )
+    workflow.set_current_details(details.render())
+
     assert batch_export_inputs.batch_export_id is not None
     assert batch_export_inputs.run_id is not None
-
-    finish_inputs = FinishBatchExportRunInputs(
-        id=batch_export_inputs.run_id,
-        batch_export_id=batch_export_inputs.batch_export_id,
-        status=BatchExportRun.Status.COMPLETED,
-        team_id=batch_export_inputs.team_id,
-        on_demand=batch_export_inputs.on_demand,
-    )
 
     if TEST:
         maximum_attempts = 1
@@ -128,18 +134,26 @@ async def execute_batch_export_using_internal_stage(
         heartbeat_timeout_seconds = settings.BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS
 
     override_start_to_close_timeout_timedelta = dt.timedelta(seconds=override_start_to_close_timeout_seconds or 0)
+    failure_check_window = 50  # Default, overriden based on interval
+
     if interval == "hour":
         # TODO - we should reduce this to 1 hour once we are more confident about hitting 1 hour SLAs.
         # TODO: Review timeouts for internal stage activity.
         main_activity_start_to_close_timeout = max(dt.timedelta(hours=6), override_start_to_close_timeout_timedelta)
         stage_activity_start_to_close_timeout = dt.timedelta(hours=1)
+        failure_check_window = 24  # A day's worth of runs
+
     elif interval == "day":
         main_activity_start_to_close_timeout = max(dt.timedelta(days=1), override_start_to_close_timeout_timedelta)
         stage_activity_start_to_close_timeout = dt.timedelta(hours=6)
+        failure_check_window = 7  # A week's worth of runs
+
     elif interval == "week":
         # TODO - review these once we have more users using weekly batch exports
         main_activity_start_to_close_timeout = max(dt.timedelta(days=3), override_start_to_close_timeout_timedelta)
         stage_activity_start_to_close_timeout = dt.timedelta(days=1)
+        failure_check_window = 4  # A (roughly) months' worth of runs
+
     elif interval.startswith("every"):
         _, value, unit = interval.split(" ")
         kwargs = {unit: int(value)}
@@ -148,37 +162,71 @@ async def execute_batch_export_using_internal_stage(
             dt.timedelta(minutes=20), dt.timedelta(**kwargs), override_start_to_close_timeout_timedelta
         )
         stage_activity_start_to_close_timeout = main_activity_start_to_close_timeout
+
+        if unit == "minutes":
+            runs_in_an_hour = 60 // int(value)
+            failure_check_window = runs_in_an_hour  # Last hour worth of runs
+        else:
+            # Anything other than minutes is not currently supported, but just
+            # setting a default in case we ever add support for, e.g., seconds.
+            failure_check_window = 50
     else:
         raise ValueError(f"Unsupported interval: '{interval}'")
 
+    finish_inputs = FinishBatchExportRunInputs(
+        id=batch_export_inputs.run_id,
+        batch_export_id=batch_export_inputs.batch_export_id,
+        status=BatchExportRun.Status.COMPLETED,
+        team_id=batch_export_inputs.team_id,
+        on_demand=batch_export_inputs.on_demand,
+        failure_check_window=failure_check_window,
+    )
+
     try:
-        stage_folder = await workflow.execute_activity(
-            insert_into_internal_stage_activity,
-            BatchExportInsertIntoInternalStageInputs(
-                team_id=batch_export_inputs.team_id,
-                batch_export_id=batch_export_inputs.batch_export_id,
-                data_interval_start=batch_export_inputs.data_interval_start,
-                data_interval_end=batch_export_inputs.data_interval_end,
-                exclude_events=batch_export_inputs.exclude_events,
-                include_events=batch_export_inputs.include_events,
-                run_id=batch_export_inputs.run_id,
-                backfill_details=batch_export_inputs.backfill_details,
-                batch_export_model=batch_export_inputs.batch_export_model,
-                num_partitions=num_partitions,
-                is_workflows=is_workflows,
-                batch_export_schema=batch_export_inputs.batch_export_schema,
-                destination_default_fields=batch_export_inputs.destination_default_fields,
-            ),
-            start_to_close_timeout=stage_activity_start_to_close_timeout,
-            heartbeat_timeout=dt.timedelta(seconds=heartbeat_timeout_seconds) if heartbeat_timeout_seconds else None,
-            retry_policy=RetryPolicy(
+        stage_inputs = BatchExportInsertIntoInternalStageInputs(
+            team_id=batch_export_inputs.team_id,
+            batch_export_id=batch_export_inputs.batch_export_id,
+            data_interval_start=batch_export_inputs.data_interval_start,
+            data_interval_end=batch_export_inputs.data_interval_end,
+            exclude_events=batch_export_inputs.exclude_events,
+            include_events=batch_export_inputs.include_events,
+            run_id=batch_export_inputs.run_id,
+            backfill_details=batch_export_inputs.backfill_details,
+            batch_export_model=batch_export_inputs.batch_export_model,
+            is_workflows=is_workflows,
+            batch_export_schema=batch_export_inputs.batch_export_schema,
+            destination_default_fields=batch_export_inputs.destination_default_fields,
+        )
+        stage_activity_kwargs: dict[str, typing.Any] = {
+            "start_to_close_timeout": stage_activity_start_to_close_timeout,
+            "heartbeat_timeout": dt.timedelta(seconds=heartbeat_timeout_seconds) if heartbeat_timeout_seconds else None,
+            "retry_policy": RetryPolicy(
                 initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
                 maximum_interval=dt.timedelta(seconds=maximum_stage_retry_interval_seconds),
                 maximum_attempts=maximum_attempts,
                 non_retryable_error_types=["InvalidFilterError", "DataIntervalEndInFutureError"],
             ),
-        )
-        batch_export_inputs.stage_folder = stage_folder
+        }
+        # The stage activity's return type changed from `str` (just the folder) to
+        # `InternalStageResult`. Guard with `workflow.patched` so workflows whose history
+        # recorded the old bare-string result still replay correctly during a rolling deploy.
+        # TODO: clean up once new code is fully rolled out
+        if workflow.patched("batch-exports-stage-result"):
+            stage_result = await workflow.execute_activity(
+                insert_into_internal_stage_activity, stage_inputs, **stage_activity_kwargs
+            )
+            batch_export_inputs.stage_folder = stage_result.stage_folder
+            batch_export_inputs.records_total = stage_result.records_total
+            if stage_result.records_total is not None:
+                workflow.set_current_details(details.add("Staged records", stage_result.records_total).render())
+        else:
+            # Pass the activity by name (not the typed callable): `execute_activity` overrides
+            # `result_type` with the callable's annotation, which would force the old recorded
+            # `str` result to deserialize as `InternalStageResult` and fail. The string form
+            # honors `result_type=str`.
+            batch_export_inputs.stage_folder = await workflow.execute_activity(
+                "insert_into_internal_stage_activity", stage_inputs, result_type=str, **stage_activity_kwargs
+            )
         result = await workflow.execute_activity(
             activity,
             inputs,
@@ -213,6 +261,17 @@ async def execute_batch_export_using_internal_stage(
 
     finally:
         get_export_finished_metric(status=finish_inputs.status.lower(), model=model_name).add(1)
+
+        bytes_exported = (
+            humanize_bytes(finish_inputs.bytes_exported) if finish_inputs.bytes_exported is not None else None
+        )
+        workflow.set_current_details(
+            details.add("Status", finish_inputs.status)
+            .add("Records completed", finish_inputs.records_completed)
+            .add("Bytes exported", bytes_exported)
+            .code_block("Error", finish_inputs.latest_error)
+            .render()
+        )
 
         await workflow.execute_activity(
             finish_batch_export_run,

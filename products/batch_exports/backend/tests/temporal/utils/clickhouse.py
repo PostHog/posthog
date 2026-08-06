@@ -7,7 +7,7 @@ from posthog.models.app_metrics2.sql import APP_METRICS2_DATA_TABLE_SQL, APP_MET
 from posthog.temporal.common.asyncpa import InvalidMessageFormat
 from posthog.temporal.common.clickhouse import ClickHouseClient, ClickHouseError
 
-from products.batch_exports.backend.temporal.spmc import slice_record_batch
+from products.batch_exports.backend.temporal.pipeline.producer import slice_record_batch
 
 
 @retry(
@@ -25,7 +25,9 @@ async def execute_query(clickhouse_client: ClickHouseClient, query: str, *data):
 
 
 async def create_clickhouse_tables_and_views(clickhouse_client):
-    from posthog.batch_exports.sql import (
+    from posthog.clickhouse.schema import CREATE_KAFKA_TABLE_QUERIES, build_query
+
+    from products.batch_exports.backend.sql import (
         CREATE_EVENTS_BATCH_EXPORT_VIEW,
         CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL,
         CREATE_EVENTS_BATCH_EXPORT_VIEW_RECENT,
@@ -33,7 +35,6 @@ async def create_clickhouse_tables_and_views(clickhouse_client):
         CREATE_PERSONS_BATCH_EXPORT_VIEW,
         CREATE_PERSONS_BATCH_EXPORT_VIEW_BACKFILL,
     )
-    from posthog.clickhouse.schema import CREATE_KAFKA_TABLE_QUERIES, build_query
 
     create_view_queries = (
         CREATE_EVENTS_BATCH_EXPORT_VIEW,

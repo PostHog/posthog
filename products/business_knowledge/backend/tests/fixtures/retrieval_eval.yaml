@@ -16,6 +16,16 @@
       expect_found: true
     - query: "30 days"
       expect_found: true
+    # Stemming: "refunding" -> "refund", which the old ILIKE substring scan missed.
+    - query: "refunding"
+      expect_found: true
+    # Stemming: "cancelled" -> "cancel" matches "cancellation" in the text.
+    - query: "cancelled subscription"
+      expect_found: true
+    # Natural-language question: OR semantics + ts_rank still surface the chunk
+    # even though not every term appears (AND semantics would return nothing).
+    - query: "can a customer get a refund within 30 days of purchase"
+      expect_found: true
     - query: "quantum physics research"
       expect_found: false
 

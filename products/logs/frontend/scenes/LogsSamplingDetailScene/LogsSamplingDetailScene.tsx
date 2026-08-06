@@ -5,7 +5,7 @@ import { IconInfo, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
-import { compactNumber, humanizeBytes } from 'lib/utils'
+import { compactNumber, humanizeBytes } from 'lib/utils/numbers'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'

@@ -1,8 +1,9 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 
-import { IconArrowLeft, IconCopy, IconPlus, IconTrash } from '@posthog/icons'
+import { IconArrowLeft, IconCopy, IconPlus, IconTrash, IconWarning } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonInput,
     LemonSelect,
@@ -16,6 +17,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -29,11 +31,19 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
+import { LLMProviderKey } from '../settings/llmProviderKeysLogic'
+import {
+    getUnhealthyProviderKey,
+    providerKeyStateIssueDescription,
+    providerLabel,
+} from '../settings/providerKeyStateUtils'
 import { HOG_TAGGER_EXAMPLES } from './hogTaggerExamples'
 import { HogTestResult, TagRun, llmTaggerLogic } from './llmTaggerLogic'
+import { Tagger, TaggerConditionSet } from './types'
 
 const DEFAULT_HOG_SOURCE = `// Return a list of tag names that apply to this generation
 // Available globals: input, output, properties, event, tags
@@ -43,7 +53,6 @@ if (output ilike '%billing%') {
     print('Found: billing')
 }
 return result`
-import { TaggerConditionSet } from './types'
 
 export const scene: SceneExport = {
     component: AIObservabilityTagScene,
@@ -102,23 +111,15 @@ function TagDefinitionsEditor({ id }: { id: string }): JSX.Element {
 }
 
 function TaggerModelPicker({ id }: { id: string }): JSX.Element {
-    const {
-        hasByokKeys,
-        byokModels,
-        trialModels,
-        providerModelGroups,
-        trialProviderModelGroups,
-        byokModelsLoading,
-        trialModelsLoading,
-        providerKeysLoading,
-    } = useValues(modelPickerLogic)
+    const { hasByokKeys, byokModels, providerModelGroups, byokModelsLoading, providerKeysLoading } =
+        useValues(modelPickerLogic)
     const { selectedModel, selectedPickerProviderKeyId } = useValues(llmTaggerLogic({ id }))
     const { selectModelFromPicker } = useActions(llmTaggerLogic({ id }))
 
-    const allModels = hasByokKeys ? byokModels : trialModels
-    const selectedModelName = allModels.find((m) => m.id === selectedModel)?.name
-    const groups = hasByokKeys ? providerModelGroups : trialProviderModelGroups
-    const loading = hasByokKeys ? byokModelsLoading || providerKeysLoading : trialModelsLoading
+    // Taggers always run on the team's own provider key, so only BYOK models are offered.
+    const selectedModelName = byokModels.find((m) => m.id === selectedModel)?.name
+    const groups = providerModelGroups
+    const loading = byokModelsLoading || providerKeysLoading
 
     const footerLink = getModelPickerFooterLink(hasByokKeys)
 
@@ -576,21 +577,36 @@ function AIObservabilityTaggerForm({ id }: { id: string }): JSX.Element {
                     </div>
 
                     <div className="flex gap-2 pt-4 border-t">
-                        <LemonButton
-                            type="primary"
-                            onClick={submitTaggerForm}
-                            loading={isTaggerFormSubmitting}
-                            disabledReason={!taggerFormChanged && id !== 'new' ? 'No changes to save' : undefined}
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Tagger}
+                            minAccessLevel={AccessControlLevel.Editor}
                         >
-                            {id === 'new' ? 'Create tagger' : 'Save changes'}
-                        </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                onClick={submitTaggerForm}
+                                loading={isTaggerFormSubmitting}
+                                disabledReason={!taggerFormChanged && id !== 'new' ? 'No changes to save' : undefined}
+                            >
+                                {id === 'new' ? 'Create tagger' : 'Save changes'}
+                            </LemonButton>
+                        </AccessControlAction>
                         <LemonButton type="secondary" to={urls.aiObservabilityTags()}>
                             Cancel
                         </LemonButton>
                         {id !== 'new' && (
-                            <LemonButton type="secondary" status="danger" className="ml-auto" onClick={deleteTagger}>
-                                Delete
-                            </LemonButton>
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Tagger}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton
+                                    type="secondary"
+                                    status="danger"
+                                    className="ml-auto"
+                                    onClick={deleteTagger}
+                                >
+                                    Delete
+                                </LemonButton>
+                            </AccessControlAction>
                         )}
                     </div>
                 </div>
@@ -714,11 +730,20 @@ function TagRunsTable({ id }: { id: string }): JSX.Element {
     )
 }
 
+function getTaggerProviderKeyIssue(tagger: Tagger | null, providerKeys: LLMProviderKey[]): LLMProviderKey | null {
+    if (!tagger || tagger.tagger_type === 'hog') {
+        return null
+    }
+
+    return getUnhealthyProviderKey(providerKeys, tagger.model_configuration?.provider_key_id)
+}
+
 export function AIObservabilityTagScene({ id }: { id?: string }): JSX.Element {
     const taggerId = id || 'new'
     const isNew = taggerId === 'new'
-    const { tagger, taggerLoading, activeTab } = useValues(llmTaggerLogic({ id: taggerId }))
+    const { tagger, taggerLoading, activeTab, providerKeys } = useValues(llmTaggerLogic({ id: taggerId }))
     const { setActiveTab } = useActions(llmTaggerLogic({ id: taggerId }))
+    const providerKeyIssue = tagger?.enabled ? getTaggerProviderKeyIssue(tagger, providerKeys) : null
 
     if (taggerLoading) {
         return (
@@ -740,6 +765,11 @@ export function AIObservabilityTagScene({ id }: { id?: string }): JSX.Element {
                                 <LemonTag type={tagger.enabled ? 'success' : 'default'}>
                                     {tagger.enabled ? 'Enabled' : 'Disabled'}
                                 </LemonTag>
+                                {providerKeyIssue && (
+                                    <LemonTag type="warning" icon={<IconWarning />}>
+                                        Key issue
+                                    </LemonTag>
+                                )}
                             </div>
                         )}
                     </div>
@@ -747,6 +777,23 @@ export function AIObservabilityTagScene({ id }: { id?: string }): JSX.Element {
                         Back
                     </LemonButton>
                 </div>
+
+                {providerKeyIssue && (
+                    <LemonBanner type="warning">
+                        <div className="space-y-2">
+                            <p>
+                                This tagger is paused because API key{' '}
+                                <span className="font-semibold">{providerKeyIssue.name}</span> (
+                                {providerLabel(providerKeyIssue.provider)}){' '}
+                                {providerKeyStateIssueDescription(providerKeyIssue.state)}.
+                            </p>
+                            <p>Error: {providerKeyIssue.error_message || 'Unknown error'}</p>
+                            <Link to={urls.settings('project-ai-observability', 'ai-observability-byok')}>
+                                Go to settings to fix this key.
+                            </Link>
+                        </div>
+                    </LemonBanner>
+                )}
 
                 <LemonTabs
                     activeKey={isNew ? 'configuration' : activeTab}

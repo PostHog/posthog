@@ -25,6 +25,7 @@ import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Customization } from 'scenes/surveys/survey-appearance/SurveyCustomization'
+import { SurveyTranslationFields } from 'scenes/surveys/SurveyTranslationFields'
 import { SurveyTranslations } from 'scenes/surveys/SurveyTranslations'
 import { getSurveyWithTranslatedContent } from 'scenes/surveys/surveyTranslationUtils'
 import { sanitizeSurveyAppearance, validateSurveyAppearance } from 'scenes/surveys/utils'
@@ -606,6 +607,7 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
                                 </div>
                             ) : null}
                             <SurveyTranslations />
+                            {activeLanguage ? <SurveyTranslationFields activeLanguage={activeLanguage} /> : null}
                         </div>
                     </section>
                 ) : null}
@@ -623,6 +625,9 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
                                             survey={survey}
                                             hasBranchingLogic={hasBranchingLogic}
                                             deleteBranchingLogic={deleteBranchingLogic}
+                                            onTranslationsChange={(translations) =>
+                                                setSurveyValue('translations', translations)
+                                            }
                                             hasRatingButtons={survey.questions.some(
                                                 (question) => question.type === SurveyQuestionType.Rating
                                             )}

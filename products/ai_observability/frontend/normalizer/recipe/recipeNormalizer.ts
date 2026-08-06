@@ -1,38 +1,44 @@
 import { CompatMessage } from '../../types'
-import { AVAILABLE_TOOLS_ROLE, safeStringify } from '../../utils'
+import { AVAILABLE_TOOLS_ROLE } from '../../utils'
 import { loadRecipes } from './registry'
-import { NO_MATCH, RecipePipeline } from './runtime/pipeline'
+import { RecipePipeline, RunOutcome } from './runtime/pipeline'
+import { Recipe } from './spec/recipe'
 
 export class RecipeNormalizer {
-    private readonly pipeline: RecipePipeline
+    private pipeline: RecipePipeline
 
-    constructor() {
-        this.pipeline = new RecipePipeline(loadRecipes())
+    constructor(recipes: Recipe[] = loadRecipes()) {
+        this.pipeline = new RecipePipeline(recipes)
     }
 
-    normalizeMessage(input: unknown, defaultRole: string): CompatMessage[] {
-        // `undefined` carries no message (a missing field, a sparse array slot). cajole
-        // intentionally doesn't match it, so handle it here rather than dispatch a miss.
+    setRecipes(recipes: Recipe[]): void {
+        this.pipeline = new RecipePipeline(recipes)
+    }
+
+    normalizeMessage(input: unknown, defaultRole: string): RunOutcome {
+        // `undefined` carries no message (a missing field, a sparse array slot) and
+        // nothing to recognize — treat as an empty, recognized result.
         if (input === undefined) {
-            return []
+            return { messages: [], recognized: true }
         }
-        const result = this.pipeline.run(input, defaultRole)
-        if (result === NO_MATCH) {
-            // cajole.yaml matches anything, so NO_MATCH means a coverage gap, not a normal miss.
-            throw new Error(
-                `RecipeNormalizer: no recipe matched ${safeStringify(input, 0).slice(0, 200)} — cajole.yaml should be the final catch-all`
-            )
-        }
-        return result
+        return this.pipeline.run(input, defaultRole)
     }
 
-    normalizeMessages(input: unknown, defaultRole: string, tools?: unknown): CompatMessage[] {
+    normalizeMessages(input: unknown, defaultRole: string, tools?: unknown): RunOutcome {
         const messages: CompatMessage[] = []
         if (tools) {
             // `tools` is a function parameter, not a message shape, so it has no recipe.
             messages.push({ role: AVAILABLE_TOOLS_ROLE, content: '', tools })
         }
-        messages.push(...this.normalizeMessage(input, defaultRole))
-        return messages
+        if (carriesMessages(input)) {
+            const outcome = this.normalizeMessage(input, defaultRole)
+            messages.push(...outcome.messages)
+            return { messages, recognized: outcome.recognized }
+        }
+        return { messages, recognized: true }
     }
+}
+
+function carriesMessages(input: unknown): boolean {
+    return Array.isArray(input) || typeof input === 'string' || (typeof input === 'object' && input !== null)
 }

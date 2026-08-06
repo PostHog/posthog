@@ -20,8 +20,13 @@ if TYPE_CHECKING:
     from posthog.models.team.team import Team
     from posthog.models.user import User
 
-SUPPORT_SLACK_MAX_IMAGE_BYTES = 4 * 1024 * 1024
 SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES = ("slack.com", "slack-edge.com", "slack-files.com")
+
+# Attachment sync in both directions depends on these. Older installs were authorized without
+# them, so the settings page asks those teams to reconnect.
+SUPPORT_SLACK_FILE_READ_SCOPE = "files:read"
+SUPPORT_SLACK_FILE_WRITE_SCOPE = "files:write"
+SUPPORT_SLACK_FILE_SCOPES = frozenset({SUPPORT_SLACK_FILE_READ_SCOPE, SUPPORT_SLACK_FILE_WRITE_SCOPE})
 
 
 def get_support_slack_settings() -> dict:
@@ -32,9 +37,31 @@ def get_support_slack_settings() -> dict:
     )
 
 
+def supporthog_missing_file_scopes(team: "Team") -> list[str]:
+    """File scopes this install hasn't granted, for logging why attachments failed.
+
+    Installs authorized before we recorded scopes report both as missing, which is what
+    they are: neither was requested at the time.
+    """
+    settings = team.conversations_settings
+    granted = settings.get("slack_scopes") if isinstance(settings, dict) else None
+    return sorted(SUPPORT_SLACK_FILE_SCOPES.difference(granted or []))
+
+
 def get_support_slack_bot_token(team: "Team") -> str:
     config = get_or_create_team_extension(team, TeamConversationsSlackConfig)
     return str(config.slack_bot_token or "")
+
+
+def team_exists_for_slack_workspace(slack_team_id: str) -> bool:
+    """Whether any team has SupportHog connected to this Slack workspace.
+
+    Used by the webhook endpoints for region routing — the Celery task re-resolves
+    the full config, so only existence matters here.
+    """
+    return TeamConversationsSlackConfig.objects.filter(
+        slack_team_id=slack_team_id, slack_bot_token__isnull=False
+    ).exists()
 
 
 def validate_support_request(request: HttpRequest | Request) -> None:
@@ -79,6 +106,7 @@ def save_supporthog_slack_token(
     is_impersonated_session: bool,
     bot_token: str,
     slack_team_id: str,
+    granted_scopes: list[str] | None = None,
 ) -> None:
     config = get_or_create_team_extension(team, TeamConversationsSlackConfig)
     old_token = config.slack_bot_token
@@ -86,6 +114,10 @@ def save_supporthog_slack_token(
 
     settings = team.conversations_settings or {}
     settings["slack_enabled"] = True
+    if granted_scopes is not None:
+        # Left untouched when the caller doesn't know them, so we never replace a real
+        # install's scopes with an empty list and prompt a pointless reconnect.
+        settings["slack_scopes"] = sorted(set(granted_scopes))
     team.conversations_settings = settings
 
     with transaction.atomic():
@@ -139,6 +171,7 @@ def clear_supporthog_slack_token(
     settings["slack_enabled"] = False
     settings.pop("slack_bot_display_name", None)
     settings.pop("slack_bot_icon_url", None)
+    settings.pop("slack_scopes", None)
     team.conversations_settings = settings
 
     with transaction.atomic():

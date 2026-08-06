@@ -4,7 +4,7 @@ import { Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { retentionLogic } from 'scenes/retention/retentionLogic'
 

@@ -3,6 +3,10 @@ from typing import Any, Optional, Union
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from django.conf import settings
+
+from parameterized import parameterized
+
 from posthog.schema import SessionTableVersion
 
 from posthog.hogql import ast
@@ -317,6 +321,69 @@ SELECT
         expected = f("raw_sessions.min_timestamp >= ('2024-03-12' - toIntervalDay(3))")
         assert expected == actual
 
+    @parameterized.expand(
+        [
+            # `NOT (a OR b)` as an ast.Not node
+            ("not_node", lambda inner: ast.Not(expr=inner)),
+            # the same thing as a `not(...)` call, which the parser can also emit
+            ("not_call", lambda inner: ast.Call(name="not", args=[inner])),
+        ]
+    )
+    def test_negated_or_chain_fails_safe(self, _name, wrap):
+        # `NOT (host ILIKE 'a' OR host ILIKE 'b')` must not lift `NOT True` = False into the inner
+        # aggregation (which would drop every session). The extractor can't reduce it, so no inner filter.
+        negated_or = wrap(
+            ast.Or(
+                exprs=[
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["host"]),
+                        op=ast.CompareOperationOp.ILike,
+                        right=ast.Constant(value="localhost:3000"),
+                    ),
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["host"]),
+                        op=ast.CompareOperationOp.ILike,
+                        right=ast.Constant(value="localhost:3001"),
+                    ),
+                ]
+            )
+        )
+        select = ast.SelectQuery(select=[], where=negated_or)
+        assert self.inliner.get_inner_where(select) is None
+
+    def test_negated_or_chain_does_not_poison_timestamp_bound(self):
+        # A liftable timestamp bound alongside a negated OR-chain must still be extracted cleanly — the
+        # NOT branch fails safe to True and is dropped from the AND, rather than adding `NOT True` = False.
+        where = ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    left=ast.Field(chain=["$start_timestamp"]),
+                    op=ast.CompareOperationOp.Gt,
+                    right=ast.Constant(value="2021-01-01"),
+                ),
+                ast.Not(
+                    expr=ast.Or(
+                        exprs=[
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["host"]),
+                                op=ast.CompareOperationOp.ILike,
+                                right=ast.Constant(value="localhost:3000"),
+                            ),
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["host"]),
+                                op=ast.CompareOperationOp.ILike,
+                                right=ast.Constant(value="localhost:3001"),
+                            ),
+                        ]
+                    )
+                ),
+            ]
+        )
+        select = ast.SelectQuery(select=[], where=where)
+        actual = f(self.inliner.get_inner_where(select))
+        expected = f("raw_sessions.min_timestamp >= ('2021-01-01' - toIntervalDay(3))")
+        assert expected == actual
+
     def test_handles_select_set_query_in_comparison(self):
         select_set_query = ast.SelectSetQuery(
             initial_select_query=ast.SelectQuery(select=[ast.Constant(value="2021-01-01")]),
@@ -339,6 +406,8 @@ SELECT
 
 
 class TestSessionsQueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
+    allow_dual_schema_snapshots = True
+
     def print_query(self, query: str) -> str:
         team = self.team
         modifiers = create_default_modifiers_for_team(team)
@@ -355,9 +424,17 @@ class TestSessionsQueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
         pretty = print_prepared_ast(prepared_ast, context=context, dialect="clickhouse", pretty=True)
         return pretty
 
+    def assert_printed_matches_snapshot(self, actual: str) -> None:
+        generalized_sql = self.generalize_sql(actual)
+        self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in generalized_sql:
+            assert generalized_sql == self.snapshot(name="new_events_schema")
+            return
+        assert generalized_sql == self.snapshot
+
     def test_select_with_timestamp(self):
         actual = self.print_query("SELECT session_id FROM sessions WHERE $start_timestamp > '2021-01-01'")
-        assert self.generalize_sql(actual) == self.snapshot
+        self.assert_printed_matches_snapshot(actual)
 
     def test_join_with_events(self):
         actual = self.print_query(
@@ -372,7 +449,7 @@ WHERE events.timestamp > '2021-01-01'
 GROUP BY sessions.session_id
 """
         )
-        assert self.generalize_sql(actual) == self.snapshot
+        self.assert_printed_matches_snapshot(actual)
 
     def test_union(self):
         actual = self.print_query(
@@ -384,7 +461,7 @@ FROM events
 WHERE events.timestamp < today()
             """
         )
-        assert self.generalize_sql(actual) == self.snapshot
+        self.assert_printed_matches_snapshot(actual)
 
     def test_session_breakdown(self):
         actual = self.print_query(
@@ -428,7 +505,7 @@ WHERE and(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(toDateTime('2024
 GROUP BY day_start,
          breakdown_value"""
         )
-        assert self.generalize_sql(actual) == self.snapshot
+        self.assert_printed_matches_snapshot(actual)
 
     def test_session_replay_query(self):
         actual = self.print_query(
@@ -441,4 +518,4 @@ WHERE s.session.$entry_pathname = '/home' AND min_first_timestamp >= '2021-01-01
 GROUP BY session_id
         """
         )
-        assert self.generalize_sql(actual) == self.snapshot
+        self.assert_printed_matches_snapshot(actual)

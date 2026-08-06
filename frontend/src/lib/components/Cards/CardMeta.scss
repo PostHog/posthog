@@ -104,6 +104,9 @@
             position: absolute;
             top: 0.5rem;
             right: 0.75rem;
+
+            // Opaque strip so the hover-revealed refresh icon sits over (not garbles) the title tail.
+            background: var(--color-bg-surface-primary);
         }
 
         .CardMeta__divider {
@@ -196,4 +199,25 @@
     display: flex;
     gap: 0.25rem;
     align-items: center;
+}
+
+// Refresh control is hidden at rest and revealed only when hovering the tile header.
+// Use `visibility` (not `opacity`) so a disabled LemonButton's own opacity override
+// — which kicks in once a refreshed tile is rate-limited — can't keep it visible.
+// Keyboard/touch users reach refresh via the always-present "⋯" menu.
+.CardMeta__refresh {
+    visibility: hidden;
+}
+
+.CardMeta:hover .CardMeta__refresh {
+    visibility: visible;
+}
+
+// On compact tiles too narrow to fit the icon without overlapping the title, keep it hidden
+// even on hover — refresh stays available in the "⋯" menu. The container is only established in
+// compact mode, so this never applies to the non-compact (saved insights) layout.
+@container (max-width: 22rem) {
+    .CardMeta:hover .CardMeta__refresh {
+        visibility: hidden;
+    }
 }

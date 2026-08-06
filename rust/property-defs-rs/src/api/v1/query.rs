@@ -66,6 +66,7 @@ impl Manager {
             project_id,
             params.parent_type,
             &params.event_names,
+            &params.is_feature_flag,
         );
 
         // begin the WHERE clause
@@ -137,11 +138,12 @@ impl Manager {
         self.gen_prop_defs_select_clause(qb, params.use_enterprise_taxonomy);
 
         // append event_property_field clause to SELECT clause
-        let is_seen_resolved = if self.is_parent_type_event(params.parent_type) {
-            format!("{EVENT_PROPERTY_TABLE_ALIAS}.\"property\"")
-        } else {
-            "NULL".to_string()
-        };
+        let is_seen_resolved =
+            if self.should_join_event_property(params.parent_type, &params.is_feature_flag) {
+                format!("{EVENT_PROPERTY_TABLE_ALIAS}.\"property\"")
+            } else {
+                "NULL".to_string()
+            };
         qb.push(format!(
             ", {is_seen_resolved} IS NOT NULL AS is_seen_on_filtered_events "
         ));
@@ -152,6 +154,7 @@ impl Manager {
             project_id,
             params.parent_type,
             &params.event_names,
+            &params.is_feature_flag,
         );
 
         // begin the WHERE clause
@@ -243,33 +246,34 @@ impl Manager {
         project_id: i32,
         parent_type: PropertyParentType,
         event_names: &'args [String],
+        is_feature_flag: &Option<bool>,
     ) {
-        // conditionally join on event properties table
-        // this join is only applied if the query is scoped to type "event"
-        if self.is_parent_type_event(parent_type) {
-            let filter_by_event_names = !event_names.is_empty();
-
-            // if a list of event_names was supplied, we want this join to narrow
-            // to only those events. otherwise it's a LEFT JOIN for enrichment only
-            qb.push(self.event_property_join_type(filter_by_event_names));
-            qb.push(format!(
-                " (SELECT DISTINCT property FROM {EVENT_PROPERTY_TABLE} WHERE COALESCE(project_id, team_id) = "
-            ));
-            qb.push_bind(project_id);
-            qb.push(" ");
-
-            // conditionally apply filter if event_names list was supplied
-            if filter_by_event_names {
-                qb.push(" AND event = ANY(");
-                qb.push_bind(event_names);
-                qb.push(") ");
-            }
-
-            // close the JOIN clause and add the JOIN condition
-            qb.push(format!(
-                ") AS {EVENT_PROPERTY_TABLE_ALIAS} ON {EVENT_PROPERTY_TABLE_ALIAS}.\"property\" = {PROPERTY_DEFS_TABLE}.\"name\" "
-            ));
+        if !self.should_join_event_property(parent_type, is_feature_flag) {
+            return;
         }
+
+        let filter_by_event_names = !event_names.is_empty();
+
+        // if a list of event_names was supplied, we want this join to narrow
+        // to only those events. otherwise it's a LEFT JOIN for enrichment only
+        qb.push(self.event_property_join_type(filter_by_event_names));
+        qb.push(format!(
+            " (SELECT DISTINCT property FROM {EVENT_PROPERTY_TABLE} WHERE COALESCE(project_id, team_id) = "
+        ));
+        qb.push_bind(project_id);
+        qb.push(" ");
+
+        // conditionally apply filter if event_names list was supplied
+        if filter_by_event_names {
+            qb.push(" AND event = ANY(");
+            qb.push_bind(event_names);
+            qb.push(") ");
+        }
+
+        // close the JOIN clause and add the JOIN condition
+        qb.push(format!(
+            ") AS {EVENT_PROPERTY_TABLE_ALIAS} ON {EVENT_PROPERTY_TABLE_ALIAS}.\"property\" = {PROPERTY_DEFS_TABLE}.\"name\" "
+        ));
     }
 
     fn init_where_clause(&self, qb: &mut QueryBuilder<Postgres>, project_id: i32) {
@@ -469,6 +473,16 @@ impl Manager {
         } else {
             " LEFT JOIN "
         }
+    }
+
+    // Should the query JOIN on posthog_eventproperty? False for non-event types
+    // and for feature flag queries (flags are global, not per-event).
+    fn should_join_event_property(
+        &self,
+        parent_type: PropertyParentType,
+        is_feature_flag: &Option<bool>,
+    ) -> bool {
+        self.is_parent_type_event(parent_type) && !matches!(is_feature_flag, Some(true))
     }
 
     // is the "parent type" of this request (and prop defs query) the default "event" type?

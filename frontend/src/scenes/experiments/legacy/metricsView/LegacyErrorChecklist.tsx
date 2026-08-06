@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { getInsightType, legacyExperimentLogic } from '~/scenes/experiments/legacy'
+import { getExperimentVariants } from '~/scenes/experiments/utils'
 import { ActivityTab, InsightType } from '~/types'
 
 export enum ResultErrorCode {
@@ -127,7 +128,7 @@ export function LegacyErrorChecklist({ error, metric }: { error: any; metric: an
         return <></>
     }
 
-    const variants = experiment?.parameters?.feature_flag_variants || []
+    const variants = getExperimentVariants(experiment)
 
     const { statusCode, hasDiagnostics } = error
 

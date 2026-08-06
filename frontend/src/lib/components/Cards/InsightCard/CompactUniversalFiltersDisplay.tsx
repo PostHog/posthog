@@ -1,3 +1,5 @@
+import './InsightDetails.scss'
+
 import { useValues } from 'kea'
 import React from 'react'
 
@@ -11,7 +13,9 @@ import {
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Link } from 'lib/lemon-ui/Link'
-import { allOperatorsMapping, capitalizeFirstLetter } from 'lib/utils'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { allOperatorsMapping } from 'lib/utils/operators'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -37,6 +41,16 @@ function isEventFilter(filter: UniversalFiltersGroupValue): filter is ActionFilt
 
 function isUniversalFiltersGroup(value: UniversalFiltersGroupValue): value is UniversalFiltersGroup {
     return (value as UniversalFiltersGroup).type !== undefined && (value as UniversalFiltersGroup).values !== undefined
+}
+
+// A filter value can be a number, boolean, etc.; render it as text with the full value on hover, since
+// long values (e.g. URLs) are truncated to one line.
+function PropertyValueDisplay({ value }: { value: PropertyFilterBaseValue }): JSX.Element {
+    return (
+        <Tooltip title={String(value)}>
+            <code className="SeriesDisplay__value">{String(value)}</code>
+        </Tooltip>
+    )
 }
 
 export function CompactUniversalFiltersDisplay({
@@ -155,14 +169,14 @@ export function CompactUniversalFiltersDisplay({
                                         (Array.isArray(propertyFilter.value) ? (
                                             propertyFilter.value.map((subValue, index) => (
                                                 <React.Fragment key={index}>
-                                                    <code className="SeriesDisplay__value">{String(subValue)}</code>
+                                                    <PropertyValueDisplay value={subValue} />
                                                     {index <
                                                         (propertyFilter.value as PropertyFilterBaseValue[]).length -
                                                             1 && ' or '}
                                                 </React.Fragment>
                                             ))
                                         ) : propertyFilter.value != undefined ? (
-                                            <code className="SeriesDisplay__value">{String(propertyFilter.value)}</code>
+                                            <PropertyValueDisplay value={propertyFilter.value} />
                                         ) : null)}
                                 </>
                             )}

@@ -63,6 +63,9 @@ def generate_test_persons(
 
 async def insert_person_values_in_clickhouse(client: ClickHouseClient, persons: list[PersonValues]):
     """Execute an insert query to insert provided PersonValues into person."""
+    if not persons:
+        return
+
     await execute_query(
         client,
         f"""
@@ -109,8 +112,9 @@ async def generate_test_persons_in_clickhouse(
     batch_size: int = 10000,
 ) -> tuple[list[PersonValues], list[PersonValues]]:
     persons: list[PersonValues] = []
+    persons_to_insert: list[PersonValues] = []
     while len(persons) < count:
-        persons_to_insert = generate_test_persons(
+        generated_persons = generate_test_persons(
             count=min(count - len(persons), batch_size),
             team_id=team_id,
             timestamp_start=start_time,
@@ -123,9 +127,12 @@ async def generate_test_persons_in_clickhouse(
             start=len(persons),
         )
 
-        await insert_person_values_in_clickhouse(client=client, persons=persons_to_insert)
+        persons_to_insert.extend(generated_persons)
+        if len(persons_to_insert) >= batch_size:
+            await insert_person_values_in_clickhouse(client=client, persons=persons_to_insert)
+            persons_to_insert = []
 
-        persons.extend(persons_to_insert)
+        persons.extend(generated_persons)
 
     persons_from_other_team = generate_test_persons(
         count=count_other_team,
@@ -140,7 +147,8 @@ async def generate_test_persons_in_clickhouse(
         start=len(persons),
     )
 
-    await insert_person_values_in_clickhouse(client=client, persons=persons_from_other_team)
+    persons_to_insert.extend(persons_from_other_team)
+    await insert_person_values_in_clickhouse(client=client, persons=persons_to_insert)
     return (persons, persons_from_other_team)
 
 
@@ -181,6 +189,9 @@ async def insert_person_distinct_id2_values_in_clickhouse(
     client: ClickHouseClient, persons: list[PersonDistinctId2Values]
 ):
     """Execute an insert query to insert provided PersonDistinctId2Values into person."""
+    if not persons:
+        return
+
     await execute_query(
         client,
         f"""
@@ -227,8 +238,6 @@ async def generate_test_person_distinct_id2_in_clickhouse(
         version=version,
     )
 
-    await insert_person_distinct_id2_values_in_clickhouse(client=client, persons=[person])
-
     person_from_other_team = generate_test_person_distinct_id2(
         count=1,
         team_id=team_id + random.randint(1, 1000),
@@ -239,5 +248,5 @@ async def generate_test_person_distinct_id2_in_clickhouse(
         version=version,
     )
 
-    await insert_person_distinct_id2_values_in_clickhouse(client=client, persons=[person_from_other_team])
+    await insert_person_distinct_id2_values_in_clickhouse(client=client, persons=[person, person_from_other_team])
     return (person, person_from_other_team)

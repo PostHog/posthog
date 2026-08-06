@@ -2,7 +2,7 @@ import { Meta, StoryFn } from '@storybook/react'
 import { useRef } from 'react'
 
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 
 import { SessionTimeline, SessionTimelineHandle } from './SessionTimeline'
 import { ItemCategory, ItemCollector, ItemLoader, ItemRenderer, TimelineItem } from './timeline'

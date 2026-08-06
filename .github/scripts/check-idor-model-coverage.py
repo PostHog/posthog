@@ -135,11 +135,17 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # Outbound email delivery queue — looked up by PK / comment FK from internal
         # tasks (send + sweeper), never by user-supplied ID through an API.
         "EmailOutboxMessage",
-        "InsightCachingState",
         "InstanceSetting",
         "Schedule",
         # --- Auto-scoped via ProductTeamModel (TeamScopedManager handles filtering) ---
         "SplineReticulator",  # CI scaffold (hogli product:bootstrap)
+        # stamphog lives on a separate product DB; every model is a ProductTeamModel whose
+        # fail-closed manager (.for_team / safely_get_queryset) scopes every query by team_id.
+        "StamphogRepoConfig",
+        "PullRequest",
+        "ReviewRun",
+        "DigestChannel",
+        "DigestRun",
         # --- Accessed via parent FK (no direct team-scoped lookup needed) ---
         "AlertSubscription",
         "Approval",
@@ -149,26 +155,52 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "BatchExportRun",
         "CodeInvite",
         "CodeInviteRedemption",
+        # Comment↔Slack-thread mirror mapping — looked up by source_comment FK or
+        # (scope, item_id) within team scope, and by internally-generated task-arg id;
+        # never by user-supplied CommentSlackThread id through an API. Fail-closed via
+        # TeamScopedManager (TeamScopedRootMixin) on top.
+        "CommentSlackThread",
         "EndpointVersion",
         "ErrorTrackingIssueAssignment",
         "StreamlitAppVersion",
         "FeatureFlagEvaluationContext",
+        "ProductPushCampaign",
         "Run",
         "RunSnapshot",
         "TicketAssignment",
         # --- Internal config / OneToOne settings ---
+        # OneToOne extension of Organization, read via the org relation
+        # (enrichment_record), never looked up by user-supplied ID.
+        "OrganizationEnrichment",
+        # Write-once idempotency guard keyed on the org, claimed via get_or_create from an
+        # internal enrichment write-back path, never looked up by user-supplied ID.
+        "EnrichmentSignupSnapshot",
+        # Append-only raw provider-payload archive written by the internal enrichment path;
+        # no API endpoint, never looked up by user-supplied ID.
+        "OrganizationEnrichmentFetch",
+        # Instance-global classifier definition, so there is no team_id to scope on. Seeded by
+        # migration and read by the batch runner; no API endpoint, never looked up by user-supplied ID.
+        "EnrichmentPromptConfig",
+        # Shadow classifier output, org-scoped rather than team-scoped. Written only by the batch
+        # runner and read-only in admin; no API endpoint, never looked up by user-supplied ID.
+        # It carries an Organization FK, so the org_scoped rule would otherwise cover it: remove this
+        # exemption the moment an endpoint exposes it, or the rule stops protecting it silently.
+        "EnrichmentLabelResult",
         # Model kept to avoid a deletion migration but has no API endpoint
         "ErrorTrackingAutoCaptureControls",
         "DuckLakeBackfill",
         "DuckLakeCatalog",
         "DuckgresServer",
+        "DuckgresSinkSchemaState",
         "EvaluationConfig",
         "RemoteConfig",
         "TeamConversationsSlackConfig",
+        "TeamConversationsTeamsChannelSync",
         "TeamCustomerAnalyticsConfig",
         "TeamDefaultEvaluationContext",
         "TeamDataWarehouseConfig",
         "TeamExperimentsConfig",
+        "TeamFeatureFlagsConfig",
         "TeamLogsConfig",
         "TeamMarketingAnalyticsConfig",
         "TeamRevenueAnalyticsConfig",
@@ -177,6 +209,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # --- User preferences with no IDOR risk (read own data only) ---
         "FeatureFlagOverride",
         "NotificationReadState",
+        "NotificationArchiveState",
         "NotificationViewed",
         "SessionRecordingPlaylistViewed",
         "UserPromptState",
@@ -208,6 +241,10 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "SessionRecordingComment",
         "SessionSummary",
         "SharePassword",
+        # Per-(Slack workspace, Slack channel) approval state — looked up by
+        # `(slack_workspace_id, slack_channel_id)` from the Slack event handler,
+        # never by user-supplied ID. `approved_by` is for audit only.
+        "SlackChannel",
         "UserActivity",
         "UserGroup",
         "UserGroupMembership",
@@ -253,6 +290,8 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "PromptSequence",
         "UserPromptState",
         # --- Global catalogs ---
+        "CommunitySkill",  # instance-global community skills catalog, synced from GitHub
+        "CommunitySkillFile",  # bundled files of a CommunitySkill (scoped via the catalog row)
         "HogFunctionTemplate",
         "MCPServer",
         # --- Special (has source_team + destination_team, not a plain team) ---
@@ -269,6 +308,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "ProxyRecord",
         "Role",
         "RoleMembership",
+        "LinkedIdentityProviderConfig",
         # --- User-scoped (cross-tenant by design) ---
         "NotificationViewed",
         "SCIMProvisionedUser",
@@ -277,6 +317,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # --- Infra / no tenant data ---
         "EventBuffer",
         "EventIngestionRestrictionConfig",
+        "GlobalRateLimitThresholdConfig",
         "MessagingRecord",
     }
 
@@ -310,6 +351,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "LogsAlertCheck",  # via LogsAlertConfiguration
         "LogsAlertEvent",  # via LogsAlertConfiguration
         "NotificationReadState",  # via NotificationEvent
+        "NotificationArchiveState",  # via NotificationEvent
         "PluginStorage",  # via PluginConfig
         "ResourceNotebook",  # via Notebook
         "SchemaPropertyGroupProperty",  # via SchemaPropertyGroup
@@ -317,6 +359,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "SessionRecordingExternalReference",  # via SessionRecording
         "SessionRecordingPlaylistItem",  # via Playlist
         "SharePassword",  # via SharingConfiguration
+        "SourceBatchDuckgresStatus",  # via SourceBatch
         "SourceBatchStatus",  # via SourceBatch
         "StreamlitAppSandbox",  # via StreamlitApp
         "TaggedItem",  # via Tag/Dashboard/Insight
@@ -620,7 +663,7 @@ def main() -> int:
     code_models, excluded_models, legitimately_unscoped, needs_team_id = get_scoped_models()
 
     # Get models from semgrep rules
-    semgrep_path = REPO_ROOT / ".semgrep/rules/idor-team-scoped-models.yaml"
+    semgrep_path = REPO_ROOT / ".semgrep/rules/security/idor-team-scoped-models.yaml"
     semgrep_models = parse_semgrep_models(semgrep_path)
 
     # Compare and report
@@ -723,7 +766,7 @@ def main() -> int:
     if has_errors:
         print("\n❌ FAILED: Some models need attention.")
         print("\nTo fix IDOR semgrep gaps:")
-        print("  1. Add the missing models to .semgrep/rules/idor-team-scoped-models.yaml")
+        print("  1. Add the missing models to .semgrep/rules/security/idor-team-scoped-models.yaml")
         print("  2. Or add them to EXCLUDED_MODELS in this script if they don't need IDOR protection")
         print("  3. For unscoped models: add team_id, or add to LEGITIMATELY_UNSCOPED / NEEDS_TEAM_ID")
         print("To fix fail-closed manager gaps:")

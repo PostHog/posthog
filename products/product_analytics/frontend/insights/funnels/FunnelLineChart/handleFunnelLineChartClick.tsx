@@ -1,6 +1,6 @@
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { dayjs } from 'lib/dayjs'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { hasBreakdown } from 'scenes/funnels/funnelUtils'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import type { OpenPersonsModalProps } from 'scenes/trends/persons-modal/PersonsModal'

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGear, IconSearch, IconTarget, IconX } from '@posthog/icons'
+import { IconDownload, IconGear, IconSearch, IconStar, IconTarget, IconX } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
@@ -13,7 +13,12 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { ScenePanel, ScenePanelActionsSection, ScenePanelDivider, ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 
+import { isWebAnalyticsAchievementsEnabled } from './achievements/gating'
+import { webAnalyticsAchievementsLogic } from './achievements/webAnalyticsAchievementsLogic'
+import { webAnalyticsAchievementsPreferencesLogic } from './achievements/webAnalyticsAchievementsPreferencesLogic'
 import { ProductTab, TILE_LABELS, TileId } from './common'
+import { shareNudgeLogic } from './shareNudgeLogic'
+import { exportAllTilesAsCsvZip } from './webAnalyticsExportUtils'
 
 const ANALYTICS_TILES = [
     TileId.OVERVIEW,
@@ -36,32 +41,42 @@ export const WebAnalyticsMenu = (): JSX.Element => {
         hiddenTiles,
         isFocusModeActive,
         productTab,
-        shouldFilterTestAccounts,
         showFocusMode,
+        tiles,
         useWebAnalyticsPrecompute,
     } = useValues(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { achievementsOptOut } = useValues(webAnalyticsAchievementsPreferencesLogic)
 
-    const {
-        enterFocusMode,
-        exitFocusMode,
-        openFocusModeModal,
-        setShouldFilterTestAccounts,
-        setUseWebAnalyticsPrecompute,
-        setTileVisibility,
-    } = useActions(webAnalyticsLogic)
+    const { enterFocusMode, exitFocusMode, openFocusModeModal, setUseWebAnalyticsPrecompute, setTileVisibility } =
+        useActions(webAnalyticsLogic)
+    const { openModal: openAchievementsModal } = useActions(webAnalyticsAchievementsLogic)
+    const { exportTriggered } = useActions(shareNudgeLogic)
 
     const showTileToggles = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_TOGGLES]
+    const showAchievements = isWebAnalyticsAchievementsEnabled(featureFlags, achievementsOptOut)
     const availableTiles = productTab === ProductTab.ANALYTICS ? ANALYTICS_TILES : []
 
     return (
         <ScenePanel>
             <ScenePanelActionsSection>
+                <ButtonPrimitive
+                    menuItem
+                    data-attr="web-analytics-export-all-csv"
+                    onClick={() => {
+                        if (exportAllTilesAsCsvZip(tiles)) {
+                            exportTriggered()
+                        }
+                    }}
+                >
+                    <IconDownload />
+                    Export all as CSV (.zip)
+                </ButtonPrimitive>
                 <Link to={urls.sessionAttributionExplorer()} buttonProps={{ menuItem: true }}>
                     <IconSearch /> Session Attribution Explorer
                 </Link>
                 {showFocusMode && (
-                    <ButtonPrimitive menuItem onClick={openFocusModeModal}>
+                    <ButtonPrimitive menuItem onClick={() => openFocusModeModal()}>
                         <IconGear />
                         Focus mode settings...
                     </ButtonPrimitive>
@@ -78,32 +93,32 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                             Enter focus mode
                         </ButtonPrimitive>
                     ) : null)}
-            </ScenePanelActionsSection>
-            <ScenePanelDivider />
-            <ScenePanelActionsSection>
-                <ButtonPrimitive
-                    menuItem
-                    onClick={() => {
-                        setShouldFilterTestAccounts(!shouldFilterTestAccounts)
-                    }}
-                >
-                    <LemonSwitch checked={shouldFilterTestAccounts} size="xsmall" />
-                    Filter out internal and test users
-                </ButtonPrimitive>
-                {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE] && (
-                    <Tooltip title="When on, eligible web analytics tiles load from a pre-computed result instead of running a live query. Results are faster but may be a few minutes behind the latest events. Other tiles run live as usual.">
-                        <ButtonPrimitive
-                            menuItem
-                            onClick={() => {
-                                setUseWebAnalyticsPrecompute(!useWebAnalyticsPrecompute)
-                            }}
-                        >
-                            <LemonSwitch checked={useWebAnalyticsPrecompute} size="xsmall" />
-                            Allow precompute
-                        </ButtonPrimitive>
-                    </Tooltip>
+                {showAchievements && (
+                    <ButtonPrimitive menuItem onClick={() => openAchievementsModal()}>
+                        <IconStar />
+                        Achievements
+                    </ButtonPrimitive>
                 )}
             </ScenePanelActionsSection>
+            {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE] && (
+                <>
+                    <ScenePanelDivider />
+                    <ScenePanelActionsSection>
+                        <Tooltip title="When on, eligible web analytics tiles load from a pre-computed result instead of running a live query. Results are faster but may be a few minutes behind the latest events. Other tiles run live as usual.">
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={() => {
+                                    // `null` (untouched) is treated as on, so toggling off opts out explicitly.
+                                    setUseWebAnalyticsPrecompute(!(useWebAnalyticsPrecompute ?? true))
+                                }}
+                            >
+                                <LemonSwitch checked={useWebAnalyticsPrecompute ?? true} size="xsmall" />
+                                Allow precompute
+                            </ButtonPrimitive>
+                        </Tooltip>
+                    </ScenePanelActionsSection>
+                </>
+            )}
             {showTileToggles && availableTiles.length > 0 && (
                 <>
                     <ScenePanelDivider />

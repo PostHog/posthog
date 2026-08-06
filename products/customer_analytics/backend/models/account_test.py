@@ -1,5 +1,3 @@
-from contextlib import AbstractContextManager
-
 import pytest
 from posthog.test.base import BaseTest
 
@@ -13,30 +11,11 @@ from posthog.models import Team, User
 from posthog.models.scoping import team_scope
 
 from products.customer_analytics.backend.models import Account, TeamCustomerAnalyticsConfig
-from products.customer_analytics.backend.models.account import AccountAssignment, AccountProperties
+from products.customer_analytics.backend.models.account import AccountProperties
+from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 
 
-class _AccountTeamScopedTestMixin:
-    """Wraps setUp/tearDown with team_scope so test-body queries to Account find a scope."""
-
-    _team_scope_cm: AbstractContextManager[None] | None = None
-
-    def setUp(self) -> None:
-        super().setUp()  # type: ignore[misc]
-        cm = team_scope(self.team.id)  # type: ignore[attr-defined]
-        cm.__enter__()
-        self._team_scope_cm = cm
-
-    def tearDown(self) -> None:
-        if self._team_scope_cm is not None:
-            try:
-                self._team_scope_cm.__exit__(None, None, None)
-            finally:
-                self._team_scope_cm = None
-        super().tearDown()  # type: ignore[misc]
-
-
-class AccountPropertiesValidationTest(_AccountTeamScopedTestMixin, BaseTest):
+class AccountPropertiesValidationTest(TeamScopedTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
         self.user = User.objects.create_user(
@@ -49,17 +28,25 @@ class AccountPropertiesValidationTest(_AccountTeamScopedTestMixin, BaseTest):
 
     def test_typed_property_round_trip_through_setter(self):
         account = Account.objects.create(team=self.team, name="Round-trip")
-        account.properties = AccountProperties(
-            csm=AccountAssignment(id=self.user.id, email=self.user.email),
-        )
+        account.properties = AccountProperties(stripe_customer_id="cus_1")
         account.save()
         account.refresh_from_db()
 
         props = account.properties
         assert isinstance(props, AccountProperties)
-        assert props.csm == AccountAssignment(id=self.user.id, email=self.user.email)
-        assert props.account_executive is None
-        assert props.account_owner is None
+        assert props.stripe_customer_id == "cus_1"
+        assert props.sfdc_id is None
+
+    def test_getter_ignores_retired_role_keys_in_stored_rows(self):
+        account = Account.objects.create(
+            team=self.team,
+            name="Legacy",
+            _properties={"csm": {"id": self.user.id, "email": self.user.email}, "sfdc_id": "001xx"},
+        )
+
+        props = account.properties
+
+        assert props.sfdc_id == "001xx"
 
     def test_setter_validates_dict_input(self):
         account = Account.objects.create(team=self.team, name="Bad input")
@@ -68,7 +55,7 @@ class AccountPropertiesValidationTest(_AccountTeamScopedTestMixin, BaseTest):
             account.properties = {"unknown_field": "x"}
 
 
-class AccountExternalIdUniquenessTest(_AccountTeamScopedTestMixin, BaseTest):
+class AccountExternalIdUniquenessTest(TeamScopedTestMixin, BaseTest):
     def test_duplicate_external_id_within_team_rejected(self):
         Account.objects.create(team=self.team, name="First", external_id="acme")
 
@@ -93,7 +80,7 @@ class AccountExternalIdUniquenessTest(_AccountTeamScopedTestMixin, BaseTest):
         assert second.external_id is None
 
 
-class TeamCustomerAnalyticsConfigDriftPolicyTest(_AccountTeamScopedTestMixin, BaseTest):
+class TeamCustomerAnalyticsConfigDriftPolicyTest(TeamScopedTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
         self.config = TeamCustomerAnalyticsConfig.objects.get(team=self.team)

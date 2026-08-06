@@ -6,6 +6,7 @@ from django.db.models import Q
 from django.db.models.expressions import F
 from django.utils import timezone
 
+from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -28,6 +29,8 @@ class FileSystem(models.Model):
     meta = models.JSONField(default=dict, null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    # Product surface this row belongs to (e.g. "web", "desktop"). NULL == DEFAULT_SURFACE.
+    surface = models.CharField(max_length=100, null=True, blank=True)
 
     # DEPRECATED/UNUSED. It's all based on just the team_id.
     project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True)
@@ -35,9 +38,9 @@ class FileSystem(models.Model):
     class Meta:
         indexes = [
             models.Index(fields=["team"]),
-            models.Index(F("team_id"), F("path"), name="posthog_fs_team_path"),
-            models.Index(F("team_id"), F("depth"), name="posthog_fs_team_depth"),
-            models.Index(F("team_id"), F("type"), F("ref"), name="posthog_fs_team_typeref"),
+            models.Index(F("team_id"), F("surface"), F("path"), name="posthog_fs_team_s_path"),
+            models.Index(F("team_id"), F("surface"), F("depth"), name="posthog_fs_team_s_depth"),
+            models.Index(F("team_id"), F("surface"), F("type"), F("ref"), name="posthog_fs_team_s_typeref"),
         ]
 
     def __str__(self):
@@ -55,9 +58,14 @@ def create_or_update_file(
     meta: dict,
     created_at: Optional[datetime] = None,
     created_by_id: Optional[int] = None,
+    surface: str = DEFAULT_SURFACE,
 ):
     has_existing = False
-    all_existing = FileSystem.objects.filter(team=team, type=file_type, ref=ref).filter(~Q(shortcut=True)).all()
+    all_existing = (
+        FileSystem.objects.filter(surface_q(surface), team=team, type=file_type, ref=ref)
+        .filter(~Q(shortcut=True))
+        .all()
+    )
     for existing in all_existing:
         has_existing = True
         segments = split_path(existing.path)
@@ -76,7 +84,7 @@ def create_or_update_file(
     if has_existing:
         path = escape_path(name)
         shortcuts = (
-            FileSystemShortcut.objects.filter(team=team, type=file_type, ref=ref)
+            FileSystemShortcut.objects.filter(surface_q(surface), team=team, type=file_type, ref=ref)
             .filter(~(Q(path=path) & Q(href=href)))
             .all()
         )
@@ -95,15 +103,16 @@ def create_or_update_file(
             href=href,
             meta=meta,
             shortcut=False,
+            surface=surface,
             created_by_id=created_by_id,
             created_at=created_at or timezone.now(),
         )
 
 
-def delete_file(*, team: Team, file_type: str, ref: str):
-    count, _ = FileSystem.objects.filter(team=team, type=file_type, ref=ref).delete()
+def delete_file(*, team: Team, file_type: str, ref: str, surface: str = DEFAULT_SURFACE):
+    count, _ = FileSystem.objects.filter(surface_q(surface), team=team, type=file_type, ref=ref).delete()
     if count > 0:
-        FileSystemShortcut.objects.filter(team=team, type=file_type, ref=ref).delete()
+        FileSystemShortcut.objects.filter(surface_q(surface), team=team, type=file_type, ref=ref).delete()
 
 
 def split_path(path: str) -> list[str]:

@@ -56,25 +56,32 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.data_modeling.activities.fail_materialization import (
     CONSECUTIVE_TIMEOUTS_TO_PAUSE,
     should_pause_schedule_for_timeout,
 )
 from posthog.temporal.data_modeling.activities.utils import strip_hostname_from_error
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
-from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import DuckLakeCopyDataModelingWorkflow
-from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
-from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
-from products.data_warehouse.backend.data_load.create_table import create_table_from_saved_query
-from products.data_warehouse.backend.data_load.saved_query_service import a_pause_saved_query_schedule
-from products.data_warehouse.backend.s3 import ensure_bucket_exists, get_s3_client
-from products.endpoints.backend.rate_limit import set_endpoint_materialization_ready
-from products.endpoints.backend.services.endpoint_materialization_service import prepare_executable_query
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
+from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_warehouse.backend.facade.api import (
+    a_pause_saved_query_schedule,
+    create_table_from_saved_query,
+    ensure_bucket_exists,
+    get_s3_client,
+)
+from products.endpoints.backend.facade.temporal import (
+    prepare_executable_query,
+    update_materialization_ready_for_saved_query,
+)
+from products.managed_warehouse.backend.facade.temporal import (
+    DataModelingDuckLakeCopyInputs,
+    DuckLakeCopyDataModelingWorkflow,
+    DuckLakeCopyModelInput,
+)
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.temporal import prepare_s3_files_for_querying
 
 LOGGER = get_logger(__name__)
 
@@ -413,10 +420,11 @@ async def handle_error(
     error_str = str(error)
     if job:
         await logger.ainfo("Marking job %s as failed", job.id)
-        await logger.aerror(f"handle_error: error={error_str}. error_message={error_message}")
+        await logger.aerror(f"handle_error: error={error_str}. error_message={error_message}", write_only=True)
         job.status = DataModelingJob.Status.FAILED
         job.rows_materialized = 0
         job.error = strip_hostname_from_error(error_str)
+        job.last_run_at = dt.datetime.now(dt.UTC)
         await database_sync_to_async(job.save)()
     await queue.put(
         QueueMessage(status=ModelStatus.FAILED, label=model.label, error=strip_hostname_from_error(error_str))
@@ -433,10 +441,11 @@ async def handle_cancelled(
 ):
     error_str = str(error)
     if job:
-        await logger.aerror(f"handle_cancelled: error={error_str}. error_message={error_message}")
+        await logger.aerror(f"handle_cancelled: error={error_str}. error_message={error_message}", write_only=True)
         job.status = DataModelingJob.Status.CANCELLED
         job.rows_materialized = 0
         job.error = strip_hostname_from_error(error_str)
+        job.last_run_at = dt.datetime.now(dt.UTC)
         await database_sync_to_async(job.save)()
     await queue.put(
         QueueMessage(status=ModelStatus.FAILED, label=model.label, error=strip_hostname_from_error(error_str))
@@ -494,10 +503,6 @@ async def materialize_model(
     """
     await logger.ainfo(f"Starting materialization for model: label={model_label} name={saved_query.name}")
 
-    query_columns = saved_query.columns
-    if not query_columns:
-        query_columns = await database_sync_to_async(saved_query.get_columns)()
-
     if not isinstance(saved_query.query, dict):
         raise ValueError(f"Saved query {saved_query.id} is missing its query payload")
 
@@ -546,6 +551,7 @@ async def materialize_model(
             batch, ch_types = res
             batch = _transform_unsupported_decimals(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
+            batch = _force_nullable(batch)
 
             if index == 0:
                 await logger.adebug(
@@ -601,7 +607,7 @@ async def materialize_model(
         raise
     except Exception as e:
         error_message = str(e)
-        await logger.aerror(f"Error materializing model {model_label}: {error_message}")
+        await logger.aerror(f"Error materializing model {model_label}: {strip_hostname_from_error(error_message)}")
         if "Query exceeds memory limits" in error_message:
             error_message = f"Query exceeded memory limit. Try reducing its scope by changing the time range."
             saved_query.latest_error = error_message
@@ -757,11 +763,12 @@ async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: F
     but the user-facing error has hostnames stripped to avoid exposing infrastructure details.
     """
 
-    await logger.aerror(f"mark_job_as_failed: {error_message}")
+    await logger.aerror(f"mark_job_as_failed: {error_message}", write_only=True)
     await logger.ainfo("Marking job %s as failed", job.id)
     job.status = DataModelingJob.Status.FAILED
     job.rows_materialized = 0
     job.error = strip_hostname_from_error(error_message)
+    job.last_run_at = dt.datetime.now(dt.UTC)
     await database_sync_to_async(job.save)()
 
 
@@ -820,7 +827,11 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
         modifiers=modifiers,
     )
     context.output_format = "TabSeparated"
-    context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
+    # Userless materialization context; bypass warehouse HogQL access control so the model query
+    # can resolve its source tables/views.
+    context.database = await database_sync_to_async(Database.create_for)(
+        team=team, modifiers=context.modifiers, bypass_warehouse_access_control=True
+    )
 
     prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
         query_node, context=context, dialect="clickhouse", settings=settings, stack=[]
@@ -840,7 +851,12 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
     await logger.adebug(f"Running count query: {printed}")
 
     async with get_client() as client:
-        result = await client.read_query(printed, query_parameters=context.values)
+        async with client.apost_query(
+            query=printed,
+            query_parameters=context.values,
+            query_id=str(uuid.uuid4()),
+        ) as response:
+            result = await response.content.read()
         count = int(result.decode("utf-8").strip())
         return count
 
@@ -867,7 +883,11 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
         limit_top_select=False,
         modifiers=modifiers,
     )
-    context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
+    # Userless materialization context; bypass warehouse HogQL access control so the model query
+    # can resolve its source tables/views.
+    context.database = await database_sync_to_async(Database.create_for)(
+        team=team, modifiers=context.modifiers, bypass_warehouse_access_control=True
+    )
 
     prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
         query_node, context=context, dialect="clickhouse", settings=settings, stack=[]
@@ -1177,6 +1197,25 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
     return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
 
 
+def _force_nullable(batch: pa.RecordBatch) -> pa.RecordBatch:
+    """Mark every column nullable so batch schemas don't diverge across delta commits.
+
+    ClickHouse emits non-nullable columns for expressions, constants, concat()/toString(),
+    and non-Nullable source columns. When such a query spans more than one batch, the first
+    batch's overwrite pins a non-nullable delta schema and the later append routes through
+    delta-rs's DataFusion writer to reconcile schemas. DataFusion lowercases identifiers and
+    then fails to resolve case-sensitive columns, e.g. "No field named userid. ... Did you
+    mean 'userId'?" — breaking any column with uppercase characters. Pinning every column to
+    nullable keeps each batch's schema identical to the first overwrite, so the append never
+    triggers that path and camelCase column names survive.
+    """
+    nullable_schema = pa.schema(
+        [pa.field(field.name, field.type, nullable=True, metadata=field.metadata) for field in batch.schema],
+        metadata=typing.cast("dict[bytes | str, bytes | str] | None", batch.schema.metadata),
+    )
+    return batch.cast(nullable_schema)
+
+
 def _get_credentials():
     if settings.USE_LOCAL_SETUP:
         ensure_bucket_exists(
@@ -1460,6 +1499,7 @@ def _preempt_running_jobs(team_id: int, saved_query_ids: list[str] | None = None
             rows_materialized=0,
             error="Preempted: This job did not complete before the next scheduled job was triggered.",
             updated_at=dt.datetime.now(dt.UTC),
+            last_run_at=dt.datetime.now(dt.UTC),
         )
 
         return orphaned_jobs
@@ -1575,7 +1615,7 @@ async def update_saved_query_status(
 
     if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
         is_ready = status == DataWarehouseSavedQuery.Status.COMPLETED
-        await database_sync_to_async(set_endpoint_materialization_ready)(team_id, saved_query.name, is_ready)
+        await database_sync_to_async(update_materialization_ready_for_saved_query)(team_id, saved_query, is_ready)
 
 
 @dataclasses.dataclass
@@ -1598,9 +1638,17 @@ async def cancel_jobs_activity(inputs: CancelJobsActivityInputs) -> None:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
+    # updated_at is auto_now, which QuerySet.update() skips, so it has to be set by hand here to
+    # stay in step with last_run_at.
+    cancelled_at = dt.datetime.now(dt.UTC)
     await database_sync_to_async(
         DataModelingJob.objects.filter(workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id).update
-    )(status=DataModelingJob.Status.CANCELLED, rows_materialized=0)
+    )(
+        status=DataModelingJob.Status.CANCELLED,
+        rows_materialized=0,
+        last_run_at=cancelled_at,
+        updated_at=cancelled_at,
+    )
     await logger.ainfo(
         "Cancelled data modeling jobs", workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id
     )

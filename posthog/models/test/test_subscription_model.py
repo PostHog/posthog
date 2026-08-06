@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -15,7 +16,9 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience
-from posthog.models.subscription import (
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.exports.backend.models.subscription import (
     SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER,
     UNSUBSCRIBE_TOKEN_EXP_DAYS,
     Subscription,
@@ -23,11 +26,74 @@ from posthog.models.subscription import (
     get_unsubscribe_token,
     unsubscribe_using_token,
 )
-
 from products.product_analytics.backend.models.insight import Insight
 
 
-@patch.object(settings, "SECRET_KEY", "not-so-secret")
+class TestSubscriptionScheduling:
+    def test_weekly_schedule_ignores_stale_monthly_position(self) -> None:
+        subscription = Subscription(
+            frequency=Subscription.SubscriptionFrequency.WEEKLY,
+            interval=1,
+            start_date=datetime(2026, 8, 3, 9, tzinfo=ZoneInfo("UTC")),
+            byweekday=["monday", "wednesday", "friday"],
+            bysetpos=1,
+        )
+
+        assert subscription.summary == "sent every week on Monday, Wednesday and Friday"
+        assert subscription.rrule[0] == datetime(2026, 8, 3, 9, tzinfo=ZoneInfo("UTC"))
+        assert subscription.rrule[1] == datetime(2026, 8, 5, 9, tzinfo=ZoneInfo("UTC"))
+        assert subscription.rrule[2] == datetime(2026, 8, 7, 9, tzinfo=ZoneInfo("UTC"))
+
+    @parameterized.expand(
+        [
+            (
+                "daily_weekdays",
+                "daily",
+                ["monday", "tuesday", "wednesday", "thursday", "friday"],
+                datetime(2024, 1, 5, 9, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2024, 1, 8, 9, 0, tzinfo=ZoneInfo("UTC")),
+            ),
+            (
+                "weekly_multiple_days",
+                "weekly",
+                ["wednesday", "friday"],
+                datetime(2024, 1, 1, 9, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2024, 1, 3, 9, 0, tzinfo=ZoneInfo("UTC")),
+            ),
+        ]
+    )
+    @freeze_time("2024-01-01 08:00:00")
+    def test_selected_weekdays_control_delivery_dates(
+        self,
+        _name: str,
+        frequency: str,
+        byweekday: list[str],
+        from_dt: datetime,
+        expected_next_delivery: datetime,
+    ) -> None:
+        next_delivery_date = Subscription._compute_next_delivery_date(
+            frequency=frequency,
+            interval=1,
+            start_date=datetime(2024, 1, 1, 9, 0, tzinfo=ZoneInfo("UTC")),
+            from_dt=from_dt,
+            byweekday=byweekday,
+        )
+
+        assert next_delivery_date == expected_next_delivery
+
+    @freeze_time("2024-01-01 08:00:00")
+    def test_daily_interval_without_a_possible_weekday_returns_none(self) -> None:
+        next_delivery_date = Subscription._compute_next_delivery_date(
+            frequency="daily",
+            interval=7,
+            start_date=datetime(2024, 1, 1, 9, 0, tzinfo=ZoneInfo("UTC")),
+            byweekday=["tuesday"],
+        )
+
+        assert next_delivery_date is None
+
+
+@patch.object(settings, "JWT_SIGNING_KEY", "not-so-secret")
 @freeze_time("2022-01-01")
 class TestSubscription(BaseTest):
     def _create_insight_subscription(self, **kwargs):
@@ -54,6 +120,87 @@ class TestSubscription(BaseTest):
         assert subscription.title == "My Subscription"
         subscription.set_next_delivery_date(datetime(2022, 1, 2, 0, 0, 0).replace(tzinfo=ZoneInfo("UTC")))
         assert subscription.next_delivery_date == datetime(2022, 1, 15, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
+
+    def _create_subscription(self, **kwargs) -> Subscription:
+        return Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="tests@posthog.com",
+            frequency="weekly",
+            interval=1,
+            start_date=datetime(2022, 1, 1, tzinfo=ZoneInfo("UTC")),
+            **kwargs,
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "insight_relation",
+                lambda self: self._create_subscription(insight=Insight.objects.create(team=self.team)),
+                Subscription.ResourceType.INSIGHT,
+            ),
+            (
+                "dashboard_relation",
+                lambda self: self._create_subscription(dashboard=Dashboard.objects.create(team=self.team)),
+                Subscription.ResourceType.DASHBOARD,
+            ),
+            (
+                "prompt_no_relation",
+                lambda self: self._create_subscription(prompt="Summarize signups"),
+                Subscription.ResourceType.AI_PROMPT,
+            ),
+        ]
+    )
+    def test_resource_type_derived_from_relation(
+        self, _name: str, make_subscription: Callable[..., Subscription], expected: "Subscription.ResourceType"
+    ):
+        subscription = make_subscription(self)
+
+        assert subscription.resource_type == expected
+        subscription.refresh_from_db()
+        assert subscription.resource_type == expected
+
+    def test_resource_type_raises_without_relation(self):
+        subscription = self._create_subscription()
+        with self.assertRaises(ValueError):
+            _ = subscription.resource_type
+
+    def test_analytics_metadata_includes_insight_query_kind(self):
+        insight = Insight.objects.create(
+            team=self.team,
+            query={"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": []}},
+        )
+        metadata = self._create_subscription(insight=insight).get_analytics_metadata()
+
+        assert metadata["query_kind"] == "InsightVizNode"
+        assert metadata["query_source_kind"] == "TrendsQuery"
+
+    def test_analytics_metadata_omits_query_kind_for_non_insight_subscription(self):
+        # Query-kind attribution is insight-only; dashboard/prompt subs must not carry stale keys.
+        metadata = self._create_subscription(
+            dashboard=Dashboard.objects.create(team=self.team)
+        ).get_analytics_metadata()
+
+        assert "query_kind" not in metadata
+        assert "query_source_kind" not in metadata
+
+    @parameterized.expand(
+        [
+            ("insight", 1, None, None, Subscription.ResourceType.INSIGHT),
+            ("dashboard", None, 2, None, Subscription.ResourceType.DASHBOARD),
+            ("prompt", None, None, "Summarize signups", Subscription.ResourceType.AI_PROMPT),
+            ("insight_takes_precedence", 1, 2, "ignored", Subscription.ResourceType.INSIGHT),
+        ]
+    )
+    def test_derive_resource_type(
+        self, _name: str, insight_id: int | None, dashboard_id: int | None, prompt: str | None, expected: str
+    ):
+        assert Subscription.derive_resource_type(insight_id, dashboard_id, prompt) == expected
+
+    @parameterized.expand([("all_none", None), ("empty_prompt", "")])
+    def test_derive_resource_type_raises_when_relationless(self, _name: str, prompt: str | None):
+        with pytest.raises(ValueError, match="no insight, dashboard, or prompt"):
+            Subscription.derive_resource_type(None, None, prompt)
 
     def test_update_next_delivery_date_on_save(self):
         subscription = self._create_insight_subscription()
@@ -238,12 +385,43 @@ class TestSubscription(BaseTest):
             (
                 "weekly_last_wednesday",
                 {"interval": 1, "frequency": "weekly", "byweekday": ["wednesday"], "bysetpos": -1},
-                "sent every week on the last Wednesday",
+                "sent every week on Wednesday",
             ),
             (
                 "weekly_wednesday_no_bysetpos",
                 {"interval": 1, "frequency": "weekly", "byweekday": ["wednesday"]},
-                "sent every week",
+                "sent every week on Wednesday",
+            ),
+            (
+                "daily_weekdays",
+                {
+                    "interval": 1,
+                    "frequency": "daily",
+                    "byweekday": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+                },
+                "sent every day on weekdays",
+            ),
+            (
+                "weekly_multiple_days",
+                {"interval": 1, "frequency": "weekly", "byweekday": ["monday", "wednesday", "friday"]},
+                "sent every week on Monday, Wednesday and Friday",
+            ),
+            (
+                "weekly_all_days",
+                {
+                    "interval": 1,
+                    "frequency": "weekly",
+                    "byweekday": [
+                        "monday",
+                        "tuesday",
+                        "wednesday",
+                        "thursday",
+                        "friday",
+                        "saturday",
+                        "sunday",
+                    ],
+                },
+                "sent every week on Monday, Tuesday, Wednesday, Thursday, Friday, Saturday and Sunday",
             ),
             (
                 "monthly_third_day",
@@ -273,7 +451,7 @@ class TestSubscription(BaseTest):
             ("third_weekday", 3, "sent every month on the third weekday"),
             ("fourth_weekday", 4, "sent every month on the fourth weekday"),
             ("last_weekday", -1, "sent every month on the last weekday"),
-            ("no_bysetpos", None, "sent every month"),
+            ("no_bysetpos", None, "sent every month on weekdays"),
         ]
     )
     def test_subscription_summary_weekday(self, _name, bysetpos, expected_summary):
@@ -284,6 +462,22 @@ class TestSubscription(BaseTest):
             bysetpos=bysetpos,
         )
         assert subscription.summary == expected_summary
+
+    @parameterized.expand(
+        [
+            ("daily", "daily", 1),
+            ("weekly", "weekly", 7),
+            ("monthly", "monthly", 30),
+            ("yearly", "yearly", 365),
+            ("unknown_falls_back_to_weekly", "", 7),
+        ]
+    )
+    def test_ai_report_window_days(self, _name, frequency, expected_days):
+        # Construct with a valid cadence (the model eagerly builds an rrule on init), then assign
+        # the case under test — `ai_report_window_days` reads `frequency` live.
+        subscription = Subscription(frequency="daily")
+        subscription.frequency = frequency
+        assert subscription.ai_report_window_days == expected_days
 
     def test_subscription_delivery_creation(self):
         subscription = self._create_insight_subscription()
@@ -473,7 +667,7 @@ class TestSubscriptionLimit(BaseTest):
         self.organization.available_product_features = []
         self.organization.save()
         self._create_subscriptions(2)
-        with patch("posthog.models.subscription.SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER", 2):
+        with patch("products.exports.backend.models.subscription.SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER", 2):
             result = Subscription.check_subscription_limit(self.team.id, self.organization)
         assert result is not None
         assert "2" in result

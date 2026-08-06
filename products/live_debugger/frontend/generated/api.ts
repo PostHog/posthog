@@ -41,7 +41,7 @@ export const getLiveDebuggerBreakpointsListUrl = (projectId: string, params?: Li
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -172,7 +172,7 @@ export const getLiveDebuggerBreakpointsActiveRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -185,8 +185,8 @@ export const getLiveDebuggerBreakpointsActiveRetrieveUrl = (
 
 /**
  * External API endpoint for client applications to fetch active breakpoints using Project API key. This endpoint allows external client applications (like Python scripts, Node.js apps, etc.) to fetch the list of active breakpoints so they can instrument their code accordingly.
-
-Authentication: Requires a Project API Key in the Authorization header: `Authorization: Bearer phs_<your-project-api-key>`. You can find your Project API Key in PostHog at: Settings → Project → Project API Key
+ *
+ * Authentication: Requires a Project API Key in the Authorization header: `Authorization: Bearer phs_<your-project-api-key>`. You can find your Project API Key in PostHog at: Settings → Project → Project API Key
  * @summary Get active breakpoints (External API)
  */
 export const liveDebuggerBreakpointsActiveRetrieve = async (
@@ -208,7 +208,7 @@ export const getLiveDebuggerBreakpointsBreakpointHitsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -221,8 +221,8 @@ export const getLiveDebuggerBreakpointsBreakpointHitsRetrieveUrl = (
 
 /**
  * Retrieve breakpoint hit events from ClickHouse with optional filtering and pagination. Returns hit events containing stack traces, local variables, and execution context from your application's runtime.
-
-Security: Breakpoint IDs are filtered to only include those belonging to the current team.
+ *
+ * Security: Breakpoint IDs are filtered to only include those belonging to the current team.
  * @summary Get breakpoint hits
  */
 export const liveDebuggerBreakpointsBreakpointHitsRetrieve = async (

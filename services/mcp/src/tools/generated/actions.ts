@@ -143,8 +143,12 @@ const actionsGetAll = (): ToolBase<typeof ActionsGetAllSchema, WithPostHogUrl<Sc
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/actions/`,
                 query: {
+                    created_by: params.created_by,
                     limit: params.limit,
                     offset: params.offset,
+                    ordering: params.ordering,
+                    search: params.search,
+                    tags: params.tags,
                 },
             })
             return await withPostHogUrl(

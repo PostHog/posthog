@@ -4,7 +4,10 @@ import { router } from 'kea-router'
 import { IconGraph, IconServer } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { urls } from 'scenes/urls'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { insightPickerEndpointModalLogic } from './insightPickerEndpointModalLogic'
 
@@ -39,19 +42,24 @@ export function OverlayForNewEndpointMenu(): JSX.Element {
     return (
         <>
             {options.map((option) => (
-                <LemonButton
+                <AccessControlAction
                     key={option.name}
-                    icon={<option.icon />}
-                    onClick={option.onClick}
-                    data-attr={option.dataAttr}
-                    data-attr-endpoint-type={option.name}
-                    fullWidth
+                    resourceType={AccessControlResourceType.Endpoint}
+                    minAccessLevel={AccessControlLevel.Editor}
                 >
-                    <div className="flex flex-col text-sm py-1">
-                        <strong>{option.name}</strong>
-                        <span className="text-xs font-sans font-normal">{option.description}</span>
-                    </div>
-                </LemonButton>
+                    <LemonButton
+                        icon={<option.icon />}
+                        onClick={option.onClick}
+                        data-attr={option.dataAttr}
+                        data-attr-endpoint-type={option.name}
+                        fullWidth
+                    >
+                        <div className="flex flex-col text-sm py-1">
+                            <strong>{option.name}</strong>
+                            <span className="text-xs font-sans font-normal">{option.description}</span>
+                        </div>
+                    </LemonButton>
+                </AccessControlAction>
             ))}
         </>
     )

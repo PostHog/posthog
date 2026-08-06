@@ -1,8 +1,9 @@
 from posthog.test.base import BaseTest
 
-from posthog.models import Cohort
-from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.property import BehavioralPropertyType, Property, PropertyGroup, PropertyOperatorType
+
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.validation import CohortTypeValidationSerializer
 
 
 class TestCohortTypeValidationSerializer(BaseTest):

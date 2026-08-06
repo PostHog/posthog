@@ -4,19 +4,19 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconLetter, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
 
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { IconBlank } from 'lib/lemon-ui/icons'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { cn } from 'lib/utils/css-classes'
-import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
+import { getProjectSwitchTargetUrl } from 'lib/utils/kea-router'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { globalModalsLogic } from '~/layout/GlobalModals'
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { globalModalsLogic } from '~/layout/globalModalsLogic'
 import { AvailableFeature, TeamBasicType } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
@@ -116,9 +116,16 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
         .sort((a, b) => a.invite.organization_name.localeCompare(b.invite.organization_name))
     const createItem = filteredItems.find((p): p is CreateProjectItem => p.type === 'create')
 
+    const canCreateProject = preflight?.can_create_org !== false && !projectCreationForbiddenReason
+
     const handleItemClick = useCallback(
         (item: ListItem) => {
             if (item.type === 'create') {
+                // The create row is rendered disabled when the user can't create projects, but the
+                // Combobox still fires onClick/Enter — enforce the disabled state here too.
+                if (!canCreateProject) {
+                    return
+                }
                 guardAvailableFeature(
                     AvailableFeature.ORGANIZATIONS_PROJECTS,
                     () => {
@@ -151,6 +158,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
             showCreateProjectModal,
             currentOrganization?.teams?.length,
             setAccountMenuOpen,
+            canCreateProject,
         ]
     )
 
@@ -166,8 +174,6 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
         }
         return item.team.name
     }, [])
-
-    const canCreateProject = preflight?.can_create_org !== false && !projectCreationForbiddenReason
 
     if (!isAuthenticatedTeam(currentTeam)) {
         return null

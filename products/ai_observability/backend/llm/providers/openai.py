@@ -16,15 +16,17 @@ from posthoganalytics.ai.openai import (
     AzureOpenAI as WrappedAzureOpenAI,
     OpenAI,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContextWindowExceededError,
     ModelNotFoundError,
     ModelPermissionError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
+    is_context_window_error_message,
 )
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
@@ -46,26 +48,33 @@ class OpenAIConfig:
 
     SUPPORTED_MODELS: list[str] = [
         "gpt-5.4",
-        "gpt-5.2-pro",
         "gpt-5.2",
         "gpt-5.1",
-        "gpt-5-pro",
         "gpt-5-nano",
         "gpt-5-mini",
         "gpt-5",
-        "o3-pro",
         "gpt-4.1-nano",
         "gpt-4.1-mini",
         "gpt-4.1",
         "o4-mini",
         "o3",
-        "o1-pro",
         "o3-mini",
     ]
 
-    # Models available to trial users (PostHog pays). Excludes expensive
+    # "Pro" tier models are served only by the Responses API, so they 404 on chat
+    # completions. Excluded from the picker (curated list + list_models discovery).
+    RESPONSES_ONLY_MODELS: frozenset[str] = frozenset(
+        {
+            "gpt-5.2-pro",
+            "gpt-5-pro",
+            "o1-pro",
+            "o3-pro",
+        }
+    )
+
+    # Models available in the PostHog-funded playground. Excludes expensive
     # "pro" tiers and includes one flagship model for quality evaluation.
-    TRIAL_MODELS: list[str] = [
+    PLAYGROUND_MODELS: list[str] = [
         "gpt-4.1",
         "gpt-4.1-mini",
         "gpt-4.1-nano",
@@ -74,20 +83,18 @@ class OpenAIConfig:
         "o3-mini",
         "o4-mini",
     ]
+
+    DEFAULT_MODEL: str = "gpt-5-mini"
 
     SUPPORTED_MODELS_WITH_THINKING: list[str] = [
         "gpt-5.4",
-        "gpt-5.2-pro",
         "gpt-5.2",
         "gpt-5.1",
-        "gpt-5-pro",
         "gpt-5-nano",
         "gpt-5-mini",
         "gpt-5",
-        "o3-pro",
         "o4-mini",
         "o3",
-        "o1-pro",
         "o3-mini",
     ]
 
@@ -161,10 +168,16 @@ class OpenAIAdapter:
                         parsed=parsed,
                     )
                 except openai.BadRequestError as e:
+                    if is_context_window_error_message(str(e)):
+                        raise ContextWindowExceededError(str(e)) from e
                     # Fall back to manual JSON parsing for older models that don't support json_schema
                     if "response_format" in str(e).lower() or "json_schema" in str(e).lower():
                         return self._complete_with_json_fallback(client, request, messages, analytics)
                     raise
+                except (ValidationError, openai.LengthFinishReasonError) as e:
+                    # json_schema does not enforce cross-field validators, while the SDK raises a separate
+                    # exception for length-limited output. Normalize both so callers skip invalid output.
+                    raise StructuredOutputParseError(f"Failed to parse structured output: {e}") from e
             else:
                 create_response = client.chat.completions.create(
                     model=request.model,
@@ -193,6 +206,8 @@ class OpenAIAdapter:
                 raise QuotaExceededError(str(e))
             raise RateLimitError(str(e))
         except openai.APIStatusError as e:
+            if isinstance(e, openai.BadRequestError) and is_context_window_error_message(str(e)):
+                raise ContextWindowExceededError(str(e)) from e
             # OpenRouter returns 402 when the key can't afford the requested
             # max_tokens (or is out of credits). Retrying never helps — mirror
             # the quota path so the workflow marks the key errored and stops.
@@ -256,7 +271,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         api_key: str | None,
         analytics: AnalyticsContext,
         base_url: str | None = None,
-    ) -> Generator[StreamChunk, None, None]:
+    ) -> Generator[StreamChunk]:
         """Streaming completion."""
         effective_api_key = api_key or self._get_default_api_key()
         effective_base_url = base_url or settings.OPENAI_BASE_URL
@@ -387,7 +402,9 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             filtered = [
                 m
                 for m in api_models
-                if m.id not in supported and m.id.startswith(("gpt-", "o1", "o3", "o4", "chatgpt-"))
+                if m.id not in supported
+                and m.id not in OpenAIConfig.RESPONSES_ONLY_MODELS
+                and m.id.startswith(("gpt-", "o1", "o3", "o4", "chatgpt-"))
             ]
             filtered.sort(key=lambda m: m.created, reverse=True)
             other = [m.id for m in filtered]
@@ -440,7 +457,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             cache_read_tokens=cache_read,
         )
 
-    def _yield_usage_chunks(self, usage: CompletionUsage) -> Generator[StreamChunk, None, None]:
+    def _yield_usage_chunks(self, usage: CompletionUsage) -> Generator[StreamChunk]:
         input_tokens = usage.prompt_tokens or 0
         output_tokens = usage.completion_tokens or 0
         cache_read_tokens = (

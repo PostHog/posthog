@@ -2,22 +2,13 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import { useEffect, useMemo, useState } from 'react'
 
-import { IconEllipsis, IconShare } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonMenu,
-    LemonSelect,
-    LemonTable,
-    LemonTag,
-    Tooltip,
-    lemonToast,
-} from '@posthog/lemon-ui'
+import { IconShare } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonSelect, LemonTable, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
 import type { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
@@ -186,11 +177,6 @@ export function LogsServices(): JSX.Element {
         setRulesExpandedByService((prev) => ({ ...prev, [serviceName]: !prev[serviceName] }))
     }
 
-    const presetItems = DATE_OPTIONS.map((opt) => ({
-        label: opt.label,
-        onClick: () => setDateFrom(opt.value),
-    }))
-
     const columns: LemonTableColumns<ServiceRow> = [
         {
             title: 'Service name',
@@ -317,19 +303,12 @@ export function LogsServices(): JSX.Element {
             )}
             <div className="flex items-center justify-between gap-2">
                 <h3 className="m-0">Services</h3>
-                <div className="flex items-center gap-2">
-                    <LemonMenu items={presetItems} placement="bottom-end">
-                        <LemonButton size="small" type="secondary" icon={<IconEllipsis />}>
-                            Date presets
-                        </LemonButton>
-                    </LemonMenu>
-                    <LemonSelect
-                        size="small"
-                        value={dateFrom}
-                        onChange={(value) => value && setDateFrom(value)}
-                        options={DATE_OPTIONS}
-                    />
-                </div>
+                <LemonSelect
+                    size="small"
+                    value={dateFrom}
+                    onChange={(value) => value && setDateFrom(value)}
+                    options={DATE_OPTIONS}
+                />
             </div>
             <LemonTable
                 columns={columns}

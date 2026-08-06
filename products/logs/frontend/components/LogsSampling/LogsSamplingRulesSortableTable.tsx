@@ -25,7 +25,7 @@ import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
-import { compactNumber, humanizeBytes } from 'lib/utils'
+import { compactNumber, humanizeBytes } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import { LogsSamplingRuleApi } from 'products/logs/frontend/generated/api.schemas'

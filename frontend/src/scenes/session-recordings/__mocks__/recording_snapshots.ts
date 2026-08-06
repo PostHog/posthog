@@ -11,6 +11,22 @@ const lineTwo =
 
 export const snapshotsAsJSONLines = (): string => `${lineOne}\n${lineTwo}\n`
 
+// a real full snapshot node, but emitted `lateByMs` after the first snapshot
+export const lateFullSnapshotAsJSONLines = (baseTimestamp: number, lateByMs: number): string => {
+    const firstLine = snapshotsAsJSONLines().trim().split('\n')[0]
+    const parsed = JSON.parse(firstLine)
+    const meta = parsed.data.find((e: { type: number }) => e.type === 4)
+    const fullSnapshot = parsed.data.find((e: { type: number }) => e.type === 2)
+    const incremental = parsed.data.find((e: { type: number }) => e.type === 3)
+    const data = [
+        { ...meta, timestamp: baseTimestamp },
+        { ...incremental, timestamp: baseTimestamp + 2000 },
+        { ...fullSnapshot, timestamp: baseTimestamp + lateByMs },
+        { ...incremental, timestamp: baseTimestamp + lateByMs + 1000 },
+    ]
+    return `${JSON.stringify({ window_id: parsed.window_id, data })}\n`
+}
+
 export const convertSnapshotsByWindowId = (
     snapshotsByWindowId: { [key: string]: eventWithTime[] },
     registerWindowId?: RegisterWindowIdCallback

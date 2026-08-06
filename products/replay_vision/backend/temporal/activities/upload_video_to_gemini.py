@@ -5,8 +5,6 @@ import asyncio
 import tempfile
 from datetime import UTC, datetime
 
-from django.conf import settings
-
 import structlog
 from asgiref.sync import sync_to_async
 from google.genai import (
@@ -15,12 +13,15 @@ from google.genai import (
 )
 from temporalio import activity
 
-from posthog.models.exported_asset import ExportedAsset
 from posthog.storage import object_storage
-from posthog.temporal.session_replay.gemini_cleanup_sweep.tracking import track_uploaded_file
+from posthog.temporal.common.heartbeat import Heartbeater
 
+from products.exports.backend.models.exported_asset import ExportedAsset
+from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
+from products.replay_vision.backend.temporal.errors import ConsentWithdrawnError, FailureKind, ScannerFailureError
+from products.replay_vision.backend.temporal.gemini import classify_gemini_error, describe_gemini_error, gemini_api_key
+from products.replay_vision.backend.temporal.gemini_cleanup_sweep.tracking import track_uploaded_file
 from products.replay_vision.backend.temporal.types import UploadedVideo, UploadVideoToGeminiInputs
 
 logger = structlog.get_logger(__name__)
@@ -33,10 +34,37 @@ _MAX_PROCESSING_WAIT_SECONDS = 300
 @track_activity()
 async def upload_video_to_gemini_activity(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
     """Read the asset's MP4 bytes, upload to Gemini, poll until ACTIVE, return the file reference."""
+    # Background heartbeats let Temporal detect a dead worker in ~2 min instead of the full 10-min timeout.
+    async with Heartbeater(factor=4):
+        try:
+            return await _upload_video(inputs)
+        except Exception as e:
+            kind = classify_gemini_error(e)
+            if kind is None:
+                raise
+            # The raw error body can quote request content, so it stays out of both the user-visible
+            # error_reason and the logs; code + status carry the diagnostic signal.
+            logger.warning(
+                "replay_vision.upload_video_to_gemini.provider_error",
+                kind=kind.value,
+                error_type=type(e).__name__,
+                code=getattr(e, "code", None),
+                status=getattr(e, "status", None),
+            )
+            raise ScannerFailureError(describe_gemini_error(e), kind=kind) from e
+
+
+async def _upload_video(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
     workflow_id = activity.info().workflow_id
     if workflow_id is None:
         raise ScannerFailureError("upload_video_to_gemini_activity has no workflow_id", kind=FailureKind.INTERNAL_ERROR)
     asset = await ExportedAsset.objects.aget(id=inputs.asset_id)
+
+    # Re-check consent at the egress boundary, keyed off the team that owns the bytes: an admin may have
+    # revoked it after the observation was created but before these bytes leave for Gemini. Fail closed so
+    # a withdrawn org can't have recordings processed.
+    if not await sync_to_async(is_ai_data_processing_approved)(asset.team_id):
+        raise ConsentWithdrawnError("AI data processing consent was withdrawn before this recording could be analyzed")
 
     video_bytes: bytes | None
     if asset.content:
@@ -53,7 +81,7 @@ async def upload_video_to_gemini_activity(inputs: UploadVideoToGeminiInputs) -> 
             f"ExportedAsset {inputs.asset_id} produced empty video bytes", kind=FailureKind.INTERNAL_ERROR
         )
 
-    raw_client = RawGenAIClient(api_key=settings.GEMINI_API_KEY)
+    raw_client = RawGenAIClient(api_key=gemini_api_key())
     # `tmp_file.write` / `flush` are blocking disk I/O; offload the whole tempfile+upload block off the event loop.
     uploaded_file = await asyncio.to_thread(
         _write_and_upload, raw_client, video_bytes, asset.export_format, workflow_id

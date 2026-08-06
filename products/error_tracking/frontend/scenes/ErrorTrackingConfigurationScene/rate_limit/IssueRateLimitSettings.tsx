@@ -1,17 +1,20 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonSelect, Link } from '@posthog/lemon-ui'
+import { IconRefresh } from '@posthog/icons'
+import { LemonSegmentedButton, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { humanFriendlyLargeNumber } from 'lib/utils'
+import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
+import { errorTrackingEditAccessDisabledReason } from '../../../utils'
 import { issueRateLimitConfigLogic } from './issueRateLimitConfigLogic'
 import { BUCKET_OPTIONS } from './rateLimitConfigLogic'
+import { RateLimitHistoryChart } from './RateLimitHistoryChart'
 import { formatTotalDuration, RateLimitSimulationChart } from './RateLimitSimulationChart'
 
 export function IssueRateLimitSettings(): JSX.Element {
@@ -31,7 +34,7 @@ export function IssueRateLimitSettings(): JSX.Element {
             <div>
                 <h3 className="font-semibold text-base mb-1">Per-issue rate limit</h3>
                 <p className="text-muted-foreground">
-                    This limit applies to each issue individually. Once an issue exceeds the configured rate, further
+                    This limit applies to each issue per window. Once an issue exceeds the configured rate, further
                     exceptions for it are dropped at ingestion.
                 </p>
             </div>
@@ -84,15 +87,16 @@ function ConfigColumn(): JSX.Element {
                 )}
             </LemonField>
 
-            <p className="text-muted-foreground text-xs">
-                Applies to every issue independently. Leave the value empty for no limit.
-            </p>
+            <p className="text-muted-foreground text-xs">Leave the value empty for no limit.</p>
 
             <div className="flex justify-start pt-2">
                 <LemonButton
                     type="primary"
                     htmlType="submit"
-                    disabledReason={!configFormChanged ? 'No changes to save' : undefined}
+                    disabledReason={
+                        errorTrackingEditAccessDisabledReason() ??
+                        (!configFormChanged ? 'No changes to save' : undefined)
+                    }
                     loading={isConfigFormSubmitting}
                 >
                     Save
@@ -103,10 +107,11 @@ function ConfigColumn(): JSX.Element {
 }
 
 function IssuesListColumn(): JSX.Element {
-    const { topIssues, topIssuesLoading, selectedIssueId } = useValues(issueRateLimitConfigLogic)
+    const { topIssues, topIssuesLoading, selectedIssueId, configForm } = useValues(issueRateLimitConfigLogic)
     const { selectIssue } = useActions(issueRateLimitConfigLogic)
 
-    const heading = <div className="text-sm font-medium mb-1">Most active issues — past 7 days</div>
+    const windowLabel = formatTotalDuration(configForm.per_issue_rate_limit_bucket_size_minutes)
+    const heading = <div className="text-sm font-medium mb-1">Most active issues — past {windowLabel}</div>
 
     if (topIssuesLoading) {
         return (
@@ -122,7 +127,7 @@ function IssuesListColumn(): JSX.Element {
             <div className="space-y-1">
                 {heading}
                 <div className="border rounded p-4 text-sm text-muted-foreground h-80 flex items-center justify-center text-center">
-                    No exceptions captured in the past 7 days yet.
+                    No exceptions captured in the past {windowLabel} yet.
                 </div>
             </div>
         )
@@ -180,17 +185,25 @@ function IssuesListColumn(): JSX.Element {
 }
 
 function PreviewColumn(): JSX.Element {
-    const { selectedIssue, selectedIssueVolume, selectedIssueVolumeLoading, configForm, topIssues } =
-        useValues(issueRateLimitConfigLogic)
+    const {
+        selectedIssue,
+        selectedIssueVolume,
+        selectedIssueVolumeLoading,
+        selectedIssueHistory,
+        selectedIssueHistoryLoading,
+        chartMode,
+        configForm,
+        topIssues,
+    } = useValues(issueRateLimitConfigLogic)
+    const { setChartMode, refreshChart } = useActions(issueRateLimitConfigLogic)
 
     const limit = configForm.per_issue_rate_limit_value
     const bucketMinutes = configForm.per_issue_rate_limit_bucket_size_minutes
+    const chartLoading = chartMode === 'history' ? selectedIssueHistoryLoading : selectedIssueVolumeLoading
 
     const heading = (
         <div className="text-sm font-medium mb-1 truncate">
-            {selectedIssue
-                ? `Exception volume for "${selectedIssue.name || 'Untitled issue'}" — past ${formatTotalDuration(bucketMinutes)}`
-                : 'Volume'}
+            {selectedIssue ? `"${selectedIssue.name || 'Untitled issue'}"` : 'Volume'}
         </div>
     )
 
@@ -205,19 +218,58 @@ function PreviewColumn(): JSX.Element {
         )
     }
 
-    if (selectedIssueVolumeLoading) {
-        return (
-            <div className="space-y-1">
-                {heading}
-                <LemonSkeleton className="w-full h-80" />
-            </div>
-        )
-    }
-
     return (
-        <div className="space-y-1">
+        <div className="space-y-2">
             {heading}
-            <RateLimitSimulationChart volume={selectedIssueVolume} rateLimit={limit} bucketMinutes={bucketMinutes} />
+            <p className="text-muted-foreground text-xs">
+                {chartMode === 'simulation'
+                    ? "This shows the issue's past traffic to help you choose a rate limit."
+                    : "This shows how many of the issue's exceptions were recorded vs dropped based on your rate limits."}
+            </p>
+            <div className="relative">
+                <div className="absolute top-2 left-2 right-2 z-10 flex items-center justify-between gap-2 pointer-events-none">
+                    <LemonSegmentedButton
+                        className="pointer-events-auto bg-surface-primary rounded"
+                        size="xsmall"
+                        value={chartMode}
+                        onChange={setChartMode}
+                        options={[
+                            { value: 'simulation', label: 'Simulation' },
+                            { value: 'history', label: 'History' },
+                        ]}
+                    />
+                    <div className="pointer-events-auto flex items-center gap-2 bg-surface-primary rounded pl-2">
+                        <span className="text-muted-foreground text-xs">Past {formatTotalDuration(bucketMinutes)}</span>
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            icon={<IconRefresh />}
+                            onClick={refreshChart}
+                            loading={chartLoading}
+                            tooltip="Refresh with the latest data"
+                        />
+                    </div>
+                </div>
+                {chartMode === 'simulation' ? (
+                    selectedIssueVolumeLoading && selectedIssueVolume.length === 0 ? (
+                        <LemonSkeleton className="w-full h-80" />
+                    ) : (
+                        <RateLimitSimulationChart
+                            volume={selectedIssueVolume}
+                            rateLimit={limit}
+                            bucketMinutes={bucketMinutes}
+                        />
+                    )
+                ) : selectedIssueHistoryLoading && selectedIssueHistory.length === 0 ? (
+                    <LemonSkeleton className="w-full h-80" />
+                ) : (
+                    <RateLimitHistoryChart
+                        history={selectedIssueHistory}
+                        bucketMinutes={bucketMinutes}
+                        emptyMessage="No rate limiting activity recorded yet for this issue. Exceptions dropped by your per-issue limit will appear here."
+                    />
+                )}
+            </div>
         </div>
     )
 }

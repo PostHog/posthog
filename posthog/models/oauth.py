@@ -5,8 +5,10 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.contrib.auth.signals import user_logged_out
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
+from django.db.models import Q
 from django.dispatch import receiver
 from django.utils import timezone
 
@@ -18,12 +20,18 @@ from oauth2_provider.models import (
     AbstractIDToken,
     AbstractRefreshToken,
 )
+from oauth2_provider.settings import oauth2_settings
+from oauth2_provider.validators import AllowedURIValidator
 
-from posthog.helpers.encrypted_fields import EncryptedCharField
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDT, generate_random_token, hash_key_value, mask_key_value
 
 if TYPE_CHECKING:
     from posthog.models import Organization, User
+
+    # This model loads at django.setup() in every process; the pydantic schema is
+    # runtime-imported in the accessors that materialize it.
+    from posthog.models.oauth_provisioning import ProvisioningConfig
 
 
 class OAuthApplicationAccessLevel(enum.Enum):
@@ -35,6 +43,22 @@ class OAuthApplicationAccessLevel(enum.Enum):
 class OAuthApplicationAuthBrand(enum.Enum):
     POSTHOG = "posthog"
     TWIG = "twig"
+
+
+class TokenEndpointAuthMethod(enum.Enum):
+    """How a client authenticates at the token endpoint, per RFC 7591 section 2.
+
+    ``NONE`` is a public client: it holds no credential and relies on PKCE (RFC 7636).
+    ``CLIENT_SECRET_POST`` holds a shared secret; RFC 6749 section 2.3.1 also defines a
+    ``client_secret_basic`` variant, which is not registered separately here because both
+    transports are accepted from any secret-holding client. ``PRIVATE_KEY_JWT`` is
+    asymmetric: the client signs an assertion (RFC 7523) that is verified against a public
+    key it publishes at its ``jwks_uri``, so no shared secret ever has to be transmitted.
+    """
+
+    NONE = "none"
+    CLIENT_SECRET_POST = "client_secret_post"
+    PRIVATE_KEY_JWT = "private_key_jwt"
 
 
 def is_loopback_host(hostname: str | None) -> bool:
@@ -51,7 +75,7 @@ def is_loopback_host(hostname: str | None) -> bool:
     return False
 
 
-class OAuthApplication(AbstractApplication):
+class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore[django-manager-missing]
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
     # NOTE: By default an application should be linked to the organization that created it.
@@ -106,7 +130,49 @@ class OAuthApplication(AbstractApplication):
         db_default=[],
         blank=True,
         null=False,
-        help_text=("Scope ceiling — strings tokens issued for this app may carry. Empty list means no per-app cap."),
+        help_text=(
+            "Required scope ceiling — strings tokens issued for this app may carry, all required and "
+            "locked on the consent screen. Empty list means a broad/deferred request (the user picks freely)."
+        ),
+    )
+
+    optional_scopes: ArrayField = ArrayField(
+        models.CharField(max_length=100),
+        default=list,
+        db_default=[],
+        blank=True,
+        null=False,
+        help_text=(
+            "Additive declinable scopes layered on top of the required `scopes` base — the user may "
+            "decline these at consent. Requires a non-empty `scopes` (an app with optional extras must "
+            "have a required base)."
+        ),
+    )
+
+    @property
+    def ceiling_scopes(self) -> list[str]:
+        """The full grantable set: `scopes` plus `optional_scopes`, deduplicated."""
+        return list(dict.fromkeys([*self.scopes, *self.optional_scopes]))
+
+    @property
+    def required_scopes(self) -> list[str]:
+        # Everything in the explicit ceiling is required and locked at consent; optional_scopes
+        # are additive declinable extras. An empty `scopes` is a broad/deferred request
+        # (MCP / `*` / empty) so nothing is required and the user picks freely. Self-registered
+        # (DCR / CIMD) ceilings are already filtered to grantable scopes and shown as locked rows
+        # the user can decline by cancelling, so they carry the same required floor as any other app.
+        return list(self.scopes)
+
+    # Generation marker for app-wide session revocation. A refresh presenting a token issued
+    # before this timestamp is rejected at mint time, so a refresh racing revoke_application_sessions
+    # can't slip new tokens past the one-shot bulk revoke.
+    sessions_revoked_at: models.DateTimeField = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When an admin last force-revoked every session for this app. Tokens issued before this "
+            "are rejected on refresh, forcing re-authorization."
+        ),
     )
 
     # CIMD (Client ID Metadata Document) fields — draft-ietf-oauth-client-id-metadata-document-00
@@ -126,78 +192,146 @@ class OAuthApplication(AbstractApplication):
         null=True, blank=True, help_text="When the CIMD metadata was last successfully fetched"
     )
 
+    # Client authentication - RFC 7591 section 2 client metadata
+    jwks_uri: models.URLField = models.URLField(
+        max_length=2048,
+        null=True,
+        blank=True,
+        help_text=(
+            "HTTPS URL serving the client's public keys as a JWK Set. Setting this on a "
+            "confidential client switches it to private_key_jwt authentication (RFC 7523): it "
+            "signs an assertion we verify against these keys instead of holding a shared secret."
+        ),
+    )
+
     # Provisioning fields - only relevant for partners that provision accounts/resources
     # via the agentic provisioning API. Null/blank for regular OAuth clients.
-    provisioning_auth_method: models.CharField = models.CharField(
-        max_length=20,
-        blank=True,
-        default="",
-        help_text="Auth method for provisioning requests: hmac, bearer, or pkce. Empty for non-provisioning apps.",
-    )
-    provisioning_signing_secret = EncryptedCharField(
-        max_length=500,
-        blank=True,
-        null=True,
-        default="",
-        help_text="HMAC shared secret for provisioning request verification (encrypted at rest)",
-    )
-    provisioning_partner_type: models.CharField = models.CharField(
-        max_length=50,
-        blank=True,
-        default="",
-        help_text="Partner identifier: stripe, wizard, etc. Empty for non-provisioning apps.",
-    )
-    provisioning_active: models.BooleanField = models.BooleanField(
-        default=False, help_text="Must be explicitly enabled for provisioning access"
-    )
-    provisioning_can_create_accounts: models.BooleanField = models.BooleanField(
-        default=False, help_text="Can this app create PostHog accounts on behalf of users"
-    )
-    provisioning_can_provision_resources: models.BooleanField = models.BooleanField(
-        default=True, help_text="Can this app provision projects and API keys"
-    )
-    provisioning_rate_limit_account_requests: models.IntegerField = models.IntegerField(
-        null=True, blank=True, help_text="Override default rate limit for account_requests (per hour)"
-    )
-    provisioning_rate_limit_account_requests_source: models.CharField = models.CharField(
-        max_length=24,
-        blank=True,
-        default="",
-        choices=[
-            ("default_unverified", "default_unverified"),
-            ("default_verified", "default_verified"),
-            ("admin", "admin"),
-        ],
+    is_provisioning_partner: models.BooleanField = models.BooleanField(
+        default=False,
+        db_default=False,
         help_text=(
-            "Records who set provisioning_rate_limit_account_requests so verification flips don't "
-            "overwrite an explicit admin override."
+            "Whether this app may act as an agentic provisioning partner. How it authenticates "
+            "follows from client_type, so there is no separate provisioning auth method."
         ),
     )
-    provisioning_rate_limit_token_exchanges: models.IntegerField = models.IntegerField(
-        null=True, blank=True, help_text="Override default rate limit for token exchanges (per hour)"
-    )
-    provisioning_rate_limit_resource_creates: models.IntegerField = models.IntegerField(
-        null=True, blank=True, help_text="Override default rate limit for resource creates (per hour)"
-    )
-    provisioning_disabled: models.BooleanField = models.BooleanField(
-        default=False,
+    # Mangled so the `provisioning` property below can own the readable name. Every capability
+    # and quota lives in here; see posthog/models/oauth_provisioning.py for the shape. Empty
+    # object means "a partner that may do nothing yet", which is the intended starting point.
+    _provisioning_config: models.JSONField = models.JSONField(
+        default=dict,
+        db_default={},
+        blank=True,
+        db_column="provisioning_config",
         help_text=(
-            "Kill switch for misbehaving partners. When true, apply_provisioning_defaults will not "
-            "re-enable the app on subsequent CIMD requests."
+            "Provisioning capabilities and per-endpoint rate limits. Every capability is off unless explicitly granted."
         ),
-    )
-    provisioning_skip_existing_user_consent: models.BooleanField = models.BooleanField(
-        default=False,
-        help_text="Skip user consent when linking existing accounts. Only enable for fully trusted partners.",
-    )
-    provisioning_can_issue_deep_links: models.BooleanField = models.BooleanField(
-        default=False,
-        help_text="Allow this app to issue deep links that mint full web sessions. Only enable for fully trusted partners.",
     )
 
     @property
-    def is_provisioning_partner(self) -> bool:
-        return bool(self.provisioning_auth_method)
+    def provisioning(self) -> "ProvisioningConfig":
+        """The parsed provisioning config. Absent keys read as their default, so a partner is
+        never accidentally granted a capability the stored blob never mentioned."""
+        from posthog.models.oauth_provisioning import ProvisioningConfig  # noqa: PLC0415
+
+        return ProvisioningConfig.model_validate(self._provisioning_config or {})
+
+    @provisioning.setter
+    def provisioning(self, value: "ProvisioningConfig | dict") -> None:
+        from posthog.models.oauth_provisioning import ProvisioningConfig  # noqa: PLC0415
+
+        config = value if isinstance(value, ProvisioningConfig) else ProvisioningConfig.model_validate(value)
+        self._provisioning_config = config.model_dump(mode="json")
+
+    def update_provisioning(self, **changes: object) -> "ProvisioningConfig":
+        """Apply a partial change to the config and persist it.
+
+        The blob is one column, so a read-modify-write is the only way to set a single key
+        without clobbering its neighbours. That makes concurrent writers a lost-update
+        problem - an admin granting a capability while a CIMD refresh re-tiers a rate limit
+        would otherwise have one silently overwrite the other - so the row is locked and
+        re-read inside the transaction rather than trusting the copy in memory.
+        """
+        with transaction.atomic():
+            current = OAuthApplication.objects.select_for_update().get(pk=self.pk)
+            self._provisioning_config = current._provisioning_config
+            self.provisioning = self.provisioning.model_copy(update=changes)
+            self.save(update_fields=["_provisioning_config"])
+        return self.provisioning
+
+    def update_provisioning_rate_limits(self, **changes: object) -> "ProvisioningConfig":
+        """Apply a partial change to the nested rate limits and persist it.
+
+        Nested under the same lock as any other partial change, so the read of the current
+        limits can't be stale by the time it is written back.
+        """
+        with transaction.atomic():
+            current = OAuthApplication.objects.select_for_update().get(pk=self.pk)
+            self._provisioning_config = current._provisioning_config
+            return self.update_provisioning(rate_limits=self.provisioning.rate_limits.model_copy(update=changes))
+
+    @property
+    def carries_provisioning_config(self) -> bool:
+        """Whether this app has ever been configured for provisioning, whatever
+        ``is_provisioning_partner`` says now.
+
+        Partner quotas key on this rather than the flag, so an admin who disables a partner
+        without revoking its outstanding tokens doesn't also exempt those tokens from the
+        rate limits.
+
+        "Grants or records something" rather than "the column is non-empty": the backfill writes
+        a config to every row, ordinary OAuth apps included, so a non-empty blob says nothing
+        about whether an app was ever a partner. A config equal to the all-default one carries no
+        grant, no deactivation and no quota, which is exactly the app that owes no partner quota.
+        """
+        from posthog.models.oauth_provisioning import ProvisioningConfig  # noqa: PLC0415
+
+        return self.is_provisioning_partner or self.provisioning != ProvisioningConfig()
+
+    # Client authentication is registration state on purpose. A client_id is public, so
+    # inferring the method from what a request happens to present would let anyone act as a
+    # confidential client by presenting nothing at all.
+
+    @property
+    def effective_client_id(self) -> str:
+        """The identifier this client uses for itself on the wire.
+
+        For a CIMD client that is its metadata URL, which is what the client sends and what it
+        names itself by in a signed assertion; the ``client_id`` column holds an opaque value
+        generated at registration. For every other client the two are the same.
+
+        Gated on ``is_cimd_client`` so a stray ``cimd_metadata_url`` on a non-CIMD app cannot
+        change which identifier an assertion's ``iss``/``sub`` are checked against.
+        """
+        if self.is_cimd_client and self.cimd_metadata_url:
+            return self.cimd_metadata_url
+        return self.client_id
+
+    @property
+    def requires_client_authentication(self) -> bool:
+        """Whether this client must prove itself, i.e. is confidential (RFC 6749 section 3.2.1)."""
+        return self.client_type == AbstractApplication.CLIENT_CONFIDENTIAL
+
+    @property
+    def token_endpoint_auth_method(self) -> TokenEndpointAuthMethod:
+        """Which RFC 7591 method this client authenticates with.
+
+        Derived rather than stored: the client type says whether it authenticates at all, and a
+        jwks_uri says it does so with an asymmetric key. Both are registration state, so this is
+        never influenced by what a request presents.
+        """
+        if not self.requires_client_authentication:
+            return TokenEndpointAuthMethod.NONE
+        if self.jwks_uri:
+            return TokenEndpointAuthMethod.PRIVATE_KEY_JWT
+        return TokenEndpointAuthMethod.CLIENT_SECRET_POST
+
+    @property
+    def uses_client_secret_auth(self) -> bool:
+        return self.token_endpoint_auth_method is TokenEndpointAuthMethod.CLIENT_SECRET_POST
+
+    @property
+    def uses_private_key_jwt_auth(self) -> bool:
+        return self.token_endpoint_auth_method is TokenEndpointAuthMethod.PRIVATE_KEY_JWT
 
     class Meta(AbstractApplication.Meta):
         verbose_name = "OAuth Application"
@@ -232,46 +366,110 @@ class OAuthApplication(AbstractApplication):
         )
 
     def clean(self):
-        super().clean()
+        # Full override of AbstractApplication.clean(). We run django-oauth-toolkit's redirect_uri
+        # validator ourselves with a carve-out for authority-less native-app schemes (com.example.app:/oauth),
+        # and re-implement its remaining model checks in _validate_application_config — rather than
+        # calling super().clean(), which would re-run the redirect validation and reject those native schemes.
+        self._validate_redirect_uris()
+        self._validate_optional_scopes()
+        self._validate_client_authentication()
+        self._validate_application_config()
 
-        for uri in self.redirect_uris.split(" "):
-            if not uri:
-                continue
+    def _validate_client_authentication(self):
+        if self.jwks_uri and not self.jwks_uri.startswith("https://"):
+            raise ValidationError("jwks_uri must be an https URL")
 
+        # A public client cannot authenticate, so a key set would never be consulted
+        # Rejecting the combination keeps token_endpoint_auth_method unambiguous.
+        if self.jwks_uri and not self.requires_client_authentication:
+            raise ValidationError("jwks_uri is only meaningful for a confidential client")
+
+    def _validate_redirect_uris(self):
+        validator = AllowedURIValidator(
+            {scheme.lower() for scheme in self.get_allowed_schemes()},
+            name="redirect uri",
+            allow_path=True,
+            allow_query=True,
+            allow_hostname_wildcard=oauth2_settings.ALLOW_URI_WILDCARDS,
+        )
+        for uri in self.redirect_uris.split():
             parsed_uri = urlparse(uri)
 
-            if parsed_uri.fragment:
-                raise ValidationError({"redirect_uris": f"Redirect URI {uri} cannot contain fragments"})
-
-            # Custom URL schemes for native apps (RFC 8252 Section 7.1)
-            # These look like: myapp://callback, posthog-code://oauth
-            is_custom_scheme = parsed_uri.scheme not in ["http", "https", ""]
-
-            if is_custom_scheme:
-                # Block dangerous schemes that could be used for attacks (XSS, data exfiltration, etc.)
-                # Since we use DCR with pre-registration, clients can use any scheme not in this blocklist
+            # RFC 8252 Section 7.1 private-use scheme redirects (e.g. com.example.app:/oauth)
+            # are authority-less by design; django-oauth-toolkit validator rejects them solely for lacking a host.
+            # Everything else goes through validator unchanged.
+            if parsed_uri.scheme not in ("http", "https", "") and parsed_uri.hostname is None:
                 if parsed_uri.scheme in self.get_blocked_schemes():
                     raise ValidationError(
                         {
                             "redirect_uris": f"Redirect URI scheme '{parsed_uri.scheme}' is not allowed for security reasons"
                         }
                     )
-            else:
-                # Standard HTTP(S) validation
-                if not parsed_uri.netloc:
-                    raise ValidationError({"redirect_uris": f"Redirect URI {uri} must contain a host"})
+                if parsed_uri.fragment:
+                    raise ValidationError({"redirect_uris": f"Redirect URI {uri} cannot contain fragments"})
+                continue
 
-                is_loopback = is_loopback_host(parsed_uri.hostname)
+            # django-oauth-toolkit validates scheme, fragment, and URL shape
+            validator(uri)
 
-                # http is only allowed for loopback addresses (localhost, 127.x.x.x)
-                allowed_schemes = ["http", "https"] if is_loopback else ["https"]
+            # django-oauth-toolkit permits any allowlisted scheme; we additionally require https except on loopback.
+            if parsed_uri.scheme == "http" and not is_loopback_host(parsed_uri.hostname):
+                raise ValidationError(
+                    {
+                        "redirect_uris": f"Redirect URI {uri} must use https (http is only allowed for loopback addresses)"
+                    }
+                )
 
-                if parsed_uri.scheme not in allowed_schemes:
-                    raise ValidationError(
-                        {
-                            "redirect_uris": f"Redirect URI {uri} must start with one of the following schemes: {', '.join(allowed_schemes)}"
-                        }
-                    )
+    def _validate_optional_scopes(self):
+        if not self.optional_scopes:
+            return
+        if not self.scopes:
+            raise ValidationError(
+                {"optional_scopes": "Declaring optional scopes requires a non-empty required set in `scopes`."}
+            )
+        for field, values in (("scopes", self.scopes), ("optional_scopes", self.optional_scopes)):
+            non_resource = [scope for scope in values if ":" not in scope]
+            if non_resource:
+                # `*` or identity scopes in a required set either brick /authorize
+                # (explicit ceilings reject `*`) or 400 every consent the client
+                # didn't request them on, with no UI recourse.
+                raise ValidationError(
+                    {
+                        field: f"With optional scopes declared, every entry must be a resource scope "
+                        f"(object:action); invalid: {', '.join(non_resource)}"
+                    }
+                )
+
+    def _validate_application_config(self):
+        # Mirror of AbstractApplication.clean()'s non-redirect checks (grant type, allowed origins,
+        # signing algorithm). Re-implemented here because clean() does not call super().clean()
+        code_grant_types = (
+            AbstractApplication.GRANT_AUTHORIZATION_CODE,
+            AbstractApplication.GRANT_IMPLICIT,
+            AbstractApplication.GRANT_OPENID_HYBRID,
+        )
+        if not self.redirect_uris.split() and self.authorization_grant_type in code_grant_types:
+            raise ValidationError(f"redirect_uris cannot be empty with grant_type {self.authorization_grant_type}")
+
+        allowed_origins = self.allowed_origins.split()
+        if allowed_origins:
+            origin_validator = AllowedURIValidator(
+                oauth2_settings.ALLOWED_SCHEMES,
+                name="allowed origin",
+                allow_hostname_wildcard=oauth2_settings.ALLOW_URI_WILDCARDS,
+            )
+            for origin in allowed_origins:
+                origin_validator(origin)
+
+        if self.algorithm == AbstractApplication.RS256_ALGORITHM and not oauth2_settings.OIDC_RSA_PRIVATE_KEY:
+            raise ValidationError("You must set OIDC_RSA_PRIVATE_KEY to use RSA algorithm")
+
+        if self.algorithm == AbstractApplication.HS256_ALGORITHM and (
+            self.authorization_grant_type
+            in (AbstractApplication.GRANT_IMPLICIT, AbstractApplication.GRANT_OPENID_HYBRID)
+            or self.client_type == AbstractApplication.CLIENT_PUBLIC
+        ):
+            raise ValidationError("You cannot use HS256 with public grants or clients")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -295,6 +493,23 @@ class OAuthAccessToken(AbstractAccessToken):
         verbose_name = "OAuth Access Token"
         verbose_name_plural = "OAuth Access Tokens"
         swappable = "OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL"
+        indexes = [
+            # The gateway credential cache scans for tokens holding a given scope via a
+            # whitespace-bounded regex on the space-separated `scope` text. A trigram GIN
+            # index lets that parameterized `~*` use an index scan; partial on
+            # application_id IS NOT NULL (which every such scan already filters on) keeps
+            # it to app tokens. See posthog/storage/gateway_credential_cache.py.
+            GinIndex(
+                fields=["scope"],
+                name="oauthaccesstoken_scope_trgm",
+                opclasses=["gin_trgm_ops"],
+                condition=Q(application__isnull=False),
+            ),
+            # B-tree on the plaintext `token` so equality lookups by token value resolve
+            # via an index scan instead of a sequential scan. These lookups account for a
+            # large share of the server's CPU time; the index removes that hot-path scan.
+            models.Index(fields=["token"], name="oauthaccesstoken_token_idx"),
+        ]
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
@@ -308,6 +523,8 @@ class OAuthAccessToken(AbstractAccessToken):
 
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
+    # Server-minted sandbox binding: task-scoped APIs must not trust a caller-supplied task header alone.
+    sandbox_task_id: models.UUIDField = models.UUIDField(null=True, blank=True)
 
     # When set, this token was minted by a staff user impersonating `user`. Used to revoke
     # tokens at impersonation end. SET_NULL so the customer's tokens survive admin deactivation.
@@ -470,6 +687,34 @@ def revoke_oauth_session(
 
         # Delete all grants for this user+application
         OAuthGrant.objects.filter(user=user, application=application).delete()
+
+
+def revoke_application_sessions(application: "OAuthApplication") -> None:
+    """Force-invalidate every outstanding token and grant for an application, across all users.
+
+    Lets a scope-ceiling narrowing take effect immediately by forcing every connection to
+    re-authorize under the new ceiling, instead of waiting for each token to hit its next
+    refresh (where `get_original_scopes` caps it).
+
+    Revokes refresh tokens before deleting access tokens, all in one transaction, so a
+    concurrent refresh can't mint a fresh access token in the gap and a mid-way failure
+    can't leave refresh tokens live after their access tokens are already gone.
+
+    Stamps `sessions_revoked_at` so a refresh that validated its (now-revoked) token before
+    this transaction committed is rejected when it tries to mint — DOT validates the refresh
+    token in autocommit, before its own transaction takes the row lock, so the bulk update
+    here would otherwise miss the tokens that racing refresh is about to create.
+
+    Grants are deleted before the token sweep: a racing code exchange locks its grant row at
+    mint (`_reject_code_exchange_racing_revoke`), so deleting grants first makes this
+    transaction block on that lock and re-snapshot the token sweep after the mint commits.
+    Sweeping tokens first would let the racing mint's tokens escape the sweep."""
+    now = timezone.now()
+    with transaction.atomic():
+        OAuthApplication.objects.filter(pk=application.pk).update(sessions_revoked_at=now)
+        OAuthGrant.objects.filter(application=application).delete()
+        OAuthRefreshToken.objects.filter(application=application, revoked__isnull=True).update(revoked=now)
+        OAuthAccessToken.objects.filter(application=application).delete()
 
 
 def generate_random_token_cimd_verification() -> str:

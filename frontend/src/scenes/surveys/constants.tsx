@@ -1,7 +1,7 @@
 import { IconComment } from '@posthog/icons'
 
 import { IconAreaChart, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
-import { allOperatorsMapping } from 'lib/utils'
+import { allOperatorsMapping } from 'lib/utils/operators'
 
 import {
     AccessControlLevel,
@@ -22,6 +22,14 @@ import { QuickSurveyContext, QuickSurveyType } from './quick-create/types'
 export const SURVEY_PAGE_SIZE = 100
 
 export const LINK_PAGE_SIZE = 100
+
+// Max recurring-survey iterations. Mirrors MAX_ITERATION_COUNT in products/surveys/backend/models.py,
+// which caps the generated iteration windows (and the API enforces the same limit).
+export const MAX_ITERATION_COUNT = 500
+
+// Stamped into a translation's choices/text fields when the editor auto-fills a spot that needs
+// a human translation. Must never be treated as real translated content.
+export const TRANSLATION_NEEDED_PLACEHOLDER = '[Translation needed]'
 
 export const SurveyQuestionLabel: Record<SurveyQuestionType, string> = {
     [SurveyQuestionType.Open]: 'Freeform text',
@@ -660,6 +668,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
             ...defaultSurveyAppearance,
             displayThankYouMessage: true,
             thankYouMessageHeader: 'Thanks — we will be in touch shortly!',
+            allowGoBack: true,
         },
         description: 'Recruit research participants via a shareable link.',
         tagType: 'completion',
@@ -719,6 +728,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
             ...defaultSurveyAppearance,
             displayThankYouMessage: true,
             thankYouMessageHeader: 'Thanks for sharing your perspective!',
+            allowGoBack: true,
         },
         description: 'Go deep on segmentation, satisfaction, and roadmap signal.',
         tagType: 'primary',

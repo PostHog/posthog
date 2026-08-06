@@ -153,6 +153,13 @@ export interface QuarantineInputApi {
     expires_at?: string | null
 }
 
+export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
+
+export const SearchMatchTypeEnumApi = {
+    Exact: 'exact',
+    Similar: 'similar',
+} as const
+
 export interface RunSummaryApi {
     total: number
     changed: number
@@ -167,6 +174,11 @@ export type RunApiMetadata = { [key: string]: unknown }
 
 export interface RunApi {
     approved_by?: UserBasicInfoApi | null
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR number) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.
+     *
+     * * `exact` - exact
+     * * `similar` - similar */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
     id: string
     repo_id: string
     status: string
@@ -274,6 +286,7 @@ export interface CreateRunInputApi {
     removed_identifiers?: string[]
     purpose?: string
     metadata?: CreateRunInputApiMetadata
+    is_partial?: boolean
 }
 
 export type UploadTargetApiFields = { [key: string]: string }
@@ -318,6 +331,8 @@ export interface FinalizeRunRequestInputApi {
     approve_all?: boolean
     /** Whether the server commits the approved baseline to the PR branch and greens the gate (the normal path — leave true). Set false only for tooling that commits the baseline itself: the server skips the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT greened and `metadata.baseline_commit_sha` is absent. */
     commit_to_github?: boolean
+    /** Whether to embed the before/after snapshot images in the post-approval PR comment. The comment itself is always posted (when the run was initiated from a GitHub review prompt and the repo has PR comments enabled); this flag only controls the images. Defaults false — the comment stays a text summary unless the reviewer opts in to attach the snapshots. */
+    add_images_to_comment_on_pr?: boolean
 }
 
 export interface FinalizeResultApi {
@@ -388,6 +403,8 @@ export interface PaginatedSnapshotListApi {
     /** @nullable */
     previous?: string | null
     results: SnapshotApi[]
+    /** Count of this run's snapshots whose identifier is currently quarantined. Excluded from results unless include_quarantined=true is passed. */
+    quarantined_count?: number
 }
 
 export interface MarkToleratedInputApi {
@@ -459,6 +476,10 @@ export type VisualReviewReposRunsListParams = {
      * Filter by review state
      */
     review_state?: string
+    /**
+     * Free-text search over branch, commit SHA, run type, and PR number
+     */
+    search?: string
 }
 
 export type VisualReviewReposSnapshotsListParams = {
@@ -497,6 +518,10 @@ export type VisualReviewRunsListParams = {
      * Filter by review state
      */
     review_state?: string
+    /**
+     * Free-text search over branch, commit SHA, run type, and PR number
+     */
+    search?: string
 }
 
 export type VisualReviewRunsSnapshotHistoryListParams = {
@@ -515,6 +540,10 @@ export type VisualReviewRunsSnapshotHistoryListParams = {
 }
 
 export type VisualReviewRunsSnapshotsListParams = {
+    /**
+     * Whether to include snapshots whose identifier is currently quarantined. Defaults to false: quarantined snapshots are excluded from results and reported in quarantined_count instead, since they are noise when reviewing real changes.
+     */
+    include_quarantined?: boolean
     /**
      * Number of results to return per page.
      */

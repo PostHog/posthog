@@ -39,6 +39,8 @@ services:
                         path /e
                         path /e/*
                         path /i/v0/*
+                        path /i/v1/analytics/events
+                        path /i/v1/analytics/events/
                         path /batch
                         path /batch*
                         path /capture
@@ -58,6 +60,10 @@ services:
                     @flags {
                         path /flags
                         path /flags*
+                        # Local evaluation (flag definitions) — mirrors cloud Contour routing to Rust
+                        path /api/feature_flag/local_evaluation
+                        path /api/feature_flag/local_evaluation/
+                        path /api/feature_flag/local_evaluation/*
                     }
 
                     @surveys {

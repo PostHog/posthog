@@ -1,6 +1,5 @@
 import dataclasses
 from enum import Enum
-from math import floor
 from typing import Any
 
 import structlog
@@ -9,14 +8,15 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.models.person import Person
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
+from posthog.personhog_client.caller_tag import personhog_caller_tag
+
+from products.replay.backend.models.session_summaries import SingleSessionSummary
 
 from ee.hogai.session_summaries import SummaryValidationError
-from ee.hogai.session_summaries.constants import FAILED_PATTERNS_ENRICHMENT_MIN_RATIO
 from ee.hogai.session_summaries.session.output_data import SessionSummaryIssueTypes, SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.utils import logging_session_ids
 from ee.hogai.utils.yaml import load_yaml_from_raw_llm_content
-from ee.models.session_summaries import SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
 
@@ -298,9 +298,16 @@ def _enriched_event_from_session_summary_event(
     return enriched_event
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class SegmentOutcome:
+    name: str
+    outcome: str
+    success: bool
+
+
 def _get_segment_name_and_outcome_from_session_summary(
     target_segment_index: int, session_summary: SessionSummarySerializer
-) -> tuple[str, str, bool]:
+) -> SegmentOutcome:
     """Return segment name and outcome for a given index."""
     segment_name = segment_outcome = segment_success = None
     for segment_state in session_summary.data["segments"]:
@@ -318,7 +325,7 @@ def _get_segment_name_and_outcome_from_session_summary(
         msg = f"Segment name, outcome or success not found for segment index {target_segment_index} in session summary: {session_summary.data}"
         logger.error(msg, signals_type="session-summaries")
         raise ValueError(msg)
-    return segment_name, segment_outcome, segment_success
+    return SegmentOutcome(name=segment_name, outcome=segment_outcome, success=segment_success)
 
 
 def _enrich_pattern_assigned_event_with_session_summary_data(
@@ -359,16 +366,16 @@ def _enrich_pattern_assigned_event_with_session_summary_data(
                         for next_event in events_in_segment[event_index + 1 : event_index + 4]
                     ]
                 segment_index = segment_key_actions["segment_index"]
-                segment_name, segment_outcome, segment_success = _get_segment_name_and_outcome_from_session_summary(
+                segment = _get_segment_name_and_outcome_from_session_summary(
                     target_segment_index=segment_index, session_summary=session_summary
                 )
                 event_segment_context = PatternAssignedEventSegmentContext(
                     previous_events_in_segment=previous_events_in_segment,
                     target_event=current_event,
                     next_events_in_segment=next_events_in_segment,
-                    segment_name=segment_name,
-                    segment_outcome=segment_outcome,
-                    segment_success=segment_success,
+                    segment_name=segment.name,
+                    segment_outcome=segment.outcome,
+                    segment_success=segment.success,
                     segment_index=segment_index,
                     session_start_time_str=(
                         db_summary.session_start_time.isoformat() if db_summary.session_start_time else None
@@ -484,20 +491,26 @@ def combine_patterns_with_events_context(
             stats=_calculate_pattern_stats(pattern_events, len(session_ids)),
         )
         combined_patterns.append(enriched_pattern)
-    # If not enough patterns were properly enriched - fail the activity
-    # Using `floor` as for small numbers of patterns - >30% could be filtered as "non-blocking only"
-    minimum_expected_patterns_count = max(1, floor(len(patterns.patterns) * FAILED_PATTERNS_ENRICHMENT_MIN_RATIO))
     successful_patterns_count = len(combined_patterns)
     failed_patterns_count = len(patterns.patterns) - successful_patterns_count
-    if minimum_expected_patterns_count > successful_patterns_count:
+    # Fail only when patterns exist but none could be enriched - a partial report is still useful,
+    # while failing the whole group summary over a few dropped patterns leaves the user with nothing
+    if patterns.patterns and not combined_patterns:
         exception_message = (
-            f"Too many patterns failed to enrich with session meta, when summarizing {len(session_ids)} "
+            f"No patterns could be enriched with session meta, when summarizing {len(session_ids)} "
             f"sessions ({logging_session_ids(session_ids)}) for user {user_id}. "
-            f"Input: {len(patterns.patterns)}; success: {successful_patterns_count} "
-            f"(enriched: {len(combined_patterns)}); failure: {failed_patterns_count}"
+            f"Input: {len(patterns.patterns)}"
         )
         logger.exception(exception_message, user_id=user_id, signals_type="session-summaries")
         raise ApplicationError(exception_message)
+    if failed_patterns_count:
+        logger.warning(
+            f"Some patterns failed to enrich with session meta, when summarizing {len(session_ids)} "
+            f"sessions ({logging_session_ids(session_ids)}) for user {user_id}. "
+            f"Input: {len(patterns.patterns)}; success: {successful_patterns_count}; failure: {failed_patterns_count}",
+            user_id=user_id,
+            signals_type="session-summaries",
+        )
     severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
     combined_patterns.sort(key=lambda p: severity_order.get(p.severity.value, 3))
     return EnrichedSessionGroupSummaryPatternsList(patterns=combined_patterns)
@@ -531,7 +544,8 @@ def get_persons_for_sessions_from_distinct_ids(
         # No ids to search for persons - return empty mapping
         return {}
     try:
-        distinct_to_person = get_persons_mapped_by_distinct_id(team_id=team_id, distinct_ids=distinct_ids)
+        with personhog_caller_tag("session-summaries/persons"):
+            distinct_to_person = get_persons_mapped_by_distinct_id(team_id=team_id, distinct_ids=distinct_ids)
         session_id_to_person_mapping: dict[str, Person | None] = {}
         for distinct_id, person in distinct_to_person.items():
             person_session_ids = distinct_id_to_session_id_mapping.get(distinct_id)

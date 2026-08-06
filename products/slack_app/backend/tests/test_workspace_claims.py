@@ -32,13 +32,13 @@ class TestSlackWorkspaceClaimsView(TestCase):
 
     def _post(self, payload: dict, signing_secret: str | None = None) -> Any:
         body = json.dumps(payload).encode()
-        signature, ts = sign_slack_request(body, signing_secret or self.signing_secret)
+        signed = sign_slack_request(body, signing_secret or self.signing_secret)
         return self.client.post(
             "/slack/workspace/claims/",
             data=body,
             content_type="application/json",
-            HTTP_X_SLACK_SIGNATURE=signature,
-            HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
+            HTTP_X_SLACK_SIGNATURE=signed.signature,
+            HTTP_X_SLACK_REQUEST_TIMESTAMP=signed.timestamp,
         )
 
     def test_method_not_allowed(self):
@@ -273,10 +273,7 @@ class TestDoesOtherRegionClaimWorkspace(TestCase):
             mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
             mock_post.return_value = self._response(200, {"claimed": True})
             does_other_region_claim_workspace(slack_team_id="T_KIND", kinds=["slack"], incoming_host="eu.posthog.com")
-            does_other_region_claim_workspace(
-                slack_team_id="T_KIND", kinds=["slack", "slack-posthog-code"], incoming_host="eu.posthog.com"
-            )
-            assert mock_post.call_count == 2
+            assert mock_post.call_count == 1
 
     def test_signed_request_is_accepted_by_validator(self):
         # End-to-end roundtrip: the sent headers + body, fed into the receiver's verifier, must

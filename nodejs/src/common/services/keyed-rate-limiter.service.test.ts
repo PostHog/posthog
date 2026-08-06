@@ -1,8 +1,8 @@
+import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { closeHub, createHub } from '~/common/utils/db/hub'
 import { Hub } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
 
-import { deleteKeysWithPrefix } from '../../cdp/_tests/redis'
 import { KeyedRateLimiterService } from './keyed-rate-limiter.service'
 
 const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
@@ -275,6 +275,52 @@ describe('KeyedRateLimiterService', () => {
             const ttl = await redis.useClient({ name: 'ttl-check' }, async (client) => await client.ttl(key))
             expect(ttl).toBeGreaterThan(5)
             expect(ttl).toBeLessThanOrEqual(60)
+        })
+    })
+
+    describe('rateLimitMany (scriptVersion v3 — floor-drain on overdraft)', () => {
+        const buildV3Limiter = (name: string, overrides: Partial<{ bucketSize: number; refillRate: number }> = {}) =>
+            new KeyedRateLimiterService(
+                {
+                    name,
+                    bucketSize: overrides.bucketSize ?? 100,
+                    refillRate: overrides.refillRate ?? 10,
+                    ttlSeconds: 60 * 60 * 24,
+                    scriptVersion: 'v3',
+                },
+                redis
+            )
+
+        it('floor-drains the available tokens on overdraft instead of preserving the balance', async () => {
+            const limiter = buildV3Limiter('test-v3-drain')
+            await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
+
+            await limiter.rateLimitMany([{ id: 'team-1', cost: 100 }])
+            advanceTime(1000)
+            const res = await limiter.rateLimitMany([{ id: 'team-1', cost: 1000 }])
+
+            expect(res[0][1].isRateLimited).toBe(true)
+            expect(res[0][1].tokensBefore).toBe(10)
+            const bucket = await readBucket(`${limiter.getKeyPrefix()}/team-1`)
+            expect(Number(bucket.pool)).toBe(0)
+        })
+
+        it('caps sustained-overload admission at refillRate per batch (drop-rule regression)', async () => {
+            const limiter = buildV3Limiter('test-v3-overload')
+            await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
+
+            await limiter.rateLimitMany([{ id: 'team-1', cost: 100 }])
+
+            const budgets: number[] = []
+            for (let i = 0; i < 10; i++) {
+                advanceTime(1000)
+                const res = await limiter.rateLimitMany([{ id: 'team-1', cost: 1000 }])
+                budgets.push(res[0][1].tokensBefore)
+            }
+
+            for (const budget of budgets) {
+                expect(budget).toBeLessThanOrEqual(10)
+            }
         })
     })
 

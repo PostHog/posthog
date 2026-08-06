@@ -1,9 +1,9 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -106,8 +106,8 @@ describe('llmPlaygroundLogic', () => {
                 },
             })
 
-            // Reload trial models so the empty mock takes effect
-            modelPickerLogic.actions.loadTrialModels()
+            // Reload playground models so the empty mock takes effect
+            modelPickerLogic.actions.loadPlaygroundModels()
 
             const emptyRunLogic = llmPlaygroundRunLogic()
             emptyRunLogic.mount()
@@ -196,8 +196,8 @@ describe('llmPlaygroundLogic', () => {
                 },
             })
 
-            // Reload trial models with the extended mock data
-            modelPickerLogic.actions.loadTrialModels()
+            // Reload playground models with the extended mock data
+            modelPickerLogic.actions.loadPlaygroundModels()
 
             const testRunLogic = llmPlaygroundRunLogic()
             testRunLogic.mount()
@@ -235,8 +235,8 @@ describe('llmPlaygroundLogic', () => {
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'openrouter-key-1', provider: 'openrouter', state: 'ok' }],
                     },
-                    '/api/llm_proxy/models/': (req: any) => {
-                        if (req.url.searchParams.get('provider_key_id') === 'openrouter-key-1') {
+                    '/api/llm_proxy/models/': ({ request }) => {
+                        if (new URL(request.url).searchParams.get('provider_key_id') === 'openrouter-key-1') {
                             return [200, byokModels]
                         }
                         return [200, MOCK_MODEL_OPTIONS]
@@ -280,8 +280,8 @@ describe('llmPlaygroundLogic', () => {
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'openrouter-key-1', provider: 'openrouter', state: 'ok' }],
                     },
-                    '/api/llm_proxy/models/': (req: any) => {
-                        if (req.url.searchParams.get('provider_key_id') === 'openrouter-key-1') {
+                    '/api/llm_proxy/models/': ({ request }) => {
+                        if (new URL(request.url).searchParams.get('provider_key_id') === 'openrouter-key-1') {
                             return [200, byokModels]
                         }
                         return [200, MOCK_MODEL_OPTIONS]
@@ -326,8 +326,8 @@ describe('llmPlaygroundLogic', () => {
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'openrouter-key-1', provider: 'openrouter', state: 'ok' }],
                     },
-                    '/api/llm_proxy/models/': (req: any) => {
-                        if (req.url.searchParams.get('provider_key_id') === 'openrouter-key-1') {
+                    '/api/llm_proxy/models/': ({ request }) => {
+                        if (new URL(request.url).searchParams.get('provider_key_id') === 'openrouter-key-1') {
                             return [200, byokModels]
                         }
                         return [200, MOCK_MODEL_OPTIONS]
@@ -368,8 +368,8 @@ describe('llmPlaygroundLogic', () => {
                             { id: 'openrouter-key-a', provider: 'openrouter', name: 'A key', state: 'ok' },
                         ],
                     },
-                    '/api/llm_proxy/models/': (req: any) => {
-                        const providerKeyId = req.url.searchParams.get('provider_key_id')
+                    '/api/llm_proxy/models/': ({ request }) => {
+                        const providerKeyId = new URL(request.url).searchParams.get('provider_key_id')
                         if (providerKeyId === 'openrouter-key-z' || providerKeyId === 'openrouter-key-a') {
                             return [
                                 200,
@@ -404,7 +404,7 @@ describe('llmPlaygroundLogic', () => {
             testRunLogic.unmount()
         })
 
-        it('should keep trial model selection even when BYOK models are available', async () => {
+        it('should keep playground model selection even when BYOK models are available', async () => {
             const byokModels: ModelOption[] = [
                 {
                     id: 'anthropic/claude-sonnet-4.5',
@@ -424,8 +424,8 @@ describe('llmPlaygroundLogic', () => {
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'openrouter-key-1', provider: 'openrouter', state: 'ok' }],
                     },
-                    '/api/llm_proxy/models/': (req: any) => {
-                        if (req.url.searchParams.get('provider_key_id') === 'openrouter-key-1') {
+                    '/api/llm_proxy/models/': ({ request }) => {
+                        if (new URL(request.url).searchParams.get('provider_key_id') === 'openrouter-key-1') {
                             return [200, byokModels]
                         }
                         return [200, MOCK_MODEL_OPTIONS]
@@ -450,14 +450,14 @@ describe('llmPlaygroundLogic', () => {
         })
     })
 
-    describe('loadTrialModels auto-correction', () => {
-        it('should auto-correct invalid model after loading trial models', async () => {
+    describe('loadPlaygroundModels auto-correction', () => {
+        it('should auto-correct invalid model after loading playground models', async () => {
             const testRunLogic = llmPlaygroundRunLogic()
             testRunLogic.mount()
 
             llmPlaygroundPromptsLogic.actions.setModel('gpt-5-2025-08-07')
 
-            modelPickerLogic.actions.loadTrialModels()
+            modelPickerLogic.actions.loadPlaygroundModels()
 
             await expectLogic(testRunLogic).toFinishAllListeners()
 
@@ -479,28 +479,31 @@ describe('llmPlaygroundLogic', () => {
             testRunLogic.unmount()
         })
 
-        it('should preserve trial models when reload fails', async () => {
-            await expectLogic(runLogic).toFinishAllListeners()
-            expect(modelPickerLogic.values.trialModels).toEqual(MOCK_MODEL_OPTIONS)
+        it('should preserve playground models when reload fails', async () => {
+            // The reload deliberately fails the loadPlaygroundModels loader.
+            silenceKeaLoadersErrors()
+            try {
+                await expectLogic(runLogic).toFinishAllListeners()
+                expect(modelPickerLogic.values.playgroundModels).toEqual(MOCK_MODEL_OPTIONS)
 
-            useMocks({
-                get: {
-                    '/api/llm_proxy/models/': () => {
-                        throw new Error('API Error')
+                useMocks({
+                    get: {
+                        '/api/llm_proxy/models/': () => [500, { detail: 'API Error' }],
+                        '/api/environments/:team_id/llm_analytics/evaluation_config/': () => [
+                            500,
+                            { detail: 'API Error' },
+                        ],
+                        '/api/environments/:team_id/llm_analytics/provider_keys/': () => [500, { detail: 'API Error' }],
                     },
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': () => {
-                        throw new Error('API Error')
-                    },
-                    '/api/environments/:team_id/llm_analytics/provider_keys/': () => {
-                        throw new Error('API Error')
-                    },
-                },
-            })
+                })
 
-            modelPickerLogic.actions.loadTrialModels()
-            await expectLogic(runLogic).toFinishAllListeners()
+                modelPickerLogic.actions.loadPlaygroundModels()
+                await expectLogic(runLogic).toFinishAllListeners()
 
-            expect(modelPickerLogic.values.trialModels).toEqual(MOCK_MODEL_OPTIONS)
+                expect(modelPickerLogic.values.playgroundModels).toEqual(MOCK_MODEL_OPTIONS)
+            } finally {
+                resumeKeaLoadersErrors()
+            }
         })
     })
 
@@ -662,13 +665,13 @@ describe('llmPlaygroundLogic', () => {
     })
 
     describe('effectiveModelOptions', () => {
-        it('should return trial models when no BYOK keys exist', async () => {
+        it('should return playground models when no BYOK keys exist', async () => {
             await expectLogic(runLogic).toFinishAllListeners()
 
             expect(llmPlaygroundModelLogic.values.effectiveModelOptions).toEqual(MOCK_MODEL_OPTIONS)
         })
 
-        it('should return trial models when all keys are invalid', async () => {
+        it('should return playground models when all keys are invalid', async () => {
             useMocks({
                 get: {
                     '/api/environments/:team_id/llm_analytics/evaluation_config/': {
@@ -691,26 +694,30 @@ describe('llmPlaygroundLogic', () => {
             testRunLogic.unmount()
         })
 
-        it('should return trial models when provider keys API fails', async () => {
-            useMocks({
-                get: {
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
-                        active_provider_key: null,
+        it('should return playground models when provider keys API fails', async () => {
+            // The provider keys loader deliberately fails here.
+            silenceKeaLoadersErrors()
+            try {
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/llm_analytics/evaluation_config/': {
+                            active_provider_key: null,
+                        },
+                        '/api/environments/:team_id/llm_analytics/provider_keys/': () => [500, { detail: 'API Error' }],
+                        '/api/llm_proxy/models/': MOCK_MODEL_OPTIONS,
                     },
-                    '/api/environments/:team_id/llm_analytics/provider_keys/': () => {
-                        throw new Error('API Error')
-                    },
-                    '/api/llm_proxy/models/': MOCK_MODEL_OPTIONS,
-                },
-            })
+                })
 
-            const testRunLogic = llmPlaygroundRunLogic()
-            testRunLogic.mount()
-            await expectLogic(testRunLogic).toFinishAllListeners()
+                const testRunLogic = llmPlaygroundRunLogic()
+                testRunLogic.mount()
+                await expectLogic(testRunLogic).toFinishAllListeners()
 
-            expect(llmPlaygroundModelLogic.values.effectiveModelOptions).toEqual(MOCK_MODEL_OPTIONS)
+                expect(llmPlaygroundModelLogic.values.effectiveModelOptions).toEqual(MOCK_MODEL_OPTIONS)
 
-            testRunLogic.unmount()
+                testRunLogic.unmount()
+            } finally {
+                resumeKeaLoadersErrors()
+            }
         })
 
         it('should return BYOK models when valid keys exist and models have loaded', async () => {
@@ -726,8 +733,8 @@ describe('llmPlaygroundLogic', () => {
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'key-1', provider: 'openai', state: 'ok' }],
                     },
-                    '/api/llm_proxy/models/': (req: any) => {
-                        if (req.url.searchParams.get('provider_key_id') === 'key-1') {
+                    '/api/llm_proxy/models/': ({ request }) => {
+                        if (new URL(request.url).searchParams.get('provider_key_id') === 'key-1') {
                             return [200, byokModels]
                         }
                         return [200, MOCK_MODEL_OPTIONS]
@@ -1566,7 +1573,7 @@ describe('llmPlaygroundLogic', () => {
         it('should reflect source after setupPlaygroundFromEvent with sourcePromptName', async () => {
             useMocks({
                 get: {
-                    '/api/environments/:team_id/llm_prompts/name/:name/': {
+                    '/api/projects/:team_id/llm_prompts/name/:name/': {
                         id: 'prompt-123',
                         name: 'my-prompt',
                         prompt: 'You are helpful.',
@@ -1614,7 +1621,7 @@ describe('llmPlaygroundLogic', () => {
         it('should clear linked source', async () => {
             useMocks({
                 get: {
-                    '/api/environments/:team_id/llm_prompts/name/:name/': {
+                    '/api/projects/:team_id/llm_prompts/name/:name/': {
                         id: 'prompt-123',
                         name: 'my-prompt',
                         prompt: 'You are helpful.',
@@ -1641,7 +1648,7 @@ describe('llmPlaygroundLogic', () => {
         it('should set system prompt from fetched prompt', async () => {
             useMocks({
                 get: {
-                    '/api/environments/:team_id/llm_prompts/name/:name/': {
+                    '/api/projects/:team_id/llm_prompts/name/:name/': {
                         id: 'prompt-1',
                         name: 'test-prompt',
                         prompt: 'Be concise.',
@@ -1686,7 +1693,7 @@ describe('llmPlaygroundLogic', () => {
         it('should show error toast when prompt fetch fails', async () => {
             useMocks({
                 get: {
-                    '/api/environments/:team_id/llm_prompts/name/:name/': () => [404, { detail: 'Not found' }],
+                    '/api/projects/:team_id/llm_prompts/name/:name/': () => [404, { detail: 'Not found' }],
                 },
             })
 
@@ -1730,12 +1737,7 @@ describe('llmPlaygroundLogic', () => {
             expect(window.history.length).toBe(initialHistoryLength)
         })
 
-        it('urlToAction skips setup for non-active-tab instances (regression for default-instance fall-through)', async () => {
-            // Before the fix, the guard `if (props.tabId && ...)` short-circuited to false
-            // when `props.tabId` was undefined, so the unkeyed `'default'` instance also
-            // ran URL-driven setup alongside the active tab. Multiple instances each
-            // dispatching `setupPlaygroundFromEvent` + `finishSourceSetup` writing back
-            // to the URL is what turned a missed dedup into a runaway pageview loop.
+        it('urlToAction runs setup for the single playground instance from source params', async () => {
             useMocks({
                 get: {
                     '/api/environments/:team_id/evaluations/:id/': {
@@ -1747,31 +1749,19 @@ describe('llmPlaygroundLogic', () => {
                 },
             })
 
-            const findMountedSpy = jest.spyOn(sceneLogic, 'findMounted').mockReturnValue({
-                values: { activeTabId: 'tab-A', tabs: [] },
-            } as any)
-
-            const activeInstance = llmPlaygroundPromptsLogic({ tabId: 'tab-A' })
-            activeInstance.mount()
-            const inactiveInstance = llmPlaygroundPromptsLogic({ tabId: 'tab-B' })
-            inactiveInstance.mount()
+            const instance = llmPlaygroundPromptsLogic()
+            instance.mount()
 
             try {
                 router.actions.push(`${urls.aiObservabilityPlayground()}?source_evaluation_id=eval-2&_=${Date.now()}`)
-                await expectLogic(activeInstance).toFinishAllListeners()
-                await expectLogic(inactiveInstance).toFinishAllListeners()
-                await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+                await expectLogic(instance).toFinishAllListeners()
 
-                expect(activeInstance.values.linkedSource).toMatchObject({
+                expect(instance.values.linkedSource).toMatchObject({
                     type: 'evaluation',
                     evaluationId: 'eval-2',
                 })
-                expect(inactiveInstance.values.linkedSource.type).toBeNull()
-                expect(llmPlaygroundPromptsLogic.values.linkedSource.type).toBeNull()
             } finally {
-                activeInstance.unmount()
-                inactiveInstance.unmount()
-                findMountedSpy.mockRestore()
+                instance.unmount()
             }
         })
     })
@@ -1781,7 +1771,7 @@ describe('llmPlaygroundLogic', () => {
             let createCalled = false
             useMocks({
                 post: {
-                    '/api/environments/:team_id/llm_prompts/': () => {
+                    '/api/projects/:team_id/llm_prompts/': () => {
                         createCalled = true
                         return [201, { id: 'new-1', name: 'saved-prompt', prompt: 'test' }]
                     },
@@ -1829,7 +1819,7 @@ describe('llmPlaygroundLogic', () => {
             let updatedPrompt: string | undefined
             useMocks({
                 get: {
-                    '/api/environments/:team_id/llm_prompts/name/:name/': {
+                    '/api/projects/:team_id/llm_prompts/name/:name/': {
                         id: 'prompt-linked',
                         name: 'linked',
                         prompt: 'Old prompt.',
@@ -1837,9 +1827,10 @@ describe('llmPlaygroundLogic', () => {
                     },
                 },
                 patch: {
-                    '/api/environments/:team_id/llm_prompts/name/:name/': (req: any) => {
-                        updatedPrompt = req.body.prompt
-                        return [200, { id: 'prompt-linked', name: 'linked', prompt: req.body.prompt }]
+                    '/api/projects/:team_id/llm_prompts/name/:name/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        updatedPrompt = body.prompt
+                        return [200, { id: 'prompt-linked', name: 'linked', prompt: body.prompt }]
                     },
                 },
             })

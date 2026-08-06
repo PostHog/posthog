@@ -4,14 +4,14 @@ import { useActions, useValues } from 'kea'
 
 import { IconMicrophone } from '@posthog/icons'
 
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { cn } from 'lib/utils/css-classes'
 
 import { HandsFreeStatus, handsFreeLogic } from '../handsFreeLogic'
 
 interface HandsFreeSurfaceProps {
-    tabId: string
+    panelId?: string
 }
 
 const STATUS_LABEL: Record<HandsFreeStatus, string> = {
@@ -43,15 +43,15 @@ const STATUS_HINT: Record<HandsFreeStatus, string> = {
 }
 
 function HandsFreeTopline({
-    tabId,
+    panelId,
     status,
     isReconnecting,
 }: {
-    tabId: string
+    panelId?: string
     status: HandsFreeStatus
     isReconnecting: boolean
 }): JSX.Element {
-    const { partialTranscript, error } = useValues(handsFreeLogic({ tabId }))
+    const { partialTranscript, error } = useValues(handsFreeLogic({ panelId }))
     const hint = isReconnecting ? 'Reconnecting your microphone' : STATUS_HINT[status]
     return (
         <div className="hands-free-surface__top">
@@ -65,14 +65,14 @@ function HandsFreeTopline({
     )
 }
 
-export function HandsFreeSurface({ tabId }: HandsFreeSurfaceProps): JSX.Element | null {
-    const { status, connection, error } = useValues(handsFreeLogic({ tabId }))
-    const { toggleHandsFree } = useActions(handsFreeLogic({ tabId }))
+export function HandsFreeSurface({ panelId }: HandsFreeSurfaceProps): JSX.Element | null {
+    const { status, connection, error } = useValues(handsFreeLogic({ panelId }))
+    const { toggleHandsFree } = useActions(handsFreeLogic({ panelId }))
 
     // Register the v-then-m exit shortcut while the surface is mounted.
     // HandsFreeButton owns the same shortcut for the "enter" path; same-name
-    // re-registration in appShortcutLogic handles the handover cleanly.
-    useAppShortcut({
+    // re-registration in shortcutLogic handles the handover cleanly.
+    useShortcut({
         name: 'maxHandsFree',
         keybind: [keyBinds.maxHandsFree],
         intent: 'Exit hands-free',
@@ -87,6 +87,7 @@ export function HandsFreeSurface({ tabId }: HandsFreeSurfaceProps): JSX.Element 
     const isListening = status === 'listening'
     const isReconnecting = connection === 'reconnecting'
     const hasError = !!error
+
     // Reconnecting / error visuals take precedence over the listening pulse so the user
     // isn't shown a green "listening" mic when the underlying connection is dead.
     const visualState: HandsFreeStatus | 'reconnecting' | 'error' = hasError
@@ -95,7 +96,7 @@ export function HandsFreeSurface({ tabId }: HandsFreeSurfaceProps): JSX.Element 
           ? 'reconnecting'
           : status
     const label = hasError ? 'Error' : isReconnecting ? 'Reconnecting' : STATUS_LABEL[status]
-    const pulseClass = isListening && !isReconnecting && !hasError
+    const shouldPulse = isListening && !isReconnecting && !hasError
 
     return (
         <div
@@ -104,18 +105,16 @@ export function HandsFreeSurface({ tabId }: HandsFreeSurfaceProps): JSX.Element 
             data-status={status}
             data-connection={connection}
         >
-            <HandsFreeTopline tabId={tabId} status={status} isReconnecting={isReconnecting} />
+            <HandsFreeTopline panelId={panelId} status={status} isReconnecting={isReconnecting} />
 
             <button
                 type="button"
                 onClick={toggleHandsFree}
                 aria-label="Exit hands-free"
                 data-attr="max-hands-free-exit"
-                className={cn(
-                    'hands-free-surface__mic',
-                    `hands-free-surface__mic--${visualState}`,
-                    pulseClass && 'hands-free-surface__mic--pulsing'
-                )}
+                className={cn('hands-free-surface__mic', `hands-free-surface__mic--${visualState}`, {
+                    'hands-free-surface__mic--pulsing': shouldPulse,
+                })}
             >
                 <IconMicrophone />
             </button>
@@ -123,7 +122,9 @@ export function HandsFreeSurface({ tabId }: HandsFreeSurfaceProps): JSX.Element 
             <div className="hands-free-surface__bottom">
                 {STATUS_EMOJI[visualState] && (
                     <span
-                        className={cn('hands-free-surface__emoji', pulseClass && 'hands-free-surface__emoji--pulsing')}
+                        className={cn('hands-free-surface__emoji', {
+                            'hands-free-surface__emoji--pulsing': shouldPulse,
+                        })}
                         aria-hidden
                     >
                         {STATUS_EMOJI[visualState]}

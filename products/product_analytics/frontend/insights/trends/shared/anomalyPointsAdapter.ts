@@ -1,6 +1,8 @@
-import type { AnomalyPoint } from 'lib/components/Alerts/types'
-import type { AnomalyMarker as BaseAnomalyMarker } from 'lib/hog-charts'
+import type { AnomalyMarker as BaseAnomalyMarker } from '@posthog/quill-charts'
+
 import type { IndexedTrendResult } from 'scenes/trends/types'
+
+import type { AnomalyPoint } from 'products/alerts/frontend/types'
 
 export interface AnomalyMarker extends BaseAnomalyMarker {
     /** Originating alert anomaly score (0..1) if available. */

@@ -1,6 +1,7 @@
 #!/usr/bin/env tsx
 /**
- * Lint check: ensures all MCP tool names satisfy length and pattern constraints.
+ * Lint check: ensures all MCP tool names satisfy length and pattern constraints,
+ * and that descriptions/help texts only reference tools and skills that exist.
  *
  * Validates tool names from three sources:
  *   1. YAML definitions (products and services/mcp/definitions)
@@ -13,6 +14,15 @@
  * Pattern: tool names must be lowercase kebab-case ([a-z0-9-], no leading/trailing
  * hyphens) for cross-client compatibility.
  *
+ * Cross-references: phrases like "use the X tool" or "load the X skill" in tool
+ * descriptions (YAML) and field help texts (serializer help_text, surfaced via the
+ * generated schema JSONs) must point at an existing tool/skill. This only covers
+ * name-level staleness — it cannot validate documented schemas or tool behavior.
+ *
+ * url_prefix: each category's prefix must be a real frontend route (it becomes the
+ * `_posthogUrl` link on tool results), checked against the generated app-url manifest
+ * plus the SettingSectionId union. Pointing it at an API path is the easy mistake.
+ *
  * Usage:
  *   pnpm --filter=@posthog/mcp lint-tool-names
  */
@@ -21,6 +31,7 @@ import * as path from 'node:path'
 import { parse as parseYaml } from 'yaml'
 
 import { discoverDefinitions } from './lib/definitions.mjs'
+import { checkReferencesInText, type ReferenceFinding, type Violation } from './lib/tool-references'
 import {
     CategoryConfigSchema,
     MAX_TOOL_NAME_LENGTH,
@@ -33,8 +44,6 @@ const REPO_ROOT = path.resolve(MCP_ROOT, '../..')
 const DEFINITIONS_DIR = path.resolve(MCP_ROOT, 'definitions')
 const PRODUCTS_DIR = path.resolve(REPO_ROOT, 'products')
 const SCHEMA_DIR = path.resolve(MCP_ROOT, 'schema')
-
-type Violation = { source: string; tool: string; reason: string }
 
 function validateToolName(name: string, source: string, violations: Violation[]): void {
     if (name.length > MAX_TOOL_NAME_LENGTH) {
@@ -49,7 +58,7 @@ function validateToolName(name: string, source: string, violations: Violation[])
     }
 }
 
-function validateYamlDefinitions(violations: Violation[]): boolean {
+function validateYamlDefinitions(violations: Violation[], knownToolNames: Set<string>): boolean {
     const definitions = discoverDefinitions({ definitionsDir: DEFINITIONS_DIR, productsDir: PRODUCTS_DIR })
     let hasErrors = false
 
@@ -76,6 +85,7 @@ function validateYamlDefinitions(violations: Violation[]): boolean {
             if (!config.enabled) {
                 continue
             }
+            knownToolNames.add(name)
             validateToolName(name, label, violations)
         }
     }
@@ -83,7 +93,135 @@ function validateYamlDefinitions(violations: Violation[]): boolean {
     return hasErrors
 }
 
-function validateJsonDefinitions(fileName: string, violations: Violation[]): boolean {
+/**
+ * Routes the frontend actually serves. Two sources, because neither is complete on its own: the
+ * generated app-url manifest only covers routes that have a `urls` builder, while the route maps in
+ * products.tsx / manifest.tsx carry the rest (scenes reachable by path but with no builder).
+ */
+function loadAppRoutes(): Set<string> {
+    const routes = new Set<string>()
+
+    const manifestPath = path.resolve(MCP_ROOT, 'src/tools/links/app-url-manifest.json')
+    if (fs.existsSync(manifestPath)) {
+        const walk = (node: unknown): void => {
+            if (!node || typeof node !== 'object') {
+                return
+            }
+            const template = (node as { template?: unknown }).template
+            if (typeof template === 'string') {
+                routes.add(template)
+            }
+            for (const value of Object.values(node)) {
+                walk(value)
+            }
+        }
+        walk(JSON.parse(fs.readFileSync(manifestPath, 'utf-8')))
+    }
+
+    const routeMapFiles = [path.resolve(REPO_ROOT, 'frontend/src/products.tsx')]
+    if (fs.existsSync(PRODUCTS_DIR)) {
+        for (const entry of fs.readdirSync(PRODUCTS_DIR, { withFileTypes: true })) {
+            const manifest = path.join(PRODUCTS_DIR, entry.name, 'manifest.tsx')
+            if (entry.isDirectory() && fs.existsSync(manifest)) {
+                routeMapFiles.push(manifest)
+            }
+        }
+    }
+    for (const file of routeMapFiles) {
+        if (!fs.existsSync(file)) {
+            continue
+        }
+        const src = fs.readFileSync(file, 'utf-8')
+        // Route-map keys: `'/path/:param': [...]` and url builders returning a literal path.
+        for (const match of src.matchAll(/['"](\/[a-zA-Z0-9_\-/:{}]*)['"]\s*:/g)) {
+            if (match[1]) {
+                routes.add(match[1])
+            }
+        }
+        for (const match of src.matchAll(/=>\s*[`'"](\/[a-zA-Z0-9_\-/:${}]*)/g)) {
+            if (match[1]) {
+                routes.add(match[1])
+            }
+        }
+    }
+
+    return routes
+}
+
+/**
+ * Settings pages are `/settings/<SettingSectionId>`, and only a couple of sections have a urls.ts
+ * builder, so the app-url manifest doesn't carry them. Read the union instead. It has no terminating
+ * semicolon, so the block runs until the next top-level declaration.
+ */
+function loadSettingSectionIds(): Set<string> {
+    const ids = new Set<string>()
+    const typesPath = path.resolve(REPO_ROOT, 'frontend/src/scenes/settings/types.ts')
+    if (!fs.existsSync(typesPath)) {
+        return ids
+    }
+    const src = fs.readFileSync(typesPath, 'utf-8')
+    const union = /export type SettingSectionId =([\s\S]*?)(?=\n\S|$)/.exec(src)?.[1]
+    for (const match of (union ?? '').matchAll(/'([a-z0-9-]+)'/g)) {
+        if (match[1]) {
+            ids.add(match[1])
+        }
+    }
+    return ids
+}
+
+/**
+ * `url_prefix` is the frontend app route used to build the `_posthogUrl` link on tool results, so a
+ * prefix that isn't a real route hands agents (and the humans they answer) a 404. The API path is the
+ * easy mistake: `/conversations/tickets` is a valid endpoint but the scene lives at `/support/tickets`.
+ */
+function validateUrlPrefixes(violations: Violation[]): void {
+    const routes = loadAppRoutes()
+    const settingSectionIds = loadSettingSectionIds()
+    if (routes.size === 0) {
+        return
+    }
+
+    const isRoute = (prefix: string): boolean =>
+        [...routes].some((route) => route === prefix || route.startsWith(`${prefix}/`))
+    const isSettingsSection = (prefix: string): boolean =>
+        prefix.startsWith('/settings/') && settingSectionIds.has(prefix.slice('/settings/'.length))
+
+    for (const def of discoverDefinitions({ definitionsDir: DEFINITIONS_DIR, productsDir: PRODUCTS_DIR })) {
+        const parsed = parseYaml(fs.readFileSync(def.filePath, 'utf-8')) as {
+            url_prefix?: unknown
+            tools?: Record<string, { enrich_url?: unknown }>
+        }
+        const prefix = parsed?.url_prefix
+        if (typeof prefix !== 'string') {
+            continue
+        }
+        const source = path.relative(REPO_ROOT, def.filePath)
+
+        if (prefix === '/') {
+            // `/` + enrich_url concatenates into `//{id}`, which a browser reads as protocol-relative.
+            const enriching = Object.entries(parsed.tools ?? {}).filter(([, config]) => config?.enrich_url)
+            if (enriching.length > 0) {
+                violations.push({
+                    source,
+                    tool: `url_prefix: / with enrich_url on ${enriching.map(([name]) => name).join(', ')}`,
+                    reason: 'a "/" prefix cannot carry enrich_url (yields "//{id}") — add a real scene path or drop enrich_url',
+                })
+            }
+            continue
+        }
+
+        if (isRoute(prefix) || isSettingsSection(prefix)) {
+            continue
+        }
+        violations.push({
+            source,
+            tool: `url_prefix: ${prefix}`,
+            reason: 'not a frontend app route (use the scene path, or "/" when the product has no page)',
+        })
+    }
+}
+
+function validateJsonDefinitions(fileName: string, violations: Violation[], knownToolNames: Set<string>): boolean {
     const filePath = path.resolve(SCHEMA_DIR, fileName)
     if (!fs.existsSync(filePath)) {
         return false
@@ -92,20 +230,116 @@ function validateJsonDefinitions(fileName: string, violations: Violation[]): boo
     const content = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as Record<string, unknown>
 
     for (const name of Object.keys(content)) {
+        knownToolNames.add(name)
         validateToolName(name, label, violations)
     }
     return false
 }
 
+function discoverSkillNames(): Set<string> {
+    const skillNames = new Set<string>()
+    const skillRoots = [
+        ...fs
+            .readdirSync(PRODUCTS_DIR, { withFileTypes: true })
+            .filter((e) => e.isDirectory())
+            .map((e) => path.join(PRODUCTS_DIR, e.name, 'skills')),
+        path.join(REPO_ROOT, '.agents', 'skills'),
+    ]
+    for (const root of skillRoots) {
+        if (!fs.existsSync(root)) {
+            continue
+        }
+        for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+            if (entry.isDirectory()) {
+                skillNames.add(entry.name)
+            } else if (entry.name.endsWith('.md') || entry.name.endsWith('.md.j2')) {
+                skillNames.add(entry.name.replace(/\.md(\.j2)?$/, ''))
+            }
+        }
+    }
+    return skillNames
+}
+
+function collectToolReferenceFindings(findings: ReferenceFinding[], toolNames: Set<string>): void {
+    const skillNames = discoverSkillNames()
+    const seen = new Set<string>()
+
+    // YAML sources first so findings point at the editable file, not the generated JSON.
+    const definitions = discoverDefinitions({ definitionsDir: DEFINITIONS_DIR, productsDir: PRODUCTS_DIR })
+    for (const def of definitions) {
+        const label = path.relative(REPO_ROOT, def.filePath)
+        checkReferencesInText(fs.readFileSync(def.filePath, 'utf-8'), label, toolNames, skillNames, seen, findings)
+    }
+
+    if (fs.existsSync(SCHEMA_DIR)) {
+        for (const file of fs.readdirSync(SCHEMA_DIR)) {
+            if (!file.endsWith('.json')) {
+                continue
+            }
+            const filePath = path.join(SCHEMA_DIR, file)
+            checkReferencesInText(
+                fs.readFileSync(filePath, 'utf-8'),
+                path.relative(REPO_ROOT, filePath),
+                toolNames,
+                skillNames,
+                seen,
+                findings
+            )
+        }
+    }
+
+    // The tool-schema snapshots carry serializer help_text (via the OpenAPI spec); a hit here
+    // means the fix belongs in a Django serializer, followed by regeneration. The label stays a
+    // clean repo-relative path so the CI annotation lands on the file.
+    const snapshotsDir = path.resolve(MCP_ROOT, 'tests', 'unit', '__snapshots__', 'tool-schemas')
+    if (fs.existsSync(snapshotsDir)) {
+        for (const file of fs.readdirSync(snapshotsDir)) {
+            if (!file.endsWith('.json')) {
+                continue
+            }
+            const filePath = path.join(snapshotsDir, file)
+            const label = path.relative(REPO_ROOT, filePath)
+            checkReferencesInText(fs.readFileSync(filePath, 'utf-8'), label, toolNames, skillNames, seen, findings)
+        }
+    }
+}
+
+// Reference findings are advisory: surface them (as CI annotations on the offending line, or plain
+// warnings locally) but never fail the lint, because the check is a heuristic that can misfire.
+function emitReferenceFindings(findings: ReferenceFinding[]): void {
+    if (findings.length === 0) {
+        return
+    }
+    const inGithubActions = process.env.GITHUB_ACTIONS === 'true'
+    for (const f of findings) {
+        if (inGithubActions) {
+            process.stdout.write(
+                `::warning file=${f.source},line=${f.line},col=${f.col},title=Possible stale reference::${f.message}\n`
+            )
+        } else {
+            process.stderr.write(`${f.source}:${f.line}:${f.col}: warning: ${f.message}\n`)
+        }
+    }
+    process.stderr.write(
+        `\nNote: ${findings.length} possible stale tool/skill reference(s) flagged above (advisory, not blocking).\n`
+    )
+}
+
 function main(): void {
     const violations: Violation[] = []
     let hasErrors = false
+    const knownToolNames = new Set<string>()
 
-    hasErrors = validateYamlDefinitions(violations) || hasErrors
+    hasErrors = validateYamlDefinitions(violations, knownToolNames) || hasErrors
+    validateUrlPrefixes(violations)
 
     for (const jsonFile of ['tool-definitions.json', 'generated-tool-definitions.json']) {
-        hasErrors = validateJsonDefinitions(jsonFile, violations) || hasErrors
+        hasErrors = validateJsonDefinitions(jsonFile, violations, knownToolNames) || hasErrors
     }
+
+    const referenceFindings: ReferenceFinding[] = []
+    collectToolReferenceFindings(referenceFindings, knownToolNames)
+    emitReferenceFindings(referenceFindings)
 
     if (violations.length === 0) {
         if (!hasErrors) {
@@ -116,11 +350,11 @@ function main(): void {
         return
     }
 
-    process.stderr.write(`Found ${violations.length} tool name violation(s):\n\n`)
+    process.stderr.write(`Found ${violations.length} violation(s):\n\n`)
     for (const v of violations) {
         process.stderr.write(`  ${v.tool}: ${v.reason} (${v.source})\n`)
     }
-    process.stderr.write(`\nTo fix: shorten or rename the tool name in the config.\n`)
+    process.stderr.write(`\nTo fix: follow the reason on each line above.\n`)
     process.exitCode = 1
 }
 

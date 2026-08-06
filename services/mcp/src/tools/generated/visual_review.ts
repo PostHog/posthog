@@ -121,6 +121,9 @@ const visualReviewRunsFinalizeCreate = (): ToolBase<
         if (params.commit_to_github !== undefined) {
             body['commit_to_github'] = params.commit_to_github
         }
+        if (params.add_images_to_comment_on_pr !== undefined) {
+            body['add_images_to_comment_on_pr'] = params.add_images_to_comment_on_pr
+        }
         const result = await context.api.request<Schemas.FinalizeResult>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/${encodeURIComponent(String(params.id))}/finalize/`,
@@ -150,6 +153,7 @@ const visualReviewRunsList = (): ToolBase<
                 offset: params.offset,
                 pr_number: params.pr_number,
                 review_state: params.review_state,
+                search: params.search,
             },
         })
         return await withPostHogUrl(
@@ -224,6 +228,7 @@ const visualReviewRunsSnapshotsList = (): ToolBase<
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/${encodeURIComponent(String(params.id))}/snapshots/`,
                 query: {
+                    include_quarantined: params.include_quarantined,
                     limit: params.limit,
                     offset: params.offset,
                 },

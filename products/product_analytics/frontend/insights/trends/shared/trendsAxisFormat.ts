@@ -1,11 +1,11 @@
-import type { YAxisConfig, YFormatterConfig } from 'lib/hog-charts'
+import type { YAxisConfig, YFormatterConfig } from '@posthog/quill-charts'
 
-import { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general'
+import type { YFormatterFields } from './trendsChartDisplayOptions'
 
 export function trendsFilterToYFormatterConfig(
-    trendsFilter: TrendsFilter | null | undefined,
+    trendsFilter: YFormatterFields | null | undefined,
     isPercentStackView: boolean,
-    baseCurrency?: CurrencyCode
+    baseCurrency?: string
 ): YFormatterConfig {
     if (isPercentStackView) {
         // BarChart's percent layout puts the value scale on 0..1, so use the 0..1 formatter.
@@ -22,9 +22,9 @@ export function trendsFilterToYFormatterConfig(
 }
 
 export function buildTrendsYAxisConfig(
-    trendsFilter: TrendsFilter | null | undefined,
+    trendsFilter: YFormatterFields | null | undefined,
     isPercentStackView: boolean,
-    baseCurrency: CurrencyCode | undefined,
+    baseCurrency: string | undefined,
     extras: { yAxisScaleType?: string | null; showGrid?: boolean } = {}
 ): YAxisConfig {
     return {

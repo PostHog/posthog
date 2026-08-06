@@ -3,13 +3,15 @@ from urllib.parse import parse_qs, urlparse
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
+from parameterized import parameterized
+
 from posthog.schema import CustomChannelCondition, CustomChannelRule, FilterLogicalOperator, HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models.utils import uuid7
+from posthog.uuidt import uuid7
 
 
 class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
@@ -146,6 +148,17 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
             modifiers=HogQLQueryModifiers(customChannelTypeRules=custom_channel_rules),
         )
         return (session_response.results or [])[0][0]
+
+    def test_nested_expanded_function_is_rejected(self):
+        # Nesting a printer-expanded marker (only reachable from user-written HogQL) would expand
+        # exponentially; the printer must reject it rather than blow up.
+        inner = "_defaultChannelType('a', 'b', 'c', 'd', 'e', 'f', 'g')"
+        with self.assertRaises(Exception) as ctx:
+            execute_hogql_query(
+                parse_select(f"select _defaultChannelType({inner}, 'b', 'c', 'd', 'e', 'f', 'g') from events"),
+                self.team,
+            )
+        assert "cannot be nested" in str(ctx.exception)
 
     def test_direct(self):
         self.assertEqual(
@@ -284,6 +297,20 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
                 }
             ),
         )
+
+    @parameterized.expand(
+        [
+            (
+                "utm_source_chatgpt_with_stripped_referrer",
+                {"$initial_referring_domain": "$direct", "$initial_utm_source": "chatgpt"},
+            ),
+            ("referring_domain_chatgpt", {"$initial_referring_domain": "chatgpt.com"}),
+            ("referring_domain_claude", {"$initial_referring_domain": "claude.ai"}),
+            ("referring_domain_perplexity", {"$initial_referring_domain": "perplexity.ai"}),
+        ]
+    )
+    def test_ai(self, _name, properties):
+        self.assertEqual("AI", self._get_person_initial_channel_type(properties))
 
     def test_direct_with_red_herring_utm_tags_is_direct(self):
         self.assertEqual(

@@ -37,11 +37,12 @@ from posthog.schema import (
 from posthog.api.test.test_team import create_team
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
-from posthog.models import Cohort, Team
+from posthog.models import Team
 from posthog.models.group.util import create_group
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
 
@@ -745,6 +746,36 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(get_event_count(result[1]), 4)
         self.assertEqual(get_distinct_id(result[2]), "person3")
         self.assertEqual(get_event_count(result[2]), 1)
+
+    def test_trends_days_of_week_persons(self):
+        # The actors query must honor daysOfWeek like the trends query does, or the persons
+        # modal would list people whose only events fall on deselected days
+        _create_person(team_id=self.team.pk, distinct_ids=["person_weekend"], properties={})
+        _create_person(team_id=self.team.pk, distinct_ids=["person_weekday"], properties={})
+        _create_event(
+            event="$pageview",
+            distinct_id="person_weekend",
+            timestamp="2023-04-29 16:00",  # Saturday
+            team=self.team,
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person_weekday",
+            timestamp="2023-04-26 16:00",  # Wednesday
+            team=self.team,
+        )
+
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(date_from="-7d", daysOfWeek=[6, 7]),
+            trendsFilter=TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+        )
+
+        with freeze_time("2023-05-01T20:00:00.000Z"):
+            result = self._get_actors(trends_query=source_query)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person_weekend")
 
     def test_trends_compare_persons(self):
         self._create_events()

@@ -21,13 +21,13 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.batch_exports.models import BatchExport
 from posthog.models.integration import Integration
 from posthog.models.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import BATCH_EXPORT_WORKFLOW_TYPES as LOGGER_BATCH_EXPORT_WORKFLOW_TYPES
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
 
+from products.batch_exports.backend.models.batch_export import BatchExport
 from products.batch_exports.backend.service import (
     BackfillDetails,
     BaseBatchExportInputs,
@@ -39,8 +39,9 @@ from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.metrics import BATCH_EXPORT_ACTIVITY_TYPES, BATCH_EXPORT_WORKFLOW_TYPES
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
+from products.batch_exports.backend.temporal.queue import RecordBatchQueue
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
-from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
+from products.batch_exports.backend.tests.temporal.utils.clickhouse_test_producer import ClickHouseTestProducer
 from products.batch_exports.backend.tests.temporal.utils.records import (
     get_record_batch_from_queue,
     remove_duplicates_from_records,
@@ -238,9 +239,9 @@ async def _get_records_from_clickhouse(
     records = []
     queue = RecordBatchQueue()
     if model_name == "sessions":
-        producer = Producer(model=SessionsRecordBatchModel(team_id))
+        producer = ClickHouseTestProducer(model=SessionsRecordBatchModel(team_id))
     else:
-        producer = Producer()
+        producer = ClickHouseTestProducer()
 
     producer_task = await producer.start(
         queue=queue,
@@ -413,7 +414,7 @@ class CommonWorkflowTests:
     @pytest.fixture
     async def batch_export_for_destination(
         self, ateam, temporal_client, interval, integration, destination_test, exclude_events
-    ) -> AsyncGenerator[BatchExport, None]:
+    ) -> AsyncGenerator[BatchExport]:
         """Manage BatchExport model (and associated Temporal Schedule) for tests"""
         destination_config = {**destination_test.get_destination_config(ateam.pk), "exclude_events": exclude_events}
         destination_data = {

@@ -35,13 +35,14 @@ def update_team_llm_gateway_policy_cache_task(team_id: int) -> None:
     except Team.DoesNotExist:
         logger.debug("Team does not exist for llm-gateway policy cache update", team_id=team_id)
         HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
-            namespace="team_llm_gateway_policy", operation="update", result="failure"
+            namespace="team_metadata", cache_name="llm_gateway_policy", operation="update", result="failure"
         ).inc()
         return
 
     success = update_team_llm_gateway_policy_cache(team)
     HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
-        namespace="team_llm_gateway_policy",
+        namespace="team_metadata",
+        cache_name="llm_gateway_policy",
         operation="update",
         result="success" if success else "failure",
     ).inc()
@@ -54,20 +55,20 @@ def refresh_expiring_llm_gateway_policy_cache_entries() -> None:
     threshold, so simultaneous expiry of the 7-day TTL across the team pool
     cannot cause a DB-lookup spike.
     """
-    if not settings.FLAGS_REDIS_URL:
-        logger.info("Flags Redis URL not set, skipping llm-gateway policy cache refresh")
+    if not settings.AI_GATEWAY_REDIS_URL:
+        logger.info("AI gateway Redis URL not set, skipping llm-gateway policy cache refresh")
         return
 
     start_time = time.time()
     try:
-        successful, failed = refresh_expiring_caches(ttl_threshold_hours=24)
+        counts = refresh_expiring_caches(ttl_threshold_hours=24)
         # get_cache_stats also pushes coverage/TTL gauges to Prometheus, matching
         # the team_metadata refresh task so the policy cache is observable too.
         stats_after = get_cache_stats()
         logger.info(
             "Completed llm-gateway policy cache refresh",
-            successful_refreshes=successful,
-            failed_refreshes=failed,
+            successful_refreshes=counts.successful,
+            failed_refreshes=counts.failed,
             total_cached=stats_after.get("total_cached", 0),
             cache_coverage=stats_after.get("cache_coverage", "unknown"),
             ttl_distribution=stats_after.get("ttl_distribution", {}),

@@ -1,22 +1,29 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
-import {
-    canonicalizeApiHost,
-    canonicalizeUiHost,
-    toolbarConfigLogic,
-    toolbarFetch,
-    toolbarUploadMedia,
-} from '~/toolbar/toolbarConfigLogic'
+import { canonicalizeApiHost, canonicalizeUiHost, toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarFetch'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
-global.fetch = jest.fn(() =>
-    Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve([]),
-    } as any as Response)
-)
+// The toolbar logger mirrors intentional error/auth paths to the console (its job on
+// customer pages); tests exercise those paths on purpose, so stub the boundary.
+jest.mock('~/toolbar/toolbarLogger', () => ({
+    toolbarLogger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+}))
+
+// The toolbar calls `global.fetch` directly (not the app api client / MSW). Reassign the mock per
+// test in beforeEach — the MSW jest harness installs its own `global.fetch` in a global beforeAll,
+// which runs after this module loads and would otherwise clobber a top-level assignment.
+const installFetchMock = (): void => {
+    global.fetch = jest.fn(() =>
+        Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve([]),
+        } as any as Response)
+    )
+}
 
 /** Mock fetch so the HEAD check succeeds and then the token exchange succeeds. */
 function mockTokenExchangeSuccess(): void {
@@ -33,18 +40,38 @@ function mockTokenExchangeSuccess(): void {
 }
 
 describe('toolbar toolbarConfigLogic', () => {
+    // These suites intentionally reject requests to exercise error states; the
+    // failures are asserted via authStatus/values, so skip the global loader logging.
+    beforeAll(silenceKeaLoadersErrors)
+    afterAll(resumeKeaLoadersErrors)
+
     let mockOpen: jest.SpyInstance
+    let consoleSpies: jest.SpyInstance[]
 
     beforeEach(() => {
+        // The auth/config failure-path tests intentionally exercise toolbarLogger, which
+        // logs to the console by design. Module-mocking it doesn't work here: the MSW
+        // setup chain preloads toolbarConfigLogic (via heatmapDataLogic) before any
+        // test-file jest.mock registration.
+        consoleSpies = [
+            jest.spyOn(console, 'error').mockImplementation(),
+            jest.spyOn(console, 'warn').mockImplementation(),
+            jest.spyOn(console, 'info').mockImplementation(),
+        ]
         initKeaTests()
         localStorage.clear()
         sessionStorage.clear()
-        ;(global.fetch as jest.Mock).mockClear()
+        // Install the fetch mock after initKeaTests so its mount-time /_preflight/ call isn't
+        // counted by tests that assert on global.fetch.mock.calls.
+        installFetchMock()
         mockOpen = jest.spyOn(window, 'open').mockReturnValue({} as Window)
     })
 
     afterEach(() => {
         mockOpen.mockRestore()
+        consoleSpies.forEach((spy) => spy.mockRestore())
+        // Safety net for tests that call silenceKeaLoadersErrors() inline
+        resumeKeaLoadersErrors()
     })
 
     it('is not authenticated without any token', () => {
@@ -246,7 +273,9 @@ describe('toolbar toolbarConfigLogic', () => {
 
         it('confirmAuthenticate opens the config modal when authStatus flipped to error after modal was shown', async () => {
             // Simulate: user opened the modal, then the in-flight reachability check failed
-            // before they clicked Continue.
+            // before they clicked Continue. The rejecting fetch also fails the mounted
+            // preflight loader, which kea-loaders would log.
+            silenceKeaLoadersErrors()
             ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new Error('network')))
             const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
             logic.mount()
@@ -406,6 +435,25 @@ describe('toolbar toolbarConfigLogic', () => {
 
             expectLogic(logic).toMatchValues({
                 accessToken: 'stored-access',
+                isAuthenticated: true,
+            })
+        })
+
+        it('restores a stored access token that has no refresh token (impersonation)', () => {
+            localStorage.setItem(
+                OAUTH_LOCALSTORAGE_KEY,
+                JSON.stringify({
+                    accessToken: 'stored-access',
+                    clientId: 'stored-client',
+                    uiHost: 'http://localhost',
+                })
+            )
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            expectLogic(logic).toMatchValues({
+                accessToken: 'stored-access',
+                refreshToken: null,
                 isAuthenticated: true,
             })
         })
@@ -812,6 +860,11 @@ describe('toolbar toolbarConfigLogic', () => {
     })
 
     describe('token refresh on 401', () => {
+        // The 401-first fetch mocks also fail the mounted preflight loader,
+        // which kea-loaders would log
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
         it('retries request with new token after successful refresh', async () => {
             const logic = toolbarConfigLogic.build({
                 apiURL: 'http://localhost',
@@ -874,6 +927,29 @@ describe('toolbar toolbarConfigLogic', () => {
             expect(logic.values.isAuthenticated).toBe(false)
         })
 
+        it('calls tokenExpired on 401 when there is no refresh token, without attempting a refresh', async () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                accessToken: 'imp-access',
+                clientId: 'client-id',
+            })
+            logic.mount()
+
+            let refreshAttempted = false
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (url.includes('toolbar_oauth_refresh')) {
+                    refreshAttempted = true
+                }
+                return Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({}) })
+            })
+
+            await toolbarFetch('/api/projects/@current/actions/')
+
+            expect(refreshAttempted).toBe(false)
+            expect(logic.values.accessToken).toBeNull()
+            expect(logic.values.isAuthenticated).toBe(false)
+        })
+
         it('does not retry when response is not 401', async () => {
             const logic = toolbarConfigLogic.build({
                 apiURL: 'http://localhost',
@@ -896,6 +972,26 @@ describe('toolbar toolbarConfigLogic', () => {
             expect(response.status).toBe(200)
             // Only one fetch call (no refresh)
             expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1)
+            expect(logic.values.accessToken).toBe('access-token')
+        })
+
+        it('does not throw when a customer fetch wrapper resolves to undefined', async () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                accessToken: 'access-token',
+                refreshToken: 'refresh-token',
+                clientId: 'client-id',
+            })
+            logic.mount()
+            // A site-level `window.fetch` wrapper that returns `undefined` instead of a Response
+            // used to crash the OAuth chain with "Cannot read properties of undefined (reading 'status')".
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.resolve(undefined))
+
+            const response = await toolbarFetch('/api/projects/@current/actions/')
+
+            // Normalized into a synthetic failed response so callers can degrade gracefully.
+            expect(response).toBeInstanceOf(Response)
+            expect(response.ok).toBe(false)
             expect(logic.values.accessToken).toBe('access-token')
         })
     })
@@ -971,6 +1067,32 @@ describe('toolbar toolbarConfigLogic', () => {
             expect(tokenExchangeCall[0]).toBe('https://us.posthog.com/oauth/token/')
             const body = new URLSearchParams(tokenExchangeCall[1].body)
             expect(body.get('redirect_uri')).toBe('https://us.posthog.com/toolbar_oauth/callback')
+        })
+
+        it('authenticates when the token response has no refresh token (impersonation)', async () => {
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (typeof url === 'string' && url.endsWith('/toolbar_oauth/check')) {
+                    return Promise.resolve({ ok: true, status: 200 })
+                }
+                // Impersonation-minted tokens are refresh-less by design.
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({ access_token: 'imp-access', expires_in: 1800 }),
+                })
+            })
+
+            const logic = toolbarConfigLogic.build({
+                posthog: { config: { ui_host: 'https://us.posthog.com' } } as any,
+            } as any)
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({
+                accessToken: 'imp-access',
+                refreshToken: null,
+                isAuthenticated: true,
+            })
         })
 
         it('does not trigger temporaryToken migration during code exchange', async () => {
@@ -1269,6 +1391,18 @@ describe('toolbar toolbarConfigLogic', () => {
             expect(logic.values.apiHost).toBe('https://proxy.example.com/ingest')
         })
 
+        it('resolves a relative reverse-proxy api_host against the current origin', () => {
+            // posthog-js commonly points api_host at a relative reverse-proxy path
+            // like /ingest (Next.js/Vercel rewrites). The toolbar must keep that
+            // prefix rather than reject it and fall back to the bare origin.
+            const logic = toolbarConfigLogic.build({
+                posthog: { config: { api_host: '/ingest' } } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.apiHost).toBe(`${window.location.origin}/ingest`)
+            expect(logic.values.apiHostResolution.source).toBe('posthog_api_host')
+        })
+
         it.each([
             ['apiURL', { apiURL: '' }],
             ['api_host', { apiURL: '', posthog: { config: { api_host: '' } } as any }],
@@ -1321,13 +1455,23 @@ describe('toolbar toolbarConfigLogic', () => {
             ['https://proxy.example.com/ingest/', 'https://proxy.example.com/ingest'],
             ['https://us.i.posthog.com', 'https://us.i.posthog.com'],
             ['https://us.i.posthog.com/', 'https://us.i.posthog.com'],
+            // relative reverse-proxy configs resolve against the current origin
+            ['/ingest', `${window.location.origin}/ingest`],
+            ['/ingest/', `${window.location.origin}/ingest`],
             // rejected
             ['javascript:alert(1)', null],
             ['https://user:pass@host/path', null],
             ['https://host@evil.com/path', null],
+            ['//evil.com', null], // protocol-relative would hijack the origin
+            ['/\\evil.com', null], // backslash protocol-relative
+            // tab/newline/CR are stripped by the URL parser, turning these into
+            // protocol-relative refs that would otherwise hijack the origin
+            ['/\t/evil.com', null],
+            ['/\n/evil.com', null],
+            ['/\r/evil.com', null],
             ['', null],
             [undefined, null],
-            ['not a url', null],
+            ['not a url', null], // non-path garbage is not treated as relative
         ])('canonicalizeApiHost(%p) === %p', (input, expected) => {
             expect(canonicalizeApiHost(input as any)).toBe(expected)
         })

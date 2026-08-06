@@ -1,33 +1,59 @@
-"""Single Gemini call per scanner application; retries once on validation failure with the error fed back."""
+"""Run a scanner as a multi-turn, tool-using Gemini conversation over the cached video.
+
+Each scan is a shared preamble plus the scanner's ordered `mission_steps` (one structured turn each). The video
+is cached once so the steps don't re-process it; the model pulls analytics events on demand via `get_events_around`.
+Each step validates its own output and re-prompts once on failure; required steps abort the scan, best-effort steps
+(facets, signals) just contribute nothing.
+"""
 
 import re
 import time
 import asyncio
+import functools
+from collections import Counter
+from dataclasses import dataclass
+from datetime import timedelta
+from typing import Any, TypeVar
 from uuid import UUID
 
-from django.conf import settings
+from django.utils import timezone
 
 import structlog
 from asgiref.sync import sync_to_async
-from google.genai import types
+from google.genai import (
+    Client as GoogleGenAIClient,
+    types,
+)
 from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, ValidationError
 from temporalio import activity
 
 from posthog.models import Team
+from posthog.temporal.common.heartbeat import Heartbeater
 
-from products.replay_vision.backend.models.replay_observation import ReplayObservation
+from products.replay_vision.backend.consent import is_ai_data_processing_approved
+from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
+from products.replay_vision.backend.tags import slugify_tag
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
+from products.replay_vision.backend.temporal.conversation import function_calls, run_tool_loop
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
-from products.replay_vision.backend.temporal.metrics import REPLAY_VISION_PROVIDER_CALL
+from products.replay_vision.backend.temporal.errors import ConsentWithdrawnError, FailureKind, ScannerFailureError
+from products.replay_vision.backend.temporal.events_tool import build_events_index, dispatch_events_tool, events_tool
+from products.replay_vision.backend.temporal.gemini import classify_gemini_error, describe_gemini_error, gemini_api_key
+from products.replay_vision.backend.temporal.metrics import record_mission_pass, record_provider_call
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
-from products.replay_vision.backend.temporal.scanners.base import BaseScanner, ChipSegment, Segment, TextSegment
-from products.replay_vision.backend.temporal.state import (
-    StateActivitiesEnum,
-    get_data_class_from_redis,
-    get_redis_state_client,
+from products.replay_vision.backend.temporal.scanners.base import (
+    TIMESTAMP_CITATION_RE,
+    BaseScanner,
+    BaseScannerOutput,
+    ChipSegment,
+    MissionStep,
+    Segment,
+    SignalFinding,
+    TextSegment,
 )
+from products.replay_vision.backend.temporal.scanners.classifier import ClassifierScanner
+from products.replay_vision.backend.temporal.state import load_scanner_llm_inputs
 from products.replay_vision.backend.temporal.types import (
     CallScannerProviderInputs,
     ScannerCallOutput,
@@ -37,59 +63,107 @@ from products.replay_vision.backend.temporal.types import (
 
 logger = structlog.get_logger(__name__)
 
-_MAX_LLM_ATTEMPTS = 2  # one initial call + one re-prompt with the validation error appended
-# `(event_uuid <uuid>)` with optional leading whitespace, so we eat the space when stripping the paren.
-_EVENT_UUID_CITATION_RE = re.compile(
-    r"\s*\(event_uuid ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\)",
-    re.IGNORECASE,
-)
+_MAX_LLM_ATTEMPTS = 2  # one initial call + one re-prompt with the validation error appended per step
+# One clean re-ask after a validation failure. The per-step re-prompt above retries inside the same conversation,
+# where the model stays anchored on the answer it just got wrong; a fresh conversation is an independent draw.
+_MAX_MISSION_ATTEMPTS = 2
+# Cache TTL: a scan is a handful of turns and finishes in minutes; well under this.
+_VIDEO_CACHE_TTL = "900s"
+
+_OutputT = TypeVar("_OutputT", bound=BaseModel)
+
+
+@dataclass(frozen=True)
+class _StepResult:
+    """One mission step's outcome: the validated output, or, when exhausted, whether the provider refused to answer."""
+
+    output: BaseModel | None
+    provider_refused: bool = False
 
 
 @activity.defn
 @track_activity()
 async def call_scanner_provider_activity(inputs: CallScannerProviderInputs) -> ScannerCallOutput:
-    """Run the scanner against the uploaded video + cached events; validate, finalize, return the output."""
-    snapshot, team_name, llm_inputs = await asyncio.gather(
-        sync_to_async(_load_snapshot)(inputs.observation_id, inputs.team_id),
-        sync_to_async(_load_team_name)(inputs.team_id),
-        _load_llm_inputs(inputs.observation_id),
-    )
-    scanner = scanner_from_snapshot(snapshot)
+    """Run the scanner conversation against the uploaded video + cached events; validate, finalize, return the output."""
+    # Background heartbeats let Temporal detect a dead worker in ~2 min instead of the full 20-min timeout.
+    async with Heartbeater(factor=4):
+        try:
+            return await _call_scanner_provider(inputs)
+        except Exception as e:
+            # Classify at the activity boundary, not inside the mission, so the cached-run fallback below can
+            # inspect the raw provider error and decide which layer owns the retry.
+            kind = classify_gemini_error(e)
+            if kind is None:
+                raise
+            # The raw error body can quote request content (prompt text), so it stays out of both the
+            # user-visible error_reason and the logs; code + status carry the diagnostic signal.
+            logger.warning(
+                "replay_vision.call_scanner_provider.provider_error",
+                kind=kind.value,
+                error_type=type(e).__name__,
+                code=getattr(e, "code", None),
+                status=getattr(e, "status", None),
+            )
+            raise ScannerFailureError(describe_gemini_error(e), kind=kind) from e
 
-    prompt_text = scanner.build_prompt(
+
+async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCallOutput:
+    # Re-check consent right before the provider generation — a separate egress step from the upload, so revocation
+    # in the window between them must still abort before any recording data reaches the model. Fail closed.
+    if not await sync_to_async(is_ai_data_processing_approved)(inputs.team_id):
+        raise ConsentWithdrawnError("AI data processing consent was withdrawn before this recording could be analyzed")
+
+    if inputs.snapshot_override is not None:
+        snapshot = inputs.snapshot_override
+        team_name, llm_inputs = await asyncio.gather(
+            sync_to_async(_load_team_name)(inputs.team_id),
+            _load_llm_inputs(inputs.observation_id),
+        )
+    else:
+        snapshot, team_name, llm_inputs = await asyncio.gather(
+            sync_to_async(_load_snapshot)(inputs.observation_id, inputs.team_id),
+            sync_to_async(_load_team_name)(inputs.team_id),
+            _load_llm_inputs(inputs.observation_id),
+        )
+    scanner: BaseScanner = scanner_from_snapshot(snapshot)
+    scanner = await _inject_known_freeform_tags(scanner, inputs)
+
+    preamble_text = scanner.preamble(
         team_name=team_name,
-        events=llm_inputs.events,
-        url_mapping=llm_inputs.url_mapping,
-        window_mapping=llm_inputs.window_mapping,
         session_metadata=llm_inputs.metadata.as_prompt_dict(),
+        navigation=[entry.model_dump() for entry in llm_inputs.navigation],
+        navigation_dropped=llm_inputs.navigation_dropped,
+        events_truncated=llm_inputs.events_truncated,
+        product_context=llm_inputs.product_context,
+        event_descriptions=llm_inputs.event_descriptions,
     )
-    prompt_parts: list[types.Part] = [
-        types.Part(file_data=types.FileData(file_uri=inputs.file_uri, mime_type=inputs.mime_type)),
-        types.Part(text=prompt_text),
-    ]
+    video_part = types.Part(file_data=types.FileData(file_uri=inputs.file_uri, mime_type=inputs.mime_type))
 
-    finalized = await _call_with_retry(
+    finalized, signals = await _run_mission(
         scanner=scanner,
         snapshot=snapshot,
-        prompt_parts=prompt_parts,
+        video_part=video_part,
+        preamble_text=preamble_text,
         team_id=inputs.team_id,
+        llm_inputs=llm_inputs,
     )
-    finalized = _resolve_citations(finalized, scanner, llm_inputs.event_timestamps)
-    return ScannerCallOutput(model_output=finalized)
+    duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
+    finalized = _resolve_citations(finalized, scanner, duration_ms)
+    return ScannerCallOutput(model_output=finalized, signals=signals)
 
 
 def _resolve_citations(
-    finalized: BaseModel,
+    finalized: _OutputT,
     scanner: BaseScanner,
-    event_timestamps: dict[str, int],
-) -> BaseModel:
-    """Walk each `(event_uuid <uuid>)` marker in the citation fields: drop hallucinated ones, build the plain text, and persist a parallel render-ready segment list."""
+    duration_ms: int,
+) -> _OutputT:
+    """Walk each `(t <sec>)` marker in the citation fields: drop out-of-range ones, build the plain text, and persist a parallel render-ready segment list."""
     field_updates: dict[str, str | list[Segment]] = {}
     for field in scanner.citation_fields:
         text = getattr(finalized, field, None)
         if not isinstance(text, str):
             continue
-        plain, segments = _extract_segments(text, event_timestamps)
+        plain, segments = _extract_segments(text, duration_ms)
         field_updates[field] = plain
         field_updates[f"{field}_segments"] = segments
 
@@ -98,26 +172,94 @@ def _resolve_citations(
     return finalized
 
 
-def _extract_segments(text: str, event_timestamps: dict[str, int]) -> tuple[str, list[Segment]]:
-    """Walk `(event_uuid <uuid>)` markers in `text`; drop hallucinated uuids; return (plain text, render-ready text/chip segments)."""
+def _extract_segments(text: str, duration_ms: int) -> tuple[str, list[Segment]]:
+    """Walk `(t <sec>)` markers in `text`; drop times past the recording; return (plain text, render-ready text/chip segments)."""
     plain_parts: list[str] = []
     segments: list[Segment] = []
     last_end = 0
-    for match in _EVENT_UUID_CITATION_RE.finditer(text):
+    for match in TIMESTAMP_CITATION_RE.finditer(text):
         chunk = text[last_end : match.start()]
         plain_parts.append(chunk)
         if chunk:
             segments.append(TextSegment(value=chunk))
-        uuid = match.group(1).lower()
-        timestamp_ms = event_timestamps.get(uuid)
-        if timestamp_ms is not None:
-            segments.append(ChipSegment(uuid=uuid, timestamp_ms=timestamp_ms))
+        # A leaked comma-joined marker like `(t 12, 34)` carries several moments, one chip each.
+        for raw_seconds in re.findall(r"\d+", match.group(1)):
+            timestamp_ms = int(raw_seconds) * 1000
+            # Drop citations past the recording end (a misread footer value). 1s slack spares a genuine
+            # final-second citation from a sub-second start-time skew. The marker is stripped either way.
+            if timestamp_ms <= duration_ms + 1000:
+                segments.append(ChipSegment(timestamp_ms=timestamp_ms))
         last_end = match.end()
     trailing = text[last_end:]
     plain_parts.append(trailing)
     if trailing:
         segments.append(TextSegment(value=trailing))
     return "".join(plain_parts), segments
+
+
+# Bounds for the known-freeform-tags prompt context: a recent window so tags that stopped being emitted
+# (renamed, promoted into the vocabulary, off-topic) age out, a row cap to bound the read, and a tag cap
+# to bound prompt size.
+_KNOWN_FREEFORM_TAGS_DAYS = 30
+_KNOWN_FREEFORM_TAGS_MAX_ROWS = 300
+_KNOWN_FREEFORM_TAGS_MAX = 30
+# Stored tags are model output derived from untrusted recording content, and this path echoes them into
+# future scan instructions. Real tag identifiers are a few short words (the suggestion flow asks for <= 4);
+# anything longer is more likely a smuggled instruction than a label, so cap both characters and words.
+_KNOWN_FREEFORM_TAG_MAX_LENGTH = 60
+_KNOWN_FREEFORM_TAG_MAX_WORDS = 5
+
+
+def _is_taglike(slug: str) -> bool:
+    return (
+        0 < len(slug) <= _KNOWN_FREEFORM_TAG_MAX_LENGTH
+        and len(re.split(r"[_-]", slug)) <= _KNOWN_FREEFORM_TAG_MAX_WORDS
+    )
+
+
+async def _inject_known_freeform_tags(scanner: BaseScanner, inputs: CallScannerProviderInputs) -> BaseScanner:
+    """Give a freeform-emitting classifier the freeform tags it recently coined, so it reuses established
+    names instead of inventing synonyms per scan. Best effort: a lookup failure must not fail the scan."""
+    if not isinstance(scanner, ClassifierScanner) or not scanner.allow_freeform_tags:
+        return scanner
+    try:
+        known = await sync_to_async(_load_known_freeform_tags)(inputs.observation_id, inputs.team_id)
+    except Exception:
+        logger.warning("replay_vision.call_scanner_provider.known_freeform_tags_failed", exc_info=True)
+        return scanner
+    if not known:
+        return scanner
+    return scanner.model_copy(update={"known_freeform_tags": known})
+
+
+def _load_known_freeform_tags(observation_id: UUID, team_id: int) -> list[str]:
+    """Freeform tags this observation's scanner emitted on recent recordings, most frequent first."""
+    scanner_id = (
+        ReplayObservation.objects.filter(pk=observation_id, team_id=team_id)
+        .values_list("scanner_id", flat=True)
+        .first()
+    )
+    if scanner_id is None:
+        return []
+    recent = (
+        ReplayObservation.objects.filter(
+            team_id=team_id,
+            scanner_id=scanner_id,
+            status=ObservationStatus.SUCCEEDED,
+            created_at__gte=timezone.now() - timedelta(days=_KNOWN_FREEFORM_TAGS_DAYS),
+        )
+        .order_by("-created_at")
+        .values_list("scanner_result__model_output__tags_freeform", flat=True)[:_KNOWN_FREEFORM_TAGS_MAX_ROWS]
+    )
+    counts: Counter[str] = Counter()
+    for tags in recent:
+        if not isinstance(tags, list):
+            continue
+        # Stored values are already slugified at emission; re-slugify so nothing unnormalized reaches the prompt.
+        counts.update(slug for tag in tags if isinstance(tag, str) and _is_taglike(slug := slugify_tag(tag)))
+    # Alphabetical tie-break so equal-count tags keep a stable order across scans.
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return [tag for tag, _ in ranked[:_KNOWN_FREEFORM_TAGS_MAX]]
 
 
 def _load_snapshot(observation_id: UUID, team_id: int) -> ScannerSnapshot:
@@ -141,11 +283,7 @@ def _load_team_name(team_id: int) -> str:
 
 
 async def _load_llm_inputs(observation_id: UUID) -> ScannerLlmInputs:
-    redis_client, redis_key = get_redis_state_client(
-        label=StateActivitiesEnum.SESSION_EVENTS,
-        state_id=str(observation_id),
-    )
-    payload = await get_data_class_from_redis(redis_client, redis_key, target_class=ScannerLlmInputs)
+    payload = await load_scanner_llm_inputs(str(observation_id))
     if payload is None:
         raise ScannerFailureError(
             f"ScannerLlmInputs missing in Redis for observation {observation_id}", kind=FailureKind.INTERNAL_ERROR
@@ -153,82 +291,360 @@ async def _load_llm_inputs(observation_id: UUID) -> ScannerLlmInputs:
     return payload
 
 
-async def _call_with_retry(
-    *, scanner: BaseScanner, snapshot: ScannerSnapshot, prompt_parts: list[types.Part], team_id: int
-) -> BaseModel:
-    """One Gemini call, plus at most one retry that appends the validation error to the prompt."""
-    client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
-    schema_class = scanner.llm_response_schema
-    response_schema = schema_class.model_json_schema()
-    parts = list(prompt_parts)
-    last_error: str | None = None
+async def _run_mission(
+    *,
+    scanner: BaseScanner,
+    snapshot: ScannerSnapshot,
+    video_part: types.Part,
+    preamble_text: str,
+    team_id: int,
+    llm_inputs: ScannerLlmInputs,
+) -> tuple[BaseScannerOutput, list[SignalFinding]]:
+    """Cache the video, run every mission step as a tool-using turn, then assemble the output + side-mission findings.
+
+    Caching is best-effort: a video too short to cache (or any cache hiccup) falls back to sending it inline, and a
+    cached run that fails for a non-validation reason is retried inline once before giving up.
+    """
+    api_key = gemini_api_key()
+    # Attribute every scanner generation to Replay Vision in LLM analytics so costs and traces roll up to the product.
+    client = genai.AsyncClient(
+        api_key=api_key,
+        posthog_properties={
+            "ai_product": "replay_vision",
+            "feature": "scanner",
+            "scanner_type": snapshot.scanner_type.value,
+        },
+    )
+    cache_client = GoogleGenAIClient(api_key=api_key)
+    model = f"models/{snapshot.model}"
     metric_labels = {
-        "provider": snapshot.provider.value,
-        "model": snapshot.model.value,
+        "provider": snapshot.provider,
+        "model": snapshot.model,
         "scanner_type": snapshot.scanner_type.value,
     }
 
+    events_index = build_events_index(llm_inputs)
+
+    def dispatch(call: Any) -> dict[str, Any]:
+        return dispatch_events_tool(call, events_index)
+
+    cache = await _maybe_create_video_cache(cache_client, model, video_part, preamble_text)
+    run = functools.partial(
+        _run_steps,
+        client=client,
+        model=model,
+        steps=scanner.mission_steps(),
+        video_part=video_part,
+        preamble_text=preamble_text,
+        dispatch=dispatch,
+        team_id=team_id,
+        metric_labels=metric_labels,
+    )
+    try:
+        step_outputs = await _run_mission_attempts(run=run, cache=cache, model=snapshot.model)
+    finally:
+        if cache is not None:
+            await _delete_video_cache(cache_client, cache.name)
+
+    return scanner.assemble(step_outputs)
+
+
+async def _run_mission_attempts(*, run: Any, cache: Any | None, model: str) -> dict[str, BaseModel]:
+    """Run the mission, re-asking once from a clean conversation when a required step failed validation."""
+    for attempt in range(1, _MAX_MISSION_ATTEMPTS):
+        try:
+            return await _run_pass(run=run, cache=cache, model=model)
+        except ScannerFailureError as exc:
+            if exc.kind is not FailureKind.VALIDATION_FAILED:
+                raise
+            logger.warning(
+                "replay_vision.call_scanner_provider.mission_retry_after_validation_failure",
+                model=model,
+                attempt=attempt,
+                error=str(exc),
+            )
+    return await _run_pass(run=run, cache=cache, model=model)
+
+
+async def _run_pass(*, run: Any, cache: Any | None, model: str) -> dict[str, BaseModel]:
+    """One mission pass over the cached prefix, falling back to an inline video when the cached request itself fails."""
+    if cache is None:
+        record_mission_pass(model=model, path="inline")
+        return await run(cache_name=None)
+    record_mission_pass(model=model, path="cached")
+    try:
+        return await run(cache_name=cache.name)
+    except ScannerFailureError:
+        raise  # a required step genuinely couldn't be satisfied, so re-running won't help.
+    except Exception as exc:
+        # Transient provider errors belong to the Temporal activity retry, which backs off across the quota
+        # window; an immediate inline re-run would just re-spend the video tokens against a provider that is
+        # still rate-limiting or down, and would multiply with the other retry layers.
+        if classify_gemini_error(exc) is FailureKind.PROVIDER_TRANSIENT:
+            raise
+        # The cached request failed some other way (a stale cache reference, an unrecognized error), so retry
+        # inline once. Capture the cause: this fallback fires often enough that we need to know whether it's
+        # the cached-content + response-schema combination or something new.
+        logger.warning(
+            "replay_vision.video_cache.run_failed_retrying_inline",
+            model=model,
+            error=str(exc),
+            error_type=type(exc).__name__,
+            exc_info=True,
+        )
+        record_mission_pass(model=model, path="inline_fallback")
+        return await run(cache_name=None)
+
+
+async def _run_steps(
+    *,
+    client: Any,
+    model: str,
+    steps: list[MissionStep],
+    video_part: types.Part,
+    preamble_text: str,
+    cache_name: str | None,
+    dispatch: Any,
+    team_id: int,
+    metric_labels: dict[str, str],
+) -> dict[str, BaseModel]:
+    """Run the ordered steps over one growing conversation; return the validated output keyed by step name."""
+    # The video + preamble lead the conversation inline unless they're already cached as the prefix.
+    convo: list[Any] = [] if cache_name else [video_part, types.Part(text=preamble_text)]
+    step_outputs: dict[str, BaseModel] = {}
+    for step in steps:
+        checkpoint = len(convo)
+        convo.append(types.Part(text=step.instruction))
+        result = await _run_step(
+            client=client,
+            model=model,
+            step=step,
+            convo=convo,
+            cache_name=cache_name,
+            dispatch=dispatch,
+            team_id=team_id,
+            metric_labels=metric_labels,
+        )
+        if result.output is None:
+            # Roll the failed step's half-finished exchange back so the next instruction follows the last good
+            # model turn, not a dangling correction/tool call (which would leave two user turns in a row).
+            del convo[checkpoint:]
+            if step.required:
+                raise _exhausted_step_error(step, result)
+            continue
+        step_outputs[step.name] = result.output
+    return step_outputs
+
+
+def _exhausted_step_error(step: MissionStep, result: "_StepResult") -> ScannerFailureError:
+    """Why a required step ran out of attempts, kept distinct so the user gets advice that matches the cause."""
+    if result.provider_refused:
+        # An empty candidate list is the provider declining to answer about this video (safety or content policy).
+        # Telling the user to reword their prompt would send them editing something that was never the problem.
+        return ScannerFailureError(
+            f"Provider returned no answer for required step '{step.name}' after {_MAX_LLM_ATTEMPTS} attempts",
+            kind=FailureKind.PROVIDER_REJECTED,
+        )
+    return ScannerFailureError(
+        f"Required step '{step.name}' rejected after {_MAX_LLM_ATTEMPTS} attempts",
+        kind=FailureKind.VALIDATION_FAILED,
+    )
+
+
+async def _run_step(
+    *,
+    client: Any,
+    model: str,
+    step: MissionStep,
+    convo: list[Any],
+    cache_name: str | None,
+    dispatch: Any,
+    team_id: int,
+    metric_labels: dict[str, str],
+) -> "_StepResult":
+    """Run one step's tool loop with one re-prompt on failure. Returns the validated output, or why it was exhausted.
+
+    On success the model's answer is appended to `convo` so the next step sees it; on failure a correction is
+    appended and we retry.
+    """
+    config = _step_config(step, cache_name)
+    forced_config = _step_config(step, cache_name, allow_tools=False)
+
+    async def _generate(c: list[Any], cfg: types.GenerateContentConfig = config) -> Any:
+        return await client.models.generate_content(
+            model=model,
+            contents=c,
+            config=cfg,
+            posthog_distinct_id=replay_vision_distinct_id(team_id),
+            posthog_groups={"project": str(team_id)},
+        )
+
+    last_error: str | None = None
+    # Whether the final attempt came back with no candidate at all, which reads as a provider refusal rather
+    # than a schema problem. Tracked on the last attempt only: that is the state we ended up reporting.
+    last_was_empty = False
     for attempt in range(_MAX_LLM_ATTEMPTS):
         started = time.monotonic()
-        outcome = "provider_error"
         try:
-            response = await client.models.generate_content(
-                model=f"models/{snapshot.model.value}",
-                contents=parts,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_json_schema=response_schema,
-                ),
-                posthog_distinct_id=replay_vision_distinct_id(team_id),
-                posthog_groups={"project": str(team_id)},
-            )
+            response = await run_tool_loop(generate=_generate, convo=convo, dispatch=dispatch)
+            if function_calls(response):
+                # Tool budget spent and the model still wants a lookup. Rather than hard-fail, complete the
+                # round-trip and force one final tool-free turn so it answers from what it has already seen.
+                record_provider_call(
+                    **metric_labels, outcome="tool_budget_exhausted", seconds=time.monotonic() - started
+                )
+                logger.warning(
+                    "replay_vision.call_scanner_provider.tool_budget_exhausted", step=step.name, attempt=attempt + 1
+                )
+                started = time.monotonic()
+                response = await _force_final_answer(
+                    generate=lambda c: _generate(c, forced_config), convo=convo, exhausted=response, dispatch=dispatch
+                )
         except Exception:
-            REPLAY_VISION_PROVIDER_CALL.labels(**metric_labels, outcome=outcome).observe(time.monotonic() - started)
+            record_provider_call(**metric_labels, outcome="provider_error", seconds=time.monotonic() - started)
             raise
-        response_text = (response.text or "").strip()
-        if not response_text:
-            last_error = "Empty response from model"
-            outcome = "validation_failed"
-        else:
-            try:
-                parsed = schema_class.model_validate_json(response_text)
-            except ValidationError as e:
-                last_error = f"Schema validation failed: {e}"
-                outcome = "validation_failed"
-            else:
-                finalized = scanner.finalize(parsed)
-                semantic_error = scanner.validate_semantics(finalized)
-                if semantic_error is None:
-                    REPLAY_VISION_PROVIDER_CALL.labels(**metric_labels, outcome="ok").observe(
-                        time.monotonic() - started
-                    )
-                    return finalized
-                last_error = f"Semantic validation failed: {semantic_error}"
-                outcome = "validation_failed"
-        REPLAY_VISION_PROVIDER_CALL.labels(**metric_labels, outcome=outcome).observe(time.monotonic() - started)
 
+        if not response.candidates:
+            # No candidate (safety filter / content policy): record a failed attempt and retry without indexing [0].
+            last_error = "model returned no candidates"
+            last_was_empty = True
+            record_provider_call(**metric_labels, outcome="validation_failed", seconds=time.monotonic() - started)
+            logger.warning("replay_vision.call_scanner_provider.empty_response", step=step.name, attempt=attempt + 1)
+            continue
+        last_was_empty = False
+
+        text = (response.text or "").strip()
+        parsed, error = _parse_and_validate(step, text)
+        record_provider_call(
+            **metric_labels,
+            outcome="ok" if error is None else "validation_failed",
+            seconds=time.monotonic() - started,
+        )
+
+        if error is None:
+            convo.append(response.candidates[0].content)  # carry the answer into the next turn
+            return _StepResult(output=parsed)
+
+        last_error = error
         logger.warning(
             "replay_vision.call_scanner_provider.invalid_response",
+            step=step.name,
             attempt=attempt + 1,
             error=last_error,
-            response_preview=response_text[:500] if response_text else None,
+            response_preview=text[:500] if text else None,
         )
         if attempt < _MAX_LLM_ATTEMPTS - 1:
-            parts = [
-                *parts,
+            # Keep turn roles alternating on retry: the model's rejected answer is a model turn, then our
+            # correction is the user turn. Without this, a turn that called a tool then returned bad JSON
+            # would leave two consecutive user turns (the tool response and the correction).
+            convo.append(response.candidates[0].content)
+            convo.append(
                 types.Part(
                     text=(
                         f"\n\nYour previous attempt failed: {last_error}\n"
                         "Respond with raw JSON only — no markdown fences, no commentary."
                     )
-                ),
-            ]
+                )
+            )
 
-    # non_retryable so workflow-level retries don't re-burn on schema/semantic failures.
-    raise ScannerFailureError(
-        f"Scanner call rejected after {_MAX_LLM_ATTEMPTS} attempts: {last_error}",
-        kind=FailureKind.VALIDATION_FAILED,
+    logger.warning(
+        "replay_vision.call_scanner_provider.step_exhausted",
+        step=step.name,
+        required=step.required,
+        error=last_error,
+        provider_refused=last_was_empty,
     )
+    return _StepResult(output=None, provider_refused=last_was_empty)
+
+
+_OUT_OF_LOOKUPS_NUDGE = (
+    "You've used all of your event lookups. Don't call the tool again — answer now using only what you've already "
+    "seen in the video and the events you've retrieved."
+)
+
+
+async def _force_final_answer(*, generate: Any, convo: list[Any], exhausted: Any, dispatch: Any) -> Any:
+    """Budget spent mid-tool-use: answer the model's last pending calls, tell it lookups are done, and force one
+    tool-free turn. Completing the call→response round-trip avoids leaving a dangling `function_call` in `convo`."""
+    convo.append(exhausted.candidates[0].content)  # the model's pending-call turn (carries thought signatures)
+    convo.append(
+        types.Content(
+            role="user",
+            parts=[
+                *(
+                    types.Part(function_response=types.FunctionResponse(name=call.name, response=dispatch(call)))
+                    for call in function_calls(exhausted)
+                ),
+                types.Part(text=_OUT_OF_LOOKUPS_NUDGE),
+            ],
+        )
+    )
+    return await generate(convo)
+
+
+def _step_config(step: MissionStep, cache_name: str | None, *, allow_tools: bool = True) -> types.GenerateContentConfig:
+    """Generation config for one step: its JSON schema, plus the events tool (from the cache when cached).
+
+    `allow_tools=False` is the forced final turn after the tool budget runs out — the model must answer from what it
+    has, so calling is suppressed: omit the tool inline, or disable function-calling on the cached tool.
+    """
+    kwargs: dict[str, Any] = {
+        "response_mime_type": "application/json",
+        "response_json_schema": step.response_model.model_json_schema(),
+    }
+    if cache_name:
+        kwargs["cached_content"] = cache_name  # video, preamble, and the tool all live in the cache
+        if not allow_tools:
+            kwargs["tool_config"] = types.ToolConfig(
+                function_calling_config=types.FunctionCallingConfig(mode=types.FunctionCallingConfigMode.NONE)
+            )
+    elif allow_tools:
+        kwargs["tools"] = [events_tool()]
+    return types.GenerateContentConfig(**kwargs)
+
+
+def _parse_and_validate(step: MissionStep, text: str) -> tuple[BaseModel | None, str | None]:
+    """Parse `text` against the step schema and run its semantic check; return (parsed, None) or (None, error)."""
+    if not text:
+        return None, "Empty response from model"
+    try:
+        parsed = step.response_model.model_validate_json(text)
+    except ValidationError as e:
+        return None, f"Schema validation failed: {e}"
+    if step.validate is not None:
+        semantic_error = step.validate(parsed)
+        if semantic_error is not None:
+            return None, f"Semantic validation failed: {semantic_error}"
+    return parsed, None
+
+
+async def _maybe_create_video_cache(
+    cache_client: GoogleGenAIClient,
+    model: str,
+    video_part: types.Part,
+    preamble_text: str,
+) -> Any | None:
+    """Cache the video + preamble + events tool once so the steps reuse them. None on any failure (e.g. too short to cache)."""
+    try:
+        return await cache_client.aio.caches.create(
+            model=model,
+            config=types.CreateCachedContentConfig(
+                contents=[types.Content(role="user", parts=[video_part, types.Part(text=preamble_text)])],
+                tools=[events_tool()],
+                ttl=_VIDEO_CACHE_TTL,
+            ),
+        )
+    except Exception as e:
+        logger.info("replay_vision.video_cache.skipped", error=str(e))
+        return None
+
+
+async def _delete_video_cache(cache_client: GoogleGenAIClient, name: str) -> None:
+    try:
+        await cache_client.aio.caches.delete(name=name)
+    except Exception as e:
+        # TTL reaps it regardless; a delete failure is not worth surfacing.
+        logger.info("replay_vision.video_cache.delete_failed", error=str(e))
 
 
 __all__ = ["call_scanner_provider_activity"]

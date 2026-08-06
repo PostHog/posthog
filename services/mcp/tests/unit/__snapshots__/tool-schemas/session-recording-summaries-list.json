@@ -1,0 +1,51 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "created_by": {
+            "description": "Filter to summaries triggered by a specific user, identified by `User.uuid`.",
+            "type": "string"
+        },
+        "date_from": {
+            "description": "Inclusive lower bound on `created_at`, accepts relative shorthand like `-7d`.",
+            "type": "string"
+        },
+        "date_to": {
+            "description": "Inclusive upper bound on `created_at`, accepts relative shorthand like `-1d`.",
+            "type": "string"
+        },
+        "distinct_id": {
+            "description": "Filter to summaries for a single user (the session's `distinct_id`).",
+            "type": "string"
+        },
+        "has_exceptions": {
+            "description": "When true, only summaries that surfaced one or more exception events; when false, only summaries without exceptions.",
+            "type": "boolean"
+        },
+        "has_visual_confirmation": {
+            "description": "When true, only summaries produced via the video-based visual-confirmation workflow.",
+            "type": "boolean"
+        },
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "order": {
+            "description": "Ordering field, defaults to `-created_at` (most recent first). Allowed: `created_at`, `session_start_time`, `session_duration` (prefix with `-` for descending).",
+            "type": "string"
+        },
+        "outcome": {
+            "description": "Filter by the summary's recorded `session_outcome.success` field. `success` for true, `failure` for false, `unknown` for summaries without an outcome.",
+            "enum": ["failure", "success", "unknown"],
+            "type": "string"
+        },
+        "session_ids": {
+            "description": "Comma-separated list of session IDs to restrict the result to (uses the `(team, session_id)` index).",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

@@ -6,7 +6,6 @@ import React, { useEffect, useRef, useState } from 'react'
 
 import { IconPencil, IconPlusSmall, IconTrash } from '@posthog/icons'
 
-import { Chart } from 'lib/Chart'
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { dayjs } from 'lib/dayjs'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
@@ -14,7 +13,9 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { humanFriendlyDetailedTime, pluralize, shortTimeZone } from 'lib/utils'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import { pluralize } from 'lib/utils/strings'
+import { shortTimeZone } from 'lib/utils/timezones'
 import { AnnotationModal } from 'scenes/annotations/AnnotationModal'
 import { annotationModalLogic, annotationScopeToName } from 'scenes/annotations/annotationModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -23,7 +24,7 @@ import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationType, DatedAnnotationType, IntervalType } from '~/types'
 
 import { AnnotationsOverlayLogicProps, annotationsOverlayLogic } from './annotationsOverlayLogic'
-import { useAnnotationsPositioning } from './useAnnotationsPositioning'
+import { AnnotationsChartGeometry, useAnnotationsPositioning } from './useAnnotationsPositioning'
 
 const MIN_BADGE_SPACING_PX = 24
 /** Clusters anchor on their starting badge (leftPx) so a chain of near-adjacent badges
@@ -38,6 +39,8 @@ const GROUPING_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
     day: 'MMMM D, YYYY',
     week: 'MMMM D, YYYY',
     month: 'MMMM D, YYYY',
+    quarter: 'MMMM D, YYYY',
+    year: 'MMMM D, YYYY',
 }
 
 interface AnnotationBadgeCluster {
@@ -65,10 +68,8 @@ function getInterpolatedDataPointX(dataIndex: number, getDataPointX: (index: num
 export interface AnnotationsOverlayProps {
     insightNumericId: AnnotationsOverlayLogicProps['insightNumericId']
     dates: string[]
-    chart: Chart
+    geometry: AnnotationsChartGeometry
     chartWidth: number
-    chartHeight: number
-    datasetIndex?: number
     /** Forwarded to the kea logic key so multiple overlays on the same insight don't
      *  collide. Used by compare-against-previous bar charts to show one overlay per period. */
     kind?: string
@@ -81,29 +82,22 @@ interface AnnotationsOverlayCSSProperties extends React.CSSProperties {
 }
 
 export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
-    chart,
+    geometry,
     chartWidth,
-    chartHeight,
     dates,
     insightNumericId,
-    datasetIndex = 0,
     kind,
 }: AnnotationsOverlayProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { tickIntervalPx, firstTickLeftPx, getDataPointX } = useAnnotationsPositioning(
-        chart,
-        chartWidth,
-        chartHeight,
-        datasetIndex
-    )
+    const { tickIntervalPx, firstTickLeftPx, getDataPointX } = useAnnotationsPositioning(geometry)
 
     // Memoize ticks by value to prevent unnecessary kea selector cascades.
-    // chart.scales.x.ticks is a Chart.js internal array that is the same object between renders
-    // when the chart hasn't changed, but .map() would create new references every render,
-    // causing all downstream selectors (tickDates → dateRange → relevantAnnotations →
-    // groupedAnnotations) to recompute unnecessarily.
+    // The tick array is the same object between renders while the chart's layout is unchanged,
+    // but .map() would create new references every render, causing all downstream selectors
+    // (tickDates → dateRange → relevantAnnotations → groupedAnnotations) to recompute
+    // unnecessarily.
     const prevTicksRef = useRef<{ value: number }[]>([])
-    const currentChartTicks = chart.scales.x.ticks
+    const currentChartTicks = geometry.xTicks
     if (
         prevTicksRef.current.length !== currentChartTicks.length ||
         prevTicksRef.current.some((t, i) => t.value !== currentChartTicks[i]?.value)
@@ -135,7 +129,7 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
     const modalContentRef = useRef<HTMLDivElement | null>(null)
     const modalOverlayRef = useRef<HTMLDivElement | null>(null)
     const badgeRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
-    const chartAreaLeft = chart ? chart.scales.x.left : 0
+    const chartAreaLeft = geometry.plotLeft
 
     const clusters = React.useMemo<AnnotationBadgeCluster[]>(() => {
         const positioned = annotationBadgeDataIndices
@@ -190,7 +184,7 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
                 style={
                     {
                         '--annotations-overlay-chart-area-left': `${chartAreaLeft}px`,
-                        '--annotations-overlay-chart-area-height': `${chart ? chart.scales.x.top : 0}px`,
+                        '--annotations-overlay-chart-area-height': `${geometry.plotBottom}px`,
                         '--annotations-overlay-chart-width': `${chartWidth}px`,
                     } as AnnotationsOverlayCSSProperties
                 }
@@ -286,6 +280,14 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({
     const active = activeDate?.valueOf() === date.valueOf() && isPopoverShown
     const shown = active || hovered || annotations.length > 0
 
+    // Surface an emoji in place of the count badge when the annotations in this bucket
+    // share exactly one emoji — regardless of which annotation carries it or how many do.
+    // More than one distinct emoji (multiple options) falls back to the count badge.
+    const distinctEmojis = Array.from(
+        new Set(annotations.map((annotation) => annotation.emoji).filter((emoji): emoji is string => !!emoji))
+    )
+    const singleEmoji = distinctEmojis.length === 1 ? distinctEmojis[0] : null
+
     return (
         <button
             ref={buttonRef}
@@ -313,12 +315,22 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({
             onClick={!isDateLocked ? lockDate : active ? unlockDate : () => activateDate(date)}
         >
             {annotations.length ? (
-                <LemonBadge.Number
-                    count={annotations.length}
-                    status="data"
-                    size="small"
-                    active={active && isDateLocked}
-                />
+                singleEmoji ? (
+                    <LemonBadge
+                        content={singleEmoji}
+                        status="data"
+                        size="small"
+                        active={active && isDateLocked}
+                        className="AnnotationsBadge__emoji"
+                    />
+                ) : (
+                    <LemonBadge.Number
+                        count={annotations.length}
+                        status="data"
+                        size="small"
+                        active={active && isDateLocked}
+                    />
+                )
             ) : (
                 <LemonBadge content={<IconPlusSmall />} status="data" size="small" active={active && isDateLocked} />
             )}
@@ -426,6 +438,7 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
             }`}
         >
             <div className="flex items-center gap-2">
+                {annotation.emoji && <span className="text-lg leading-none shrink-0">{annotation.emoji}</span>}
                 <h5 className="grow m-0 text-secondary">
                     {annotation.date_marker?.format('MMM DD, YYYY h:mm A')} ({shortTimeZone(timezone)}) –{' '}
                     {annotationScopeToName[annotation.scope]}

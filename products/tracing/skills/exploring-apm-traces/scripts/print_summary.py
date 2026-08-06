@@ -75,4 +75,4 @@ if errors:
         print(f"  [{span.get('service_name', '?')}] {name}  ({fmt_duration(span.get('duration_nano'))})")
         print(f"    kind={SPAN_KIND.get(span.get('kind'), span.get('kind'))}  span_id={span.get('span_id', '?')}  parent={span.get('parent_span_id', '?')}")
     print()
-    print("Attributes are not in the trace payload — use apm-attribute-values-list to fetch error.message etc.")
+    print("Error detail (exception.message/type) is in each span's `attributes` map in the payload — read it off the error span.")

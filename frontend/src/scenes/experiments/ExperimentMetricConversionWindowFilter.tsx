@@ -1,7 +1,7 @@
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect, LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
-import { capitalizeFirstLetter, pluralize } from 'lib/utils'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { TIME_INTERVAL_BOUNDS } from 'scenes/funnels/funnelUtils'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -74,7 +74,8 @@ export function ExperimentMetricConversionWindowFilter({
                             fullWidth={false}
                             min={intervalBounds[0]}
                             max={intervalBounds[1]}
-                            value={metric.conversion_window || 1}
+                            // NaN renders as empty and keeps the input controlled; undefined would not
+                            value={metric.conversion_window ?? NaN}
                             onChange={(value) => {
                                 handleSetMetric({ ...metric, conversion_window: value || undefined })
                             }}

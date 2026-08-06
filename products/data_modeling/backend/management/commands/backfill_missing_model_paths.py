@@ -27,6 +27,12 @@ class Command(BaseCommand):
             help="Comma separated list of team IDs to filter by",
         )
         parser.add_argument(
+            "--start-after-team-id",
+            default=None,
+            type=int,
+            help="Resume after this team ID (exclusive), following the team_id ordering used by this command",
+        )
+        parser.add_argument(
             "--batch-size",
             default=50,
             type=int,
@@ -58,6 +64,9 @@ class Command(BaseCommand):
             except ValueError:
                 raise CommandError("team-ids must be a comma separated list of team IDs")
             queryset = queryset.filter(team_id__in=team_ids)
+
+        if options.get("start_after_team_id") is not None:
+            queryset = queryset.filter(team_id__gt=options["start_after_team_id"])
 
         saved_queries = list(queryset.order_by("team_id", "id"))
 

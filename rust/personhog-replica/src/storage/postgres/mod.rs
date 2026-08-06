@@ -97,7 +97,8 @@ impl PostgresStorage {
     }
 
     /// Acquire a connection from the given pool, recording the acquisition time
-    /// as `personhog_replica_db_pool_acquire_duration_ms` with `pool` and `client` labels.
+    /// as `personhog_replica_db_pool_acquire_duration_ms` with `pool`, `client`,
+    /// and `method` labels.
     pub(crate) async fn acquire_timed(
         pool: &PgPool,
         pool_label: &str,
@@ -112,6 +113,10 @@ impl PostgresStorage {
                 (
                     "client".to_string(),
                     personhog_common::grpc::current_client_name().to_string(),
+                ),
+                (
+                    "method".to_string(),
+                    personhog_common::grpc::current_method_name().to_string(),
                 ),
             ],
             elapsed_ms,
@@ -129,17 +134,5 @@ impl PostgresStorage {
     #[allow(dead_code)]
     pub(crate) fn replica_pool(&self) -> &PgPool {
         &self.replica_pool
-    }
-}
-
-impl From<sqlx::Error> for StorageError {
-    fn from(err: sqlx::Error) -> Self {
-        match &err {
-            sqlx::Error::PoolTimedOut | sqlx::Error::PoolClosed => StorageError::PoolExhausted,
-
-            sqlx::Error::Io(_) | sqlx::Error::Tls(_) => StorageError::Connection(err.to_string()),
-
-            _ => StorageError::Query(err.to_string()),
-        }
     }
 }

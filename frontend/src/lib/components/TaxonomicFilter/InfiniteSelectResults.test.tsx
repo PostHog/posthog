@@ -12,6 +12,7 @@ import { mockEventDefinitions } from '~/test/mocks'
 import { AppContext } from '~/types'
 
 import { infiniteListLogic } from './infiniteListLogic'
+import { getCategoryPillDisabledReason } from './InfiniteSelectResults'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 
 window.POSTHOG_APP_CONTEXT = {
@@ -30,8 +31,8 @@ describe('InfiniteSelectResults - CategoryPill logic mounting', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team/event_definitions': (res) => {
-                    const search = res.url.searchParams.get('search')
+                '/api/projects/:team/event_definitions': ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search')
                     const results = search
                         ? mockEventDefinitions.filter((e) => e.name.includes(search))
                         : mockEventDefinitions
@@ -121,5 +122,34 @@ describe('InfiniteSelectResults - CategoryPill logic mounting', () => {
         // The logics should have different keys
         expect(eventsLogic.pathString).toContain('events')
         expect(actionsLogic.pathString).toContain('actions')
+    })
+
+    describe('getCategoryPillDisabledReason', () => {
+        it.each<[string, boolean, TaxonomicFilterGroupType, boolean, string | null]>([
+            ['interactive pill has no disabled reason', true, TaxonomicFilterGroupType.Wildcards, false, null],
+            [
+                'empty Wildcards on free plan shows the paygate copy',
+                false,
+                TaxonomicFilterGroupType.Wildcards,
+                false,
+                'Wildcard groups are only available on paid plans',
+            ],
+            [
+                'empty Wildcards on a paid plan falls back to "No results"',
+                false,
+                TaxonomicFilterGroupType.Wildcards,
+                true,
+                'No results',
+            ],
+            [
+                'empty non-Wildcards group always shows "No results"',
+                false,
+                TaxonomicFilterGroupType.Events,
+                false,
+                'No results',
+            ],
+        ])('%s', (_name, canInteract, groupType, hasPathsAdvanced, expected) => {
+            expect(getCategoryPillDisabledReason(canInteract, groupType, hasPathsAdvanced)).toBe(expected)
+        })
     })
 })

@@ -89,6 +89,10 @@ export interface SeriesData {
     breakdown_value?: string | number
     compare?: boolean
     compare_label?: string
+    /** Index of the query series this row belongs to — stamped by the mock resolver. */
+    seriesIndex?: number
+    /** Event name of the query series this row belongs to — stamped by the mock resolver. */
+    eventName?: string
 }
 
 type CannedSeries = SeriesData & { labels: string[]; days: string[] }
@@ -112,6 +116,10 @@ export const trendsSeries = {
         { label: 'Thistle', data: [0, 1, 0, 2, 1], days, labels, breakdown_value: 'Thistle' },
         { label: 'Conker', data: [0, 0, 0, 0, 0], days, labels, breakdown_value: 'Conker' },
         { label: 'Prickles', data: [0, 0, 1, 1, 0], days, labels, breakdown_value: 'Prickles' },
+    ] satisfies CannedSeries[],
+    pageviewsByHedgehog: [
+        { label: 'Spike', data: [30, 50, 90, 140, 60], days, labels, breakdown_value: 'Spike' },
+        { label: 'Bramble', data: [15, 32, 44, 70, 35], days, labels, breakdown_value: 'Bramble' },
     ] satisfies CannedSeries[],
     withZeroCounts: [
         { label: 'EmptySeries', data: [0, 0, 0, 0, 0], days, labels },
@@ -153,7 +161,12 @@ interface EventSeriesConfig {
 }
 
 const seriesByEvent: Record<string, EventSeriesConfig> = {
-    $pageview: { default: trendsSeries.pageviews },
+    $pageview: {
+        default: trendsSeries.pageviews,
+        breakdowns: {
+            hedgehog: trendsSeries.pageviewsByHedgehog,
+        },
+    },
     Napped: {
         default: trendsSeries.napped,
         breakdowns: {
@@ -263,6 +276,8 @@ export interface FunnelStepData {
     labels: string[]
     name?: string
     breakdown_value?: string | number
+    // The funnels runner tags compare rows with `compare_label` (it doesn't set `compare`).
+    compare_label?: 'current' | 'previous'
 }
 
 export const funnelTrendsSteps = {
@@ -290,6 +305,77 @@ export const funnelTrendsSteps = {
                 labels,
                 name: '$pageview → Napped',
                 breakdown_value: 'Bramble',
+            },
+        ] satisfies FunnelStepData[],
+        // Query order (Safari, Chrome, Firefox), alphabetical order, and value-at-index-2 order
+        // (Firefox 60, Safari 40, Chrome 20) all differ, so a tooltip sorted by descending value
+        // can't accidentally match the input order.
+        browser: [
+            {
+                count: 40,
+                data: [30, 35, 40, 45, 38],
+                days,
+                labels,
+                name: '$pageview → Napped',
+                breakdown_value: 'Safari',
+            },
+            {
+                count: 20,
+                data: [10, 15, 20, 25, 18],
+                days,
+                labels,
+                name: '$pageview → Napped',
+                breakdown_value: 'Chrome',
+            },
+            {
+                count: 60,
+                data: [50, 55, 60, 65, 58],
+                days,
+                labels,
+                name: '$pageview → Napped',
+                breakdown_value: 'Firefox',
+            },
+        ] satisfies FunnelStepData[],
+    } as Record<string, FunnelStepData[]>,
+    // Compare-to-previous + breakdown: current and previous rows per breakdown value, each
+    // tagged with `compare_label` so the tooltip can split them into their own rows.
+    compareByBreakdown: {
+        hedgehog: [
+            {
+                count: 30,
+                data: [20, 35, 50, 70, 45],
+                days,
+                labels,
+                name: '$pageview → Napped',
+                breakdown_value: 'Spike',
+                compare_label: 'current',
+            },
+            {
+                count: 28,
+                data: [18, 30, 45, 65, 40],
+                days,
+                labels,
+                name: '$pageview → Napped',
+                breakdown_value: 'Spike',
+                compare_label: 'previous',
+            },
+            {
+                count: 20,
+                data: [5, 15, 30, 50, 25],
+                days,
+                labels,
+                name: '$pageview → Napped',
+                breakdown_value: 'Bramble',
+                compare_label: 'current',
+            },
+            {
+                count: 18,
+                data: [3, 10, 25, 45, 20],
+                days,
+                labels,
+                name: '$pageview → Napped',
+                breakdown_value: 'Bramble',
+                compare_label: 'previous',
             },
         ] satisfies FunnelStepData[],
     } as Record<string, FunnelStepData[]>,

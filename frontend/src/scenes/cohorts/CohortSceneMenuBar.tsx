@@ -24,20 +24,19 @@ import { CohortType } from '~/types'
 
 const RESOURCE_TYPE = 'cohort'
 
-export function CohortSceneMenuBar({ id, tabId }: { id?: CohortType['id']; tabId: string }): JSX.Element | null {
+export function CohortSceneMenuBar({ id }: { id?: CohortType['id'] }): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     if (!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]) {
         return null
     }
-    return <CohortSceneMenuBarInner id={id} tabId={tabId} />
+    return <CohortSceneMenuBarInner id={id} />
 }
 
-function CohortSceneMenuBarInner({ id, tabId }: { id?: CohortType['id']; tabId: string }): JSX.Element | null {
-    const logic = cohortEditLogic({ id, tabId })
+function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element | null {
+    const logic = cohortEditLogic({ id })
     const { cohort, cohortLoading } = useValues(logic)
     const { duplicateCohort, deleteCohort, restoreCohort } = useActions(logic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!cohort) {
         return null
@@ -77,7 +76,7 @@ function CohortSceneMenuBarInner({ id, tabId }: { id?: CohortType['id']; tabId: 
                         Copy to another project
                     </SceneMenuBarItem>
                 )}
-                {!isNewCohort && !cohort.is_static && !!featureFlags[FEATURE_FLAGS.COHORT_CALCULATION_HISTORY] && (
+                {!isNewCohort && !cohort.is_static && (
                     <SceneMenuBarItem
                         onClick={() => router.actions.push(urls.cohortCalculationHistory(cohort.id))}
                         data-attr={`${RESOURCE_TYPE}-menubar-calculation-history`}

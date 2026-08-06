@@ -102,6 +102,24 @@ func TestRunWait_shortTimeoutBeforeBindIsNotReachable(t *testing.T) {
 	}
 }
 
+func TestPhrocsStopped_sandboxSuppressesDockerHint(t *testing.T) {
+	// In a sandbox, docker infra is managed externally, so telling the user
+	// to run `hogli docker:services:down` points at infra phrocs doesn't own.
+	t.Setenv("POSTHOG_SANDBOX", "1")
+	_, out := captureStdout(t, func() int { return phrocsStopped("phrocs stopped") })
+	if strings.Contains(out, "docker:services:down") {
+		t.Fatalf("sandbox must not print the docker teardown hint: %q", out)
+	}
+}
+
+func TestPhrocsStopped_printsDockerHintOutsideSandbox(t *testing.T) {
+	t.Setenv("POSTHOG_SANDBOX", "")
+	_, out := captureStdout(t, func() int { return phrocsStopped("phrocs stopped") })
+	if !strings.Contains(out, "docker:services:down") {
+		t.Fatalf("expected the docker teardown hint outside a sandbox: %q", out)
+	}
+}
+
 func TestRunStop_quitPathRemovesPidfile(t *testing.T) {
 	t.Chdir(t.TempDir())
 	if err := os.MkdirAll(generatedDir(), 0o755); err != nil {

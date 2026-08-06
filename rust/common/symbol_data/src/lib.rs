@@ -23,3 +23,6 @@ pub use data_types::proguard::ProguardMapping;
 
 // Apple dSYM
 pub use data_types::dsym::AppleDsym;
+
+// Native (ELF) debug info
+pub use data_types::elf::ElfDebugInfo;

@@ -1,0 +1,471 @@
+import { Meta, StoryObj } from '@storybook/react'
+
+import type { LineChartConfig, Series } from '../../core/types'
+import { DEFAULT_Y_AXIS_ID } from '../../core/types'
+import { ReferenceLine } from '../../overlays/ReferenceLine'
+import { ValueLabels } from '../../overlays/ValueLabels'
+import { playHoverAtFraction, Stage, useReactiveTheme } from '../../story-helpers'
+import { ciRanges, trendLine } from '../../utils/statistics'
+import { LineChart } from './LineChart'
+
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const BASIC: LineChartConfig = { showGrid: true }
+const HOVER: LineChartConfig = { showGrid: true, showCrosshair: true }
+
+const SINGLE: Series[] = [{ key: 'visits', label: 'Visits', color: '', data: [20, 35, 28, 60, 45, 70, 52] }]
+
+const PAIR: Series[] = [
+    { key: 'visits', label: 'Visits', color: '', data: [20, 35, 28, 60, 45, 70, 52] },
+    { key: 'signups', label: 'Sign-ups', color: '', data: [4, 8, 6, 14, 11, 19, 13] },
+]
+
+const STACK: Series[] = [
+    { key: 'web', label: 'Web', color: '', data: [10, 14, 12, 22, 18, 26, 20], fill: { opacity: 0.5 } },
+    { key: 'ios', label: 'iOS', color: '', data: [6, 9, 8, 12, 14, 17, 13], fill: { opacity: 0.5 } },
+    { key: 'android', label: 'Android', color: '', data: [4, 6, 7, 11, 10, 14, 12], fill: { opacity: 0.5 } },
+]
+
+const meta: Meta = { title: 'Components/HogCharts/LineChart', parameters: { layout: 'centered' } }
+export default meta
+
+type Story = StoryObj<{}>
+
+export const SingleSeries: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <LineChart series={SINGLE} labels={DAYS} config={BASIC} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
+export const MultiSeries: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <LineChart series={PAIR} labels={DAYS} config={BASIC} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
+export const StackedArea: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <LineChart series={STACK} labels={DAYS} config={BASIC} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
+export const PercentStacked: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <LineChart series={STACK} labels={DAYS} config={{ ...BASIC, percentStackView: true }} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
+export const SinglePoint: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <LineChart
+                    series={[{ key: 'v', label: 'Visits', color: '', data: [42] }]}
+                    labels={['Today']}
+                    config={BASIC}
+                    theme={theme}
+                />
+            </Stage>
+        )
+    },
+}
+
+export const ManySeries: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = Array.from({ length: 12 }, (_, i) => ({
+            key: `s${i}`,
+            label: `Series ${i + 1}`,
+            color: '',
+            data: DAYS.map((_, j) => 10 + ((i * 7 + j * 11) % 30)),
+        }))
+        return (
+            <Stage>
+                <LineChart series={series} labels={DAYS} config={BASIC} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
+export const WithZerosAndNegatives: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [{ key: 'a', label: 'Net flow', color: '', data: [0, -5, -12, 0, 8, 14, -3] }]
+        return (
+            <Stage>
+                <LineChart series={series} labels={DAYS} config={BASIC} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
+export const Empty: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <LineChart series={[]} labels={[]} config={BASIC} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
+/** Hover at an interior point — captures tooltip + crosshair + highlight rings. */
+export const HoveringInterior: Story = {
+    parameters: { layout: 'fullscreen' },
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            // eslint-disable-next-line react/forbid-dom-props
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
+                <Stage>
+                    <LineChart series={PAIR} labels={DAYS} config={HOVER} theme={theme} />
+                </Stage>
+            </div>
+        )
+    },
+    play: async ({ canvasElement }) => {
+        await playHoverAtFraction(canvasElement, 0.5)
+    },
+}
+
+/** Multi-series hover with one series hidden from the tooltip via `tooltip: false`. */
+export const HoveringMultiSeries: Story = {
+    parameters: { layout: 'fullscreen' },
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [
+            ...STACK,
+            {
+                key: 'baseline',
+                label: 'Baseline',
+                color: theme.colors[6],
+                data: DAYS.map(() => 30),
+                stroke: { pattern: [4, 4] },
+                overlay: true,
+                visibility: { tooltip: false },
+            },
+        ]
+        return (
+            // eslint-disable-next-line react/forbid-dom-props
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
+                <Stage>
+                    <LineChart series={series} labels={DAYS} config={HOVER} theme={theme} />
+                </Stage>
+            </div>
+        )
+    },
+    play: async ({ canvasElement }) => {
+        await playHoverAtFraction(canvasElement, 0.5)
+    },
+}
+
+/** Demonstrates each series-visibility flag side by side. */
+export const VisibilityFlags: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const base: Series[] = [
+            { key: 'a', label: 'A', color: '', data: [20, 35, 28, 60, 45, 70, 52] },
+            { key: 'b', label: 'B', color: '', data: [10, 14, 12, 22, 18, 26, 20] },
+            { key: 'c', label: 'C', color: '', data: [5, 9, 8, 12, 11, 16, 12] },
+        ]
+        const cases: { title: string; series: Series[] }[] = [
+            { title: 'excluded', series: [base[0], { ...base[1], visibility: { excluded: true } }, base[2]] },
+            {
+                title: 'valueLabel: false',
+                series: [base[0], { ...base[1], visibility: { valueLabel: false } }, base[2]],
+            },
+            {
+                title: 'overlay (auxiliary)',
+                series: [
+                    { ...base[0], fill: { opacity: 0.5 } },
+                    { ...base[1], fill: { opacity: 0.5 } },
+                    {
+                        key: 'avg',
+                        label: 'Moving avg',
+                        color: theme.colors[6],
+                        data: [12, 18, 17, 25, 24, 33, 27],
+                        stroke: { pattern: [4, 4] },
+                        overlay: true,
+                    },
+                ],
+            },
+        ]
+        return (
+            // eslint-disable-next-line react/forbid-dom-props
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 24 }}>
+                {cases.map((c) => (
+                    <Stage key={c.title}>
+                        {/* eslint-disable-next-line react/forbid-dom-props */}
+                        <div style={{ fontSize: 12, marginBottom: 4 }}>{c.title}</div>
+                        <LineChart series={c.series} labels={DAYS} config={BASIC} theme={theme}>
+                            <ValueLabels />
+                        </LineChart>
+                    </Stage>
+                ))}
+            </div>
+        )
+    },
+}
+
+/** Multiple overlays composed on the same chart — catches z-order / clipping regressions. */
+export const CombinedOverlays: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const color = theme.colors[0]
+        const data = [20, 35, 28, 60, 45, 70, 52]
+        const [lower, upper] = ciRanges(data, 0.95)
+        const series: Series[] = [
+            { key: 'visits', label: 'Visits', color, data, points: { radius: 3 } },
+            {
+                key: 'visits__ci',
+                label: 'Visits (CI)',
+                color,
+                data: upper,
+                fill: { opacity: 0.2, lowerData: lower },
+                visibility: { tooltip: false, valueLabel: false },
+            },
+            {
+                key: 'visits__trend',
+                label: 'Visits (trend)',
+                color,
+                data: trendLine(data),
+                stroke: { pattern: [1, 3] },
+                overlay: true,
+                visibility: { tooltip: false, valueLabel: false },
+            },
+        ]
+        return (
+            <Stage width={560} height={320}>
+                <LineChart series={series} labels={DAYS} config={BASIC} theme={theme}>
+                    <ReferenceLine value={50} label="Target" variant="goal" />
+                    <ReferenceLine value="Fri" orientation="vertical" label="Launch" variant="marker" />
+                    <ValueLabels />
+                </LineChart>
+            </Stage>
+        )
+    },
+}
+
+/** Confidence band whose lower bound dips below zero — the y-axis must widen to
+ *  include it rather than clipping at the data minimum. Visual guard for the
+ *  band-aware domain (lowerData folded into the value range). */
+export const ConfidenceBandBelowZero: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const color = theme.colors[0]
+        const data = [6, 4, 8, 5, 9, 4, 7]
+        // Hand-built wide band so the lower edge crosses zero on several points.
+        const lower = [1, -2, 3, -1, 4, -3, 2]
+        const upper = [11, 10, 13, 11, 14, 11, 12]
+        const series: Series[] = [
+            { key: 'visits', label: 'Visits', color, data, points: { radius: 3 } },
+            {
+                key: 'visits__ci',
+                label: 'Visits (CI)',
+                color,
+                data: upper,
+                fill: { opacity: 0.2, lowerData: lower },
+                visibility: { tooltip: false, valueLabel: false },
+            },
+        ]
+        return (
+            <Stage width={560} height={320}>
+                <LineChart series={series} labels={DAYS} config={BASIC} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
+/** Single series spanning a few orders of magnitude — locks in log-axis tick generation. */
+export const LogScale: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [{ key: 'lat', label: 'Latency', color: '', data: [1, 10, 100, 1000, 100, 10, 1] }]
+        return (
+            <Stage>
+                <LineChart series={series} labels={DAYS} config={{ ...BASIC, yScaleType: 'log' }} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
+/** Two series with very different magnitudes plotted against independent y-axes. */
+export const DualYAxis: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [
+            {
+                key: 'revenue',
+                label: 'Revenue',
+                color: '',
+                data: [1100, 1300, 1250, 1700, 1500, 1900, 1800],
+                yAxisId: DEFAULT_Y_AXIS_ID,
+            },
+            {
+                key: 'conversion',
+                label: 'Conversion',
+                color: '',
+                data: [0.022, 0.028, 0.025, 0.034, 0.031, 0.038, 0.036],
+                yAxisId: 'y1',
+            },
+        ]
+        return (
+            <Stage>
+                <LineChart series={series} labels={DAYS} config={BASIC} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
+export const TripleYAxis: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [
+            {
+                key: 'sessions',
+                label: 'Sessions',
+                color: '',
+                data: [70, 78, 72, 88, 75, 90, 80],
+                yAxisId: DEFAULT_Y_AXIS_ID,
+            },
+            {
+                key: 'pageviews',
+                label: 'Pageviews',
+                color: '',
+                data: [140, 168, 150, 184, 160, 178, 170],
+                yAxisId: 'y1',
+            },
+            {
+                key: 'events',
+                label: 'Events',
+                color: '',
+                data: [3500, 4200, 3600, 4500, 3800, 4100, 4000],
+                yAxisId: 'y2',
+            },
+        ]
+        return (
+            <Stage>
+                <LineChart series={series} labels={DAYS} config={BASIC} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
+/** Plain line with the trailing segment dashed via stroke.partial — the in-progress tail. */
+export const InProgressTail: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const data = [20, 35, 28, 60, 45, 70, 52]
+        const series: Series[] = [
+            {
+                key: 'visits',
+                label: 'Visits',
+                color: '',
+                data,
+                points: { radius: 3 },
+                stroke: { partial: { fromIndex: data.length - 2 } },
+            },
+        ]
+        return (
+            <Stage>
+                <LineChart series={series} labels={DAYS} config={BASIC} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
+/** Hovers over the same composition as `CombinedOverlays`. Verifies the tooltip excludes
+ *  the banded fill and the dashed trend overlay (both `tooltip: false`) while the
+ *  crosshair / highlight ring still fire on the main series. */
+export const HoveringOverAuxSeries: Story = {
+    parameters: { layout: 'fullscreen' },
+    render: () => {
+        const theme = useReactiveTheme()
+        const color = theme.colors[0]
+        const data = [20, 35, 28, 60, 45, 70, 52]
+        const [lower, upper] = ciRanges(data, 0.95)
+        const series: Series[] = [
+            { key: 'visits', label: 'Visits', color, data, points: { radius: 3 } },
+            {
+                key: 'visits__ci',
+                label: 'Visits (CI)',
+                color,
+                data: upper,
+                fill: { opacity: 0.2, lowerData: lower },
+                visibility: { tooltip: false, valueLabel: false },
+            },
+            {
+                key: 'visits__trend',
+                label: 'Visits (trend)',
+                color,
+                data: trendLine(data),
+                stroke: { pattern: [1, 3] },
+                overlay: true,
+                visibility: { tooltip: false, valueLabel: false },
+            },
+        ]
+        return (
+            // eslint-disable-next-line react/forbid-dom-props
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
+                <Stage width={560} height={320}>
+                    <LineChart series={series} labels={DAYS} config={HOVER} theme={theme}>
+                        <ReferenceLine value={50} label="Target" variant="goal" />
+                        <ValueLabels />
+                    </LineChart>
+                </Stage>
+            </div>
+        )
+    },
+    play: async ({ canvasElement }) => {
+        await playHoverAtFraction(canvasElement, 0.5)
+        const tooltip = document.querySelector('[data-hog-charts-tooltip]')
+        if (!tooltip) {
+            throw new Error('tooltip not rendered')
+        }
+        const text = tooltip.textContent ?? ''
+        if (!text.includes('Visits')) {
+            throw new Error(`expected main series in tooltip, got: ${text}`)
+        }
+        if (text.includes('(CI)') || text.includes('(trend)')) {
+            throw new Error(`aux series leaked into tooltip: ${text}`)
+        }
+    },
+}
+
+function ThrowOnRender(): never {
+    throw new Error('intentional render error for ChartErrorBoundary story')
+}
+
+export const ErrorBoundary: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <LineChart series={SINGLE} labels={DAYS} config={BASIC} theme={theme}>
+                    <ThrowOnRender />
+                </LineChart>
+            </Stage>
+        )
+    },
+}

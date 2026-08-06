@@ -5,11 +5,17 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework.test import APIClient
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import Team
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.rate_limit import HeatmapPreflightBurstRateThrottle
 
+from products.web_analytics.backend.heatmap_preflight import PreflightResult
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 
 
@@ -32,6 +38,196 @@ class TestHeatmapsAPI(APIBaseTest):
         self.assertEqual(saved.status, SavedHeatmap.Status.PROCESSING)
         self.assertEqual(saved.target_widths, [768, 1024])
         mock_task.assert_called_once_with(saved.id)
+
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay")
+    def test_create_defaults_consent_blocking_off(self, _mock_task):
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/",
+            {"url": "https://example.com"},
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertFalse(resp.data["block_consent_modals"])
+        saved = SavedHeatmap.objects.get(id=resp.data["id"])
+        self.assertFalse(saved.block_consent_modals)
+
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay")
+    def test_create_persists_consent_blocking_when_enabled(self, _mock_task):
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/",
+            {"url": "https://example.com", "block_consent_modals": True},
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertTrue(resp.data["block_consent_modals"])
+        saved = SavedHeatmap.objects.get(id=resp.data["id"])
+        self.assertTrue(saved.block_consent_modals)
+
+    @patch("products.web_analytics.backend.api.heatmaps_api.preflight_page")
+    def test_preflight_returns_the_verdict_for_the_requested_url(self, mock_preflight):
+        mock_preflight.return_value = PreflightResult(
+            framing="blocked",
+            blocked_by="frame_ancestors",
+            http_status=200,
+            body_excerpt=None,
+        )
+
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/preflight/",
+            {"url": "https://example.com/page"},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data["framing"], "blocked")
+        self.assertEqual(resp.data["blocked_by"], "frame_ancestors")
+        mock_preflight.assert_called_once_with("https://example.com/page")
+
+    def test_preflight_rejects_a_wildcard_url(self):
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/preflight/",
+            {"url": "https://example.com/*"},
+        )
+
+        self.assertEqual(resp.status_code, 400)
+
+    @patch("products.web_analytics.backend.api.heatmaps_api.preflight_page")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_preflight_budget_is_shared_across_personal_api_keys(self, _enabled, mock_preflight):
+        # Each probe holds a web worker for as long as the target takes to answer. The default
+        # cache key idents personal-API-key requests by key hash, so a user could mint keys to
+        # multiply that occupancy; the budget has to be one project-wide bucket.
+        mock_preflight.return_value = PreflightResult(
+            framing="allowed", blocked_by=None, http_status=200, body_excerpt=None
+        )
+        self.client.logout()
+
+        def post_with_a_fresh_key():
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                user=self.user, label="t", secure_value=hash_key_value(token), scopes=["heatmap:read"]
+            )
+            return self.client.post(
+                f"/api/projects/{self.team.id}/saved/preflight/",
+                {"url": "https://example.com/page"},
+                headers={"authorization": f"Bearer {token}"},
+            )
+
+        with patch.object(HeatmapPreflightBurstRateThrottle, "rate", "2/minute"):
+            self.assertEqual(post_with_a_fresh_key().status_code, 200)
+            self.assertEqual(post_with_a_fresh_key().status_code, 200)
+            throttled = post_with_a_fresh_key()
+
+        self.assertEqual(throttled.status_code, 429)
+
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay")
+    def test_prewarm_starts_single_width_render_hidden_from_list(self, mock_delay):
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/prewarm/",
+            {"url": "https://example.com"},
+        )
+        self.assertEqual(resp.status_code, 201)
+        saved = SavedHeatmap.objects.get(id=resp.data["id"])
+        self.assertTrue(saved.is_prewarm)
+        self.assertEqual(saved.status, SavedHeatmap.Status.PROCESSING)
+        self.assertEqual(saved.target_widths, [1024])
+        mock_delay.assert_called_once_with(saved.id)
+
+        # Speculative rows must never surface in the user's saved-heatmap list.
+        listed = self.client.get(f"/api/environments/{self.team.id}/saved/")
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(listed.data["count"], 0)
+
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay")
+    def test_prewarm_is_idempotent_within_window(self, mock_delay):
+        first = self.client.post(
+            f"/api/environments/{self.team.id}/saved/prewarm/",
+            {"url": "https://example.com"},
+        )
+        self.assertEqual(first.status_code, 201)
+        second = self.client.post(
+            f"/api/environments/{self.team.id}/saved/prewarm/",
+            {"url": "https://example.com"},
+        )
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.data["id"], first.data["id"])
+        mock_delay.assert_called_once()
+        self.assertEqual(SavedHeatmap.objects.filter(team=self.team, is_prewarm=True).count(), 1)
+
+    @patch("products.web_analytics.backend.api.heatmaps_api.generate_heatmap_screenshot")
+    def test_create_promotes_matching_prewarm_and_keeps_snapshots(self, mock_task):
+        prewarm_resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/prewarm/",
+            {"url": "https://example.com"},
+        )
+        self.assertEqual(prewarm_resp.status_code, 201)
+        prewarm_id = prewarm_resp.data["id"]
+        prewarm = SavedHeatmap.objects.get(id=prewarm_id)
+        # Simulate the preview render having completed while the user finished the wizard.
+        HeatmapSnapshot.objects.create(heatmap=prewarm, width=1024, content=b"preview")
+        SavedHeatmap.objects.filter(id=prewarm_id).update(status=SavedHeatmap.Status.COMPLETED)
+
+        create_resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/",
+            {"url": "https://example.com", "name": "My heatmap", "widths": [768, 1024]},
+        )
+        self.assertEqual(create_resp.status_code, 201)
+        # Promoted in place — the same row, not a fresh insert.
+        self.assertEqual(create_resp.data["id"], prewarm_id)
+
+        prewarm.refresh_from_db()
+        self.assertFalse(prewarm.is_prewarm)
+        self.assertEqual(prewarm.name, "My heatmap")
+        self.assertEqual(prewarm.target_widths, [768, 1024])
+        # The preview snapshot survives promotion (unlike regenerate, which clears snapshots).
+        self.assertTrue(HeatmapSnapshot.objects.filter(heatmap=prewarm, width=1024, content=b"preview").exists())
+        self.assertEqual(SavedHeatmap.objects.filter(team=self.team, is_prewarm=False).count(), 1)
+        # One render enqueued for the prewarm, one for the promoted create (which skips the done width).
+        self.assertEqual(mock_task.delay.call_count, 2)
+        mock_task.delay.assert_called_with(prewarm.id)
+
+    @patch("products.web_analytics.backend.api.heatmaps_api.generate_heatmap_screenshot")
+    def test_create_reuses_in_flight_prewarm_without_a_second_render(self, mock_task):
+        prewarm_resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/prewarm/",
+            {"url": "https://example.com"},
+        )
+        self.assertEqual(prewarm_resp.status_code, 201)
+        prewarm_id = prewarm_resp.data["id"]
+        # Prewarm render still in flight: status stays 'processing', no snapshot yet.
+
+        create_resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/",
+            {"url": "https://example.com", "name": "My heatmap"},
+        )
+        self.assertEqual(create_resp.status_code, 201)
+        # Promoted the in-flight row, not a fresh insert.
+        self.assertEqual(create_resp.data["id"], prewarm_id)
+
+        prewarm = SavedHeatmap.objects.get(id=prewarm_id)
+        self.assertFalse(prewarm.is_prewarm)
+        self.assertEqual(prewarm.name, "My heatmap")
+        # Only the prewarm's own render was enqueued — create must not start a second, racing render.
+        mock_task.delay.assert_called_once_with(prewarm.id)
+
+    @patch("products.web_analytics.backend.api.heatmaps_api.generate_heatmap_screenshot")
+    def test_partial_update_consent_toggle_triggers_regenerate(self, mock_task):
+        saved = SavedHeatmap.objects.create(
+            team=self.team,
+            url="https://example.com",
+            created_by=self.user,
+            status=SavedHeatmap.Status.COMPLETED,
+            type=SavedHeatmap.Type.SCREENSHOT,
+            block_consent_modals=False,
+        )
+        HeatmapSnapshot.objects.create(heatmap=saved, width=1024, content=b"old")
+
+        r = self.client.patch(
+            f"/api/environments/{self.team.id}/saved/{saved.short_id}/",
+            {"block_consent_modals": True},
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.data["block_consent_modals"])
+        self.assertEqual(r.data["status"], "processing")
+        mock_task.delay.assert_called_once_with(saved.id)
+        self.assertEqual(HeatmapSnapshot.objects.filter(heatmap=saved).count(), 0)
 
     def test_content_returns_202_until_snapshot_exists(self):
         saved = SavedHeatmap.objects.create(team=self.team, url="https://example.com", created_by=self.user)
@@ -67,6 +263,34 @@ class TestHeatmapsAPI(APIBaseTest):
         self.assertIn('768.jpg"', r["Content-Disposition"])
         self.assertEqual(r.content, b"jpeg768")
 
+    def test_content_returns_501_when_only_content_location_set(self):
+        saved = SavedHeatmap.objects.create(
+            team=self.team,
+            url="https://example.com",
+            created_by=self.user,
+            status=SavedHeatmap.Status.COMPLETED,
+        )
+        HeatmapSnapshot.objects.create(heatmap=saved, width=1024, content=None, content_location="s3://bucket/key")
+        r = self.client.get(f"/api/environments/{self.team.id}/heatmap_screenshots/{saved.id}/content/?width=1024")
+        self.assertEqual(r.status_code, 501)
+
+    def test_content_served_increments_metric(self):
+        saved = SavedHeatmap.objects.create(
+            team=self.team,
+            url="https://example.com",
+            created_by=self.user,
+            status=SavedHeatmap.Status.COMPLETED,
+        )
+        HeatmapSnapshot.objects.create(heatmap=saved, width=1024, content=b"jpegdata1024")
+
+        def _served_count() -> float:
+            return REGISTRY.get_sample_value("heatmap_screenshot_content_requests_total", {"outcome": "served"}) or 0.0
+
+        before = _served_count()
+        r = self.client.get(f"/api/environments/{self.team.id}/heatmap_screenshots/{saved.id}/content/?width=1024")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(_served_count() - before, 1)
+
     def test_saved_list_excludes_deleted_and_includes_created_by(self):
         SavedHeatmap.objects.create(team=self.team, url="https://a.example", created_by=self.user)
         SavedHeatmap.objects.create(team=self.team, url="https://b.example", created_by=self.user, deleted=True)
@@ -78,6 +302,20 @@ class TestHeatmapsAPI(APIBaseTest):
         # created_by present
         found = next(x for x in r.data["results"] if x["url"] == "https://a.example")
         self.assertEqual(found["created_by"]["id"], self.user.id)
+
+    @parameterized.expand(
+        [
+            ("non_integer_limit", {"limit": "abc"}, 400),
+            ("non_integer_offset", {"offset": "xyz"}, 400),
+            ("non_integer_created_by", {"created_by": "nope"}, 400),
+            ("valid_limit", {"limit": 5}, 200),
+            ("oversized_limit_does_not_500", {"limit": 100000000}, 200),
+        ]
+    )
+    def test_saved_list_validates_and_bounds_pagination(self, _name, query, expected_status):
+        SavedHeatmap.objects.create(team=self.team, url="https://a.example", created_by=self.user)
+        r = self.client.get(f"/api/environments/{self.team.id}/saved/", query)
+        assert r.status_code == expected_status
 
     def test_team_isolation_for_content(self):
         other_team = Team.objects.create_with_data(
@@ -185,3 +423,30 @@ class TestHeatmapsAPI(APIBaseTest):
 
         r = self.client.post(f"/api/environments/{self.team.id}/saved/{saved.short_id}/regenerate/")
         self.assertEqual(r.status_code, 400)
+
+
+class TestSavedHeatmapRegeneratePersonalAPIKeyScopes(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def _auth(self, value: str) -> dict:
+        return {"HTTP_AUTHORIZATION": f"Bearer {value}"}
+
+    def test_regenerate_allowed_with_heatmap_write_scope(self):
+        key = self.create_personal_api_key_with_scopes(["heatmap:write"])
+        # Use a non-existent short_id; a 404 proves the scope gate was passed.
+        url = f"/api/environments/{self.team.id}/saved/nonexistent-short-id/regenerate/"
+        r = self.client.post(url, **self._auth(key))
+        assert r.status_code != 403, r.json()
+
+    @parameterized.expand(
+        [
+            ("read_scope_cannot_satisfy_write", ["heatmap:read"]),
+            ("unrelated_scope", ["insight:read"]),
+            ("no_scopes", []),
+        ]
+    )
+    def test_regenerate_rejected_without_heatmap_write_scope(self, _name: str, scopes: list[str]):
+        key = self.create_personal_api_key_with_scopes(scopes)
+        url = f"/api/environments/{self.team.id}/saved/nonexistent-short-id/regenerate/"
+        r = self.client.post(url, **self._auth(key))
+        assert r.status_code == 403, r.json()

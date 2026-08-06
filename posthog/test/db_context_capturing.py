@@ -6,7 +6,7 @@ from django.test.utils import CaptureQueriesContext
 
 
 @contextmanager
-def capture_db_queries() -> Generator[CaptureQueriesContext, None, None]:
+def capture_db_queries() -> Generator[CaptureQueriesContext]:
     db_connection = connections[DEFAULT_DB_ALIAS]
     with CaptureQueriesContext(db_connection) as capture_query_context:
         yield capture_query_context

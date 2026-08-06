@@ -10,6 +10,8 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 
+import { copySharedInstructions } from '../global-setup'
+
 const MCP_DIR = resolve(__dirname, '..', '..')
 const UI_APPS_DIR = resolve(MCP_DIR, 'public', 'ui-apps')
 
@@ -21,6 +23,9 @@ function uiAppsAlreadyBuilt(): boolean {
 }
 
 export async function setup(): Promise<void> {
+    // Always run first: the dispatcher imports `@shared/guidelines.md`, which must be
+    // on disk regardless of whether the UI app bundles are already cached below.
+    copySharedInstructions()
     if (uiAppsAlreadyBuilt()) {
         return
     }

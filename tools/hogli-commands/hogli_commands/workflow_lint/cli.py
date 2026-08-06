@@ -44,7 +44,7 @@ def _default_workflows_dir() -> Path:
 
 @click.command(
     name="lint:workflows",
-    help="Lint .github/workflows/** for repo conventions (timeouts, concurrency, dorny negation, semgrep coverage)",
+    help="Lint .github/workflows/** for repo conventions",
 )
 @click.option(
     "--check",

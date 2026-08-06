@@ -3,20 +3,599 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 21 enabled ops
+ * PostHog API - MCP 36 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+export const ExperimentHoldoutsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ExperimentHoldoutsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const ExperimentHoldoutsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const experimentHoldoutsCreateBodyNameMax = 400
+
+export const experimentHoldoutsCreateBodyDescriptionMax = 400
+
+export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(experimentHoldoutsCreateBodyNameMax)
+            .describe('Human-readable name for the holdout group.'),
+        description: zod
+            .string()
+            .max(experimentHoldoutsCreateBodyDescriptionMax)
+            .nullish()
+            .describe('Optional description of what this holdout reserves and why.'),
+        filters: zod
+            .array(
+                zod.object({
+                    properties: zod
+                        .array(
+                            zod.union([
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    value: zod
+                                        .unknown()
+                                        .describe(
+                                            'Comparison value for the property filter. Supports strings, numbers, booleans, and arrays.'
+                                        ),
+                                    operator: zod
+                                        .enum([
+                                            'exact',
+                                            'is_not',
+                                            'icontains',
+                                            'not_icontains',
+                                            'starts_with',
+                                            'not_starts_with',
+                                            'ends_with',
+                                            'not_ends_with',
+                                            'regex',
+                                            'not_regex',
+                                            'gt',
+                                            'gte',
+                                            'lt',
+                                            'lte',
+                                        ])
+                                        .describe(
+                                            '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                        )
+                                        .describe(
+                                            'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                        ),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['is_set', 'is_not_set'])
+                                        .describe('\* `is_set` - is_set\n\* `is_not_set` - is_not_set')
+                                        .describe(
+                                            'Existence operator.\n\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                        ),
+                                    value: zod
+                                        .unknown()
+                                        .optional()
+                                        .describe(
+                                            'Optional value. Runtime behavior determines whether this is ignored.'
+                                        ),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
+                                        .describe(
+                                            '\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after'
+                                        )
+                                        .describe(
+                                            'Date comparison operator.\n\n\* `is_date_exact` - is_date_exact\n\* `is_date_after` - is_date_after\n\* `is_date_before` - is_date_before'
+                                        ),
+                                    value: zod
+                                        .string()
+                                        .describe('Date value in ISO format or relative date expression.'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum([
+                                            'semver_gt',
+                                            'semver_gte',
+                                            'semver_lt',
+                                            'semver_lte',
+                                            'semver_eq',
+                                            'semver_neq',
+                                            'semver_tilde',
+                                            'semver_caret',
+                                            'semver_wildcard',
+                                        ])
+                                        .describe(
+                                            '\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                        )
+                                        .describe(
+                                            'Semantic version comparison operator.\n\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                        ),
+                                    value: zod.string().describe('Semantic version string.'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['icontains_multi', 'not_icontains_multi'])
+                                        .describe(
+                                            '\* `icontains_multi` - icontains_multi\n\* `not_icontains_multi` - not_icontains_multi'
+                                        )
+                                        .describe(
+                                            'Multi-contains operator.\n\n\* `icontains_multi` - icontains_multi\n\* `not_icontains_multi` - not_icontains_multi'
+                                        ),
+                                    value: zod.array(zod.string()).describe('List of strings to evaluate against.'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort'])
+                                        .describe('\* `cohort` - cohort')
+                                        .describe(
+                                            'Cohort property type required for in\/not_in operators.\n\n\* `cohort` - cohort'
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['in', 'not_in'])
+                                        .describe('\* `in` - in\n\* `not_in` - not_in')
+                                        .describe(
+                                            'Membership operator for cohort properties.\n\n\* `in` - in\n\* `not_in` - not_in'
+                                        ),
+                                    value: zod
+                                        .unknown()
+                                        .describe('Cohort comparison value (single or list, depending on usage).'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['flag'])
+                                        .describe('\* `flag` - flag')
+                                        .describe(
+                                            'Flag property type required for flag dependency checks.\n\n\* `flag` - flag'
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['flag_evaluates_to'])
+                                        .describe('\* `flag_evaluates_to` - flag_evaluates_to')
+                                        .describe(
+                                            'Operator for feature flag dependency evaluation.\n\n\* `flag_evaluates_to` - flag_evaluates_to'
+                                        ),
+                                    value: zod.unknown().describe('Value to compare flag evaluation against.'),
+                                }),
+                            ])
+                        )
+                        .optional()
+                        .describe('Property conditions for this release condition group.'),
+                    rollout_percentage: zod
+                        .number()
+                        .optional()
+                        .describe('Rollout percentage for this release condition group.'),
+                    variant: zod.string().nullish().describe('Variant key override for multivariate flags.'),
+                    aggregation_group_type_index: zod
+                        .number()
+                        .nullish()
+                        .describe('Group type index for this condition set. None means person-level aggregation.'),
+                })
+            )
+            .optional()
+            .describe(
+                "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the \*\*exclusion\*\* percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person\/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout."
+            ),
+    })
+    .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
+
+export const ExperimentHoldoutsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment holdout.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ExperimentHoldoutsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment holdout.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const experimentHoldoutsPartialUpdateBodyNameMax = 400
+
+export const experimentHoldoutsPartialUpdateBodyDescriptionMax = 400
+
+export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(experimentHoldoutsPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Human-readable name for the holdout group.'),
+        description: zod
+            .string()
+            .max(experimentHoldoutsPartialUpdateBodyDescriptionMax)
+            .nullish()
+            .describe('Optional description of what this holdout reserves and why.'),
+        filters: zod
+            .array(
+                zod.object({
+                    properties: zod
+                        .array(
+                            zod.union([
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    value: zod
+                                        .unknown()
+                                        .describe(
+                                            'Comparison value for the property filter. Supports strings, numbers, booleans, and arrays.'
+                                        ),
+                                    operator: zod
+                                        .enum([
+                                            'exact',
+                                            'is_not',
+                                            'icontains',
+                                            'not_icontains',
+                                            'starts_with',
+                                            'not_starts_with',
+                                            'ends_with',
+                                            'not_ends_with',
+                                            'regex',
+                                            'not_regex',
+                                            'gt',
+                                            'gte',
+                                            'lt',
+                                            'lte',
+                                        ])
+                                        .describe(
+                                            '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                        )
+                                        .describe(
+                                            'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                        ),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['is_set', 'is_not_set'])
+                                        .describe('\* `is_set` - is_set\n\* `is_not_set` - is_not_set')
+                                        .describe(
+                                            'Existence operator.\n\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                        ),
+                                    value: zod
+                                        .unknown()
+                                        .optional()
+                                        .describe(
+                                            'Optional value. Runtime behavior determines whether this is ignored.'
+                                        ),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
+                                        .describe(
+                                            '\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after'
+                                        )
+                                        .describe(
+                                            'Date comparison operator.\n\n\* `is_date_exact` - is_date_exact\n\* `is_date_after` - is_date_after\n\* `is_date_before` - is_date_before'
+                                        ),
+                                    value: zod
+                                        .string()
+                                        .describe('Date value in ISO format or relative date expression.'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum([
+                                            'semver_gt',
+                                            'semver_gte',
+                                            'semver_lt',
+                                            'semver_lte',
+                                            'semver_eq',
+                                            'semver_neq',
+                                            'semver_tilde',
+                                            'semver_caret',
+                                            'semver_wildcard',
+                                        ])
+                                        .describe(
+                                            '\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                        )
+                                        .describe(
+                                            'Semantic version comparison operator.\n\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                        ),
+                                    value: zod.string().describe('Semantic version string.'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['icontains_multi', 'not_icontains_multi'])
+                                        .describe(
+                                            '\* `icontains_multi` - icontains_multi\n\* `not_icontains_multi` - not_icontains_multi'
+                                        )
+                                        .describe(
+                                            'Multi-contains operator.\n\n\* `icontains_multi` - icontains_multi\n\* `not_icontains_multi` - not_icontains_multi'
+                                        ),
+                                    value: zod.array(zod.string()).describe('List of strings to evaluate against.'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort'])
+                                        .describe('\* `cohort` - cohort')
+                                        .describe(
+                                            'Cohort property type required for in\/not_in operators.\n\n\* `cohort` - cohort'
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['in', 'not_in'])
+                                        .describe('\* `in` - in\n\* `not_in` - not_in')
+                                        .describe(
+                                            'Membership operator for cohort properties.\n\n\* `in` - in\n\* `not_in` - not_in'
+                                        ),
+                                    value: zod
+                                        .unknown()
+                                        .describe('Cohort comparison value (single or list, depending on usage).'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['flag'])
+                                        .describe('\* `flag` - flag')
+                                        .describe(
+                                            'Flag property type required for flag dependency checks.\n\n\* `flag` - flag'
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['flag_evaluates_to'])
+                                        .describe('\* `flag_evaluates_to` - flag_evaluates_to')
+                                        .describe(
+                                            'Operator for feature flag dependency evaluation.\n\n\* `flag_evaluates_to` - flag_evaluates_to'
+                                        ),
+                                    value: zod.unknown().describe('Value to compare flag evaluation against.'),
+                                }),
+                            ])
+                        )
+                        .optional()
+                        .describe('Property conditions for this release condition group.'),
+                    rollout_percentage: zod
+                        .number()
+                        .optional()
+                        .describe('Rollout percentage for this release condition group.'),
+                    variant: zod.string().nullish().describe('Variant key override for multivariate flags.'),
+                    aggregation_group_type_index: zod
+                        .number()
+                        .nullish()
+                        .describe('Group type index for this condition set. None means person-level aggregation.'),
+                })
+            )
+            .optional()
+            .describe(
+                "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the \*\*exclusion\*\* percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person\/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout."
+            ),
+    })
+    .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
+
+export const ExperimentHoldoutsDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment holdout.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
 export const ExperimentSavedMetricsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const ExperimentSavedMetricsListQueryParams = /* @__PURE__ */ zod.object({
+    event: zod
+        .string()
+        .optional()
+        .describe(
+            "Filter to shared metrics whose query references this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference. Use this for reuse discovery (find a metric by what it measures); distinct from 'search', which matches the metric's own name\/description\/tags."
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('A search term.'),
@@ -26,7 +605,7 @@ export const ExperimentSavedMetricsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -59,7 +638,7 @@ export const ExperimentSavedMetricsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -68,7 +647,7 @@ export const ExperimentSavedMetricsPartialUpdateParams = /* @__PURE__ */ zod.obj
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -103,7 +682,7 @@ export const ExperimentSavedMetricsDestroyParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -114,13 +693,24 @@ export const ExperimentsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const ExperimentsListQueryParams = /* @__PURE__ */ zod.object({
     archived: zod.boolean().optional().describe('Filter by archived state. Defaults to non-archived experiments only.'),
-    created_by_id: zod.number().optional().describe('Filter to experiments created by the given user ID.'),
+    created_by_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter to experiments created by the given user(s). Accepts a single user ID, or a JSON-encoded \/ comma-separated list of user IDs to match any of them.'
+        ),
+    event: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter to experiments whose metrics reference this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference.'
+        ),
     feature_flag_id: zod.number().optional().describe('Filter to experiments linked to the given feature flag ID.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -138,10 +728,10 @@ export const ExperimentsListQueryParams = /* @__PURE__ */ zod.object({
         ),
     search: zod.string().optional().describe('Free-text search applied to the experiment name (case-insensitive).'),
     status: zod
-        .enum(['all', 'complete', 'draft', 'paused', 'running', 'stopped'])
+        .enum(['all', 'complete', 'draft', 'exposure_frozen', 'paused', 'running', 'stopped'])
         .optional()
         .describe(
-            'Filter by experiment status. "running" and "paused" are mutually exclusive: "running" returns launched experiments with an active feature flag, "paused" returns launched experiments whose feature flag is deactivated. "complete" is an alias for "stopped". "all" disables status filtering.'
+            'Filter by experiment status. \"running\", \"paused\", and \"exposure_frozen\" are mutually exclusive: \"running\" returns launched experiments with an active feature flag, \"paused\" returns launched experiments whose feature flag is deactivated, and \"exposure_frozen\" returns launched experiments whose exposure was frozen to the already-enrolled cohort while metrics keep flowing. \"complete\" is an alias for \"stopped\". \"all\" disables status filtering.'
         ),
 })
 
@@ -152,7 +742,7 @@ export const ExperimentsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -160,242 +750,107 @@ export const experimentsCreateBodyNameMax = 400
 
 export const experimentsCreateBodyDescriptionMax = 3000
 
-export const experimentsCreateBodyParametersOneExcludedVariantsDefault = null
-export const experimentsCreateBodyParametersOneFeatureFlagVariantsOneItemNameDefault = null
-export const experimentsCreateBodyParametersOneFeatureFlagVariantsOneItemRolloutPercentageDefault = null
-export const experimentsCreateBodyParametersOneFeatureFlagVariantsOneItemSplitPercentDefault = null
-export const experimentsCreateBodyParametersOneFeatureFlagVariantsDefault = null
-export const experimentsCreateBodyParametersOneMinimumDetectableEffectDefault = null
-export const experimentsCreateBodyParametersOneRolloutPercentageDefault = null
+export const experimentsCreateBodyFeatureFlagOneFiltersOneGroupsItemRolloutPercentageMin = 0
+export const experimentsCreateBodyFeatureFlagOneFiltersOneGroupsItemRolloutPercentageMax = 100
+
+export const experimentsCreateBodyFeatureFlagOneFiltersOneGroupsItemPropertiesMax = 0
+
+export const experimentsCreateBodyFeatureFlagOneFiltersOneMultivariateOneVariantsItemRolloutPercentageMin = 0
+export const experimentsCreateBodyFeatureFlagOneFiltersOneMultivariateOneVariantsItemRolloutPercentageMax = 100
+
 export const experimentsCreateBodyArchivedDefault = false
-export const experimentsCreateBodyExposureCriteriaOneExposureConfigOneKindDefault = `ExperimentEventExposureConfig`
-export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemLabelDefault = null
-export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault = `exact`
-export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault = `event`
-export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemValueDefault = null
-export const experimentsCreateBodyExposureCriteriaOneExposureConfigDefault = null
-export const experimentsCreateBodyExposureCriteriaOneFilterTestAccountsDefault = null
-export const experimentsCreateBodyMetricsOneItemCompletionEventOneEventDefault = null
-export const experimentsCreateBodyMetricsOneItemCompletionEventOneIdDefault = null
-export const experimentsCreateBodyMetricsOneItemCompletionEventOneMathDefault = null
-export const experimentsCreateBodyMetricsOneItemCompletionEventOneMathGroupTypeIndexDefault = null
-export const experimentsCreateBodyMetricsOneItemCompletionEventOneMathHogqlDefault = null
-export const experimentsCreateBodyMetricsOneItemCompletionEventOneMathPropertyDefault = null
-export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemLabelDefault = null
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneOperatorDefault = `exact`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneTypeDefault = `event`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwoTypeDefault = `person`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemThreeTypeDefault = `person_metadata`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemFourTypeDefault = `element`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemFiveTypeDefault = `event_metadata`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSixTypeDefault = `session`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSevenKeyDefault = `id`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSevenOperatorDefault = `in`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSevenTypeDefault = `cohort`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemEightTypeDefault = `recording`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemNineTypeDefault = `log_entry`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnezeroTypeDefault = `group`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneoneTypeDefault = `feature`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnetwoOperatorDefault = `flag_evaluates_to`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnetwoTypeDefault = `flag`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnethreeTypeDefault = `hogql`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnefourTypeDefault = `empty`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnefiveTypeDefault = `data_warehouse`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesixTypeDefault = `data_warehouse_person_property`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesevenTypeDefault = `error_tracking_issue`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault = `metric_attribute`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault = `revenue_analytics`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault = `account_custom_property`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwothreeTypeDefault = `workflow_variable`
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
-export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemValueDefault = null
-export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesDefault = null
-export const experimentsCreateBodyMetricsOneItemCompletionEventDefault = null
-export const experimentsCreateBodyMetricsOneItemConversionWindowDefault = null
-export const experimentsCreateBodyMetricsOneItemDenominatorOneEventDefault = null
-export const experimentsCreateBodyMetricsOneItemDenominatorOneIdDefault = null
-export const experimentsCreateBodyMetricsOneItemDenominatorOneMathDefault = null
-export const experimentsCreateBodyMetricsOneItemDenominatorOneMathGroupTypeIndexDefault = null
-export const experimentsCreateBodyMetricsOneItemDenominatorOneMathHogqlDefault = null
-export const experimentsCreateBodyMetricsOneItemDenominatorOneMathPropertyDefault = null
-export const experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemLabelDefault = null
 export const experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemTypeDefault = `event`
-export const experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemValueDefault = null
-export const experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesDefault = null
-export const experimentsCreateBodyMetricsOneItemDenominatorDefault = null
-export const experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneIgnoreZerosDefault = null
 export const experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
-export const experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileDefault = null
 export const experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
-export const experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileDefault = null
-export const experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingDefault = null
-export const experimentsCreateBodyMetricsOneItemGoalDefault = null
-export const experimentsCreateBodyMetricsOneItemIgnoreZerosDefault = null
 export const experimentsCreateBodyMetricsOneItemKindDefault = `ExperimentMetric`
 export const experimentsCreateBodyMetricsOneItemLowerBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsOneItemLowerBoundPercentileOneMax = 1
 
-export const experimentsCreateBodyMetricsOneItemLowerBoundPercentileDefault = null
-export const experimentsCreateBodyMetricsOneItemNameDefault = null
-export const experimentsCreateBodyMetricsOneItemNumeratorOneEventDefault = null
-export const experimentsCreateBodyMetricsOneItemNumeratorOneIdDefault = null
-export const experimentsCreateBodyMetricsOneItemNumeratorOneMathDefault = null
-export const experimentsCreateBodyMetricsOneItemNumeratorOneMathGroupTypeIndexDefault = null
-export const experimentsCreateBodyMetricsOneItemNumeratorOneMathHogqlDefault = null
-export const experimentsCreateBodyMetricsOneItemNumeratorOneMathPropertyDefault = null
-export const experimentsCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemLabelDefault = null
 export const experimentsCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemTypeDefault = `event`
-export const experimentsCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemValueDefault = null
-export const experimentsCreateBodyMetricsOneItemNumeratorOnePropertiesDefault = null
-export const experimentsCreateBodyMetricsOneItemNumeratorDefault = null
-export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneIgnoreZerosDefault = null
 export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
-export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileDefault = null
 export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
-export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileDefault = null
-export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingDefault = null
-export const experimentsCreateBodyMetricsOneItemRetentionWindowEndDefault = null
-export const experimentsCreateBodyMetricsOneItemRetentionWindowStartDefault = null
-export const experimentsCreateBodyMetricsOneItemRetentionWindowUnitDefault = null
-export const experimentsCreateBodyMetricsOneItemSeriesOneItemEventDefault = null
-export const experimentsCreateBodyMetricsOneItemSeriesOneItemIdDefault = null
-export const experimentsCreateBodyMetricsOneItemSeriesOneItemMathDefault = null
-export const experimentsCreateBodyMetricsOneItemSeriesOneItemMathGroupTypeIndexDefault = null
-export const experimentsCreateBodyMetricsOneItemSeriesOneItemMathHogqlDefault = null
-export const experimentsCreateBodyMetricsOneItemSeriesOneItemMathPropertyDefault = null
-export const experimentsCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemLabelDefault = null
 export const experimentsCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemTypeDefault = `event`
-export const experimentsCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemValueDefault = null
-export const experimentsCreateBodyMetricsOneItemSeriesOneItemPropertiesDefault = null
-export const experimentsCreateBodyMetricsOneItemSeriesDefault = null
-export const experimentsCreateBodyMetricsOneItemSourceOneEventDefault = null
-export const experimentsCreateBodyMetricsOneItemSourceOneIdDefault = null
-export const experimentsCreateBodyMetricsOneItemSourceOneMathDefault = null
-export const experimentsCreateBodyMetricsOneItemSourceOneMathGroupTypeIndexDefault = null
-export const experimentsCreateBodyMetricsOneItemSourceOneMathHogqlDefault = null
-export const experimentsCreateBodyMetricsOneItemSourceOneMathPropertyDefault = null
-export const experimentsCreateBodyMetricsOneItemSourceOnePropertiesOneItemLabelDefault = null
 export const experimentsCreateBodyMetricsOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemSourceOnePropertiesOneItemTypeDefault = `event`
-export const experimentsCreateBodyMetricsOneItemSourceOnePropertiesOneItemValueDefault = null
-export const experimentsCreateBodyMetricsOneItemSourceOnePropertiesDefault = null
-export const experimentsCreateBodyMetricsOneItemSourceDefault = null
-export const experimentsCreateBodyMetricsOneItemStartEventOneEventDefault = null
-export const experimentsCreateBodyMetricsOneItemStartEventOneIdDefault = null
-export const experimentsCreateBodyMetricsOneItemStartEventOneMathDefault = null
-export const experimentsCreateBodyMetricsOneItemStartEventOneMathGroupTypeIndexDefault = null
-export const experimentsCreateBodyMetricsOneItemStartEventOneMathHogqlDefault = null
-export const experimentsCreateBodyMetricsOneItemStartEventOneMathPropertyDefault = null
-export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemLabelDefault = null
 export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
-export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemValueDefault = null
-export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesDefault = null
-export const experimentsCreateBodyMetricsOneItemStartEventDefault = null
-export const experimentsCreateBodyMetricsOneItemStartHandlingDefault = null
 export const experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
 
-export const experimentsCreateBodyMetricsOneItemUpperBoundPercentileDefault = null
-export const experimentsCreateBodyMetricsOneItemUuidDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOneEventDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOneIdDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOneMathDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOneMathGroupTypeIndexDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOneMathHogqlDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOneMathPropertyDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemLabelDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
-export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemValueDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemConversionWindowDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOneEventDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOneIdDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOneMathDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOneMathGroupTypeIndexDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOneMathHogqlDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOneMathPropertyDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemLabelDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemTypeDefault = `event`
-export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemValueDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneIgnoreZerosDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
-export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
-export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemGoalDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemIgnoreZerosDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemKindDefault = `ExperimentMetric`
 export const experimentsCreateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMax = 1
 
-export const experimentsCreateBodyMetricsSecondaryOneItemLowerBoundPercentileDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemNameDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOneEventDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOneIdDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOneMathDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOneMathGroupTypeIndexDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOneMathHogqlDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOneMathPropertyDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemLabelDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemTypeDefault = `event`
-export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemValueDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneIgnoreZerosDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
-export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
-export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemRetentionWindowEndDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemRetentionWindowStartDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemRetentionWindowUnitDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemEventDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemIdDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemMathDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemMathGroupTypeIndexDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemMathHogqlDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemMathPropertyDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemLabelDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemTypeDefault = `event`
-export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemValueDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemSeriesDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemSourceOneEventDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemSourceOneIdDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemSourceOneMathDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemSourceOneMathGroupTypeIndexDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemSourceOneMathHogqlDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemSourceOneMathPropertyDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemLabelDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemTypeDefault = `event`
-export const experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemValueDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemSourceDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOneEventDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOneIdDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOneMathDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOneMathGroupTypeIndexDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOneMathHogqlDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOneMathPropertyDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemLabelDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
-export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemValueDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemStartEventDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemStartHandlingDefault = null
 export const experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
-export const experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileDefault = null
-export const experimentsCreateBodyMetricsSecondaryOneItemUuidDefault = null
 export const experimentsCreateBodyAllowUnknownEventsDefault = false
+export const experimentsCreateBodyConclusionCommentMax = 4000
+
+export const experimentsCreateBodyRepositoryMax = 255
+
 export const experimentsCreateBodyUpdateFeatureFlagParamsDefault = false
 
 export const ExperimentsCreateBody = /* @__PURE__ */ zod
@@ -411,72 +866,197 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
         feature_flag_key: zod
             .string()
             .describe(
-                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible."
+                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible."
+            ),
+        feature_flag: zod
+            .object({
+                filters: zod
+                    .object({
+                        groups: zod
+                            .array(
+                                zod
+                                    .object({
+                                        rollout_percentage: zod
+                                            .number()
+                                            .min(
+                                                experimentsCreateBodyFeatureFlagOneFiltersOneGroupsItemRolloutPercentageMin
+                                            )
+                                            .max(
+                                                experimentsCreateBodyFeatureFlagOneFiltersOneGroupsItemRolloutPercentageMax
+                                            )
+                                            .nullish()
+                                            .describe('Percentage of users who enter the experiment (0-100).'),
+                                        properties: zod
+                                            .array(zod.unknown())
+                                            .max(experimentsCreateBodyFeatureFlagOneFiltersOneGroupsItemPropertiesMax)
+                                            .optional()
+                                            .describe(
+                                                'Must be empty or omitted: release-condition properties are not supported via the experiment input. Edit the feature flag directly for targeting.'
+                                            ),
+                                    })
+                                    .describe(
+                                        'A single release-condition group carrying only the overall rollout percentage, the one\ngroups entry the experiment input applies.'
+                                    )
+                            )
+                            .optional()
+                            .describe(
+                                'Overall rollout as a single group: [{\"properties\": [], \"rollout_percentage\": N}].'
+                            ),
+                        multivariate: zod
+                            .union([
+                                zod
+                                    .object({
+                                        variants: zod
+                                            .array(
+                                                zod
+                                                    .object({
+                                                        key: zod
+                                                            .string()
+                                                            .describe(
+                                                                "Unique variant key. The baseline defaults to the variant keyed 'control' when present, else the first variant."
+                                                            ),
+                                                        name: zod
+                                                            .string()
+                                                            .optional()
+                                                            .describe('Human-readable variant name.'),
+                                                        rollout_percentage: zod
+                                                            .number()
+                                                            .min(
+                                                                experimentsCreateBodyFeatureFlagOneFiltersOneMultivariateOneVariantsItemRolloutPercentageMin
+                                                            )
+                                                            .max(
+                                                                experimentsCreateBodyFeatureFlagOneFiltersOneMultivariateOneVariantsItemRolloutPercentageMax
+                                                            )
+                                                            .describe(
+                                                                'Variant rollout percentage (0-100). Across variants these must sum to 100.'
+                                                            ),
+                                                    })
+                                                    .describe(
+                                                        'A single multivariate variant. Extra per-variant keys are dropped.'
+                                                    )
+                                            )
+                                            .describe(
+                                                "Variant definitions (2 to 20). The baseline defaults to the variant keyed 'control' when present, else the first variant."
+                                            ),
+                                    })
+                                    .describe("Multivariate config for the experiment's feature flag."),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Multivariate variant configuration.'),
+                        aggregation_group_type_index: zod
+                            .number()
+                            .nullish()
+                            .describe('Group type index for group-based feature flags.'),
+                        payloads: zod
+                            .record(zod.string(), zod.string())
+                            .optional()
+                            .describe('Optional payload values keyed by variant key.'),
+                    })
+                    .describe(
+                        "Feature-flag filters accepted by the experiment endpoints: the flag's own filters shape,\nminus the keys experiments don't apply."
+                    )
+                    .optional()
+                    .describe(
+                        "Flag config to apply: `multivariate.variants` (2 to 20 variants; the baseline defaults to the variant keyed 'control' when present, else the first variant), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state."
+                    ),
+                ensure_experience_continuity: zod
+                    .boolean()
+                    .nullish()
+                    .describe('Whether the flag persists variant assignment across authentication steps.'),
+            })
+            .describe(
+                "Flag config for experiment create\/update, sent through the linked feature flag's own shape.\n\nValidated both as the OpenAPI request field (via ``ExperimentWriteSerializer``) and at runtime\n(``ExperimentSerializer._normalize_feature_flag_input`` runs it against the raw feature_flag\nobject). Echoed read-only flag objects (carrying a non-null id) are handled upstream and never\nreach this validation."
+            )
+            .optional()
+            .describe(
+                "Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity: send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is)."
             ),
         holdout_id: zod.number().nullish().describe('ID of a holdout group to exclude from the experiment.'),
         parameters: zod
             .union([
                 zod.object({
-                    excluded_variants: zod
-                        .union([zod.array(zod.string()), zod.null()])
-                        .default(experimentsCreateBodyParametersOneExcludedVariantsDefault)
-                        .describe(
-                            'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis.'
-                        ),
-                    feature_flag_variants: zod
-                        .union([
-                            zod.array(
-                                zod.object({
-                                    key: zod
-                                        .string()
-                                        .describe(
-                                            "Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'."
-                                        ),
-                                    name: zod
-                                        .union([zod.string(), zod.null()])
-                                        .default(
-                                            experimentsCreateBodyParametersOneFeatureFlagVariantsOneItemNameDefault
-                                        )
-                                        .describe('Human-readable variant name.'),
-                                    rollout_percentage: zod
-                                        .union([zod.number(), zod.null()])
-                                        .default(
-                                            experimentsCreateBodyParametersOneFeatureFlagVariantsOneItemRolloutPercentageDefault
-                                        ),
-                                    split_percent: zod
-                                        .union([zod.number(), zod.null()])
-                                        .default(
-                                            experimentsCreateBodyParametersOneFeatureFlagVariantsOneItemSplitPercentDefault
-                                        )
-                                        .describe(
-                                            'Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided.'
-                                        ),
-                                })
-                            ),
-                            zod.null(),
-                        ])
-                        .default(experimentsCreateBodyParametersOneFeatureFlagVariantsDefault)
-                        .describe(
-                            "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20."
-                        ),
                     minimum_detectable_effect: zod
                         .union([zod.number(), zod.null()])
-                        .default(experimentsCreateBodyParametersOneMinimumDetectableEffectDefault)
+                        .optional()
                         .describe(
                             'Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments.'
                         ),
-                    rollout_percentage: zod
-                        .union([zod.number(), zod.null()])
-                        .default(experimentsCreateBodyParametersOneRolloutPercentageDefault)
+                    variant_notes: zod
+                        .union([zod.record(zod.string(), zod.string()), zod.null()])
+                        .optional()
                         .describe(
-                            'Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.'
+                            'Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL.'
                         ),
                 }),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded).'
+                "Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config (variants, rollout, aggregation, payloads, experience continuity) belongs on the `feature_flag` object; send it there. For backward compatibility, config still sent through these deprecated keys is copied onto the linked flag rather than rejected, and reads project the flag's current config back into this field. Excluded variants live on the top-level `excluded_variants` field, not here."
+            ),
+        running_time_calculation: zod
+            .union([
+                zod.object({
+                    exposure_estimate_config: zod
+                        .union([
+                            zod.object({
+                                conversionRateInputType: zod
+                                    .enum(['manual', 'automatic'])
+                                    .describe(
+                                        "'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data."
+                                    ),
+                                manualBaselineValue: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode.'
+                                    ),
+                                manualExposureRate: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Manually entered estimate of users exposed to the experiment per day. Only used in manual mode.'
+                                    ),
+                                manualMetricType: zod
+                                    .union([zod.enum(['funnel', 'mean_count', 'mean_sum_or_avg']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Metric type the manual baseline value refers to. Only used in manual mode.'
+                                    ),
+                            }),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            'How the exposure estimate is configured: manual user-entered values or automatic from live experiment data.'
+                        ),
+                    minimum_detectable_effect: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes.'
+                        ),
+                    recommended_running_time: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe('Estimated number of days needed to reach the recommended sample size.'),
+                    recommended_sample_size: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe('Recommended number of exposed users needed for statistical significance.'),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`.'
+            ),
+        excluded_variants: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`.'
             ),
         secondary_metrics: zod.unknown().optional(),
         saved_metrics_ids: zod
@@ -492,10 +1072,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             .describe('Whether the experiment is archived.'),
         deleted: zod.boolean().nullish(),
         type: zod
-            .union([zod.enum(['web', 'product']).describe('* `web` - web\n* `product` - product'), zod.null()])
+            .union([zod.enum(['web', 'product']).describe('\* `web` - web\n\* `product` - product'), zod.null()])
             .optional()
             .describe(
-                'Experiment type: web for frontend UI changes, product for backend/API changes.\n\n* `web` - web\n* `product` - product'
+                'Experiment type: web for frontend UI changes, product for backend\/API changes.\n\n\* `web` - web\n\* `product` - product'
             ),
         exposure_criteria: zod
             .union([
@@ -503,89 +1083,1306 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                     exposure_config: zod
                         .union([
                             zod.object({
-                                event: zod.string().describe('Custom exposure event name.'),
+                                event: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."
+                                    ),
+                                id: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe("Action ID. Required when kind is 'ActionsNode'."),
                                 kind: zod
-                                    .literal('ExperimentEventExposureConfig')
-                                    .default(experimentsCreateBodyExposureCriteriaOneExposureConfigOneKindDefault),
+                                    .union([zod.enum(['ExperimentEventExposureConfig', 'ActionsNode']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
+                                    ),
                                 properties: zod
                                     .array(
-                                        zod.object({
-                                            key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemLabelDefault
-                                                ),
-                                            operator: zod
-                                                .union([
-                                                    zod.enum([
-                                                        'exact',
-                                                        'is_not',
-                                                        'icontains',
-                                                        'not_icontains',
-                                                        'regex',
-                                                        'not_regex',
-                                                        'gt',
-                                                        'gte',
-                                                        'lt',
-                                                        'lte',
-                                                        'is_set',
-                                                        'is_not_set',
-                                                        'is_date_exact',
-                                                        'is_date_before',
-                                                        'is_date_after',
-                                                        'between',
-                                                        'not_between',
-                                                        'min',
-                                                        'max',
-                                                        'in',
-                                                        'not_in',
-                                                        'is_cleaned_path_exact',
-                                                        'flag_evaluates_to',
-                                                        'semver_eq',
-                                                        'semver_neq',
-                                                        'semver_gt',
-                                                        'semver_gte',
-                                                        'semver_lt',
-                                                        'semver_lte',
-                                                        'semver_tilde',
-                                                        'semver_caret',
-                                                        'semver_wildcard',
-                                                        'icontains_multi',
-                                                        'not_icontains_multi',
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .default(
-                                                    experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault
-                                                ),
-                                            type: zod
-                                                .literal('event')
-                                                .default(
-                                                    experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault
-                                                )
-                                                .describe('Event properties'),
-                                            value: zod
-                                                .union([
-                                                    zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                        zod.union([
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneOperatorDefault
+                                                    ),
+                                                type: zod
+                                                    .literal('event')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneTypeDefault
+                                                    )
+                                                    .describe('Event properties'),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('person')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwoTypeDefault
+                                                    )
+                                                    .describe('Person properties'),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('person_metadata')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemThreeTypeDefault
+                                                    )
+                                                    .describe(
+                                                        'Top-level columns on the persons table (e.g. created_at), not properties JSON'
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.enum(['tag_name', 'text', 'href', 'selector']),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('element')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemFourTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('event_metadata')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemFiveTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('session')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSixTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                cohort_name: zod.union([zod.string(), zod.null()]).optional(),
+                                                key: zod
+                                                    .literal('id')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSevenKeyDefault
+                                                    ),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSevenOperatorDefault
+                                                    ),
+                                                type: zod
+                                                    .literal('cohort')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSevenTypeDefault
+                                                    ),
+                                                value: zod.number(),
+                                            }),
+                                            zod.object({
+                                                key: zod.union([
+                                                    zod.enum(['duration', 'active_seconds', 'inactive_seconds']),
                                                     zod.string(),
-                                                    zod.number(),
-                                                    zod.boolean(),
-                                                    zod.null(),
-                                                ])
-                                                .default(
-                                                    experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemValueDefault
-                                                ),
-                                        })
+                                                ]),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('recording')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemEightTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('log_entry')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemNineTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                group_key_names: zod
+                                                    .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                    .optional(),
+                                                group_type_index: zod.union([zod.number(), zod.null()]).optional(),
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('group')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnezeroTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('feature')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneoneTypeDefault
+                                                    )
+                                                    .describe('Event property with \"$feature\/\" prepended'),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string().describe('The key should be the flag ID'),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod
+                                                    .literal('flag_evaluates_to')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnetwoOperatorDefault
+                                                    )
+                                                    .describe(
+                                                        'Only flag_evaluates_to operator is allowed for flag dependencies'
+                                                    ),
+                                                type: zod
+                                                    .literal('flag')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnetwoTypeDefault
+                                                    )
+                                                    .describe('Feature flag dependency'),
+                                                value: zod
+                                                    .union([zod.boolean(), zod.string()])
+                                                    .describe('The value can be true, false, or a variant name'),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                type: zod
+                                                    .literal('hogql')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnethreeTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                type: zod
+                                                    .literal('empty')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnefourTypeDefault
+                                                    ),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('data_warehouse')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnefiveTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('data_warehouse_person_property')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesixTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('error_tracking_issue')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesevenTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod.enum(['log', 'log_attribute', 'log_resource_attribute']),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('metric_attribute')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod.enum(['span', 'span_attribute', 'span_resource_attribute']),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('revenue_analytics')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('account_custom_property')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault
+                                                    )
+                                                    .describe(
+                                                        'Customer analytics account custom property — the key is the property definition id'
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('workflow_variable')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwothreeTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                        ])
                                     )
-                                    .describe('Event property filters. Pass an empty array if no filters needed.'),
+                                    .describe(
+                                        'Property filters (event, person, and other supported types). Pass an empty array if no filters needed.'
+                                    ),
                             }),
                             zod.null(),
                         ])
-                        .default(experimentsCreateBodyExposureCriteriaOneExposureConfigDefault),
-                    filterTestAccounts: zod
-                        .union([zod.boolean(), zod.null()])
-                        .default(experimentsCreateBodyExposureCriteriaOneFilterTestAccountsDefault),
+                        .optional(),
+                    filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
+                    multiple_variant_handling: zod
+                        .union([zod.enum(['exclude', 'first_seen']), zod.null()])
+                        .optional()
+                        .describe(
+                            "How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure."
+                        ),
                 }),
                 zod.null(),
             ])
@@ -601,11 +2398,11 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(experimentsCreateBodyMetricsOneItemCompletionEventOneEventDefault)
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(experimentsCreateBodyMetricsOneItemCompletionEventOneIdDefault)
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -623,7 +2420,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(experimentsCreateBodyMetricsOneItemCompletionEventOneMathDefault)
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -638,25 +2435,19 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsOneItemCompletionEventOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsCreateBodyMetricsOneItemCompletionEventOneMathHogqlDefault
-                                            )
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsCreateBodyMetricsOneItemCompletionEventOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -665,11 +2456,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -677,6 +2464,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -733,36 +2524,32 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesDefault
-                                            )
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsCreateBodyMetricsOneItemCompletionEventDefault)
+                                .optional()
                                 .describe('For retention metrics: completion event.'),
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
-                                .default(experimentsCreateBodyMetricsOneItemConversionWindowDefault)
+                                .optional()
                                 .describe('Conversion window duration.'),
                             denominator: zod
                                 .union([
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(experimentsCreateBodyMetricsOneItemDenominatorOneEventDefault)
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(experimentsCreateBodyMetricsOneItemDenominatorOneIdDefault)
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -780,7 +2567,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(experimentsCreateBodyMetricsOneItemDenominatorOneMathDefault)
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -795,23 +2582,19 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsOneItemDenominatorOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(experimentsCreateBodyMetricsOneItemDenominatorOneMathHogqlDefault)
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsCreateBodyMetricsOneItemDenominatorOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -820,11 +2603,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -832,6 +2611,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -888,28 +2671,22 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesDefault)
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsCreateBodyMetricsOneItemDenominatorDefault)
+                                .optional()
                                 .describe('For ratio metrics: denominator source.'),
                             denominator_outlier_handling: zod
                                 .union([
                                     zod.object({
-                                        ignore_zeros: zod
-                                            .union([zod.boolean(), zod.null()])
-                                            .default(
-                                                experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneIgnoreZerosDefault
-                                            ),
+                                        ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
                                         lower_bound_percentile: zod
                                             .union([
                                                 zod
@@ -922,9 +2699,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
                                             ),
@@ -940,26 +2715,24 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
                                             ),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingDefault)
+                                .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
-                                .default(experimentsCreateBodyMetricsOneItemGoalDefault)
+                                .optional()
                                 .describe('Whether higher or lower values indicate success.'),
                             ignore_zeros: zod
                                 .union([zod.boolean(), zod.null()])
-                                .default(experimentsCreateBodyMetricsOneItemIgnoreZerosDefault)
+                                .optional()
                                 .describe(
                                     'For mean metrics: exclude zero values when computing the winsorization percentile thresholds.'
                                 ),
@@ -974,25 +2747,25 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                         .max(experimentsCreateBodyMetricsOneItemLowerBoundPercentileOneMax),
                                     zod.null(),
                                 ])
-                                .default(experimentsCreateBodyMetricsOneItemLowerBoundPercentileDefault)
+                                .optional()
                                 .describe(
                                     'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
                             metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
                             name: zod
                                 .union([zod.string(), zod.null()])
-                                .default(experimentsCreateBodyMetricsOneItemNameDefault)
+                                .optional()
                                 .describe('Human-readable metric name.'),
                             numerator: zod
                                 .union([
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(experimentsCreateBodyMetricsOneItemNumeratorOneEventDefault)
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(experimentsCreateBodyMetricsOneItemNumeratorOneIdDefault)
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -1010,7 +2783,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(experimentsCreateBodyMetricsOneItemNumeratorOneMathDefault)
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -1025,21 +2798,19 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsOneItemNumeratorOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(experimentsCreateBodyMetricsOneItemNumeratorOneMathHogqlDefault)
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(experimentsCreateBodyMetricsOneItemNumeratorOneMathPropertyDefault)
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -1048,11 +2819,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -1060,6 +2827,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -1116,28 +2887,22 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(experimentsCreateBodyMetricsOneItemNumeratorOnePropertiesDefault)
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsCreateBodyMetricsOneItemNumeratorDefault)
+                                .optional()
                                 .describe('For ratio metrics: numerator source.'),
                             numerator_outlier_handling: zod
                                 .union([
                                     zod.object({
-                                        ignore_zeros: zod
-                                            .union([zod.boolean(), zod.null()])
-                                            .default(
-                                                experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneIgnoreZerosDefault
-                                            ),
+                                        ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
                                         lower_bound_percentile: zod
                                             .union([
                                                 zod
@@ -1150,9 +2915,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
                                             ),
@@ -1168,39 +2931,33 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
                                             ),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingDefault)
+                                .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
                                 ),
-                            retention_window_end: zod
-                                .union([zod.number(), zod.null()])
-                                .default(experimentsCreateBodyMetricsOneItemRetentionWindowEndDefault),
-                            retention_window_start: zod
-                                .union([zod.number(), zod.null()])
-                                .default(experimentsCreateBodyMetricsOneItemRetentionWindowStartDefault),
+                            retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
+                            retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
                             retention_window_unit: zod
                                 .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
-                                .default(experimentsCreateBodyMetricsOneItemRetentionWindowUnitDefault),
+                                .optional(),
                             series: zod
                                 .union([
                                     zod.array(
                                         zod.object({
                                             event: zod
                                                 .union([zod.string(), zod.null()])
-                                                .default(experimentsCreateBodyMetricsOneItemSeriesOneItemEventDefault)
+                                                .optional()
                                                 .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                             id: zod
                                                 .union([zod.number(), zod.null()])
-                                                .default(experimentsCreateBodyMetricsOneItemSeriesOneItemIdDefault)
+                                                .optional()
                                                 .describe('Action ID. Required for ActionsNode.'),
                                             kind: zod.enum(['EventsNode', 'ActionsNode']),
                                             math: zod
@@ -1218,7 +2975,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     ]),
                                                     zod.null(),
                                                 ])
-                                                .default(experimentsCreateBodyMetricsOneItemSeriesOneItemMathDefault)
+                                                .optional()
                                                 .describe(
                                                     "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                                 ),
@@ -1233,25 +2990,19 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     ]),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    experimentsCreateBodyMetricsOneItemSeriesOneItemMathGroupTypeIndexDefault
-                                                )
+                                                .optional()
                                                 .describe(
                                                     "Group type index to aggregate over. Required when math is 'unique_group'."
                                                 ),
                                             math_hogql: zod
                                                 .union([zod.string(), zod.null()])
-                                                .default(
-                                                    experimentsCreateBodyMetricsOneItemSeriesOneItemMathHogqlDefault
-                                                )
+                                                .optional()
                                                 .describe(
-                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                                 ),
                                             math_property: zod
                                                 .union([zod.string(), zod.null()])
-                                                .default(
-                                                    experimentsCreateBodyMetricsOneItemSeriesOneItemMathPropertyDefault
-                                                )
+                                                .optional()
                                                 .describe(
                                                     "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                                 ),
@@ -1260,11 +3011,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     zod.array(
                                                         zod.object({
                                                             key: zod.string(),
-                                                            label: zod
-                                                                .union([zod.string(), zod.null()])
-                                                                .default(
-                                                                    experimentsCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemLabelDefault
-                                                                ),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                                             operator: zod
                                                                 .union([
                                                                     zod.enum([
@@ -1272,6 +3019,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                         'is_not',
                                                                         'icontains',
                                                                         'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
                                                                         'regex',
                                                                         'not_regex',
                                                                         'gt',
@@ -1328,33 +3079,29 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     zod.boolean(),
                                                                     zod.null(),
                                                                 ])
-                                                                .default(
-                                                                    experimentsCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemValueDefault
-                                                                ),
+                                                                .optional(),
                                                         })
                                                     ),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    experimentsCreateBodyMetricsOneItemSeriesOneItemPropertiesDefault
-                                                )
+                                                .optional()
                                                 .describe('Event property filters to narrow which events are counted.'),
                                         })
                                     ),
                                     zod.null(),
                                 ])
-                                .default(experimentsCreateBodyMetricsOneItemSeriesDefault)
-                                .describe('For funnel metrics: array of EventsNode/ActionsNode steps.'),
+                                .optional()
+                                .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
                             source: zod
                                 .union([
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(experimentsCreateBodyMetricsOneItemSourceOneEventDefault)
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(experimentsCreateBodyMetricsOneItemSourceOneIdDefault)
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -1372,7 +3119,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(experimentsCreateBodyMetricsOneItemSourceOneMathDefault)
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -1387,21 +3134,19 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsOneItemSourceOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(experimentsCreateBodyMetricsOneItemSourceOneMathHogqlDefault)
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(experimentsCreateBodyMetricsOneItemSourceOneMathPropertyDefault)
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -1410,11 +3155,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsOneItemSourceOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -1422,6 +3163,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -1478,30 +3223,28 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsOneItemSourceOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(experimentsCreateBodyMetricsOneItemSourceOnePropertiesDefault)
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsCreateBodyMetricsOneItemSourceDefault)
+                                .optional()
                                 .describe('For mean metrics: event source.'),
                             start_event: zod
                                 .union([
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(experimentsCreateBodyMetricsOneItemStartEventOneEventDefault)
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(experimentsCreateBodyMetricsOneItemStartEventOneIdDefault)
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -1519,7 +3262,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(experimentsCreateBodyMetricsOneItemStartEventOneMathDefault)
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -1534,23 +3277,19 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsOneItemStartEventOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(experimentsCreateBodyMetricsOneItemStartEventOneMathHogqlDefault)
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsCreateBodyMetricsOneItemStartEventOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -1559,11 +3298,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -1571,6 +3306,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -1627,23 +3366,25 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(experimentsCreateBodyMetricsOneItemStartEventOnePropertiesDefault)
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsCreateBodyMetricsOneItemStartEventDefault)
+                                .optional()
                                 .describe('For retention metrics: start event.'),
-                            start_handling: zod
-                                .union([zod.enum(['first_seen', 'last_seen']), zod.null()])
-                                .default(experimentsCreateBodyMetricsOneItemStartHandlingDefault),
+                            start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed\/counted value reaches or exceeds this threshold. Only meaningful for sum\/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -1652,13 +3393,13 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                         .max(experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMax),
                                     zod.null(),
                                 ])
-                                .default(experimentsCreateBodyMetricsOneItemUpperBoundPercentileDefault)
+                                .optional()
                                 .describe(
                                     'For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.'
                                 ),
                             uuid: zod
                                 .union([zod.string(), zod.null()])
-                                .default(experimentsCreateBodyMetricsOneItemUuidDefault)
+                                .optional()
                                 .describe('Unique identifier. Auto-generated if omitted.'),
                         })
                     )
@@ -1667,7 +3408,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
@@ -1679,15 +3420,11 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOneEventDefault
-                                            )
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOneIdDefault
-                                            )
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -1705,9 +3442,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOneMathDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -1722,25 +3457,19 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOneMathHogqlDefault
-                                            )
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -1749,11 +3478,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -1761,6 +3486,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -1817,40 +3546,32 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesDefault
-                                            )
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsCreateBodyMetricsSecondaryOneItemCompletionEventDefault)
+                                .optional()
                                 .describe('For retention metrics: completion event.'),
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
-                                .default(experimentsCreateBodyMetricsSecondaryOneItemConversionWindowDefault)
+                                .optional()
                                 .describe('Conversion window duration.'),
                             denominator: zod
                                 .union([
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemDenominatorOneEventDefault
-                                            )
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemDenominatorOneIdDefault
-                                            )
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -1868,9 +3589,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemDenominatorOneMathDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -1885,25 +3604,19 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemDenominatorOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemDenominatorOneMathHogqlDefault
-                                            )
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemDenominatorOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -1912,11 +3625,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -1924,6 +3633,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -1980,30 +3693,22 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesDefault
-                                            )
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsCreateBodyMetricsSecondaryOneItemDenominatorDefault)
+                                .optional()
                                 .describe('For ratio metrics: denominator source.'),
                             denominator_outlier_handling: zod
                                 .union([
                                     zod.object({
-                                        ignore_zeros: zod
-                                            .union([zod.boolean(), zod.null()])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneIgnoreZerosDefault
-                                            ),
+                                        ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
                                         lower_bound_percentile: zod
                                             .union([
                                                 zod
@@ -2016,9 +3721,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
                                             ),
@@ -2034,26 +3737,24 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
                                             ),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingDefault)
+                                .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
-                                .default(experimentsCreateBodyMetricsSecondaryOneItemGoalDefault)
+                                .optional()
                                 .describe('Whether higher or lower values indicate success.'),
                             ignore_zeros: zod
                                 .union([zod.boolean(), zod.null()])
-                                .default(experimentsCreateBodyMetricsSecondaryOneItemIgnoreZerosDefault)
+                                .optional()
                                 .describe(
                                     'For mean metrics: exclude zero values when computing the winsorization percentile thresholds.'
                                 ),
@@ -2068,27 +3769,25 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                         .max(experimentsCreateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMax),
                                     zod.null(),
                                 ])
-                                .default(experimentsCreateBodyMetricsSecondaryOneItemLowerBoundPercentileDefault)
+                                .optional()
                                 .describe(
                                     'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
                             metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
                             name: zod
                                 .union([zod.string(), zod.null()])
-                                .default(experimentsCreateBodyMetricsSecondaryOneItemNameDefault)
+                                .optional()
                                 .describe('Human-readable metric name.'),
                             numerator: zod
                                 .union([
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemNumeratorOneEventDefault
-                                            )
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(experimentsCreateBodyMetricsSecondaryOneItemNumeratorOneIdDefault)
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -2106,9 +3805,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemNumeratorOneMathDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -2123,25 +3820,19 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemNumeratorOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemNumeratorOneMathHogqlDefault
-                                            )
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemNumeratorOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -2150,11 +3841,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -2162,6 +3849,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -2218,30 +3909,22 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesDefault
-                                            )
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsCreateBodyMetricsSecondaryOneItemNumeratorDefault)
+                                .optional()
                                 .describe('For ratio metrics: numerator source.'),
                             numerator_outlier_handling: zod
                                 .union([
                                     zod.object({
-                                        ignore_zeros: zod
-                                            .union([zod.boolean(), zod.null()])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneIgnoreZerosDefault
-                                            ),
+                                        ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
                                         lower_bound_percentile: zod
                                             .union([
                                                 zod
@@ -2254,9 +3937,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
                                             ),
@@ -2272,43 +3953,33 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
                                             ),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingDefault)
+                                .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
                                 ),
-                            retention_window_end: zod
-                                .union([zod.number(), zod.null()])
-                                .default(experimentsCreateBodyMetricsSecondaryOneItemRetentionWindowEndDefault),
-                            retention_window_start: zod
-                                .union([zod.number(), zod.null()])
-                                .default(experimentsCreateBodyMetricsSecondaryOneItemRetentionWindowStartDefault),
+                            retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
+                            retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
                             retention_window_unit: zod
                                 .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
-                                .default(experimentsCreateBodyMetricsSecondaryOneItemRetentionWindowUnitDefault),
+                                .optional(),
                             series: zod
                                 .union([
                                     zod.array(
                                         zod.object({
                                             event: zod
                                                 .union([zod.string(), zod.null()])
-                                                .default(
-                                                    experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemEventDefault
-                                                )
+                                                .optional()
                                                 .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                             id: zod
                                                 .union([zod.number(), zod.null()])
-                                                .default(
-                                                    experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemIdDefault
-                                                )
+                                                .optional()
                                                 .describe('Action ID. Required for ActionsNode.'),
                                             kind: zod.enum(['EventsNode', 'ActionsNode']),
                                             math: zod
@@ -2326,9 +3997,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     ]),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemMathDefault
-                                                )
+                                                .optional()
                                                 .describe(
                                                     "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                                 ),
@@ -2343,25 +4012,19 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     ]),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemMathGroupTypeIndexDefault
-                                                )
+                                                .optional()
                                                 .describe(
                                                     "Group type index to aggregate over. Required when math is 'unique_group'."
                                                 ),
                                             math_hogql: zod
                                                 .union([zod.string(), zod.null()])
-                                                .default(
-                                                    experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemMathHogqlDefault
-                                                )
+                                                .optional()
                                                 .describe(
-                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                                 ),
                                             math_property: zod
                                                 .union([zod.string(), zod.null()])
-                                                .default(
-                                                    experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemMathPropertyDefault
-                                                )
+                                                .optional()
                                                 .describe(
                                                     "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                                 ),
@@ -2370,11 +4033,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     zod.array(
                                                         zod.object({
                                                             key: zod.string(),
-                                                            label: zod
-                                                                .union([zod.string(), zod.null()])
-                                                                .default(
-                                                                    experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemLabelDefault
-                                                                ),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                                             operator: zod
                                                                 .union([
                                                                     zod.enum([
@@ -2382,6 +4041,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                         'is_not',
                                                                         'icontains',
                                                                         'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
                                                                         'regex',
                                                                         'not_regex',
                                                                         'gt',
@@ -2438,33 +4101,29 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     zod.boolean(),
                                                                     zod.null(),
                                                                 ])
-                                                                .default(
-                                                                    experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemValueDefault
-                                                                ),
+                                                                .optional(),
                                                         })
                                                     ),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesDefault
-                                                )
+                                                .optional()
                                                 .describe('Event property filters to narrow which events are counted.'),
                                         })
                                     ),
                                     zod.null(),
                                 ])
-                                .default(experimentsCreateBodyMetricsSecondaryOneItemSeriesDefault)
-                                .describe('For funnel metrics: array of EventsNode/ActionsNode steps.'),
+                                .optional()
+                                .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
                             source: zod
                                 .union([
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(experimentsCreateBodyMetricsSecondaryOneItemSourceOneEventDefault)
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(experimentsCreateBodyMetricsSecondaryOneItemSourceOneIdDefault)
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -2482,7 +4141,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(experimentsCreateBodyMetricsSecondaryOneItemSourceOneMathDefault)
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -2497,25 +4156,19 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemSourceOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemSourceOneMathHogqlDefault
-                                            )
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemSourceOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -2524,11 +4177,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -2536,6 +4185,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -2592,34 +4245,28 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesDefault
-                                            )
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsCreateBodyMetricsSecondaryOneItemSourceDefault)
+                                .optional()
                                 .describe('For mean metrics: event source.'),
                             start_event: zod
                                 .union([
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemStartEventOneEventDefault
-                                            )
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(experimentsCreateBodyMetricsSecondaryOneItemStartEventOneIdDefault)
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -2637,9 +4284,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemStartEventOneMathDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -2654,25 +4299,19 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemStartEventOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemStartEventOneMathHogqlDefault
-                                            )
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemStartEventOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -2681,11 +4320,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -2693,6 +4328,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -2749,25 +4388,25 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesDefault
-                                            )
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsCreateBodyMetricsSecondaryOneItemStartEventDefault)
+                                .optional()
                                 .describe('For retention metrics: start event.'),
-                            start_handling: zod
-                                .union([zod.enum(['first_seen', 'last_seen']), zod.null()])
-                                .default(experimentsCreateBodyMetricsSecondaryOneItemStartHandlingDefault),
+                            start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed\/counted value reaches or exceeds this threshold. Only meaningful for sum\/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -2776,13 +4415,13 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                         .max(experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax),
                                     zod.null(),
                                 ])
-                                .default(experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileDefault)
+                                .optional()
                                 .describe(
                                     'For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.'
                                 ),
                             uuid: zod
                                 .union([zod.string(), zod.null()])
-                                .default(experimentsCreateBodyMetricsSecondaryOneItemUuidDefault)
+                                .optional()
                                 .describe('Unique identifier. Auto-generated if omitted.'),
                         })
                     )
@@ -2805,15 +4444,26 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                 zod
                     .enum(['won', 'lost', 'inconclusive', 'stopped_early', 'invalid'])
                     .describe(
-                        '* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
+                        '\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
+                'Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
             ),
-        conclusion_comment: zod.string().nullish().describe('Comment about the experiment conclusion.'),
+        conclusion_comment: zod
+            .string()
+            .max(experimentsCreateBodyConclusionCommentMax)
+            .nullish()
+            .describe('Comment about the experiment conclusion.'),
+        repository: zod
+            .string()
+            .max(experimentsCreateBodyRepositoryMax)
+            .nullish()
+            .describe(
+                "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
+            ),
         primary_metrics_ordered_uuids: zod.unknown().optional(),
         secondary_metrics_ordered_uuids: zod.unknown().optional(),
         only_count_matured_users: zod.boolean().optional(),
@@ -2821,10 +4471,22 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             .boolean()
             .default(experimentsCreateBodyUpdateFeatureFlagParamsDefault)
             .describe(
-                'When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts.'
+                'When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected.'
+            ),
+        version: zod
+            .number()
+            .nullish()
+            .describe(
+                "Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: a stale update merges concurrent changes where safe — metric collections per metric uuid, other fields per field — using the base values sent in `original_experiment`, and fails with HTTP 409 only when the same metric or field changed on both sides (or no base value was sent for a changed field). Omit to skip the check."
+            ),
+        original_experiment: zod
+            .record(zod.string(), zod.unknown())
+            .nullish()
+            .describe(
+                'The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.'
             ),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe('Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.')
 
 /**
  * Retrieve a single experiment by ID, including its current status, metrics, feature flag, and results metadata.
@@ -2834,19 +4496,19 @@ export const ExperimentsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 /**
- * Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time.
+ * Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time. Feature-flag config (variants, rollout, payloads) is sent via the feature_flag object.
  */
 export const ExperimentsPartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -2854,244 +4516,104 @@ export const experimentsPartialUpdateBodyNameMax = 400
 
 export const experimentsPartialUpdateBodyDescriptionMax = 3000
 
-export const experimentsPartialUpdateBodyParametersOneExcludedVariantsDefault = null
-export const experimentsPartialUpdateBodyParametersOneFeatureFlagVariantsOneItemNameDefault = null
-export const experimentsPartialUpdateBodyParametersOneFeatureFlagVariantsOneItemRolloutPercentageDefault = null
-export const experimentsPartialUpdateBodyParametersOneFeatureFlagVariantsOneItemSplitPercentDefault = null
-export const experimentsPartialUpdateBodyParametersOneFeatureFlagVariantsDefault = null
-export const experimentsPartialUpdateBodyParametersOneMinimumDetectableEffectDefault = null
-export const experimentsPartialUpdateBodyParametersOneRolloutPercentageDefault = null
-export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOneKindDefault = `ExperimentEventExposureConfig`
-export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemLabelDefault = null
-export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault = `exact`
-export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault = `event`
-export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemValueDefault = null
-export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigDefault = null
-export const experimentsPartialUpdateBodyExposureCriteriaOneFilterTestAccountsDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOneEventDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOneIdDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOneMathDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOneMathGroupTypeIndexDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOneMathHogqlDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOneMathPropertyDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemLabelDefault = null
+export const experimentsPartialUpdateBodyFeatureFlagOneFiltersOneGroupsItemRolloutPercentageMin = 0
+export const experimentsPartialUpdateBodyFeatureFlagOneFiltersOneGroupsItemRolloutPercentageMax = 100
+
+export const experimentsPartialUpdateBodyFeatureFlagOneFiltersOneGroupsItemPropertiesMax = 0
+
+export const experimentsPartialUpdateBodyFeatureFlagOneFiltersOneMultivariateOneVariantsItemRolloutPercentageMin = 0
+export const experimentsPartialUpdateBodyFeatureFlagOneFiltersOneMultivariateOneVariantsItemRolloutPercentageMax = 100
+
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneOperatorDefault = `exact`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneTypeDefault = `event`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwoTypeDefault = `person`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemThreeTypeDefault = `person_metadata`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemFourTypeDefault = `element`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemFiveTypeDefault = `event_metadata`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSixTypeDefault = `session`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSevenKeyDefault = `id`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSevenOperatorDefault = `in`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSevenTypeDefault = `cohort`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemEightTypeDefault = `recording`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemNineTypeDefault = `log_entry`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnezeroTypeDefault = `group`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneoneTypeDefault = `feature`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnetwoOperatorDefault = `flag_evaluates_to`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnetwoTypeDefault = `flag`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnethreeTypeDefault = `hogql`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnefourTypeDefault = `empty`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnefiveTypeDefault = `data_warehouse`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesixTypeDefault = `data_warehouse_person_property`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesevenTypeDefault = `error_tracking_issue`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault = `metric_attribute`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault = `revenue_analytics`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault = `account_custom_property`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwothreeTypeDefault = `workflow_variable`
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
-export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemValueDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemConversionWindowDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOneEventDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOneIdDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOneMathDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOneMathGroupTypeIndexDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOneMathHogqlDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOneMathPropertyDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesOneItemLabelDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesOneItemTypeDefault = `event`
-export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesOneItemValueDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemDenominatorDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneIgnoreZerosDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
-export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
-export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemGoalDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemIgnoreZerosDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemKindDefault = `ExperimentMetric`
 export const experimentsPartialUpdateBodyMetricsOneItemLowerBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsOneItemLowerBoundPercentileOneMax = 1
 
-export const experimentsPartialUpdateBodyMetricsOneItemLowerBoundPercentileDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemNameDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOneEventDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOneIdDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOneMathDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOneMathGroupTypeIndexDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOneMathHogqlDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOneMathPropertyDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOnePropertiesOneItemLabelDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOnePropertiesOneItemTypeDefault = `event`
-export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOnePropertiesOneItemValueDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOnePropertiesDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemNumeratorDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneIgnoreZerosDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
-export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
-export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemRetentionWindowEndDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemRetentionWindowStartDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemRetentionWindowUnitDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemEventDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemIdDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemMathDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemMathGroupTypeIndexDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemMathHogqlDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemMathPropertyDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemPropertiesOneItemLabelDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemPropertiesOneItemTypeDefault = `event`
-export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemPropertiesOneItemValueDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemPropertiesDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemSeriesDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemSourceOneEventDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemSourceOneIdDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemSourceOneMathDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemSourceOneMathGroupTypeIndexDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemSourceOneMathHogqlDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemSourceOneMathPropertyDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesOneItemLabelDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesOneItemTypeDefault = `event`
-export const experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesOneItemValueDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemSourceDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemStartEventOneEventDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemStartEventOneIdDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemStartEventOneMathDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemStartEventOneMathGroupTypeIndexDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemStartEventOneMathHogqlDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemStartEventOneMathPropertyDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOneItemLabelDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
-export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOneItemValueDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemStartEventDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemStartHandlingDefault = null
 export const experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
 
-export const experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileDefault = null
-export const experimentsPartialUpdateBodyMetricsOneItemUuidDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOneEventDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOneIdDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOneMathDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOneMathGroupTypeIndexDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOneMathHogqlDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOneMathPropertyDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemLabelDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemValueDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemConversionWindowDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOneEventDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOneIdDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOneMathDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOneMathGroupTypeIndexDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOneMathHogqlDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOneMathPropertyDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemLabelDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemTypeDefault = `event`
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemValueDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOnePropertiesDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneIgnoreZerosDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileDefault =
-    null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileDefault =
-    null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemGoalDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemIgnoreZerosDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemKindDefault = `ExperimentMetric`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMax = 1
 
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemLowerBoundPercentileDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNameDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOneEventDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOneIdDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOneMathDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOneMathGroupTypeIndexDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOneMathHogqlDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOneMathPropertyDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemLabelDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemTypeDefault = `event`
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemValueDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOnePropertiesDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneIgnoreZerosDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileDefault =
-    null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileDefault =
-    null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemRetentionWindowEndDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemRetentionWindowStartDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemRetentionWindowUnitDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemEventDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemIdDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemMathDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemMathGroupTypeIndexDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemMathHogqlDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemMathPropertyDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemLabelDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemTypeDefault = `event`
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemValueDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOneEventDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOneIdDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOneMathDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOneMathGroupTypeIndexDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOneMathHogqlDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOneMathPropertyDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemLabelDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemTypeDefault = `event`
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemValueDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropertiesDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOneEventDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOneIdDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOneMathDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOneMathGroupTypeIndexDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOneMathHogqlDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOneMathPropertyDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemLabelDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemValueDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartHandlingDefault = null
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileDefault = null
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUuidDefault = null
+export const experimentsPartialUpdateBodyConclusionCommentMax = 4000
+
+export const experimentsPartialUpdateBodyRepositoryMax = 255
 
 export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -3107,72 +4629,199 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .string()
             .optional()
             .describe(
-                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible."
+                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible."
+            ),
+        feature_flag: zod
+            .object({
+                filters: zod
+                    .object({
+                        groups: zod
+                            .array(
+                                zod
+                                    .object({
+                                        rollout_percentage: zod
+                                            .number()
+                                            .min(
+                                                experimentsPartialUpdateBodyFeatureFlagOneFiltersOneGroupsItemRolloutPercentageMin
+                                            )
+                                            .max(
+                                                experimentsPartialUpdateBodyFeatureFlagOneFiltersOneGroupsItemRolloutPercentageMax
+                                            )
+                                            .nullish()
+                                            .describe('Percentage of users who enter the experiment (0-100).'),
+                                        properties: zod
+                                            .array(zod.unknown())
+                                            .max(
+                                                experimentsPartialUpdateBodyFeatureFlagOneFiltersOneGroupsItemPropertiesMax
+                                            )
+                                            .optional()
+                                            .describe(
+                                                'Must be empty or omitted: release-condition properties are not supported via the experiment input. Edit the feature flag directly for targeting.'
+                                            ),
+                                    })
+                                    .describe(
+                                        'A single release-condition group carrying only the overall rollout percentage, the one\ngroups entry the experiment input applies.'
+                                    )
+                            )
+                            .optional()
+                            .describe(
+                                'Overall rollout as a single group: [{\"properties\": [], \"rollout_percentage\": N}].'
+                            ),
+                        multivariate: zod
+                            .union([
+                                zod
+                                    .object({
+                                        variants: zod
+                                            .array(
+                                                zod
+                                                    .object({
+                                                        key: zod
+                                                            .string()
+                                                            .describe(
+                                                                "Unique variant key. The baseline defaults to the variant keyed 'control' when present, else the first variant."
+                                                            ),
+                                                        name: zod
+                                                            .string()
+                                                            .optional()
+                                                            .describe('Human-readable variant name.'),
+                                                        rollout_percentage: zod
+                                                            .number()
+                                                            .min(
+                                                                experimentsPartialUpdateBodyFeatureFlagOneFiltersOneMultivariateOneVariantsItemRolloutPercentageMin
+                                                            )
+                                                            .max(
+                                                                experimentsPartialUpdateBodyFeatureFlagOneFiltersOneMultivariateOneVariantsItemRolloutPercentageMax
+                                                            )
+                                                            .describe(
+                                                                'Variant rollout percentage (0-100). Across variants these must sum to 100.'
+                                                            ),
+                                                    })
+                                                    .describe(
+                                                        'A single multivariate variant. Extra per-variant keys are dropped.'
+                                                    )
+                                            )
+                                            .describe(
+                                                "Variant definitions (2 to 20). The baseline defaults to the variant keyed 'control' when present, else the first variant."
+                                            ),
+                                    })
+                                    .describe("Multivariate config for the experiment's feature flag."),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Multivariate variant configuration.'),
+                        aggregation_group_type_index: zod
+                            .number()
+                            .nullish()
+                            .describe('Group type index for group-based feature flags.'),
+                        payloads: zod
+                            .record(zod.string(), zod.string())
+                            .optional()
+                            .describe('Optional payload values keyed by variant key.'),
+                    })
+                    .describe(
+                        "Feature-flag filters accepted by the experiment endpoints: the flag's own filters shape,\nminus the keys experiments don't apply."
+                    )
+                    .optional()
+                    .describe(
+                        "Flag config to apply: `multivariate.variants` (2 to 20 variants; the baseline defaults to the variant keyed 'control' when present, else the first variant), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state."
+                    ),
+                ensure_experience_continuity: zod
+                    .boolean()
+                    .nullish()
+                    .describe('Whether the flag persists variant assignment across authentication steps.'),
+            })
+            .describe(
+                "Flag config for experiment create\/update, sent through the linked feature flag's own shape.\n\nValidated both as the OpenAPI request field (via ``ExperimentWriteSerializer``) and at runtime\n(``ExperimentSerializer._normalize_feature_flag_input`` runs it against the raw feature_flag\nobject). Echoed read-only flag objects (carrying a non-null id) are handled upstream and never\nreach this validation."
+            )
+            .optional()
+            .describe(
+                "Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity: send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is)."
             ),
         holdout_id: zod.number().nullish().describe('ID of a holdout group to exclude from the experiment.'),
         parameters: zod
             .union([
                 zod.object({
-                    excluded_variants: zod
-                        .union([zod.array(zod.string()), zod.null()])
-                        .default(experimentsPartialUpdateBodyParametersOneExcludedVariantsDefault)
-                        .describe(
-                            'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis.'
-                        ),
-                    feature_flag_variants: zod
-                        .union([
-                            zod.array(
-                                zod.object({
-                                    key: zod
-                                        .string()
-                                        .describe(
-                                            "Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'."
-                                        ),
-                                    name: zod
-                                        .union([zod.string(), zod.null()])
-                                        .default(
-                                            experimentsPartialUpdateBodyParametersOneFeatureFlagVariantsOneItemNameDefault
-                                        )
-                                        .describe('Human-readable variant name.'),
-                                    rollout_percentage: zod
-                                        .union([zod.number(), zod.null()])
-                                        .default(
-                                            experimentsPartialUpdateBodyParametersOneFeatureFlagVariantsOneItemRolloutPercentageDefault
-                                        ),
-                                    split_percent: zod
-                                        .union([zod.number(), zod.null()])
-                                        .default(
-                                            experimentsPartialUpdateBodyParametersOneFeatureFlagVariantsOneItemSplitPercentDefault
-                                        )
-                                        .describe(
-                                            'Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided.'
-                                        ),
-                                })
-                            ),
-                            zod.null(),
-                        ])
-                        .default(experimentsPartialUpdateBodyParametersOneFeatureFlagVariantsDefault)
-                        .describe(
-                            "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20."
-                        ),
                     minimum_detectable_effect: zod
                         .union([zod.number(), zod.null()])
-                        .default(experimentsPartialUpdateBodyParametersOneMinimumDetectableEffectDefault)
+                        .optional()
                         .describe(
                             'Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments.'
                         ),
-                    rollout_percentage: zod
-                        .union([zod.number(), zod.null()])
-                        .default(experimentsPartialUpdateBodyParametersOneRolloutPercentageDefault)
+                    variant_notes: zod
+                        .union([zod.record(zod.string(), zod.string()), zod.null()])
+                        .optional()
                         .describe(
-                            'Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.'
+                            'Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL.'
                         ),
                 }),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded).'
+                "Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config (variants, rollout, aggregation, payloads, experience continuity) belongs on the `feature_flag` object; send it there. For backward compatibility, config still sent through these deprecated keys is copied onto the linked flag rather than rejected, and reads project the flag's current config back into this field. Excluded variants live on the top-level `excluded_variants` field, not here."
+            ),
+        running_time_calculation: zod
+            .union([
+                zod.object({
+                    exposure_estimate_config: zod
+                        .union([
+                            zod.object({
+                                conversionRateInputType: zod
+                                    .enum(['manual', 'automatic'])
+                                    .describe(
+                                        "'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data."
+                                    ),
+                                manualBaselineValue: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode.'
+                                    ),
+                                manualExposureRate: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Manually entered estimate of users exposed to the experiment per day. Only used in manual mode.'
+                                    ),
+                                manualMetricType: zod
+                                    .union([zod.enum(['funnel', 'mean_count', 'mean_sum_or_avg']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Metric type the manual baseline value refers to. Only used in manual mode.'
+                                    ),
+                            }),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            'How the exposure estimate is configured: manual user-entered values or automatic from live experiment data.'
+                        ),
+                    minimum_detectable_effect: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes.'
+                        ),
+                    recommended_running_time: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe('Estimated number of days needed to reach the recommended sample size.'),
+                    recommended_sample_size: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe('Recommended number of exposed users needed for statistical significance.'),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`.'
+            ),
+        excluded_variants: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`.'
             ),
         secondary_metrics: zod.unknown().optional(),
         saved_metrics_ids: zod
@@ -3185,10 +4834,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
         archived: zod.boolean().optional().describe('Whether the experiment is archived.'),
         deleted: zod.boolean().nullish(),
         type: zod
-            .union([zod.enum(['web', 'product']).describe('* `web` - web\n* `product` - product'), zod.null()])
+            .union([zod.enum(['web', 'product']).describe('\* `web` - web\n\* `product` - product'), zod.null()])
             .optional()
             .describe(
-                'Experiment type: web for frontend UI changes, product for backend/API changes.\n\n* `web` - web\n* `product` - product'
+                'Experiment type: web for frontend UI changes, product for backend\/API changes.\n\n\* `web` - web\n\* `product` - product'
             ),
         exposure_criteria: zod
             .union([
@@ -3196,91 +4845,1306 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                     exposure_config: zod
                         .union([
                             zod.object({
-                                event: zod.string().describe('Custom exposure event name.'),
+                                event: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."
+                                    ),
+                                id: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe("Action ID. Required when kind is 'ActionsNode'."),
                                 kind: zod
-                                    .literal('ExperimentEventExposureConfig')
-                                    .default(
-                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOneKindDefault
+                                    .union([zod.enum(['ExperimentEventExposureConfig', 'ActionsNode']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
                                     ),
                                 properties: zod
                                     .array(
-                                        zod.object({
-                                            key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemLabelDefault
-                                                ),
-                                            operator: zod
-                                                .union([
-                                                    zod.enum([
-                                                        'exact',
-                                                        'is_not',
-                                                        'icontains',
-                                                        'not_icontains',
-                                                        'regex',
-                                                        'not_regex',
-                                                        'gt',
-                                                        'gte',
-                                                        'lt',
-                                                        'lte',
-                                                        'is_set',
-                                                        'is_not_set',
-                                                        'is_date_exact',
-                                                        'is_date_before',
-                                                        'is_date_after',
-                                                        'between',
-                                                        'not_between',
-                                                        'min',
-                                                        'max',
-                                                        'in',
-                                                        'not_in',
-                                                        'is_cleaned_path_exact',
-                                                        'flag_evaluates_to',
-                                                        'semver_eq',
-                                                        'semver_neq',
-                                                        'semver_gt',
-                                                        'semver_gte',
-                                                        'semver_lt',
-                                                        'semver_lte',
-                                                        'semver_tilde',
-                                                        'semver_caret',
-                                                        'semver_wildcard',
-                                                        'icontains_multi',
-                                                        'not_icontains_multi',
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .default(
-                                                    experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault
-                                                ),
-                                            type: zod
-                                                .literal('event')
-                                                .default(
-                                                    experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault
-                                                )
-                                                .describe('Event properties'),
-                                            value: zod
-                                                .union([
-                                                    zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                        zod.union([
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneOperatorDefault
+                                                    ),
+                                                type: zod
+                                                    .literal('event')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneTypeDefault
+                                                    )
+                                                    .describe('Event properties'),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('person')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwoTypeDefault
+                                                    )
+                                                    .describe('Person properties'),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('person_metadata')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemThreeTypeDefault
+                                                    )
+                                                    .describe(
+                                                        'Top-level columns on the persons table (e.g. created_at), not properties JSON'
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.enum(['tag_name', 'text', 'href', 'selector']),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('element')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemFourTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('event_metadata')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemFiveTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('session')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSixTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                cohort_name: zod.union([zod.string(), zod.null()]).optional(),
+                                                key: zod
+                                                    .literal('id')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSevenKeyDefault
+                                                    ),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSevenOperatorDefault
+                                                    ),
+                                                type: zod
+                                                    .literal('cohort')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSevenTypeDefault
+                                                    ),
+                                                value: zod.number(),
+                                            }),
+                                            zod.object({
+                                                key: zod.union([
+                                                    zod.enum(['duration', 'active_seconds', 'inactive_seconds']),
                                                     zod.string(),
-                                                    zod.number(),
-                                                    zod.boolean(),
-                                                    zod.null(),
-                                                ])
-                                                .default(
-                                                    experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemValueDefault
-                                                ),
-                                        })
+                                                ]),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('recording')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemEightTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('log_entry')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemNineTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                group_key_names: zod
+                                                    .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                    .optional(),
+                                                group_type_index: zod.union([zod.number(), zod.null()]).optional(),
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('group')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnezeroTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('feature')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneoneTypeDefault
+                                                    )
+                                                    .describe('Event property with \"$feature\/\" prepended'),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string().describe('The key should be the flag ID'),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod
+                                                    .literal('flag_evaluates_to')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnetwoOperatorDefault
+                                                    )
+                                                    .describe(
+                                                        'Only flag_evaluates_to operator is allowed for flag dependencies'
+                                                    ),
+                                                type: zod
+                                                    .literal('flag')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnetwoTypeDefault
+                                                    )
+                                                    .describe('Feature flag dependency'),
+                                                value: zod
+                                                    .union([zod.boolean(), zod.string()])
+                                                    .describe('The value can be true, false, or a variant name'),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                type: zod
+                                                    .literal('hogql')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnethreeTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                type: zod
+                                                    .literal('empty')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnefourTypeDefault
+                                                    ),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('data_warehouse')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnefiveTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('data_warehouse_person_property')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesixTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('error_tracking_issue')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesevenTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod.enum(['log', 'log_attribute', 'log_resource_attribute']),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('metric_attribute')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod.enum(['span', 'span_attribute', 'span_resource_attribute']),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('revenue_analytics')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('account_custom_property')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault
+                                                    )
+                                                    .describe(
+                                                        'Customer analytics account custom property — the key is the property definition id'
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('workflow_variable')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwothreeTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                        ])
                                     )
-                                    .describe('Event property filters. Pass an empty array if no filters needed.'),
+                                    .describe(
+                                        'Property filters (event, person, and other supported types). Pass an empty array if no filters needed.'
+                                    ),
                             }),
                             zod.null(),
                         ])
-                        .default(experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigDefault),
-                    filterTestAccounts: zod
-                        .union([zod.boolean(), zod.null()])
-                        .default(experimentsPartialUpdateBodyExposureCriteriaOneFilterTestAccountsDefault),
+                        .optional(),
+                    filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
+                    multiple_variant_handling: zod
+                        .union([zod.enum(['exclude', 'first_seen']), zod.null()])
+                        .optional()
+                        .describe(
+                            "How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure."
+                        ),
                 }),
                 zod.null(),
             ])
@@ -3296,15 +6160,11 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemCompletionEventOneEventDefault
-                                            )
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemCompletionEventOneIdDefault
-                                            )
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -3322,9 +6182,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemCompletionEventOneMathDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -3339,25 +6197,19 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemCompletionEventOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemCompletionEventOneMathHogqlDefault
-                                            )
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemCompletionEventOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -3366,11 +6218,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -3378,6 +6226,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -3434,38 +6286,32 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesDefault
-                                            )
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsPartialUpdateBodyMetricsOneItemCompletionEventDefault)
+                                .optional()
                                 .describe('For retention metrics: completion event.'),
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
-                                .default(experimentsPartialUpdateBodyMetricsOneItemConversionWindowDefault)
+                                .optional()
                                 .describe('Conversion window duration.'),
                             denominator: zod
                                 .union([
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemDenominatorOneEventDefault
-                                            )
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(experimentsPartialUpdateBodyMetricsOneItemDenominatorOneIdDefault)
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -3483,9 +6329,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemDenominatorOneMathDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -3500,25 +6344,19 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemDenominatorOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemDenominatorOneMathHogqlDefault
-                                            )
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemDenominatorOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -3527,11 +6365,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -3539,6 +6373,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -3595,30 +6433,22 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesDefault
-                                            )
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsPartialUpdateBodyMetricsOneItemDenominatorDefault)
+                                .optional()
                                 .describe('For ratio metrics: denominator source.'),
                             denominator_outlier_handling: zod
                                 .union([
                                     zod.object({
-                                        ignore_zeros: zod
-                                            .union([zod.boolean(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneIgnoreZerosDefault
-                                            ),
+                                        ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
                                         lower_bound_percentile: zod
                                             .union([
                                                 zod
@@ -3631,9 +6461,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
                                             ),
@@ -3649,26 +6477,24 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
                                             ),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingDefault)
+                                .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
-                                .default(experimentsPartialUpdateBodyMetricsOneItemGoalDefault)
+                                .optional()
                                 .describe('Whether higher or lower values indicate success.'),
                             ignore_zeros: zod
                                 .union([zod.boolean(), zod.null()])
-                                .default(experimentsPartialUpdateBodyMetricsOneItemIgnoreZerosDefault)
+                                .optional()
                                 .describe(
                                     'For mean metrics: exclude zero values when computing the winsorization percentile thresholds.'
                                 ),
@@ -3683,25 +6509,25 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                         .max(experimentsPartialUpdateBodyMetricsOneItemLowerBoundPercentileOneMax),
                                     zod.null(),
                                 ])
-                                .default(experimentsPartialUpdateBodyMetricsOneItemLowerBoundPercentileDefault)
+                                .optional()
                                 .describe(
                                     'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
                             metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
                             name: zod
                                 .union([zod.string(), zod.null()])
-                                .default(experimentsPartialUpdateBodyMetricsOneItemNameDefault)
+                                .optional()
                                 .describe('Human-readable metric name.'),
                             numerator: zod
                                 .union([
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(experimentsPartialUpdateBodyMetricsOneItemNumeratorOneEventDefault)
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(experimentsPartialUpdateBodyMetricsOneItemNumeratorOneIdDefault)
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -3719,7 +6545,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(experimentsPartialUpdateBodyMetricsOneItemNumeratorOneMathDefault)
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -3734,25 +6560,19 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemNumeratorOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemNumeratorOneMathHogqlDefault
-                                            )
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemNumeratorOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -3761,11 +6581,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsOneItemNumeratorOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -3773,6 +6589,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -3829,30 +6649,22 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsOneItemNumeratorOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemNumeratorOnePropertiesDefault
-                                            )
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsPartialUpdateBodyMetricsOneItemNumeratorDefault)
+                                .optional()
                                 .describe('For ratio metrics: numerator source.'),
                             numerator_outlier_handling: zod
                                 .union([
                                     zod.object({
-                                        ignore_zeros: zod
-                                            .union([zod.boolean(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneIgnoreZerosDefault
-                                            ),
+                                        ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
                                         lower_bound_percentile: zod
                                             .union([
                                                 zod
@@ -3865,9 +6677,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
                                             ),
@@ -3883,43 +6693,33 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
                                             ),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingDefault)
+                                .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
                                 ),
-                            retention_window_end: zod
-                                .union([zod.number(), zod.null()])
-                                .default(experimentsPartialUpdateBodyMetricsOneItemRetentionWindowEndDefault),
-                            retention_window_start: zod
-                                .union([zod.number(), zod.null()])
-                                .default(experimentsPartialUpdateBodyMetricsOneItemRetentionWindowStartDefault),
+                            retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
+                            retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
                             retention_window_unit: zod
                                 .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
-                                .default(experimentsPartialUpdateBodyMetricsOneItemRetentionWindowUnitDefault),
+                                .optional(),
                             series: zod
                                 .union([
                                     zod.array(
                                         zod.object({
                                             event: zod
                                                 .union([zod.string(), zod.null()])
-                                                .default(
-                                                    experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemEventDefault
-                                                )
+                                                .optional()
                                                 .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                             id: zod
                                                 .union([zod.number(), zod.null()])
-                                                .default(
-                                                    experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemIdDefault
-                                                )
+                                                .optional()
                                                 .describe('Action ID. Required for ActionsNode.'),
                                             kind: zod.enum(['EventsNode', 'ActionsNode']),
                                             math: zod
@@ -3937,9 +6737,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     ]),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemMathDefault
-                                                )
+                                                .optional()
                                                 .describe(
                                                     "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                                 ),
@@ -3954,25 +6752,19 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     ]),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemMathGroupTypeIndexDefault
-                                                )
+                                                .optional()
                                                 .describe(
                                                     "Group type index to aggregate over. Required when math is 'unique_group'."
                                                 ),
                                             math_hogql: zod
                                                 .union([zod.string(), zod.null()])
-                                                .default(
-                                                    experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemMathHogqlDefault
-                                                )
+                                                .optional()
                                                 .describe(
-                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                                 ),
                                             math_property: zod
                                                 .union([zod.string(), zod.null()])
-                                                .default(
-                                                    experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemMathPropertyDefault
-                                                )
+                                                .optional()
                                                 .describe(
                                                     "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                                 ),
@@ -3981,11 +6773,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     zod.array(
                                                         zod.object({
                                                             key: zod.string(),
-                                                            label: zod
-                                                                .union([zod.string(), zod.null()])
-                                                                .default(
-                                                                    experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemPropertiesOneItemLabelDefault
-                                                                ),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                                             operator: zod
                                                                 .union([
                                                                     zod.enum([
@@ -3993,6 +6781,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                         'is_not',
                                                                         'icontains',
                                                                         'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
                                                                         'regex',
                                                                         'not_regex',
                                                                         'gt',
@@ -4049,33 +6841,29 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     zod.boolean(),
                                                                     zod.null(),
                                                                 ])
-                                                                .default(
-                                                                    experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemPropertiesOneItemValueDefault
-                                                                ),
+                                                                .optional(),
                                                         })
                                                     ),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemPropertiesDefault
-                                                )
+                                                .optional()
                                                 .describe('Event property filters to narrow which events are counted.'),
                                         })
                                     ),
                                     zod.null(),
                                 ])
-                                .default(experimentsPartialUpdateBodyMetricsOneItemSeriesDefault)
-                                .describe('For funnel metrics: array of EventsNode/ActionsNode steps.'),
+                                .optional()
+                                .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
                             source: zod
                                 .union([
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(experimentsPartialUpdateBodyMetricsOneItemSourceOneEventDefault)
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(experimentsPartialUpdateBodyMetricsOneItemSourceOneIdDefault)
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -4093,7 +6881,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(experimentsPartialUpdateBodyMetricsOneItemSourceOneMathDefault)
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -4108,25 +6896,19 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemSourceOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemSourceOneMathHogqlDefault
-                                            )
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemSourceOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -4135,11 +6917,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -4147,6 +6925,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -4203,34 +6985,28 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesDefault
-                                            )
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsPartialUpdateBodyMetricsOneItemSourceDefault)
+                                .optional()
                                 .describe('For mean metrics: event source.'),
                             start_event: zod
                                 .union([
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemStartEventOneEventDefault
-                                            )
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(experimentsPartialUpdateBodyMetricsOneItemStartEventOneIdDefault)
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -4248,7 +7024,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(experimentsPartialUpdateBodyMetricsOneItemStartEventOneMathDefault)
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -4263,25 +7039,19 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemStartEventOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemStartEventOneMathHogqlDefault
-                                            )
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemStartEventOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -4290,11 +7060,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -4302,6 +7068,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -4358,25 +7128,25 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesDefault
-                                            )
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsPartialUpdateBodyMetricsOneItemStartEventDefault)
+                                .optional()
                                 .describe('For retention metrics: start event.'),
-                            start_handling: zod
-                                .union([zod.enum(['first_seen', 'last_seen']), zod.null()])
-                                .default(experimentsPartialUpdateBodyMetricsOneItemStartHandlingDefault),
+                            start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed\/counted value reaches or exceeds this threshold. Only meaningful for sum\/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -4385,13 +7155,13 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                         .max(experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMax),
                                     zod.null(),
                                 ])
-                                .default(experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileDefault)
+                                .optional()
                                 .describe(
                                     'For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.'
                                 ),
                             uuid: zod
                                 .union([zod.string(), zod.null()])
-                                .default(experimentsPartialUpdateBodyMetricsOneItemUuidDefault)
+                                .optional()
                                 .describe('Unique identifier. Auto-generated if omitted.'),
                         })
                     )
@@ -4400,7 +7170,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
@@ -4412,15 +7182,11 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOneEventDefault
-                                            )
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOneIdDefault
-                                            )
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -4438,9 +7204,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOneMathDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -4455,25 +7219,19 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOneMathHogqlDefault
-                                            )
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -4482,11 +7240,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -4494,6 +7248,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -4550,40 +7308,32 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesDefault
-                                            )
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventDefault)
+                                .optional()
                                 .describe('For retention metrics: completion event.'),
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
-                                .default(experimentsPartialUpdateBodyMetricsSecondaryOneItemConversionWindowDefault)
+                                .optional()
                                 .describe('Conversion window duration.'),
                             denominator: zod
                                 .union([
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOneEventDefault
-                                            )
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOneIdDefault
-                                            )
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -4601,9 +7351,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOneMathDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -4618,25 +7366,19 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOneMathHogqlDefault
-                                            )
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -4645,11 +7387,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -4657,6 +7395,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -4713,30 +7455,22 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOnePropertiesDefault
-                                            )
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorDefault)
+                                .optional()
                                 .describe('For ratio metrics: denominator source.'),
                             denominator_outlier_handling: zod
                                 .union([
                                     zod.object({
-                                        ignore_zeros: zod
-                                            .union([zod.boolean(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneIgnoreZerosDefault
-                                            ),
+                                        ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
                                         lower_bound_percentile: zod
                                             .union([
                                                 zod
@@ -4749,9 +7483,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
                                             ),
@@ -4767,28 +7499,24 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
                                             ),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(
-                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingDefault
-                                )
+                                .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
-                                .default(experimentsPartialUpdateBodyMetricsSecondaryOneItemGoalDefault)
+                                .optional()
                                 .describe('Whether higher or lower values indicate success.'),
                             ignore_zeros: zod
                                 .union([zod.boolean(), zod.null()])
-                                .default(experimentsPartialUpdateBodyMetricsSecondaryOneItemIgnoreZerosDefault)
+                                .optional()
                                 .describe(
                                     'For mean metrics: exclude zero values when computing the winsorization percentile thresholds.'
                                 ),
@@ -4807,29 +7535,25 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                         ),
                                     zod.null(),
                                 ])
-                                .default(experimentsPartialUpdateBodyMetricsSecondaryOneItemLowerBoundPercentileDefault)
+                                .optional()
                                 .describe(
                                     'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
                             metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
                             name: zod
                                 .union([zod.string(), zod.null()])
-                                .default(experimentsPartialUpdateBodyMetricsSecondaryOneItemNameDefault)
+                                .optional()
                                 .describe('Human-readable metric name.'),
                             numerator: zod
                                 .union([
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOneEventDefault
-                                            )
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOneIdDefault
-                                            )
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -4847,9 +7571,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOneMathDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -4864,25 +7586,19 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOneMathHogqlDefault
-                                            )
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -4891,11 +7607,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -4903,6 +7615,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -4959,30 +7675,22 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOnePropertiesDefault
-                                            )
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorDefault)
+                                .optional()
                                 .describe('For ratio metrics: numerator source.'),
                             numerator_outlier_handling: zod
                                 .union([
                                     zod.object({
-                                        ignore_zeros: zod
-                                            .union([zod.boolean(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneIgnoreZerosDefault
-                                            ),
+                                        ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
                                         lower_bound_percentile: zod
                                             .union([
                                                 zod
@@ -4995,9 +7703,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
                                             ),
@@ -5013,47 +7719,33 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
                                             ),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(
-                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingDefault
-                                )
+                                .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
                                 ),
-                            retention_window_end: zod
-                                .union([zod.number(), zod.null()])
-                                .default(experimentsPartialUpdateBodyMetricsSecondaryOneItemRetentionWindowEndDefault),
-                            retention_window_start: zod
-                                .union([zod.number(), zod.null()])
-                                .default(
-                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemRetentionWindowStartDefault
-                                ),
+                            retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
+                            retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
                             retention_window_unit: zod
                                 .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
-                                .default(experimentsPartialUpdateBodyMetricsSecondaryOneItemRetentionWindowUnitDefault),
+                                .optional(),
                             series: zod
                                 .union([
                                     zod.array(
                                         zod.object({
                                             event: zod
                                                 .union([zod.string(), zod.null()])
-                                                .default(
-                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemEventDefault
-                                                )
+                                                .optional()
                                                 .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                             id: zod
                                                 .union([zod.number(), zod.null()])
-                                                .default(
-                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemIdDefault
-                                                )
+                                                .optional()
                                                 .describe('Action ID. Required for ActionsNode.'),
                                             kind: zod.enum(['EventsNode', 'ActionsNode']),
                                             math: zod
@@ -5071,9 +7763,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     ]),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemMathDefault
-                                                )
+                                                .optional()
                                                 .describe(
                                                     "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                                 ),
@@ -5088,25 +7778,19 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     ]),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemMathGroupTypeIndexDefault
-                                                )
+                                                .optional()
                                                 .describe(
                                                     "Group type index to aggregate over. Required when math is 'unique_group'."
                                                 ),
                                             math_hogql: zod
                                                 .union([zod.string(), zod.null()])
-                                                .default(
-                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemMathHogqlDefault
-                                                )
+                                                .optional()
                                                 .describe(
-                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                                 ),
                                             math_property: zod
                                                 .union([zod.string(), zod.null()])
-                                                .default(
-                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemMathPropertyDefault
-                                                )
+                                                .optional()
                                                 .describe(
                                                     "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                                 ),
@@ -5115,11 +7799,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     zod.array(
                                                         zod.object({
                                                             key: zod.string(),
-                                                            label: zod
-                                                                .union([zod.string(), zod.null()])
-                                                                .default(
-                                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemLabelDefault
-                                                                ),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                                             operator: zod
                                                                 .union([
                                                                     zod.enum([
@@ -5127,6 +7807,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                         'is_not',
                                                                         'icontains',
                                                                         'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
                                                                         'regex',
                                                                         'not_regex',
                                                                         'gt',
@@ -5183,37 +7867,29 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     zod.boolean(),
                                                                     zod.null(),
                                                                 ])
-                                                                .default(
-                                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemValueDefault
-                                                                ),
+                                                                .optional(),
                                                         })
                                                     ),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesDefault
-                                                )
+                                                .optional()
                                                 .describe('Event property filters to narrow which events are counted.'),
                                         })
                                     ),
                                     zod.null(),
                                 ])
-                                .default(experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesDefault)
-                                .describe('For funnel metrics: array of EventsNode/ActionsNode steps.'),
+                                .optional()
+                                .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
                             source: zod
                                 .union([
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOneEventDefault
-                                            )
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOneIdDefault
-                                            )
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -5231,9 +7907,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOneMathDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -5248,25 +7922,19 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOneMathHogqlDefault
-                                            )
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -5275,11 +7943,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -5287,6 +7951,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -5343,36 +8011,28 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropertiesDefault
-                                            )
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceDefault)
+                                .optional()
                                 .describe('For mean metrics: event source.'),
                             start_event: zod
                                 .union([
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOneEventDefault
-                                            )
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOneIdDefault
-                                            )
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -5390,9 +8050,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOneMathDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -5407,25 +8065,19 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOneMathHogqlDefault
-                                            )
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -5434,11 +8086,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -5446,6 +8094,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -5502,25 +8154,25 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesDefault
-                                            )
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventDefault)
+                                .optional()
                                 .describe('For retention metrics: start event.'),
-                            start_handling: zod
-                                .union([zod.enum(['first_seen', 'last_seen']), zod.null()])
-                                .default(experimentsPartialUpdateBodyMetricsSecondaryOneItemStartHandlingDefault),
+                            start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed\/counted value reaches or exceeds this threshold. Only meaningful for sum\/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -5533,13 +8185,13 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                         ),
                                     zod.null(),
                                 ])
-                                .default(experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileDefault)
+                                .optional()
                                 .describe(
                                     'For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.'
                                 ),
                             uuid: zod
                                 .union([zod.string(), zod.null()])
-                                .default(experimentsPartialUpdateBodyMetricsSecondaryOneItemUuidDefault)
+                                .optional()
                                 .describe('Unique identifier. Auto-generated if omitted.'),
                         })
                     )
@@ -5562,15 +8214,26 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                 zod
                     .enum(['won', 'lost', 'inconclusive', 'stopped_early', 'invalid'])
                     .describe(
-                        '* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
+                        '\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
+                'Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
             ),
-        conclusion_comment: zod.string().nullish().describe('Comment about the experiment conclusion.'),
+        conclusion_comment: zod
+            .string()
+            .max(experimentsPartialUpdateBodyConclusionCommentMax)
+            .nullish()
+            .describe('Comment about the experiment conclusion.'),
+        repository: zod
+            .string()
+            .max(experimentsPartialUpdateBodyRepositoryMax)
+            .nullish()
+            .describe(
+                "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
+            ),
         primary_metrics_ordered_uuids: zod.unknown().optional(),
         secondary_metrics_ordered_uuids: zod.unknown().optional(),
         only_count_matured_users: zod.boolean().optional(),
@@ -5578,10 +8241,22 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .boolean()
             .optional()
             .describe(
-                'When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts.'
+                'When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected.'
+            ),
+        version: zod
+            .number()
+            .nullish()
+            .describe(
+                "Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: a stale update merges concurrent changes where safe — metric collections per metric uuid, other fields per field — using the base values sent in `original_experiment`, and fails with HTTP 409 only when the same metric or field changed on both sides (or no base value was sent for a changed field). Omit to skip the check."
+            ),
+        original_experiment: zod
+            .record(zod.string(), zod.unknown())
+            .nullish()
+            .describe(
+                'The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.'
             ),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe('Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.')
 
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
@@ -5591,39 +8266,99 @@ export const ExperimentsDestroyParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 /**
- * Archive an ended experiment.
+ * Change history for this experiment.
+ *
+ * Returns a paginated audit trail of changes to the experiment and its holdouts
+ * and shared metrics: who made each change, what changed (field-level before/after
+ * values), and when. Ordered newest first.
+ */
+export const ExperimentsActivityRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
-Hides the experiment from the default list view. The experiment can be
-restored at any time by updating archived=false. Returns 400 if the
-experiment is already archived or has not ended yet.
+export const experimentsActivityRetrieveQueryLimitDefault = 10
+
+export const experimentsActivityRetrieveQueryPageDefault = 1
+
+export const ExperimentsActivityRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod
+        .number()
+        .min(1)
+        .default(experimentsActivityRetrieveQueryLimitDefault)
+        .describe('Number of items per page'),
+    page: zod.number().min(1).default(experimentsActivityRetrieveQueryPageDefault).describe('Page number'),
+})
+
+/**
+ * Archive an ended experiment.
+ *
+ * Hides the experiment from the default list view. The experiment can be
+ * restored at any time by updating archived=false. When the linked feature
+ * flag is still enabled, pass disable_feature_flag=true to also disable and
+ * archive it. Returns 400 if the experiment is already archived or has not
+ * ended yet.
  */
 export const ExperimentsArchiveCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const experimentsArchiveCreateBodyDisableFeatureFlagDefault = false
+
+export const ExperimentsArchiveCreateBody = /* @__PURE__ */ zod.object({
+    disable_feature_flag: zod
+        .boolean()
+        .default(experimentsArchiveCreateBodyDisableFeatureFlagDefault)
+        .describe(
+            'When the linked feature flag is still enabled, also disable and archive it along with the experiment. Has no effect if the flag is already disabled (it is archived either way).'
         ),
 })
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ * Copy an experiment into another project in the same organization as a new draft.
+ */
+export const ExperimentsCopyToProjectCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
+export const ExperimentsCopyToProjectCreateBody = /* @__PURE__ */ zod.object({
+    target_team_id: zod.number().describe('The team ID to copy the experiment to.'),
+    feature_flag_key: zod.string().optional().describe('Optional feature flag key to use in the destination team.'),
+    name: zod.string().optional().describe('Optional name for the copied experiment.'),
+})
+
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
  */
 export const ExperimentsDuplicateCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -5631,246 +8366,99 @@ export const experimentsDuplicateCreateBodyNameMax = 400
 
 export const experimentsDuplicateCreateBodyDescriptionMax = 3000
 
-export const experimentsDuplicateCreateBodyParametersOneExcludedVariantsDefault = null
-export const experimentsDuplicateCreateBodyParametersOneFeatureFlagVariantsOneItemNameDefault = null
-export const experimentsDuplicateCreateBodyParametersOneFeatureFlagVariantsOneItemRolloutPercentageDefault = null
-export const experimentsDuplicateCreateBodyParametersOneFeatureFlagVariantsOneItemSplitPercentDefault = null
-export const experimentsDuplicateCreateBodyParametersOneFeatureFlagVariantsDefault = null
-export const experimentsDuplicateCreateBodyParametersOneMinimumDetectableEffectDefault = null
-export const experimentsDuplicateCreateBodyParametersOneRolloutPercentageDefault = null
 export const experimentsDuplicateCreateBodyArchivedDefault = false
-export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOneKindDefault = `ExperimentEventExposureConfig`
-export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemLabelDefault = null
-export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault = `exact`
-export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault = `event`
-export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemValueDefault = null
-export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigDefault = null
-export const experimentsDuplicateCreateBodyExposureCriteriaOneFilterTestAccountsDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOneEventDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOneIdDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOneMathDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOneMathGroupTypeIndexDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOneMathHogqlDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOneMathPropertyDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemLabelDefault = null
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneOperatorDefault = `exact`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneTypeDefault = `event`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwoTypeDefault = `person`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemThreeTypeDefault = `person_metadata`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemFourTypeDefault = `element`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemFiveTypeDefault = `event_metadata`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSixTypeDefault = `session`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSevenKeyDefault = `id`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSevenOperatorDefault = `in`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSevenTypeDefault = `cohort`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemEightTypeDefault = `recording`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemNineTypeDefault = `log_entry`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnezeroTypeDefault = `group`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneoneTypeDefault = `feature`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnetwoOperatorDefault = `flag_evaluates_to`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnetwoTypeDefault = `flag`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnethreeTypeDefault = `hogql`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnefourTypeDefault = `empty`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnefiveTypeDefault = `data_warehouse`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesixTypeDefault = `data_warehouse_person_property`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesevenTypeDefault = `error_tracking_issue`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault = `metric_attribute`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault = `revenue_analytics`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault = `account_custom_property`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwothreeTypeDefault = `workflow_variable`
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
-export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemValueDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemConversionWindowDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOneEventDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOneIdDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOneMathDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOneMathGroupTypeIndexDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOneMathHogqlDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOneMathPropertyDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemLabelDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemTypeDefault = `event`
-export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemValueDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneIgnoreZerosDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
-export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
-export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemGoalDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemIgnoreZerosDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemKindDefault = `ExperimentMetric`
 export const experimentsDuplicateCreateBodyMetricsOneItemLowerBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsOneItemLowerBoundPercentileOneMax = 1
 
-export const experimentsDuplicateCreateBodyMetricsOneItemLowerBoundPercentileDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemNameDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOneEventDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOneIdDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOneMathDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOneMathGroupTypeIndexDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOneMathHogqlDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOneMathPropertyDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemLabelDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemTypeDefault = `event`
-export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemValueDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOnePropertiesDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneIgnoreZerosDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
-export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
-export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemRetentionWindowEndDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemRetentionWindowStartDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemRetentionWindowUnitDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemEventDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemIdDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemMathDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemMathGroupTypeIndexDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemMathHogqlDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemMathPropertyDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemLabelDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemTypeDefault = `event`
-export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemValueDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemPropertiesDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemSeriesDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemSourceOneEventDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemSourceOneIdDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemSourceOneMathDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemSourceOneMathGroupTypeIndexDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemSourceOneMathHogqlDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemSourceOneMathPropertyDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesOneItemLabelDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesOneItemTypeDefault = `event`
-export const experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesOneItemValueDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemSourceDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOneEventDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOneIdDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOneMathDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOneMathGroupTypeIndexDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOneMathHogqlDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOneMathPropertyDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesOneItemLabelDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
-export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesOneItemValueDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemStartEventDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemStartHandlingDefault = null
 export const experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
 
-export const experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileDefault = null
-export const experimentsDuplicateCreateBodyMetricsOneItemUuidDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOneEventDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOneIdDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOneMathDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOneMathGroupTypeIndexDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOneMathHogqlDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOneMathPropertyDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemLabelDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemValueDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemConversionWindowDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOneEventDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOneIdDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOneMathDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOneMathGroupTypeIndexDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOneMathHogqlDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOneMathPropertyDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemLabelDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemTypeDefault = `event`
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemValueDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneIgnoreZerosDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileDefault =
-    null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileDefault =
-    null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemGoalDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemIgnoreZerosDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemKindDefault = `ExperimentMetric`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMax = 1
 
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemLowerBoundPercentileDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNameDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOneEventDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOneIdDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOneMathDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOneMathGroupTypeIndexDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOneMathHogqlDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOneMathPropertyDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemLabelDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemTypeDefault = `event`
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemValueDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneIgnoreZerosDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileDefault =
-    null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileDefault =
-    null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemRetentionWindowEndDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemRetentionWindowStartDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemRetentionWindowUnitDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemEventDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemIdDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemMathDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemMathGroupTypeIndexDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemMathHogqlDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemMathPropertyDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemLabelDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemTypeDefault = `event`
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemValueDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOneEventDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOneIdDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOneMathDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOneMathGroupTypeIndexDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOneMathHogqlDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOneMathPropertyDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemLabelDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemTypeDefault = `event`
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemValueDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePropertiesDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOneEventDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOneIdDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOneMathDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOneMathGroupTypeIndexDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOneMathHogqlDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOneMathPropertyDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemLabelDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemValueDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartHandlingDefault = null
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileDefault = null
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUuidDefault = null
 export const experimentsDuplicateCreateBodyAllowUnknownEventsDefault = false
+export const experimentsDuplicateCreateBodyConclusionCommentMax = 4000
+
+export const experimentsDuplicateCreateBodyRepositoryMax = 255
+
 export const experimentsDuplicateCreateBodyUpdateFeatureFlagParamsDefault = false
 
 export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
@@ -5886,72 +8474,93 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
         feature_flag_key: zod
             .string()
             .describe(
-                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible."
+                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible."
             ),
         holdout_id: zod.number().nullish().describe('ID of a holdout group to exclude from the experiment.'),
         parameters: zod
             .union([
                 zod.object({
-                    excluded_variants: zod
-                        .union([zod.array(zod.string()), zod.null()])
-                        .default(experimentsDuplicateCreateBodyParametersOneExcludedVariantsDefault)
-                        .describe(
-                            'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis.'
-                        ),
-                    feature_flag_variants: zod
-                        .union([
-                            zod.array(
-                                zod.object({
-                                    key: zod
-                                        .string()
-                                        .describe(
-                                            "Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'."
-                                        ),
-                                    name: zod
-                                        .union([zod.string(), zod.null()])
-                                        .default(
-                                            experimentsDuplicateCreateBodyParametersOneFeatureFlagVariantsOneItemNameDefault
-                                        )
-                                        .describe('Human-readable variant name.'),
-                                    rollout_percentage: zod
-                                        .union([zod.number(), zod.null()])
-                                        .default(
-                                            experimentsDuplicateCreateBodyParametersOneFeatureFlagVariantsOneItemRolloutPercentageDefault
-                                        ),
-                                    split_percent: zod
-                                        .union([zod.number(), zod.null()])
-                                        .default(
-                                            experimentsDuplicateCreateBodyParametersOneFeatureFlagVariantsOneItemSplitPercentDefault
-                                        )
-                                        .describe(
-                                            'Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided.'
-                                        ),
-                                })
-                            ),
-                            zod.null(),
-                        ])
-                        .default(experimentsDuplicateCreateBodyParametersOneFeatureFlagVariantsDefault)
-                        .describe(
-                            "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20."
-                        ),
                     minimum_detectable_effect: zod
                         .union([zod.number(), zod.null()])
-                        .default(experimentsDuplicateCreateBodyParametersOneMinimumDetectableEffectDefault)
+                        .optional()
                         .describe(
                             'Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments.'
                         ),
-                    rollout_percentage: zod
-                        .union([zod.number(), zod.null()])
-                        .default(experimentsDuplicateCreateBodyParametersOneRolloutPercentageDefault)
+                    variant_notes: zod
+                        .union([zod.record(zod.string(), zod.string()), zod.null()])
+                        .optional()
                         .describe(
-                            'Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.'
+                            'Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL.'
                         ),
                 }),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded).'
+                "Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config (variants, rollout, aggregation, payloads, experience continuity) belongs on the `feature_flag` object; send it there. For backward compatibility, config still sent through these deprecated keys is copied onto the linked flag rather than rejected, and reads project the flag's current config back into this field. Excluded variants live on the top-level `excluded_variants` field, not here."
+            ),
+        running_time_calculation: zod
+            .union([
+                zod.object({
+                    exposure_estimate_config: zod
+                        .union([
+                            zod.object({
+                                conversionRateInputType: zod
+                                    .enum(['manual', 'automatic'])
+                                    .describe(
+                                        "'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data."
+                                    ),
+                                manualBaselineValue: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode.'
+                                    ),
+                                manualExposureRate: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Manually entered estimate of users exposed to the experiment per day. Only used in manual mode.'
+                                    ),
+                                manualMetricType: zod
+                                    .union([zod.enum(['funnel', 'mean_count', 'mean_sum_or_avg']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Metric type the manual baseline value refers to. Only used in manual mode.'
+                                    ),
+                            }),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            'How the exposure estimate is configured: manual user-entered values or automatic from live experiment data.'
+                        ),
+                    minimum_detectable_effect: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes.'
+                        ),
+                    recommended_running_time: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe('Estimated number of days needed to reach the recommended sample size.'),
+                    recommended_sample_size: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe('Recommended number of exposed users needed for statistical significance.'),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`.'
+            ),
+        excluded_variants: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`.'
             ),
         secondary_metrics: zod.unknown().optional(),
         saved_metrics_ids: zod
@@ -5967,10 +8576,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             .describe('Whether the experiment is archived.'),
         deleted: zod.boolean().nullish(),
         type: zod
-            .union([zod.enum(['web', 'product']).describe('* `web` - web\n* `product` - product'), zod.null()])
+            .union([zod.enum(['web', 'product']).describe('\* `web` - web\n\* `product` - product'), zod.null()])
             .optional()
             .describe(
-                'Experiment type: web for frontend UI changes, product for backend/API changes.\n\n* `web` - web\n* `product` - product'
+                'Experiment type: web for frontend UI changes, product for backend\/API changes.\n\n\* `web` - web\n\* `product` - product'
             ),
         exposure_criteria: zod
             .union([
@@ -5978,91 +8587,1306 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                     exposure_config: zod
                         .union([
                             zod.object({
-                                event: zod.string().describe('Custom exposure event name.'),
+                                event: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."
+                                    ),
+                                id: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe("Action ID. Required when kind is 'ActionsNode'."),
                                 kind: zod
-                                    .literal('ExperimentEventExposureConfig')
-                                    .default(
-                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOneKindDefault
+                                    .union([zod.enum(['ExperimentEventExposureConfig', 'ActionsNode']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
                                     ),
                                 properties: zod
                                     .array(
-                                        zod.object({
-                                            key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemLabelDefault
-                                                ),
-                                            operator: zod
-                                                .union([
-                                                    zod.enum([
-                                                        'exact',
-                                                        'is_not',
-                                                        'icontains',
-                                                        'not_icontains',
-                                                        'regex',
-                                                        'not_regex',
-                                                        'gt',
-                                                        'gte',
-                                                        'lt',
-                                                        'lte',
-                                                        'is_set',
-                                                        'is_not_set',
-                                                        'is_date_exact',
-                                                        'is_date_before',
-                                                        'is_date_after',
-                                                        'between',
-                                                        'not_between',
-                                                        'min',
-                                                        'max',
-                                                        'in',
-                                                        'not_in',
-                                                        'is_cleaned_path_exact',
-                                                        'flag_evaluates_to',
-                                                        'semver_eq',
-                                                        'semver_neq',
-                                                        'semver_gt',
-                                                        'semver_gte',
-                                                        'semver_lt',
-                                                        'semver_lte',
-                                                        'semver_tilde',
-                                                        'semver_caret',
-                                                        'semver_wildcard',
-                                                        'icontains_multi',
-                                                        'not_icontains_multi',
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .default(
-                                                    experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault
-                                                ),
-                                            type: zod
-                                                .literal('event')
-                                                .default(
-                                                    experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault
-                                                )
-                                                .describe('Event properties'),
-                                            value: zod
-                                                .union([
-                                                    zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                        zod.union([
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneOperatorDefault
+                                                    ),
+                                                type: zod
+                                                    .literal('event')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneTypeDefault
+                                                    )
+                                                    .describe('Event properties'),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('person')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwoTypeDefault
+                                                    )
+                                                    .describe('Person properties'),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('person_metadata')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemThreeTypeDefault
+                                                    )
+                                                    .describe(
+                                                        'Top-level columns on the persons table (e.g. created_at), not properties JSON'
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.enum(['tag_name', 'text', 'href', 'selector']),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('element')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemFourTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('event_metadata')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemFiveTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('session')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSixTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                cohort_name: zod.union([zod.string(), zod.null()]).optional(),
+                                                key: zod
+                                                    .literal('id')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSevenKeyDefault
+                                                    ),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSevenOperatorDefault
+                                                    ),
+                                                type: zod
+                                                    .literal('cohort')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSevenTypeDefault
+                                                    ),
+                                                value: zod.number(),
+                                            }),
+                                            zod.object({
+                                                key: zod.union([
+                                                    zod.enum(['duration', 'active_seconds', 'inactive_seconds']),
                                                     zod.string(),
-                                                    zod.number(),
-                                                    zod.boolean(),
-                                                    zod.null(),
-                                                ])
-                                                .default(
-                                                    experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemValueDefault
-                                                ),
-                                        })
+                                                ]),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('recording')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemEightTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('log_entry')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemNineTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                group_key_names: zod
+                                                    .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                    .optional(),
+                                                group_type_index: zod.union([zod.number(), zod.null()]).optional(),
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('group')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnezeroTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('feature')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneoneTypeDefault
+                                                    )
+                                                    .describe('Event property with \"$feature\/\" prepended'),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string().describe('The key should be the flag ID'),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod
+                                                    .literal('flag_evaluates_to')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnetwoOperatorDefault
+                                                    )
+                                                    .describe(
+                                                        'Only flag_evaluates_to operator is allowed for flag dependencies'
+                                                    ),
+                                                type: zod
+                                                    .literal('flag')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnetwoTypeDefault
+                                                    )
+                                                    .describe('Feature flag dependency'),
+                                                value: zod
+                                                    .union([zod.boolean(), zod.string()])
+                                                    .describe('The value can be true, false, or a variant name'),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                type: zod
+                                                    .literal('hogql')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnethreeTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                type: zod
+                                                    .literal('empty')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnefourTypeDefault
+                                                    ),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('data_warehouse')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnefiveTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('data_warehouse_person_property')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesixTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('error_tracking_issue')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesevenTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod.enum(['log', 'log_attribute', 'log_resource_attribute']),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('metric_attribute')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod.enum(['span', 'span_attribute', 'span_resource_attribute']),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('revenue_analytics')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('account_custom_property')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault
+                                                    )
+                                                    .describe(
+                                                        'Customer analytics account custom property — the key is the property definition id'
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('workflow_variable')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwothreeTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                        ])
                                     )
-                                    .describe('Event property filters. Pass an empty array if no filters needed.'),
+                                    .describe(
+                                        'Property filters (event, person, and other supported types). Pass an empty array if no filters needed.'
+                                    ),
                             }),
                             zod.null(),
                         ])
-                        .default(experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigDefault),
-                    filterTestAccounts: zod
-                        .union([zod.boolean(), zod.null()])
-                        .default(experimentsDuplicateCreateBodyExposureCriteriaOneFilterTestAccountsDefault),
+                        .optional(),
+                    filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
+                    multiple_variant_handling: zod
+                        .union([zod.enum(['exclude', 'first_seen']), zod.null()])
+                        .optional()
+                        .describe(
+                            "How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure."
+                        ),
                 }),
                 zod.null(),
             ])
@@ -6078,15 +9902,11 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOneEventDefault
-                                            )
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOneIdDefault
-                                            )
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -6104,9 +9924,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOneMathDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -6121,25 +9939,19 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOneMathHogqlDefault
-                                            )
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -6148,11 +9960,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -6160,6 +9968,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -6216,40 +10028,32 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesDefault
-                                            )
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsDuplicateCreateBodyMetricsOneItemCompletionEventDefault)
+                                .optional()
                                 .describe('For retention metrics: completion event.'),
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
-                                .default(experimentsDuplicateCreateBodyMetricsOneItemConversionWindowDefault)
+                                .optional()
                                 .describe('Conversion window duration.'),
                             denominator: zod
                                 .union([
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemDenominatorOneEventDefault
-                                            )
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemDenominatorOneIdDefault
-                                            )
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -6267,9 +10071,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemDenominatorOneMathDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -6284,25 +10086,19 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemDenominatorOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemDenominatorOneMathHogqlDefault
-                                            )
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemDenominatorOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -6311,11 +10107,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -6323,6 +10115,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -6379,30 +10175,22 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesDefault
-                                            )
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsDuplicateCreateBodyMetricsOneItemDenominatorDefault)
+                                .optional()
                                 .describe('For ratio metrics: denominator source.'),
                             denominator_outlier_handling: zod
                                 .union([
                                     zod.object({
-                                        ignore_zeros: zod
-                                            .union([zod.boolean(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneIgnoreZerosDefault
-                                            ),
+                                        ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
                                         lower_bound_percentile: zod
                                             .union([
                                                 zod
@@ -6415,9 +10203,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
                                             ),
@@ -6433,26 +10219,24 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
                                             ),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingDefault)
+                                .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
-                                .default(experimentsDuplicateCreateBodyMetricsOneItemGoalDefault)
+                                .optional()
                                 .describe('Whether higher or lower values indicate success.'),
                             ignore_zeros: zod
                                 .union([zod.boolean(), zod.null()])
-                                .default(experimentsDuplicateCreateBodyMetricsOneItemIgnoreZerosDefault)
+                                .optional()
                                 .describe(
                                     'For mean metrics: exclude zero values when computing the winsorization percentile thresholds.'
                                 ),
@@ -6467,27 +10251,25 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                         .max(experimentsDuplicateCreateBodyMetricsOneItemLowerBoundPercentileOneMax),
                                     zod.null(),
                                 ])
-                                .default(experimentsDuplicateCreateBodyMetricsOneItemLowerBoundPercentileDefault)
+                                .optional()
                                 .describe(
                                     'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
                             metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
                             name: zod
                                 .union([zod.string(), zod.null()])
-                                .default(experimentsDuplicateCreateBodyMetricsOneItemNameDefault)
+                                .optional()
                                 .describe('Human-readable metric name.'),
                             numerator: zod
                                 .union([
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemNumeratorOneEventDefault
-                                            )
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(experimentsDuplicateCreateBodyMetricsOneItemNumeratorOneIdDefault)
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -6505,9 +10287,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemNumeratorOneMathDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -6522,25 +10302,19 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemNumeratorOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemNumeratorOneMathHogqlDefault
-                                            )
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemNumeratorOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -6549,11 +10323,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -6561,6 +10331,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -6617,30 +10391,22 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemNumeratorOnePropertiesDefault
-                                            )
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsDuplicateCreateBodyMetricsOneItemNumeratorDefault)
+                                .optional()
                                 .describe('For ratio metrics: numerator source.'),
                             numerator_outlier_handling: zod
                                 .union([
                                     zod.object({
-                                        ignore_zeros: zod
-                                            .union([zod.boolean(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneIgnoreZerosDefault
-                                            ),
+                                        ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
                                         lower_bound_percentile: zod
                                             .union([
                                                 zod
@@ -6653,9 +10419,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
                                             ),
@@ -6671,43 +10435,33 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
                                             ),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingDefault)
+                                .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
                                 ),
-                            retention_window_end: zod
-                                .union([zod.number(), zod.null()])
-                                .default(experimentsDuplicateCreateBodyMetricsOneItemRetentionWindowEndDefault),
-                            retention_window_start: zod
-                                .union([zod.number(), zod.null()])
-                                .default(experimentsDuplicateCreateBodyMetricsOneItemRetentionWindowStartDefault),
+                            retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
+                            retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
                             retention_window_unit: zod
                                 .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
-                                .default(experimentsDuplicateCreateBodyMetricsOneItemRetentionWindowUnitDefault),
+                                .optional(),
                             series: zod
                                 .union([
                                     zod.array(
                                         zod.object({
                                             event: zod
                                                 .union([zod.string(), zod.null()])
-                                                .default(
-                                                    experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemEventDefault
-                                                )
+                                                .optional()
                                                 .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                             id: zod
                                                 .union([zod.number(), zod.null()])
-                                                .default(
-                                                    experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemIdDefault
-                                                )
+                                                .optional()
                                                 .describe('Action ID. Required for ActionsNode.'),
                                             kind: zod.enum(['EventsNode', 'ActionsNode']),
                                             math: zod
@@ -6725,9 +10479,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     ]),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemMathDefault
-                                                )
+                                                .optional()
                                                 .describe(
                                                     "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                                 ),
@@ -6742,25 +10494,19 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     ]),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemMathGroupTypeIndexDefault
-                                                )
+                                                .optional()
                                                 .describe(
                                                     "Group type index to aggregate over. Required when math is 'unique_group'."
                                                 ),
                                             math_hogql: zod
                                                 .union([zod.string(), zod.null()])
-                                                .default(
-                                                    experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemMathHogqlDefault
-                                                )
+                                                .optional()
                                                 .describe(
-                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                                 ),
                                             math_property: zod
                                                 .union([zod.string(), zod.null()])
-                                                .default(
-                                                    experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemMathPropertyDefault
-                                                )
+                                                .optional()
                                                 .describe(
                                                     "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                                 ),
@@ -6769,11 +10515,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     zod.array(
                                                         zod.object({
                                                             key: zod.string(),
-                                                            label: zod
-                                                                .union([zod.string(), zod.null()])
-                                                                .default(
-                                                                    experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemLabelDefault
-                                                                ),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                                             operator: zod
                                                                 .union([
                                                                     zod.enum([
@@ -6781,6 +10523,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                         'is_not',
                                                                         'icontains',
                                                                         'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
                                                                         'regex',
                                                                         'not_regex',
                                                                         'gt',
@@ -6837,33 +10583,29 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     zod.boolean(),
                                                                     zod.null(),
                                                                 ])
-                                                                .default(
-                                                                    experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemValueDefault
-                                                                ),
+                                                                .optional(),
                                                         })
                                                     ),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemPropertiesDefault
-                                                )
+                                                .optional()
                                                 .describe('Event property filters to narrow which events are counted.'),
                                         })
                                     ),
                                     zod.null(),
                                 ])
-                                .default(experimentsDuplicateCreateBodyMetricsOneItemSeriesDefault)
-                                .describe('For funnel metrics: array of EventsNode/ActionsNode steps.'),
+                                .optional()
+                                .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
                             source: zod
                                 .union([
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(experimentsDuplicateCreateBodyMetricsOneItemSourceOneEventDefault)
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(experimentsDuplicateCreateBodyMetricsOneItemSourceOneIdDefault)
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -6881,7 +10623,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(experimentsDuplicateCreateBodyMetricsOneItemSourceOneMathDefault)
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -6896,25 +10638,19 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemSourceOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemSourceOneMathHogqlDefault
-                                            )
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemSourceOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -6923,11 +10659,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -6935,6 +10667,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -6991,34 +10727,28 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesDefault
-                                            )
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsDuplicateCreateBodyMetricsOneItemSourceDefault)
+                                .optional()
                                 .describe('For mean metrics: event source.'),
                             start_event: zod
                                 .union([
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemStartEventOneEventDefault
-                                            )
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(experimentsDuplicateCreateBodyMetricsOneItemStartEventOneIdDefault)
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -7036,9 +10766,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemStartEventOneMathDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -7053,25 +10781,19 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemStartEventOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemStartEventOneMathHogqlDefault
-                                            )
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemStartEventOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -7080,11 +10802,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -7092,6 +10810,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -7148,25 +10870,25 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesDefault
-                                            )
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsDuplicateCreateBodyMetricsOneItemStartEventDefault)
+                                .optional()
                                 .describe('For retention metrics: start event.'),
-                            start_handling: zod
-                                .union([zod.enum(['first_seen', 'last_seen']), zod.null()])
-                                .default(experimentsDuplicateCreateBodyMetricsOneItemStartHandlingDefault),
+                            start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed\/counted value reaches or exceeds this threshold. Only meaningful for sum\/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -7175,13 +10897,13 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                         .max(experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMax),
                                     zod.null(),
                                 ])
-                                .default(experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileDefault)
+                                .optional()
                                 .describe(
                                     'For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.'
                                 ),
                             uuid: zod
                                 .union([zod.string(), zod.null()])
-                                .default(experimentsDuplicateCreateBodyMetricsOneItemUuidDefault)
+                                .optional()
                                 .describe('Unique identifier. Auto-generated if omitted.'),
                         })
                     )
@@ -7190,7 +10912,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
@@ -7202,15 +10924,11 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOneEventDefault
-                                            )
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOneIdDefault
-                                            )
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -7228,9 +10946,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOneMathDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -7245,25 +10961,19 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOneMathHogqlDefault
-                                            )
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -7272,11 +10982,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -7284,6 +10990,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -7340,40 +11050,32 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesDefault
-                                            )
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventDefault)
+                                .optional()
                                 .describe('For retention metrics: completion event.'),
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
-                                .default(experimentsDuplicateCreateBodyMetricsSecondaryOneItemConversionWindowDefault)
+                                .optional()
                                 .describe('Conversion window duration.'),
                             denominator: zod
                                 .union([
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOneEventDefault
-                                            )
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOneIdDefault
-                                            )
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -7391,9 +11093,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOneMathDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -7408,25 +11108,19 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOneMathHogqlDefault
-                                            )
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -7435,11 +11129,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -7447,6 +11137,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -7503,30 +11197,22 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesDefault
-                                            )
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorDefault)
+                                .optional()
                                 .describe('For ratio metrics: denominator source.'),
                             denominator_outlier_handling: zod
                                 .union([
                                     zod.object({
-                                        ignore_zeros: zod
-                                            .union([zod.boolean(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneIgnoreZerosDefault
-                                            ),
+                                        ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
                                         lower_bound_percentile: zod
                                             .union([
                                                 zod
@@ -7539,9 +11225,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
                                             ),
@@ -7557,28 +11241,24 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
                                             ),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(
-                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingDefault
-                                )
+                                .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
-                                .default(experimentsDuplicateCreateBodyMetricsSecondaryOneItemGoalDefault)
+                                .optional()
                                 .describe('Whether higher or lower values indicate success.'),
                             ignore_zeros: zod
                                 .union([zod.boolean(), zod.null()])
-                                .default(experimentsDuplicateCreateBodyMetricsSecondaryOneItemIgnoreZerosDefault)
+                                .optional()
                                 .describe(
                                     'For mean metrics: exclude zero values when computing the winsorization percentile thresholds.'
                                 ),
@@ -7597,31 +11277,25 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                         ),
                                     zod.null(),
                                 ])
-                                .default(
-                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemLowerBoundPercentileDefault
-                                )
+                                .optional()
                                 .describe(
                                     'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
                             metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
                             name: zod
                                 .union([zod.string(), zod.null()])
-                                .default(experimentsDuplicateCreateBodyMetricsSecondaryOneItemNameDefault)
+                                .optional()
                                 .describe('Human-readable metric name.'),
                             numerator: zod
                                 .union([
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOneEventDefault
-                                            )
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOneIdDefault
-                                            )
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -7639,9 +11313,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOneMathDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -7656,25 +11328,19 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOneMathHogqlDefault
-                                            )
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -7683,11 +11349,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -7695,6 +11357,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -7751,30 +11417,22 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesDefault
-                                            )
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorDefault)
+                                .optional()
                                 .describe('For ratio metrics: numerator source.'),
                             numerator_outlier_handling: zod
                                 .union([
                                     zod.object({
-                                        ignore_zeros: zod
-                                            .union([zod.boolean(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneIgnoreZerosDefault
-                                            ),
+                                        ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
                                         lower_bound_percentile: zod
                                             .union([
                                                 zod
@@ -7787,9 +11445,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
                                             ),
@@ -7805,51 +11461,33 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
                                             ),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(
-                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingDefault
-                                )
+                                .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
                                 ),
-                            retention_window_end: zod
-                                .union([zod.number(), zod.null()])
-                                .default(
-                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemRetentionWindowEndDefault
-                                ),
-                            retention_window_start: zod
-                                .union([zod.number(), zod.null()])
-                                .default(
-                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemRetentionWindowStartDefault
-                                ),
+                            retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
+                            retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
                             retention_window_unit: zod
                                 .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
-                                .default(
-                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemRetentionWindowUnitDefault
-                                ),
+                                .optional(),
                             series: zod
                                 .union([
                                     zod.array(
                                         zod.object({
                                             event: zod
                                                 .union([zod.string(), zod.null()])
-                                                .default(
-                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemEventDefault
-                                                )
+                                                .optional()
                                                 .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                             id: zod
                                                 .union([zod.number(), zod.null()])
-                                                .default(
-                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemIdDefault
-                                                )
+                                                .optional()
                                                 .describe('Action ID. Required for ActionsNode.'),
                                             kind: zod.enum(['EventsNode', 'ActionsNode']),
                                             math: zod
@@ -7867,9 +11505,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     ]),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemMathDefault
-                                                )
+                                                .optional()
                                                 .describe(
                                                     "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                                 ),
@@ -7884,25 +11520,19 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     ]),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemMathGroupTypeIndexDefault
-                                                )
+                                                .optional()
                                                 .describe(
                                                     "Group type index to aggregate over. Required when math is 'unique_group'."
                                                 ),
                                             math_hogql: zod
                                                 .union([zod.string(), zod.null()])
-                                                .default(
-                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemMathHogqlDefault
-                                                )
+                                                .optional()
                                                 .describe(
-                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                                 ),
                                             math_property: zod
                                                 .union([zod.string(), zod.null()])
-                                                .default(
-                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemMathPropertyDefault
-                                                )
+                                                .optional()
                                                 .describe(
                                                     "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                                 ),
@@ -7911,11 +11541,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     zod.array(
                                                         zod.object({
                                                             key: zod.string(),
-                                                            label: zod
-                                                                .union([zod.string(), zod.null()])
-                                                                .default(
-                                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemLabelDefault
-                                                                ),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                                             operator: zod
                                                                 .union([
                                                                     zod.enum([
@@ -7923,6 +11549,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                         'is_not',
                                                                         'icontains',
                                                                         'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
                                                                         'regex',
                                                                         'not_regex',
                                                                         'gt',
@@ -7979,37 +11609,29 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     zod.boolean(),
                                                                     zod.null(),
                                                                 ])
-                                                                .default(
-                                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemValueDefault
-                                                                ),
+                                                                .optional(),
                                                         })
                                                     ),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesDefault
-                                                )
+                                                .optional()
                                                 .describe('Event property filters to narrow which events are counted.'),
                                         })
                                     ),
                                     zod.null(),
                                 ])
-                                .default(experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesDefault)
-                                .describe('For funnel metrics: array of EventsNode/ActionsNode steps.'),
+                                .optional()
+                                .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
                             source: zod
                                 .union([
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOneEventDefault
-                                            )
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOneIdDefault
-                                            )
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -8027,9 +11649,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOneMathDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -8044,25 +11664,19 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOneMathHogqlDefault
-                                            )
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -8071,11 +11685,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -8083,6 +11693,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -8139,36 +11753,28 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePropertiesDefault
-                                            )
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceDefault)
+                                .optional()
                                 .describe('For mean metrics: event source.'),
                             start_event: zod
                                 .union([
                                     zod.object({
                                         event: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOneEventDefault
-                                            )
+                                            .optional()
                                             .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
                                         id: zod
                                             .union([zod.number(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOneIdDefault
-                                            )
+                                            .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
                                         kind: zod.enum(['EventsNode', 'ActionsNode']),
                                         math: zod
@@ -8186,9 +11792,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOneMathDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             ),
@@ -8203,25 +11807,19 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 ]),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOneMathGroupTypeIndexDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Group type index to aggregate over. Required when math is 'unique_group'."
                                             ),
                                         math_hogql: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOneMathHogqlDefault
-                                            )
+                                            .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOneMathPropertyDefault
-                                            )
+                                            .optional()
                                             .describe(
                                                 "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             ),
@@ -8230,11 +11828,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 zod.array(
                                                     zod.object({
                                                         key: zod.string(),
-                                                        label: zod
-                                                            .union([zod.string(), zod.null()])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemLabelDefault
-                                                            ),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
                                                         operator: zod
                                                             .union([
                                                                 zod.enum([
@@ -8242,6 +11836,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -8298,25 +11896,25 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                 zod.boolean(),
                                                                 zod.null(),
                                                             ])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemValueDefault
-                                                            ),
+                                                            .optional(),
                                                     })
                                                 ),
                                                 zod.null(),
                                             ])
-                                            .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesDefault
-                                            )
+                                            .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.null(),
                                 ])
-                                .default(experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventDefault)
+                                .optional()
                                 .describe('For retention metrics: start event.'),
-                            start_handling: zod
-                                .union([zod.enum(['first_seen', 'last_seen']), zod.null()])
-                                .default(experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartHandlingDefault),
+                            start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed\/counted value reaches or exceeds this threshold. Only meaningful for sum\/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -8329,15 +11927,13 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                         ),
                                     zod.null(),
                                 ])
-                                .default(
-                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileDefault
-                                )
+                                .optional()
                                 .describe(
                                     'For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.'
                                 ),
                             uuid: zod
                                 .union([zod.string(), zod.null()])
-                                .default(experimentsDuplicateCreateBodyMetricsSecondaryOneItemUuidDefault)
+                                .optional()
                                 .describe('Unique identifier. Auto-generated if omitted.'),
                         })
                     )
@@ -8360,15 +11956,26 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                 zod
                     .enum(['won', 'lost', 'inconclusive', 'stopped_early', 'invalid'])
                     .describe(
-                        '* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
+                        '\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
+                'Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
             ),
-        conclusion_comment: zod.string().nullish().describe('Comment about the experiment conclusion.'),
+        conclusion_comment: zod
+            .string()
+            .max(experimentsDuplicateCreateBodyConclusionCommentMax)
+            .nullish()
+            .describe('Comment about the experiment conclusion.'),
+        repository: zod
+            .string()
+            .max(experimentsDuplicateCreateBodyRepositoryMax)
+            .nullish()
+            .describe(
+                "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
+            ),
         primary_metrics_ordered_uuids: zod.unknown().optional(),
         secondary_metrics_ordered_uuids: zod.unknown().optional(),
         only_count_matured_users: zod.boolean().optional(),
@@ -8376,43 +11983,64 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             .boolean()
             .default(experimentsDuplicateCreateBodyUpdateFeatureFlagParamsDefault)
             .describe(
-                'When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts.'
+                'When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected.'
+            ),
+        version: zod
+            .number()
+            .nullish()
+            .describe(
+                "Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: a stale update merges concurrent changes where safe — metric collections per metric uuid, other fields per field — using the base values sent in `original_experiment`, and fails with HTTP 409 only when the same metric or field changed on both sides (or no base value was sent for a changed field). Omit to skip the check."
+            ),
+        original_experiment: zod
+            .record(zod.string(), zod.unknown())
+            .nullish()
+            .describe(
+                'The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.'
             ),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe(
+        'Full experiment representation for the detail, create, and update endpoints.\n\nExtends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric\ndefinitions (``metrics``\/``metrics_secondary``\/``saved_metrics``) and the write-side\nfields, and refreshes stale action names while serializing. The list endpoint uses the\nleaner ``ExperimentBasicSerializer`` instead.'
+    )
 
 /**
  * End a running experiment without shipping a variant.
-
-Sets end_date to now and marks the experiment as stopped. The feature
-flag is NOT modified — users continue to see their assigned variants
-and exposure events ($feature_flag_called) continue to be recorded.
-However, only data up to end_date is included in experiment results.
-
-Use this when:
-
-- You want to freeze the results window without changing which variant
-  users see.
-- A variant was already shipped manually via the feature flag UI and
-  the experiment just needs to be marked complete.
-
-The end_date can be adjusted after ending via PATCH if it needs to be
-backdated (e.g. to match when the flag was actually paused).
-
-Other options:
-- Use ship_variant to end the experiment AND roll out a single variant to 100%% of users.
-- Use pause to deactivate the flag without ending the experiment (stops variant assignment but does not freeze results).
-
-Returns 400 if the experiment is not running.
+ *
+ * Sets end_date to now and marks the experiment as stopped. The feature
+ * flag is NOT modified — users continue to see their assigned variants
+ * and exposure events ($feature_flag_called) continue to be recorded.
+ * However, only data up to end_date is included in experiment results.
+ *
+ * Use this when:
+ *
+ * - You want to freeze the results window without changing which variant
+ *   users see.
+ * - A variant was already shipped manually via the feature flag UI and
+ *   the experiment just needs to be marked complete.
+ *
+ * The end_date can be adjusted after ending via PATCH if it needs to be
+ * backdated (e.g. to match when the flag was actually paused).
+ *
+ * Other options:
+ * - Use ship_variant to end the experiment AND roll out a single variant to 100%% of users.
+ * - Use pause to deactivate the flag without ending the experiment (stops variant assignment but does not freeze results).
+ *
+ * Returns 400 if the experiment is not running.
  */
 export const ExperimentsEndCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
+
+export const experimentsEndCreateBodyConclusionCommentMax = 4000
+
+export const experimentsEndCreateBodyOpenCleanupPrDefault = false
+export const experimentsEndCreateBodyRepositoryMax = 255
+
+export const experimentsEndCreateBodySetRepositoryAsTeamDefaultDefault = false
 
 export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
     conclusion: zod
@@ -8420,120 +12048,234 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['won', 'lost', 'inconclusive', 'stopped_early', 'invalid'])
                 .describe(
-                    '* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
+                    '\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'The conclusion of the experiment.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
+            'The conclusion of the experiment.\n\n\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
         ),
-    conclusion_comment: zod.string().nullish().describe('Optional comment about the experiment conclusion.'),
+    conclusion_comment: zod
+        .string()
+        .max(experimentsEndCreateBodyConclusionCommentMax)
+        .nullish()
+        .describe('Optional comment about the experiment conclusion.'),
+    open_cleanup_pr: zod
+        .boolean()
+        .default(experimentsEndCreateBodyOpenCleanupPrDefault)
+        .describe(
+            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
+        ),
+    repository: zod
+        .string()
+        .max(experimentsEndCreateBodyRepositoryMax)
+        .nullish()
+        .describe(
+            "GitHub repository to open the cleanup pull request in, in `organization\/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository, the team's default cleanup repository, or the team's only connected repository is used."
+        ),
+    set_repository_as_team_default: zod
+        .boolean()
+        .default(experimentsEndCreateBodySetRepositoryAsTeamDefaultDefault)
+        .describe(
+            "When true, also save `repository` as this environment's default cleanup repository, used for experiments that have no repository of their own. Only acts when open_cleanup_pr is true and `repository` is provided and belongs to the team's GitHub installation. Requires project admin access (403 otherwise)."
+        ),
+})
+
+/**
+ * Freeze exposure on a running experiment while metrics keep flowing.
+ *
+ * Snapshots the already-exposed users into a static cohort and narrows the
+ * linked feature flag so only those users keep matching — new users can no
+ * longer enter the experiment. ``end_date`` is left null so long-term metrics
+ * (revenue/LTV/renewals/retention) keep accumulating. Enrolled users keep
+ * their assigned variant. The serialized status becomes 'exposure_frozen'.
+ *
+ * Returns 400 if the experiment is not running, exposure is already frozen,
+ * the experiment is group-aggregated (group flags cannot be frozen with a
+ * person cohort), or the exposed set is too large to snapshot synchronously.
+ */
+export const ExperimentsFreezeExposureCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
 })
 
 /**
  * Launch a draft experiment.
-
-Validates the experiment is in draft state, activates its linked feature flag,
-sets start_date to the current server time, and transitions the experiment to running.
-Returns 400 if the experiment has already been launched or if the feature flag
-configuration is invalid (e.g. missing "control" variant or fewer than 2 variants).
+ *
+ * Validates the experiment is in draft state, activates its linked feature flag,
+ * sets start_date to the current server time, and transitions the experiment to running.
+ * Returns 400 if the experiment has already been launched or if the feature flag
+ * configuration is invalid (e.g. fewer than 2 variants).
  */
 export const ExperimentsLaunchCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Trigger a batch recalculation of all metrics for this experiment.
+ *
+ * Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
+ * already pending or in progress for this experiment. The response payload intentionally does not
+ * include the `results` array — at POST time the workflow has just been queued and no per-metric
+ * results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
+ * progresses.
+ */
+export const ExperimentsMetricsRecalculationCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ExperimentsMetricsRecalculationCreateBody = /* @__PURE__ */ zod
+    .looseObject({})
+    .describe('Request body for triggering a metrics recalculation.')
+
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
+export const experimentsMetricsRecalculationRetrievePathRecalculationIdRegExp = new RegExp(
+    '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+)
+
+export const ExperimentsMetricsRecalculationRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    recalculation_id: zod
+        .string()
+        .regex(experimentsMetricsRecalculationRetrievePathRecalculationIdRegExp)
+        .describe("UUID of the recalculation run to fetch. This is the run's own id, not the experiment id."),
+})
+
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
+export const ExperimentsMetricsRecalculationLatestRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 /**
  * Pause a running experiment.
-
-Deactivates the linked feature flag so it is no longer returned by the
-/decide endpoint. Users fall back to the application default (typically
-the control experience), and no new exposure events are recorded (i.e.
-$feature_flag_called is not fired).
-Returns 400 if the experiment is not running or is already paused.
+ *
+ * Deactivates the linked feature flag so it is no longer returned by the
+ * /decide endpoint. Users fall back to the application default (typically
+ * the control experience), and no new exposure events are recorded (i.e.
+ * $feature_flag_called is not fired).
+ * Returns 400 if the experiment is not running or is already paused.
  */
 export const ExperimentsPauseCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 /**
  * Reset an experiment back to draft state.
-
-Clears start/end dates, conclusion, and archived flag. The feature
-flag is left unchanged — users continue to see their assigned variants.
-
-Previously collected events still exist but won't be included in
-results unless the start date is manually adjusted after re-launch.
-
-Returns 400 if the experiment is already in draft state.
+ *
+ * Clears start/end dates, conclusion, archived flag, and any flag-cleanup
+ * task pointer. The feature flag is left unchanged — users continue to see
+ * their assigned variants.
+ *
+ * Previously collected events still exist but won't be included in
+ * results unless the start date is manually adjusted after re-launch.
+ *
+ * Returns 400 if the experiment is already in draft state.
  */
 export const ExperimentsResetCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 /**
  * Resume a paused experiment.
-
-Reactivates the linked feature flag so it is returned by /decide again.
-Users are re-bucketed deterministically into the same variants they had
-before the pause, and exposure tracking resumes.
-Returns 400 if the experiment is not running or is not paused.
+ *
+ * Reactivates the linked feature flag so it is returned by /decide again.
+ * Users are re-bucketed deterministically into the same variants they had
+ * before the pause, and exposure tracking resumes.
+ * Returns 400 if the experiment is not running or is not paused.
  */
 export const ExperimentsResumeCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 /**
  * Ship a variant and (optionally) end the experiment.
-
-Updates the feature flag so the selected variant gets 100% of the variant
-distribution. By default, existing release conditions on the flag are preserved
-untouched — the variant is served only to users who already match them. Pass
-``release_to_everyone: true`` to also prepend a catch-all release condition
-that rolls the variant out to 100% of users (overrides any existing release
-conditions on the flag).
-
-Can be called on both running and stopped experiments. If the experiment is
-still running, it will also be ended (end_date set and status marked as stopped).
-If the experiment has already ended, only the flag is rewritten - this supports
-the "end first, ship later" workflow.
-
-If an approval policy requires review before changes on the flag take effect,
-the API returns 409 with a change_request_id. The experiment is NOT ended until
-the change request is approved and the user retries.
-
-Returns 400 if the experiment is in draft state, the variant_key is not found
-on the flag, or the experiment has no linked feature flag.
+ *
+ * Updates the feature flag so the selected variant gets 100% of the variant
+ * distribution. By default, existing release conditions on the flag are preserved
+ * untouched — the variant is served only to users who already match them. Pass
+ * ``release_to_everyone: true`` to also prepend a catch-all release condition
+ * that rolls the variant out to 100% of users (overrides any existing release
+ * conditions on the flag).
+ *
+ * Can be called on both running and stopped experiments. If the experiment is
+ * still running, it will also be ended (end_date set and status marked as stopped).
+ * If the experiment has already ended, only the flag is rewritten - this supports
+ * the "end first, ship later" workflow.
+ *
+ * If an approval policy requires review before changes on the flag take effect,
+ * the API returns 409 with a change_request_id. The experiment is NOT ended until
+ * the change request is approved and the user retries.
+ *
+ * Returns 400 if the experiment is in draft state, the variant_key is not found
+ * on the flag, or the experiment has no linked feature flag.
  */
 export const ExperimentsShipVariantCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
+export const experimentsShipVariantCreateBodyConclusionCommentMax = 4000
+
+export const experimentsShipVariantCreateBodyOpenCleanupPrDefault = false
+export const experimentsShipVariantCreateBodyRepositoryMax = 255
+
+export const experimentsShipVariantCreateBodySetRepositoryAsTeamDefaultDefault = false
 export const experimentsShipVariantCreateBodyReleaseToEveryoneDefault = false
 
 export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
@@ -8542,15 +12284,38 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['won', 'lost', 'inconclusive', 'stopped_early', 'invalid'])
                 .describe(
-                    '* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
+                    '\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'The conclusion of the experiment.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
+            'The conclusion of the experiment.\n\n\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
         ),
-    conclusion_comment: zod.string().nullish().describe('Optional comment about the experiment conclusion.'),
+    conclusion_comment: zod
+        .string()
+        .max(experimentsShipVariantCreateBodyConclusionCommentMax)
+        .nullish()
+        .describe('Optional comment about the experiment conclusion.'),
+    open_cleanup_pr: zod
+        .boolean()
+        .default(experimentsShipVariantCreateBodyOpenCleanupPrDefault)
+        .describe(
+            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
+        ),
+    repository: zod
+        .string()
+        .max(experimentsShipVariantCreateBodyRepositoryMax)
+        .nullish()
+        .describe(
+            "GitHub repository to open the cleanup pull request in, in `organization\/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository, the team's default cleanup repository, or the team's only connected repository is used."
+        ),
+    set_repository_as_team_default: zod
+        .boolean()
+        .default(experimentsShipVariantCreateBodySetRepositoryAsTeamDefaultDefault)
+        .describe(
+            "When true, also save `repository` as this environment's default cleanup repository, used for experiments that have no repository of their own. Only acts when open_cleanup_pr is true and `repository` is provided and belongs to the team's GitHub installation. Requires project admin access (403 otherwise)."
+        ),
     variant_key: zod.string().describe('The key of the variant to ship.'),
     release_to_everyone: zod
         .boolean()
@@ -8561,18 +12326,18 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
-
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
  */
 export const ExperimentsTimeseriesResultsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -8591,30 +12356,223 @@ export const ExperimentsTimeseriesResultsRetrieveQueryParams = /* @__PURE__ */ z
 
 /**
  * Unarchive an archived experiment.
-
-Restores the experiment to the default list view. Returns 400 if the
-experiment is not currently archived.
+ *
+ * Restores the experiment to the default list view. Returns 400 if the
+ * experiment is not currently archived.
  */
 export const ExperimentsUnarchiveCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ * Reopen enrollment on an exposure-frozen experiment.
+ *
+ * Removes the snapshot-cohort condition and freeze markers from every release
+ * group, restoring the flag's original targeting: new users can enroll again
+ * and already-enrolled users keep their assigned variant. The snapshot cohort
+ * is soft-deleted. The serialized status returns to 'running'.
+ *
+ * Returns 400 if the experiment is not running or its exposure is not frozen.
+ */
+export const ExperimentsUnfreezeExposureCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
+/**
+ * Estimate the recommended sample size and running time for an experiment.
+ *
+ * Pure statistical calculation — does not read or write any experiment. Pass the metric type, a
+ * minimum detectable effect, and either a baseline value or raw baseline statistics. When
+ * `exposure_rate_per_day` is provided, the response also includes the estimated running time in days.
+ */
+export const ExperimentsCalculateRunningTimeCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const experimentsCalculateRunningTimeCreateBodyMinimumDetectableEffectMin = 0
+
+export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsDefault = 2
+export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMin = 2
+
+export const experimentsCalculateRunningTimeCreateBodyExposureRatePerDayMin = 0
+
+export const experimentsCalculateRunningTimeCreateBodyBaselineStatsOneNumberOfSamplesMin = 0
+
+export const experimentsCalculateRunningTimeCreateBodyBaselineStatsOneSumSquaresDefault = 0
+
+export const ExperimentsCalculateRunningTimeCreateBody = /* @__PURE__ */ zod
+    .object({
+        metric_type: zod
+            .enum(['funnel', 'mean_count', 'mean_sum_or_avg', 'ratio', 'retention'])
+            .describe(
+                '\* `funnel` - funnel\n\* `mean_count` - mean_count\n\* `mean_sum_or_avg` - mean_sum_or_avg\n\* `ratio` - ratio\n\* `retention` - retention'
+            )
+            .describe(
+                "Metric type to size for. 'funnel' for conversion rates, 'mean_count' for event counts per user, 'mean_sum_or_avg' for summed property values per user, 'ratio' and 'retention' for ratio-style metrics (both require baseline_stats or an explicit variance).\n\n\* `funnel` - funnel\n\* `mean_count` - mean_count\n\* `mean_sum_or_avg` - mean_sum_or_avg\n\* `ratio` - ratio\n\* `retention` - retention"
+            ),
+        minimum_detectable_effect: zod
+            .number()
+            .min(experimentsCalculateRunningTimeCreateBodyMinimumDetectableEffectMin)
+            .describe('Smallest relative change to detect, as a percentage (e.g. 5 means a 5% lift). Must be > 0.'),
+        number_of_variants: zod
+            .number()
+            .min(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMin)
+            .default(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsDefault)
+            .describe('Total number of variants including control (default 2).'),
+        exposure_rate_per_day: zod
+            .number()
+            .min(experimentsCalculateRunningTimeCreateBodyExposureRatePerDayMin)
+            .nullish()
+            .describe('Expected exposures per day. When provided, the response includes the recommended running time.'),
+        baseline_value: zod
+            .number()
+            .nullish()
+            .describe(
+                'Baseline metric value: conversion rate as a fraction 0-1 (funnel), average per user (mean), or the ratio (ratio\/retention). Provide this or baseline_stats.'
+            ),
+        variance: zod
+            .number()
+            .nullish()
+            .describe(
+                'Pre-computed variance for ratio\/retention metrics. Provide this or baseline_stats when metric_type is ratio\/retention and baseline_value is given directly.'
+            ),
+        baseline_stats: zod
+            .union([
+                zod
+                    .object({
+                        number_of_samples: zod
+                            .number()
+                            .min(experimentsCalculateRunningTimeCreateBodyBaselineStatsOneNumberOfSamplesMin)
+                            .describe('Number of control-group samples (users\/units) observed.'),
+                        sum: zod
+                            .number()
+                            .describe(
+                                'Sum of the metric values across the control group (for funnels, the numerator\/conversions).'
+                            ),
+                        sum_squares: zod
+                            .number()
+                            .default(experimentsCalculateRunningTimeCreateBodyBaselineStatsOneSumSquaresDefault)
+                            .describe('Sum of squared metric values. Required for ratio\/retention variance.'),
+                        denominator_sum: zod
+                            .number()
+                            .nullish()
+                            .describe('Sum of the denominator values. Required for ratio\/retention metrics.'),
+                        denominator_sum_squares: zod
+                            .number()
+                            .nullish()
+                            .describe('Sum of squared denominator values (ratio\/retention variance).'),
+                        numerator_denominator_sum_product: zod
+                            .number()
+                            .nullish()
+                            .describe(
+                                'Sum of numerator×denominator products, used for the delta-method covariance term.'
+                            ),
+                        step_counts: zod
+                            .array(zod.number())
+                            .optional()
+                            .describe('Per-step counts for funnel metrics; the last entry is the final-step count.'),
+                    })
+                    .describe(
+                        'Raw control-group statistics the calculator uses to derive a baseline value and variance.\n\nSupply this when you want the server to compute the baseline value and (for ratio\/retention)\nthe delta-method variance, instead of passing `baseline_value`\/`variance` directly.'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe('Raw control-group statistics. When provided, the server derives baseline_value and variance.'),
+    })
+    .describe('Inputs for estimating the recommended sample size and running time of an experiment.')
+
+/**
+ * Create an experiment that compares N versions of an LLM prompt using a metric template.
+ *
+ * The user picks 2+ versions of an existing LLMPrompt and 1+ metric templates
+ * (cost / latency / eval_pass_rate). The endpoint builds the matching variants
+ * (control + test-N, each named after its prompt version) and attaches one
+ * metric per selected template, each scoped to the prompt's $ai_prompt_name.
+ * Resulting experiment is in draft state.
+ */
+export const ExperimentsCreateFromPromptCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const experimentsCreateFromPromptCreateBodyVersionsMin = 2
+export const experimentsCreateFromPromptCreateBodyVersionsMax = 10
+
+export const experimentsCreateFromPromptCreateBodyTemplatesMax = 3
+
+export const ExperimentsCreateFromPromptCreateBody = /* @__PURE__ */ zod.object({
+    prompt_name: zod
+        .string()
+        .describe('The name of the LLM prompt to experiment on. Must already exist for this team.'),
+    versions: zod
+        .array(zod.number().min(1))
+        .min(experimentsCreateFromPromptCreateBodyVersionsMin)
+        .max(experimentsCreateFromPromptCreateBodyVersionsMax)
+        .describe(
+            'Ordered list of prompt version numbers to assign to experiment variants. The first entry is the control variant. Must contain between 2 and 10 distinct versions.'
+        ),
+    templates: zod
+        .array(
+            zod
+                .enum(['cost', 'latency', 'eval_pass_rate'])
+                .describe('\* `cost` - cost\n\* `latency` - latency\n\* `eval_pass_rate` - eval_pass_rate')
+        )
+        .min(1)
+        .max(experimentsCreateFromPromptCreateBodyTemplatesMax)
+        .describe(
+            'One or more metric templates to attach as primary metrics. Each template becomes one metric on the experiment. Allowed values: cost, latency, eval_pass_rate.'
+        ),
+    name: zod
+        .string()
+        .optional()
+        .describe('Optional experiment name. If omitted, a name is generated from the prompt and versions.'),
+    feature_flag_key: zod
+        .string()
+        .optional()
+        .describe('Optional feature flag key. If omitted, a slug is derived from the experiment name.'),
+    description: zod.string().optional().describe('Optional experiment description.'),
+})
+
+/**
+ * List the LLM metric templates that can be passed to `create_from_prompt`.
+ */
+export const ExperimentsPromptTemplatesRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
  */
 export const ExperimentsStatsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })

@@ -1,6 +1,7 @@
 import { resetContext } from 'kea'
 import { expectLogic, testUtilsPlugin } from 'kea-test-utils'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { Survey } from '~/types'
@@ -33,11 +34,11 @@ describe('surveyTriggerLogic', () => {
         let loadMoreCalled = false
         useMocks({
             get: {
-                '/api/projects/:team_id/surveys/': (req) => {
+                '/api/projects/:team_id/surveys/': ({ request }) => {
                     if (listError) {
                         return [500, { detail: 'Server error' }]
                     }
-                    const offset = Number(req.url.searchParams.get('offset') || 0)
+                    const offset = Number(new URL(request.url).searchParams.get('offset') || 0)
                     if (offset > 0) {
                         if (moreListError && !loadMoreCalled) {
                             loadMoreCalled = true
@@ -236,6 +237,9 @@ describe('surveyTriggerLogic', () => {
     })
 
     describe('error handling', () => {
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
         it('handles loadSurveys failure', async () => {
             useSetupMocks({ listError: true })
 

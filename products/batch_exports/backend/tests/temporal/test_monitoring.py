@@ -12,9 +12,9 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.batch_exports.models import BatchExportRun
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
 
+from products.batch_exports.backend.models.batch_export import BatchExportRun
 from products.batch_exports.backend.service import afetch_batch_export_runs_in_range
 from products.batch_exports.backend.temporal.monitoring import (
     BatchExportMonitoringInputs,

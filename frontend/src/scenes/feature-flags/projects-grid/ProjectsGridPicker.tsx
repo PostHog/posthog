@@ -46,13 +46,16 @@ export function ProjectsGridPicker(): JSX.Element {
             closeOnClickInside={false}
             overlay={
                 <div className="w-72 flex flex-col gap-2">
-                    <LemonInput
-                        type="search"
-                        value={search}
-                        onChange={setSearch}
-                        placeholder="Search projects"
-                        autoFocus
-                    />
+                    <div className="-mx-2 px-2 pb-2 border-b border-border">
+                        <LemonInput
+                            type="search"
+                            value={search}
+                            onChange={setSearch}
+                            placeholder="Search projects"
+                            fullWidth
+                            autoFocus
+                        />
+                    </div>
                     <div className="max-h-72 overflow-y-auto -mx-2 px-2 flex flex-col gap-0.5">
                         {filteredProjects.length === 0 ? (
                             <div className="text-tertiary text-center py-4 text-xs">No projects found</div>

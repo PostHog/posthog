@@ -42,6 +42,21 @@
             z-index: 1;
             transition: box-shadow 150ms ease-out;
         }
+
+        .NotebookNode__resize-handle {
+            position: absolute;
+            right: 0.125rem;
+            bottom: 0.125rem;
+            z-index: 2;
+            width: 1.5rem;
+            height: 1.5rem;
+            cursor: ns-resize;
+            background:
+                linear-gradient(135deg, transparent 0 45%, var(--color-border-bold) 45% 50%, transparent 50% 100%),
+                linear-gradient(135deg, transparent 0 62%, var(--color-border-bold) 62% 67%, transparent 67% 100%);
+            border-radius: 0.125rem;
+            opacity: 0.65;
+        }
     }
 
     .NotebookNode__gap {

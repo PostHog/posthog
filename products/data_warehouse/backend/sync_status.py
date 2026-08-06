@@ -7,12 +7,12 @@ from django.db.models import Q
 
 import humanize
 
-from posthog.schema import DataWarehouseSyncWarning
-
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.models.table import DataWarehouseTable
+    from posthog.schema import DataWarehouseSyncWarning
+
+    from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 # When a schema is still in RUNNING state but its last successful sync is older than
@@ -55,6 +55,10 @@ def _build_warning_for_schema(
     schema: ExternalDataSchema,
     now: datetime,
 ) -> DataWarehouseSyncWarning | None:
+    # Deferred: posthog.schema (the pydantic models) stays off django.setup(), where this
+    # module loads in every process via the warehouse table model.
+    from posthog.schema import DataWarehouseSyncWarning  # noqa: PLC0415
+
     schema_status = schema.status
     source_type = schema.source.source_type if schema.source_id else "unknown"
     source_id = str(schema.source_id) if schema.source_id else None

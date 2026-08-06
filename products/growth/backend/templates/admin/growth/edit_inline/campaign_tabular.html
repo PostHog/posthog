@@ -1,0 +1,7 @@
+{% include "admin/edit_inline/tabular.html" %}
+
+{% if inline_admin_formset.formset.next_up_preview %}
+<p style="margin: 8px 0 24px;">
+  {{ inline_admin_formset.formset.next_up_preview }}
+</p>
+{% endif %}

@@ -46,11 +46,14 @@ const OPERATORS = new Set([
 
 const BARE_FIELD_RE = /^[A-Za-z_]\w*$/
 
-export function compileRecipe(raw: unknown): Recipe {
+// `fallbackId` is the identity to use when the yaml omits `id:` — custom recipes are
+// keyed by their database id, so their source never needs to declare one. Bundled
+// recipes pass no fallback and must declare their id.
+export function compileRecipe(raw: unknown, fallbackId?: string): Recipe {
     if (!isObject(raw)) {
         throw new Error(`Recipe YAML must be a mapping at top level`)
     }
-    const id = stringField(raw, 'id')
+    const id = stringField(raw, 'id') ?? fallbackId
     if (!id) {
         throw new Error(`Recipe is missing an 'id' key`)
     }
@@ -60,8 +63,6 @@ export function compileRecipe(raw: unknown): Recipe {
     }
     return {
         id,
-        priority: numField(raw, 'priority') ?? 100,
-        capture: stringField(raw, 'capture'),
         rules: rulesRaw.map((r, i) => {
             try {
                 return compileRule(r)
@@ -385,9 +386,4 @@ function isObject(v: unknown): v is Record<string, unknown> {
 function stringField(o: Record<string, unknown>, key: string): string | undefined {
     const value = o[key]
     return typeof value === 'string' ? value : undefined
-}
-
-function numField(o: Record<string, unknown>, key: string): number | undefined {
-    const value = o[key]
-    return typeof value === 'number' ? value : undefined
 }

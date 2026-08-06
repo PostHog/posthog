@@ -60,8 +60,8 @@ describe('saveAsActionDialog', () => {
         useMocks({
             get: { '/api/projects/:team/actions/': { results: [] } },
             post: {
-                '/api/projects/:team/actions/': async (req) => {
-                    capturedBody = await req.json()
+                '/api/projects/:team/actions/': async ({ request }) => {
+                    capturedBody = await request.json()
                     if (postStatus >= 400) {
                         return [postStatus, postResponseBody]
                     }

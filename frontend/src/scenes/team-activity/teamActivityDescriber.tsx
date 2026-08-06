@@ -12,8 +12,9 @@ import { PathCleanFilterItem } from 'lib/components/PathCleanFilters/PathCleanFi
 import { keyFromFilter } from 'lib/components/PathCleanFilters/PathCleanFilters'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { Link } from 'lib/lemon-ui/Link'
-import { isObject, pluralize } from 'lib/utils'
-import { CURRENCY_SYMBOL_TO_EMOJI_MAP, CURRENCY_SYMBOL_TO_NAME_MAP } from 'lib/utils/geography/currency'
+import { CURRENCY_SYMBOL_TO_EMOJI_MAP, CURRENCY_SYMBOL_TO_NAME_MAP } from 'lib/utils/currency'
+import { isObject } from 'lib/utils/guards'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { CurrencyCode } from '~/queries/schema/schema-general'
@@ -752,6 +753,9 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     web_analytics_pre_aggregated_tables_enabled: () => null,
     web_analytics_pre_aggregated_tables_version: () => null,
     managed_viewsets: () => null,
+    workflows_config: () => null,
+    event_retention_months: () => null,
+    events_retention_enforced: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
@@ -768,6 +772,20 @@ export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?:
     if (logItem.scope !== ActivityScope.TEAM) {
         console.error('team describer received a non-Team activity')
         return { description: null }
+    }
+
+    if (logItem.activity === 'email_sending_suspended' || logItem.activity === 'email_sending_unsuspended') {
+        const wasSuspended = logItem.activity === 'email_sending_suspended'
+        const reason = logItem.detail?.context?.reason as string | undefined
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>{' '}
+                    {wasSuspended ? 'suspended' : 're-enabled'} workflow email sending on {nameAndLink(logItem)}
+                    {wasSuspended && reason ? <> (reason: {reason})</> : null}
+                </>
+            ),
+        }
     }
 
     if (logItem.activity == 'changed' || logItem.activity == 'updated') {

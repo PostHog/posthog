@@ -2,6 +2,10 @@ export type HealthIssueSeverity = 'critical' | 'warning' | 'info'
 export type HealthIssueStatus = 'active' | 'resolved'
 export const SEVERITY_ORDER: HealthIssueSeverity[] = ['critical', 'warning', 'info']
 
+export const REFRESH_COOLDOWN_MS = 5 * 60 * 1000
+export const REFRESH_POLL_INTERVAL_MS = 5000
+export const REFRESH_POLL_COUNT = 12
+
 export interface HealthIssue {
     id: string
     kind: string

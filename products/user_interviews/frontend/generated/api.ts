@@ -21,7 +21,10 @@ import type {
     PatchedIntervieweeContextApi,
     PatchedUserInterviewApi,
     PatchedUserInterviewTopicApi,
+    PreviewInviteRequestApi,
+    PreviewInviteResultApi,
     SendInvitesRequestApi,
+    SharedInterviewLinkApi,
     TestInterviewLinkApi,
     UserInterviewApi,
     UserInterviewSearchRequestApi,
@@ -54,7 +57,7 @@ export const getUserInterviewTopicsListUrl = (projectId: string, params?: UserIn
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -234,6 +237,27 @@ export const userInterviewTopicsLinksCsvCreate = async (
     })
 }
 
+export const getUserInterviewTopicsPreviewInviteCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/user_interview_topics/${id}/preview_invite/`
+}
+
+/**
+ * Render the invite email exactly as a specific targeted interviewee would receive it — personalized subject and body — without sending anything and without creating or reading any share links. Pass `interviewee_identifier` to preview for a particular person, or omit it to preview for the first targeted interviewee. The body always shows an illustrative placeholder link (`is_preview_link: true`), never a live interview URL.
+ */
+export const userInterviewTopicsPreviewInviteCreate = async (
+    projectId: string,
+    id: string,
+    previewInviteRequestApi?: PreviewInviteRequestApi,
+    options?: RequestInit
+): Promise<PreviewInviteResultApi> => {
+    return apiMutator<PreviewInviteResultApi>(getUserInterviewTopicsPreviewInviteCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(previewInviteRequestApi),
+    })
+}
+
 export const getUserInterviewTopicsRemoveIntervieweeCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/user_interview_topics/${id}/remove_interviewee/`
 }
@@ -279,6 +303,42 @@ export const userInterviewTopicsSendInvitesCreate = async (
     )
 }
 
+export const getUserInterviewTopicsSharedLinkCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/user_interview_topics/${id}/shared_link/`
+}
+
+/**
+ * Get-or-create a single non-personalised (shared) interview link for this topic. Unlike generate_links, the returned URL is not tied to a specific interviewee — every visitor becomes a new anonymous respondent who self-identifies with a name. Idempotent: repeated calls return the same active link. `distinct_id` and `session_id` query params appended to the URL are captured as best-effort person/session linkage.
+ */
+export const userInterviewTopicsSharedLinkCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SharedInterviewLinkApi> => {
+    return apiMutator<SharedInterviewLinkApi>(getUserInterviewTopicsSharedLinkCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getUserInterviewTopicsSharedLinkDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/user_interview_topics/${id}/shared_link/`
+}
+
+/**
+ * Revoke this topic's shared (non-personalised) interview link so an already-distributed URL can no longer start interviews. Idempotent — a no-op when no active shared link exists. A subsequent shared_link POST mints a fresh link (rotation).
+ */
+export const userInterviewTopicsSharedLinkDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getUserInterviewTopicsSharedLinkDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getUserInterviewTopicsTestLinkRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/user_interview_topics/${id}/test_link/`
 }
@@ -306,7 +366,7 @@ export const getUserInterviewTopicsIntervieweesListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -470,7 +530,7 @@ export const getUserInterviewsListUrl = (projectId: string, params?: UserIntervi
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -507,6 +567,9 @@ export const userInterviewsCreate = async (
     }
     if (userInterviewApi.summary !== undefined) {
         formData.append(`summary`, userInterviewApi.summary)
+    }
+    if (userInterviewApi.classifications !== undefined) {
+        userInterviewApi.classifications.forEach((value) => formData.append(`classifications`, value))
     }
     formData.append(`audio`, userInterviewApi.audio)
 
@@ -549,6 +612,9 @@ export const userInterviewsUpdate = async (
     if (userInterviewApi.summary !== undefined) {
         formData.append(`summary`, userInterviewApi.summary)
     }
+    if (userInterviewApi.classifications !== undefined) {
+        userInterviewApi.classifications.forEach((value) => formData.append(`classifications`, value))
+    }
     formData.append(`audio`, userInterviewApi.audio)
 
     return apiMutator<UserInterviewApi>(getUserInterviewsUpdateUrl(projectId, id), {
@@ -574,6 +640,9 @@ export const userInterviewsPartialUpdate = async (
     }
     if (patchedUserInterviewApi?.summary !== undefined) {
         formData.append(`summary`, patchedUserInterviewApi.summary)
+    }
+    if (patchedUserInterviewApi?.classifications !== undefined) {
+        patchedUserInterviewApi?.classifications.forEach((value) => formData.append(`classifications`, value))
     }
     if (patchedUserInterviewApi?.audio !== undefined) {
         formData.append(`audio`, patchedUserInterviewApi.audio)

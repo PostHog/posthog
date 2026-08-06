@@ -1,5 +1,5 @@
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { InsightType, TrendExperimentVariant } from '~/types'
 

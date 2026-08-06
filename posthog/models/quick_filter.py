@@ -1,8 +1,7 @@
 from django.db import models
 
-from posthog.schema import QuickFilterType
-
 from posthog.models.utils import UUIDModel
+from posthog.schema_enums import QuickFilterType
 
 
 class QuickFilter(UUIDModel):

@@ -10,13 +10,13 @@ from parameterized import parameterized
 from posthog.schema import (
     CompareFilter,
     DateRange,
-    EventPropertyFilter,
     HogQLQueryModifiers,
     PropertyOperator,
     SessionPropertyFilter,
     SessionsV2JoinMode,
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
+    WebAnalyticsPreComputeStrategy,
     WebAnalyticsSampling,
     WebStatsBreakdown,
     WebStatsTableQuery,
@@ -26,7 +26,11 @@ from posthog.models.utils import uuid7
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
-from products.web_analytics.backend.hogql_queries.web_stats_frustration_lazy_precompute import can_use_lazy_precompute
+from products.web_analytics.backend.hogql_queries.web_stats_frustration_lazy_precompute import (
+    _FRUSTRATION_EVENT_TYPES,
+    INSERT_QUERY_TEMPLATE,
+    can_use_lazy_precompute,
+)
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -135,6 +139,20 @@ class TestWebStatsFrustrationLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         with self._enable_lazy():
             assert can_use_lazy_precompute(self._runner(self._build_query())) is True
 
+    def test_insert_scans_only_frustration_event_types(self):
+        # $pageview/$screen contribute 0 to every metric and their groups are
+        # dropped by the HAVING, so the insert must not scan them — they only
+        # inflate the GROUP BY cardinality that OOMs high-traffic teams.
+        # Result-parity with the live (5-type) scan is covered by
+        # test_lazy_response_matches_live.
+        assert "{event_scan_filter}" in INSERT_QUERY_TEMPLATE
+        assert "$pageview" not in INSERT_QUERY_TEMPLATE
+        assert "$screen" not in INSERT_QUERY_TEMPLATE
+        for frustration_event in ("$rageclick", "$dead_click", "$exception"):
+            assert frustration_event in _FRUSTRATION_EVENT_TYPES
+        assert "$pageview" not in _FRUSTRATION_EVENT_TYPES
+        assert "$screen" not in _FRUSTRATION_EVENT_TYPES
+
     def test_rejected_when_org_flag_off(self):
         # Default mocked-off feature flag: gate refuses.
         with patch(
@@ -178,7 +196,7 @@ class TestWebStatsFrustrationLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_rejected_for_non_event_property_filter(self):
-        # SessionPropertyFilter is not in the gate's allowlist (only EventPropertyFilter on $host).
+        # Precompute only serves event/person filters; session/cohort fall through to live.
         with self._enable_lazy():
             assert (
                 can_use_lazy_precompute(
@@ -188,21 +206,6 @@ class TestWebStatsFrustrationLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                                 SessionPropertyFilter(
                                     key="$entry_pathname", operator=PropertyOperator.EXACT, value="/x"
                                 )
-                            ]
-                        )
-                    )
-                )
-                is False
-            )
-
-    def test_rejected_for_unsupported_filter_key(self):
-        with self._enable_lazy():
-            assert (
-                can_use_lazy_precompute(
-                    self._runner(
-                        self._build_query(
-                            properties=[
-                                EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")
                             ]
                         )
                     )
@@ -267,8 +270,7 @@ class TestWebStatsFrustrationLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk, status=PreaggregationJob.Status.READY
         ).count()
         assert ready_jobs > 0, "expected at least one READY precompute job"
-        assert lazy_response.usedLazyPrecompute is True
-        assert lazy_response.usedPreAggregatedTables is True
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
 
         lazy_by_path = self._collect_metrics(lazy_response.results)
         assert lazy_by_path == live_by_path, f"lazy/live mismatch: lazy={lazy_by_path}, live={live_by_path}"
@@ -288,3 +290,32 @@ class TestWebStatsFrustrationLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                 "errors": row[3][0],
             }
         return out
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_stale_served_enqueues_background_revalidation(self):
+        # Without the `result.stale` hook this family would serve stale for the whole
+        # 6h grace and never refresh (the revalidate half of stale-while-revalidate).
+        from posthog.clickhouse.query_tagging import reset_query_tags, tags_context
+
+        from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
+        from products.web_analytics.backend.hogql_queries.web_stats_frustration_lazy_precompute import (
+            execute_lazy_precomputed_read,
+        )
+
+        with (
+            tags_context(),
+            self._enable_lazy(),
+            patch(
+                "products.web_analytics.backend.hogql_queries.web_stats_frustration_lazy_precompute.ensure_web_stats_frustration_precomputed",
+                return_value=LazyComputationResult(ready=True, job_ids=[], stale=True),
+            ),
+            patch(
+                "products.web_analytics.backend.tasks.lazy_precompute_revalidation.revalidate_web_analytics_precompute.apply_async"
+            ) as delay,
+        ):
+            reset_query_tags()
+            runner = self._runner(self._build_query())
+            execute_lazy_precomputed_read(runner, limit=10, offset=0)
+
+        assert delay.call_count == 1
+        assert delay.call_args.kwargs["kwargs"]["team_id"] == self.team.pk

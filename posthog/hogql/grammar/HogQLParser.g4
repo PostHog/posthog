@@ -204,7 +204,27 @@ selectColumnExpr
     | columnExpr                                                                    # ColumnExprSelectValue
     | columnExpr implicitAlias                                                      # ColumnExprAliasImplicit
     ;
+// Two precedence layers. `columnExpr` is the outer boolean/ternary/alias tier (loosest
+// binding). `columnExprValue` holds everything tighter — arithmetic, comparisons, NOT,
+// BETWEEN, and the primary/leaf productions. BETWEEN lives in the value tier at the comparison
+// level, so its tested expression and both bounds bind tighter than AND/OR/NOT (matching
+// ClickHouse and SQL); this is what fixes `a BETWEEN low AND high AND rest` grouping as
+// `(a BETWEEN low AND high) AND rest` rather than letting the bounds swallow the AND chain.
+// Splitting into two rules is the only way to express this in ANTLR4: the interior operand of
+// a left-recursive alternative always parses at precedence 0, so a flat rule cannot stop the
+// bounds from consuming AND (the reason for ilezhankin's original TODO). NOT stays in
+// `columnExprValue` (looser than every value operator, tighter than AND/OR) so it keeps sitting
+// *after* `ColumnExprFunction` in the same rule — ANTLR then still prefers the function form for
+// `not(args)` (a `not` function call) over the `NOT (args)` operator, matching the old grammar.
 columnExpr
+    : columnExpr AND columnExpr                                                           # ColumnExprAnd
+    | columnExpr OR columnExpr                                                            # ColumnExprOr
+    | <assoc=right> columnExpr QUERY columnExpr COLON columnExpr                          # ColumnExprTernaryOp
+    | columnExpr AS (identifier | STRING_LITERAL)                                         # ColumnExprAlias
+    | columnExprValue                                                                    # ColumnExprValuePassthrough
+    ;
+
+columnExprValue
     : CASE caseExpr=columnExpr? (WHEN whenExpr=columnExpr THEN thenExpr=columnExpr)+ (ELSE elseExpr=columnExpr)? END          # ColumnExprCase
     | CAST LPAREN columnExpr AS columnTypeExpr RPAREN                                     # ColumnExprCast
     | TRY_CAST LPAREN columnExpr AS columnTypeExpr RPAREN                                 # ColumnExprTryCast
@@ -235,31 +255,31 @@ columnExpr
     | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? (FILTER LPAREN WHERE filterExpr=columnExpr RPAREN)? OVER LPAREN windowExpr RPAREN # ColumnExprWinFunction
     | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? (FILTER LPAREN WHERE filterExpr=columnExpr RPAREN)? OVER identifier               # ColumnExprWinFunctionTarget
     | identifier (LPAREN columnExprs=columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList=columnExprList? (ORDER BY orderExprList)? RPAREN (FILTER LPAREN WHERE filterExpr=columnExpr RPAREN)?  # ColumnExprFunction
-    | columnExpr LPAREN selectSetStmt RPAREN                                              # ColumnExprCallSelect
-    | columnExpr LPAREN columnExprList? RPAREN                                            # ColumnExprCall
+    | columnExprValue LPAREN selectSetStmt RPAREN                                         # ColumnExprCallSelect
+    | columnExprValue LPAREN columnExprList? RPAREN                                       # ColumnExprCall
     | hogqlxTagElement                                                                    # ColumnExprTagElement
     | templateString                                                                      # ColumnExprTemplateString
     | literal                                                                             # ColumnExprLiteral
 
     // FIXME(ilezhankin): this part looks very ugly, maybe there is another way to express it
-    | columnExpr LBRACKET columnExpr RBRACKET                                             # ColumnExprArrayAccess
-    | columnExpr LBRACKET columnExpr? COLON columnExpr? RBRACKET                         # ColumnExprArraySlice
-    | columnExpr DOT DECIMAL_LITERAL                                                      # ColumnExprTupleAccess
-    | columnExpr DOT identifier                                                           # ColumnExprPropertyAccess
-    | columnExpr NULL_PROPERTY LBRACKET columnExpr RBRACKET                               # ColumnExprNullArrayAccess
-    | columnExpr NULL_PROPERTY DECIMAL_LITERAL                                            # ColumnExprNullTupleAccess
-    | columnExpr NULL_PROPERTY identifier                                                 # ColumnExprNullPropertyAccess
-    | columnExpr DOUBLECOLON columnTypeCastExpr                                            # ColumnExprTypeCast
-    | DASH columnExpr                                                                     # ColumnExprNegate
-    | left=columnExpr ( operator=ASTERISK                                                 // *
+    | columnExprValue LBRACKET columnExpr RBRACKET                                        # ColumnExprArrayAccess
+    | columnExprValue LBRACKET columnExpr? COLON columnExpr? RBRACKET                     # ColumnExprArraySlice
+    | columnExprValue DOT DECIMAL_LITERAL                                                 # ColumnExprTupleAccess
+    | columnExprValue DOT identifier                                                      # ColumnExprPropertyAccess
+    | columnExprValue NULL_PROPERTY LBRACKET columnExpr RBRACKET                          # ColumnExprNullArrayAccess
+    | columnExprValue NULL_PROPERTY DECIMAL_LITERAL                                       # ColumnExprNullTupleAccess
+    | columnExprValue NULL_PROPERTY identifier                                            # ColumnExprNullPropertyAccess
+    | columnExprValue DOUBLECOLON columnTypeCastExpr                                      # ColumnExprTypeCast
+    | DASH columnExprValue                                                                # ColumnExprNegate
+    | left=columnExprValue ( operator=ASTERISK                                            // *
                  | operator=SLASH                                                         // /
                  | operator=PERCENT                                                       // %
-                 ) right=columnExpr                                                       # ColumnExprPrecedence1
-    | left=columnExpr ( operator=PLUS                                                     // +
+                 ) right=columnExprValue                                                  # ColumnExprPrecedence1
+    | left=columnExprValue ( operator=PLUS                                                // +
                  | operator=DASH                                                          // -
                  | operator=CONCAT                                                        // ||
-                 ) right=columnExpr                                                       # ColumnExprPrecedence2
-    | left=columnExpr ( operator=EQ_DOUBLE                                                // =
+                 ) right=columnExprValue                                                  # ColumnExprPrecedence2
+    | left=columnExprValue ( operator=EQ_DOUBLE                                           // =
                  | operator=EQ_SINGLE                                                     // ==
                  | operator=NOT_EQ                                                        // !=
                  | operator=LT_EQ                                                         // <=
@@ -274,18 +294,14 @@ columnExpr
                  | operator=IREGEX_SINGLE                                                 // ~*
                  | operator=IREGEX_DOUBLE                                                 // =~*
                  | operator=NOT_IREGEX                                                    // !~*
-                 ) right=columnExpr                                                       # ColumnExprPrecedence3
-    | columnExpr IGNORE NULLS                                                            # ColumnExprIgnoreNulls
-    | columnExpr IS NOT? NULL_SQL                                                         # ColumnExprIsNull
-    | columnExpr IS NOT? DISTINCT FROM columnExpr                                         # ColumnExprIsDistinctFrom
-    | columnExpr NULLISH columnExpr                                                       # ColumnExprNullish
-    | NOT columnExpr                                                                      # ColumnExprNot
-    | columnExpr AND columnExpr                                                           # ColumnExprAnd
-    | columnExpr OR columnExpr                                                            # ColumnExprOr
-    // TODO(ilezhankin): `BETWEEN a AND b AND c` is parsed in a wrong way: `BETWEEN (a AND b) AND c`
-    | columnExpr NOT? BETWEEN columnExpr AND columnExpr                                   # ColumnExprBetween
-    | <assoc=right> columnExpr QUERY columnExpr COLON columnExpr                          # ColumnExprTernaryOp
-    | columnExpr AS (identifier | STRING_LITERAL)                                         # ColumnExprAlias
+                 ) right=columnExprValue                                                  # ColumnExprPrecedence3
+    | columnExprValue IGNORE NULLS                                                        # ColumnExprIgnoreNulls
+    | columnExprValue IS NOT? NULL_SQL                                                    # ColumnExprIsNull
+    | columnExprValue IS NOT? DISTINCT FROM columnExprValue                               # ColumnExprIsDistinctFrom
+    | columnExprValue NULL_SAFE_EQ columnExprValue                                        # ColumnExprNullSafeEq  // MySQL `a <=> b` ≡ `a IS NOT DISTINCT FROM b`
+    | columnExprValue NULLISH columnExprValue                                             # ColumnExprNullish
+    | columnExprValue NOT? BETWEEN columnExprValue AND columnExprValue                    # ColumnExprBetween
+    | NOT columnExprValue                                                                # ColumnExprNot
     | (tableIdentifier DOT)? ASTERISK (EXCLUDE LPAREN identifierList RPAREN)?             # ColumnExprAsterisk  // single-column only
     | LAMBDA identifier (COMMA identifier)* COMMA? COLON columnExpr                       # ColumnExprColonLambda
     | LPAREN selectSetStmt RPAREN                                                         # ColumnExprSubquery  // single-column only

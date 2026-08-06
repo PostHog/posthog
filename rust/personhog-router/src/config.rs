@@ -2,8 +2,40 @@ use std::fmt;
 use std::str::FromStr;
 
 use envconfig::Envconfig;
+use personhog_coordination::authority::AuthorityClock;
 use std::net::SocketAddr;
 use std::time::Duration;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReplicaDiscoveryMode {
+    /// DNS mode: static channels to ClusterIP URL.
+    Dns,
+    /// K8s mode: EndpointSlice watcher with client-side p2c balancing.
+    K8s,
+}
+
+impl fmt::Display for ReplicaDiscoveryMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ReplicaDiscoveryMode::Dns => write!(f, "dns"),
+            ReplicaDiscoveryMode::K8s => write!(f, "k8s"),
+        }
+    }
+}
+
+impl FromStr for ReplicaDiscoveryMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "dns" => Ok(ReplicaDiscoveryMode::Dns),
+            "k8s" => Ok(ReplicaDiscoveryMode::K8s),
+            other => Err(format!(
+                "unknown replica discovery mode '{other}', expected 'dns' or 'k8s'"
+            )),
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RouterMode {
@@ -12,15 +44,6 @@ pub enum RouterMode {
     /// Leader mode: person writes and strong reads go to leader pods
     /// via etcd-coordinated partition routing. Everything else goes to replica.
     Leader,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ProxyMode {
-    /// Typed mode: deserialize/serialize every request through the PersonHogService trait.
-    Typed,
-    /// Raw mode: proxy raw bytes to replica for most methods, only deserialize
-    /// for GetPerson (STRONG) and UpdatePersonProperties which need leader routing.
-    Raw,
 }
 
 impl fmt::Display for RouterMode {
@@ -46,29 +69,6 @@ impl FromStr for RouterMode {
     }
 }
 
-impl fmt::Display for ProxyMode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ProxyMode::Typed => write!(f, "typed"),
-            ProxyMode::Raw => write!(f, "raw"),
-        }
-    }
-}
-
-impl FromStr for ProxyMode {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "typed" => Ok(ProxyMode::Typed),
-            "raw" => Ok(ProxyMode::Raw),
-            other => Err(format!(
-                "unknown proxy mode '{other}', expected 'typed' or 'raw'"
-            )),
-        }
-    }
-}
-
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
     #[envconfig(default = "127.0.0.1:50052")]
@@ -78,32 +78,40 @@ pub struct Config {
     #[envconfig(default = "replica")]
     pub router_mode: RouterMode,
 
-    /// Proxy mode: "typed" (default) or "raw"
-    /// Typed: full deserialization through PersonHogService trait
-    /// Raw: byte-level proxying for most methods, only typed for leader paths
-    #[envconfig(default = "typed")]
-    pub proxy_mode: ProxyMode,
-
-    /// URL of the personhog-replica backend
+    /// URL of the personhog-replica backend (DNS mode only)
     #[envconfig(default = "http://127.0.0.1:50051")]
     pub replica_url: String,
 
-    /// Number of gRPC channels (HTTP/2 connections) to open to the replica backend
-    /// for heavy RPCs (Person/Group lookups with large JSON property blobs).
+    /// Number of gRPC channels to open to the replica service (DNS mode only).
     /// Multiple channels distribute requests across K8s service endpoints.
     #[envconfig(default = "4")]
     pub replica_channels: usize,
 
-    /// Number of dedicated gRPC channels for light RPCs (group type mappings,
-    /// cohort checks, scalar responses). Isolates small responses from TCP
-    /// head-of-line blocking caused by large Person/Group payloads on the
-    /// heavy channels.
-    #[envconfig(default = "2")]
-    pub replica_light_channels: usize,
+    /// Discovery mode for replica endpoints: "dns" (default)
+    /// or "k8s" (EndpointSlice watcher with client-side balancing)
+    #[envconfig(default = "dns")]
+    pub replica_discovery_mode: ReplicaDiscoveryMode,
+
+    /// Kubernetes service name to watch for replica endpoints (k8s mode only)
+    #[envconfig(default = "personhog-replica")]
+    pub replica_service_name: String,
+
+    /// Kubernetes namespace for replica endpoint discovery (k8s mode only).
+    /// If empty, reads from the service account mount.
+    #[envconfig(default = "")]
+    pub replica_service_namespace: String,
+
+    /// gRPC port on replica pods (k8s mode only)
+    #[envconfig(default = "50051")]
+    pub replica_port: u16,
 
     /// Timeout for backend requests in milliseconds
     #[envconfig(default = "5000")]
     pub backend_timeout_ms: u64,
+
+    /// Connect timeout for backend connections in milliseconds (k8s mode only)
+    #[envconfig(default = "2000")]
+    pub backend_connect_timeout_ms: u64,
 
     #[envconfig(default = "9101")]
     pub metrics_port: u16,
@@ -136,14 +144,9 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub backend_keepalive_timeout_secs: u64,
 
-    /// Maximum gRPC message size to encode (send), in bytes.
-    /// Applied to the router's gRPC server and its backend clients (replica, leader).
-    /// Defaults to 128 MiB.
-    #[envconfig(default = "134217728")]
-    pub grpc_max_send_message_size: usize,
-
-    /// Maximum gRPC message size to decode (receive), in bytes.
-    /// Applied to the router's gRPC server and its backend clients (replica, leader).
+    /// Maximum request body size the proxy will collect before forwarding,
+    /// in bytes. Oversized requests are rejected with RESOURCE_EXHAUSTED.
+    /// Responses stream through unbounded (see `response_size_warn_bytes`).
     #[envconfig(default = "134217728")]
     pub grpc_max_recv_message_size: usize,
 
@@ -163,15 +166,56 @@ pub struct Config {
     #[envconfig(default = "router-0")]
     pub pod_name: String,
 
-    #[envconfig(default = "30")]
+    /// Registration lease TTL. A crashed router stays in every freeze
+    /// quorum until this expires, stalling any handoff frozen in that
+    /// window — keep it short. Graceful exits deregister immediately.
+    #[envconfig(default = "10")]
     pub lease_ttl: i64,
 
-    #[envconfig(default = "10")]
+    #[envconfig(default = "3")]
     pub heartbeat_interval_secs: u64,
 
-    /// Leader gRPC port used when resolving pod names to addresses
-    #[envconfig(default = "50053")]
-    pub leader_port: u16,
+    /// Fail the coordination run when the handoff watch loop makes no
+    /// progress for this long, so the router deregisters and restarts as
+    /// a healthy participant instead of wedging freeze quorums while its
+    /// lease stays alive. `0` disables the watchdog.
+    #[envconfig(default = "60")]
+    pub router_participant_stall_secs: u64,
+
+    /// How often the routing table re-derives stash, table, and drain
+    /// state from a fresh etcd snapshot, independent of watch events.
+    #[envconfig(default = "5")]
+    pub router_reconcile_secs: u64,
+
+    /// How many consecutive reconcile-pass failures the routing table
+    /// tolerates before failing the run. A failed pass only means the
+    /// router stays as stale as the previous tick — the watch-driven
+    /// steady state — so brief etcd blips must not be fatal; sustained
+    /// outage is already handled by lease self-fencing. The budget
+    /// bounds the partial-failure mode where snapshot reads fail while
+    /// the lease stays healthy, which would otherwise silently degrade
+    /// the liveness the reconcile provides.
+    #[envconfig(default = "12")]
+    pub router_reconcile_failure_budget: u32,
+
+    /// How many consecutive coordination-attempt failures the routing
+    /// table's run supervisor tolerates (rebuilding coordination in
+    /// place while the data plane keeps serving) before giving up and
+    /// letting the process restart. A healthy attempt resets the count.
+    #[envconfig(default = "10")]
+    pub router_run_retry_budget: u32,
+
+    /// Base backoff in milliseconds between coordination attempts;
+    /// doubles per consecutive failure up to a fixed cap.
+    #[envconfig(default = "500")]
+    pub router_run_retry_backoff_ms: u64,
+
+    /// How long a handoff may sit in Warming before the coordinator
+    /// cancels it by replacement. Warming replays the partition's
+    /// changelog, so its budget is far above the general handoff
+    /// deadline; `0` disables it.
+    #[envconfig(default = "1800")]
+    pub coordinator_warming_deadline_secs: u64,
 
     /// Maximum number of stashed write requests held per partition while
     /// a handoff is in progress. Excess requests return UNAVAILABLE and
@@ -207,21 +251,52 @@ pub struct Config {
     pub stash_drain_concurrency: usize,
 
     // ── coordinator (leader election among router-leader pods) ───
-    /// Lease TTL for the coordinator leader election
-    #[envconfig(default = "15")]
+    /// Whether this leader-mode router campaigns for the coordinator
+    /// election. Disabled, the router still registers in the routing
+    /// table, serves traffic, and acks freezes — it just never
+    /// coordinates. Production leaves this on everywhere; the test
+    /// harness disables it on its traffic router so chaos targeting
+    /// "the coordinator" can never land on the traffic path.
+    #[envconfig(default = "true")]
+    pub coordinator_enabled: bool,
+
+    /// Lease TTL for the coordinator leader election. A crashed leader
+    /// blocks every handoff until this expires and a survivor's campaign
+    /// fires, so the worst-case coordinator outage is roughly this plus
+    /// the election retry interval. Graceful exits revoke the lease and
+    /// fail over immediately.
+    #[envconfig(default = "5")]
     pub coordinator_lease_ttl: i64,
 
-    /// Keepalive interval for the coordinator lease
-    #[envconfig(default = "5")]
+    /// Keepalive interval for the coordinator lease. Several attempts
+    /// must fit inside the TTL; a keepalive that reports the lease gone
+    /// makes the leader abdicate.
+    #[envconfig(default = "1")]
     pub coordinator_keepalive_secs: u64,
 
-    /// Retry interval when coordinator fails to acquire leadership
-    #[envconfig(default = "5")]
+    /// Retry interval between a standby candidate's election campaigns.
+    #[envconfig(default = "1")]
     pub coordinator_election_retry_secs: u64,
 
     /// Debounce interval (ms) for batching pod events before rebalancing
     #[envconfig(default = "1000")]
     pub coordinator_rebalance_debounce_ms: u64,
+
+    /// How often the coordinator re-evaluates in-flight handoffs
+    /// regardless of watch events — the liveness backstop for state
+    /// changes that fire no event (e.g. router departures) and for
+    /// events missed before a watch attaches.
+    #[envconfig(default = "5")]
+    pub coordinator_reconcile_secs: u64,
+
+    /// How long a handoff may run before the coordinator cancels it so a
+    /// later plan can retry. The backstop for a handoff that can never
+    /// satisfy its quorum: nothing else removes one whose new owner is
+    /// alive, and an in-flight handoff pins its partition, so without
+    /// this it waits for a human. Sized well above healthy handoffs,
+    /// which complete in seconds.
+    #[envconfig(default = "120")]
+    pub coordinator_handoff_deadline_secs: u64,
 
     // ── K8s awareness (leader mode only) ────────────────────────
     /// Enable K8s-aware departure classification for smarter rebalancing.
@@ -235,9 +310,168 @@ pub struct Config {
     pub k8s_namespace: String,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn leased(lease_ttl: i64, heartbeat_interval_secs: u64) -> Config {
+        let mut config = Config::init_from_env().expect("defaults");
+        config.lease_ttl = lease_ttl;
+        config.heartbeat_interval_secs = heartbeat_interval_secs;
+        config
+    }
+
+    /// The keepalive uses the heartbeat as the timeout for each renewal
+    /// round, so a zero one times out instantly and the router fences
+    /// itself against healthy etcd for as long as it runs — taking every
+    /// handoff that needs its freeze ack with it.
+    #[test]
+    fn a_zero_heartbeat_is_refused() {
+        assert!(leased(10, 0).validate_lease_timescales().is_err());
+    }
+
+    /// A heartbeat past the renewal margin exhausts the lease by sleeping,
+    /// with the same result.
+    #[test]
+    fn a_heartbeat_the_lease_cannot_fit_is_refused() {
+        assert!(leased(10, 30).validate_lease_timescales().is_err());
+    }
+
+    #[test]
+    fn a_heartbeat_well_inside_the_margin_is_accepted() {
+        assert!(leased(10, 2).validate_lease_timescales().is_ok());
+    }
+
+    /// The coordinator election lease runs the same keepalive on its own
+    /// pair of knobs; a misconfigured pair reproduces the same
+    /// self-fencing loop, stalling every handoff behind the coordinator.
+    #[test]
+    fn a_coordinator_keepalive_the_lease_cannot_fit_is_refused() {
+        let mut config = leased(10, 2);
+        config.coordinator_lease_ttl = 10;
+        config.coordinator_keepalive_secs = 30;
+        assert!(config.validate_lease_timescales().is_err());
+        config.coordinator_keepalive_secs = 0;
+        assert!(config.validate_lease_timescales().is_err());
+        config.coordinator_keepalive_secs = 2;
+        assert!(config.validate_lease_timescales().is_ok());
+
+        // A disabled coordinator never reads these knobs, so they must
+        // not be able to refuse startup.
+        config.coordinator_keepalive_secs = 0;
+        config.coordinator_enabled = false;
+        assert!(config.validate_lease_timescales().is_ok());
+    }
+
+    // ── ReplicaDiscoveryMode ──────────────────────────────────────────────────
+
+    #[test]
+    fn replica_discovery_mode_from_str_valid_variants() {
+        let cases = [
+            ("dns", ReplicaDiscoveryMode::Dns),
+            ("k8s", ReplicaDiscoveryMode::K8s),
+            // case-insensitive
+            ("DNS", ReplicaDiscoveryMode::Dns),
+            ("K8S", ReplicaDiscoveryMode::K8s),
+            ("Dns", ReplicaDiscoveryMode::Dns),
+        ];
+        for (input, expected) in cases {
+            let result: Result<ReplicaDiscoveryMode, _> = input.parse();
+            assert_eq!(
+                result.unwrap(),
+                expected,
+                "'{input}' should parse to {expected:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn replica_discovery_mode_from_str_invalid_returns_error() {
+        let invalid_inputs = ["endpoint", "", "replica", "kubernetes", "k8s1"];
+        for input in invalid_inputs {
+            let result: Result<ReplicaDiscoveryMode, _> = input.parse();
+            assert!(result.is_err(), "'{input}' should be an error");
+            let msg = result.unwrap_err();
+            assert!(
+                msg.contains(input) || msg.contains("expected"),
+                "error message should mention the bad input or expected values, got: {msg}",
+            );
+        }
+    }
+
+    #[test]
+    fn replica_discovery_mode_display() {
+        assert_eq!(ReplicaDiscoveryMode::Dns.to_string(), "dns");
+        assert_eq!(ReplicaDiscoveryMode::K8s.to_string(), "k8s");
+    }
+
+    #[test]
+    fn replica_discovery_mode_roundtrips() {
+        for mode in [ReplicaDiscoveryMode::Dns, ReplicaDiscoveryMode::K8s] {
+            let s = mode.to_string();
+            let parsed: ReplicaDiscoveryMode = s.parse().unwrap();
+            assert_eq!(
+                parsed, mode,
+                "Display → FromStr roundtrip failed for {mode:?}"
+            );
+        }
+    }
+
+    // ── RouterMode ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn router_mode_from_str_valid_variants() {
+        let cases = [
+            ("replica", RouterMode::Replica),
+            ("leader", RouterMode::Leader),
+            ("REPLICA", RouterMode::Replica),
+            ("LEADER", RouterMode::Leader),
+        ];
+        for (input, expected) in cases {
+            let result: Result<RouterMode, _> = input.parse();
+            assert_eq!(
+                result.unwrap(),
+                expected,
+                "'{input}' should parse to {expected:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn router_mode_from_str_invalid_returns_error() {
+        let invalid_inputs = ["dns", "", "follow", "primary"];
+        for input in invalid_inputs {
+            let result: Result<RouterMode, _> = input.parse();
+            assert!(result.is_err(), "'{input}' should be an error");
+        }
+    }
+
+    #[test]
+    fn router_mode_display() {
+        assert_eq!(RouterMode::Replica.to_string(), "replica");
+        assert_eq!(RouterMode::Leader.to_string(), "leader");
+    }
+
+    #[test]
+    fn router_mode_roundtrips() {
+        for mode in [RouterMode::Replica, RouterMode::Leader] {
+            let s = mode.to_string();
+            let parsed: RouterMode = s.parse().unwrap();
+            assert_eq!(
+                parsed, mode,
+                "Display → FromStr roundtrip failed for {mode:?}"
+            );
+        }
+    }
+}
+
 impl Config {
     pub fn backend_timeout(&self) -> Duration {
         Duration::from_millis(self.backend_timeout_ms)
+    }
+
+    pub fn backend_connect_timeout(&self) -> Duration {
+        Duration::from_millis(self.backend_connect_timeout_ms)
     }
 
     pub fn grpc_keepalive_interval(&self) -> Option<Duration> {
@@ -292,6 +526,66 @@ impl Config {
         Duration::from_secs(self.heartbeat_interval_secs)
     }
 
+    /// Refuse a heartbeat the lease cannot survive.
+    ///
+    /// The router holds an etcd lease and votes in the freeze quorum,
+    /// on the same keepalive the leader runs — which uses this interval
+    /// as the timeout for each renewal round. A zero one times out
+    /// instantly and a slow one sleeps through the margin, and either
+    /// exhausts the lease against healthy etcd. The router then
+    /// deregisters and starts over for as long as it runs, and every
+    /// handoff that needs its freeze ack waits on a participant that
+    /// keeps leaving.
+    ///
+    /// The coordinator election lease runs the same keepalive with its
+    /// own pair of knobs, so it gets the same refusal: a coordinator
+    /// that keeps fencing itself stalls every handoff behind it.
+    pub fn validate_lease_timescales(&self) -> Result<(), String> {
+        Self::validate_keepalive_pair(
+            "HEARTBEAT_INTERVAL_SECS",
+            self.heartbeat_interval(),
+            "LEASE_TTL",
+            self.lease_ttl,
+        )?;
+        // Only where a coordinator can actually run: refusing startup
+        // over knobs a disabled coordinator never reads would turn dead
+        // config into an outage.
+        if !self.coordinator_enabled {
+            return Ok(());
+        }
+        Self::validate_keepalive_pair(
+            "COORDINATOR_KEEPALIVE_SECS",
+            self.coordinator_keepalive_interval(),
+            "COORDINATOR_LEASE_TTL",
+            self.coordinator_lease_ttl,
+        )
+    }
+
+    fn validate_keepalive_pair(
+        interval_name: &str,
+        interval: Duration,
+        ttl_name: &str,
+        ttl: i64,
+    ) -> Result<(), String> {
+        let margin = AuthorityClock::renewal_margin(ttl);
+        if interval.is_zero() {
+            return Err(format!(
+                "{interval_name} must be greater than zero: the keepalive uses it as the \
+                 timeout for each renewal round, so a zero interval fences the holder \
+                 against healthy etcd in a loop it cannot leave"
+            ));
+        }
+        if interval >= margin {
+            return Err(format!(
+                "{interval_name} ({interval:?}) must be well under the keepalive renewal \
+                 margin ({margin:?} = 2/3 of {ttl_name} {ttl}s): the sleep between renewals \
+                 would exhaust the margin on its own, and the holder would fence itself \
+                 against healthy etcd"
+            ));
+        }
+        Ok(())
+    }
+
     pub fn coordinator_keepalive_interval(&self) -> Duration {
         Duration::from_secs(self.coordinator_keepalive_secs)
     }
@@ -304,8 +598,43 @@ impl Config {
         Duration::from_millis(self.coordinator_rebalance_debounce_ms)
     }
 
+    pub fn coordinator_reconcile_interval(&self) -> Duration {
+        Duration::from_secs(self.coordinator_reconcile_secs)
+    }
+
+    pub fn coordinator_handoff_deadline(&self) -> Duration {
+        Duration::from_secs(self.coordinator_handoff_deadline_secs)
+    }
+
+    pub fn router_reconcile_interval(&self) -> Duration {
+        Duration::from_secs(self.router_reconcile_secs)
+    }
+
+    pub fn coordinator_warming_deadline(&self) -> Duration {
+        Duration::from_secs(self.coordinator_warming_deadline_secs)
+    }
+
+    pub fn participant_stall_threshold(&self) -> Option<Duration> {
+        (self.router_participant_stall_secs > 0)
+            .then(|| Duration::from_secs(self.router_participant_stall_secs))
+    }
+
     pub fn stash_max_wait(&self) -> Duration {
         Duration::from_millis(self.stash_max_wait_ms)
+    }
+
+    /// Resolve the replica service namespace from config or the service account mount.
+    pub fn resolve_replica_namespace(&self) -> Result<String, String> {
+        if !self.replica_service_namespace.is_empty() {
+            return Ok(self.replica_service_namespace.clone());
+        }
+        std::fs::read_to_string("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+            .map(|s| s.trim().to_string())
+            .map_err(|e| {
+                format!(
+                    "replica_service_namespace not set and failed to read from service account: {e}"
+                )
+            })
     }
 
     /// Resolve the K8s namespace from config or the service account mount.

@@ -5,7 +5,7 @@ from typing import cast
 from rest_framework import exceptions
 from rest_framework.request import Request
 
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 from posthog.scopes import APIScopeObject
 
@@ -21,6 +21,8 @@ def _get_request_api_key_scopes(request: Request) -> list[str] | None:
     if isinstance(authenticator, OAuthAccessTokenAuthentication):
         token_scope_string = authenticator.access_token.scope
         return token_scope_string.split() if token_scope_string else []
+    if isinstance(authenticator, IDJagAccessTokenAuthentication):
+        return list(authenticator.scopes)
     return None
 
 

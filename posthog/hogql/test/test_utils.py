@@ -1,9 +1,11 @@
 from posthog.test.base import BaseTest
+from unittest import TestCase
 
 from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.hogql.utils import deserialize_hx_ast, ilike_matches, like_matches
 
 
@@ -516,3 +518,119 @@ class TestUtils(BaseTest):
                 }
             )
         self.assertEqual(str(e.exception), "Invalid or missing '__hx_ast' kind: Invalid")
+
+
+class TestPrettyPrintInTests(TestCase):
+    @parameterized.expand(
+        [
+            (
+                "prewhere_stays_intact",
+                "SELECT 1 FROM events PREWHERE x WHERE y",
+                ["\nPREWHERE x", "\nWHERE y", "\nSELECT 1", "\nFROM events"],
+                ["PRE\nWHERE"],
+            ),
+            (
+                "all_top_level_keywords_split",
+                "SELECT a FROM t WHERE b GROUP BY c HAVING d QUALIFY q WINDOW w ORDER BY e LIMIT 1 OFFSET 2 SETTINGS x = 1",
+                [
+                    "\nSELECT a",
+                    "\nFROM t",
+                    "\nWHERE b",
+                    "\nGROUP BY",
+                    "\nHAVING d",
+                    "\nQUALIFY q",
+                    "\nWINDOW w",
+                    "\nORDER BY e",
+                    "\nLIMIT 1",
+                    "\nOFFSET 2",
+                    "\nSETTINGS x = 1",
+                ],
+                ["PRE\nWHERE"],
+            ),
+            (
+                "keyword_substring_of_token_not_split",
+                "SELECT 1 FROM UNLIMITED",
+                ["\nFROM UNLIMITED"],
+                ["UN\nLIMITED", "\nLIMITED", "\nLIMIT"],
+            ),
+            (
+                "keyword_already_at_line_start_not_doubled",
+                "SELECT a\n    FROM t\n    WHERE b\n    ORDER BY c",
+                ["\nFROM t", "\nWHERE b", "\nORDER BY c"],
+                ["\n    \nFROM", "\n    \nWHERE", "\n    \nORDER", "\n\nFROM"],
+            ),
+            (
+                "keyword_at_line_start_no_indent_not_doubled",
+                "SELECT a\nFROM t\nWHERE b",
+                ["SELECT a\nFROM t\nWHERE b"],
+                ["\n\nFROM", "\n\nWHERE"],
+            ),
+        ]
+    )
+    def test_keyword_newline_insertion(self, _name: str, query: str, present: list[str], absent: list[str]) -> None:
+        result = pretty_print_in_tests(query, 1)
+        for fragment in present:
+            self.assertIn(fragment, result)
+        for fragment in absent:
+            self.assertNotIn(fragment, result)
+
+    @parameterized.expand(
+        [
+            (
+                "nested_subquery_indents_deeper_than_outer",
+                "FROM (SELECT x FROM (SELECT y FROM z) AS inner) AS outer",
+                ["\nFROM (", "\n  SELECT x", "\n  FROM (", "\n    SELECT y", "\n    FROM z) AS inner) AS outer"],
+                ["\n  SELECT y", "\nSELECT x"],
+            ),
+            (
+                "line_starting_with_closing_bracket_dedents",
+                "FROM (SELECT b\n) AS e LIMIT 1",
+                ["\nFROM (", "\n  SELECT b", "\n) AS e", "\nLIMIT 1"],
+                ["\n  ) AS e", "\n    SELECT b"],
+            ),
+            (
+                "sibling_subqueries_each_indent_under_their_own_bracket",
+                "FROM (SELECT a FROM x) AS p, (SELECT b FROM y) AS q",
+                ["\nFROM (", "\n  SELECT a", "\n  FROM x) AS p, (", "\n  SELECT b", "\n  FROM y) AS q"],
+                ["\n    SELECT a", "\n    SELECT b"],
+            ),
+            (
+                "brackets_inside_string_literal_do_not_shift_depth",
+                "SELECT a FROM events WHERE x = '(' GROUP BY a",
+                ["\nSELECT a", "\nFROM events", "\nWHERE x = '('", "\nGROUP BY a"],
+                ["\n  GROUP BY a", "\n  WHERE"],
+            ),
+            (
+                "continuation_lines_indent_under_their_clause_keyword",
+                "-- ClickHouse\nSELECT\n  e.event AS event\nFROM\n  events AS e",
+                ["-- ClickHouse", "\nSELECT", "\n  e.event AS event", "\nFROM", "\n  events AS e"],
+                ["\n  SELECT", "\n  FROM", "\nevents AS e", "  -- ClickHouse"],
+            ),
+            (
+                "with_clause_anchors_at_column_zero_and_body_indents",
+                "WITH a AS (SELECT 1) SELECT b FROM c",
+                ["WITH a AS (", "\n  SELECT 1)", "\nSELECT b", "\nFROM c"],
+                ["\n  WITH", "\n  SELECT b"],
+            ),
+            (
+                "bracket_started_line_is_not_indented_as_a_continuation",
+                "[['a', (0, None)], ['b', (1, None)]]",
+                ["[['a', (0, None)], ['b', (1, None)]]"],
+                ["  [['a'"],
+            ),
+        ]
+    )
+    def test_bracket_depth_indentation(self, _name: str, query: str, present: list[str], absent: list[str]) -> None:
+        result = pretty_print_in_tests(query, 1)
+        for fragment in present:
+            self.assertIn(fragment, result)
+        for fragment in absent:
+            self.assertNotIn(fragment, result)
+
+    def test_normalizes_team_id(self) -> None:
+        result = pretty_print_in_tests("WHERE equals(events.team_id, 99999)", 99999)
+        self.assertIn("team_id, 420)", result)
+        self.assertNotIn("99999", result)
+
+    def test_none_query_returns_empty_string(self) -> None:
+        self.assertEqual(pretty_print_in_tests(None, 1), "")

@@ -4,7 +4,6 @@
 declare namespace Cloudflare {
 	interface GlobalProps {
 		mainModule: typeof import("./src/index");
-		durableNamespaces: "MCP";
 	}
 	interface Env {
 		MCP_APPS_BASE_URL: "https://mcp.posthog.com";
@@ -14,7 +13,6 @@ declare namespace Cloudflare {
 		POSTHOG_UI_APPS_TOKEN: string;
 		POSTHOG_ANALYTICS_API_KEY: string;
 		POSTHOG_ANALYTICS_HOST: string;
-		MCP_OBJECT: DurableObjectNamespace<import("./src/index").MCP>;
 		ASSETS: Fetcher;
 	}
 }

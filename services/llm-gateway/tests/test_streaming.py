@@ -8,7 +8,7 @@ import pytest
 from llm_gateway.streaming.sse import format_sse_stream
 
 
-async def create_mock_stream(chunks: list[dict[str, Any]]) -> AsyncGenerator[Any, None]:
+async def create_mock_stream(chunks: list[dict[str, Any]]) -> AsyncGenerator[Any]:
     for chunk in chunks:
         mock_chunk = MagicMock()
         mock_chunk.model_dump = MagicMock(return_value=chunk)
@@ -23,7 +23,7 @@ class ProviderError(Exception):
         self.status_code = status_code
 
 
-async def create_error_stream(chunks_before_error: int = 1) -> AsyncGenerator[Any, None]:
+async def create_error_stream(chunks_before_error: int = 1) -> AsyncGenerator[Any]:
     for i in range(chunks_before_error):
         mock_chunk = MagicMock()
         mock_chunk.model_dump = MagicMock(return_value={"chunk": i})
@@ -36,7 +36,7 @@ async def create_provider_error_stream(
     message: str = "Service overloaded",
     error_type: str = "overloaded_error",
     status_code: int = 529,
-) -> AsyncGenerator[Any, None]:
+) -> AsyncGenerator[Any]:
     for i in range(chunks_before_error):
         mock_chunk = MagicMock()
         mock_chunk.model_dump = MagicMock(return_value={"chunk": i})
@@ -44,7 +44,7 @@ async def create_provider_error_stream(
     raise ProviderError(message, error_type, status_code)
 
 
-async def collect_stream(stream: AsyncGenerator[bytes, None]) -> list[bytes]:
+async def collect_stream(stream: AsyncGenerator[bytes]) -> list[bytes]:
     chunks: list[bytes] = []
     try:
         async for chunk in stream:

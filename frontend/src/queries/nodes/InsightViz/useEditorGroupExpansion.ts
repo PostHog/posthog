@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
 export function useEditorGroupExpansion(
     defaultExpanded: boolean | undefined,

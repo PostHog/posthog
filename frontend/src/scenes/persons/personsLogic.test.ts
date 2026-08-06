@@ -4,9 +4,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { MockSignature } from '~/mocks/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
@@ -15,17 +14,16 @@ import { PersonsTabType, PersonType, PropertyFilterType, PropertyOperator } from
 
 import { personsLogic } from './personsLogic'
 
-const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
-const scenes: any = { [Scene.Person]: blankScene }
-
 describe('personsLogic', () => {
+    afterEach(resumeKeaLoadersErrors)
     let logic: ReturnType<typeof personsLogic.build>
 
-    const mockPersonsApiHandler: MockSignature = (req) => {
-        if (['+', 'abc', 'xyz'].includes(req.url.searchParams.get('distinct_id') ?? '')) {
+    const mockPersonsApiHandler: MockSignature = ({ request }) => {
+        const url = new URL(request.url)
+        if (['+', 'abc', 'xyz'].includes(url.searchParams.get('distinct_id') ?? '')) {
             return [200, { results: ['person from api'] }]
         }
-        if (['test@test.com'].includes(req.url.searchParams.get('distinct_id') ?? '')) {
+        if (['test@test.com'].includes(url.searchParams.get('distinct_id') ?? '')) {
             return [
                 200,
                 {
@@ -147,84 +145,61 @@ describe('personsLogic', () => {
         })
     })
 
-    describe('tab-aware person scene state', () => {
-        const person: PersonType = {
-            id: 'person-1',
-            uuid: 'uuid-1',
-            distinct_ids: ['same-person'],
-            properties: {},
-            is_identified: true,
-            created_at: '2024-01-01',
-        }
+    describe('loadPersonUUID error handling', () => {
+        it('surfaces a genuine load failure as personError', async () => {
+            silenceKeaLoadersErrors()
+            jest.spyOn(api, 'query').mockRejectedValueOnce(new Error('boom'))
 
-        it('isolates person event query state by tab id', () => {
-            logic.unmount()
-
-            const firstTabLogic = personsLogic({ syncWithUrl: true, urlId: 'same-person', tabId: 'tab-a' })
-            const secondTabLogic = personsLogic({ syncWithUrl: true, urlId: 'same-person', tabId: 'tab-b' })
-            firstTabLogic.mount()
-            secondTabLogic.mount()
-
-            const eventsQuery = {
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.EventsQuery,
-                    select: ['event', 'timestamp'],
-                    personId: 'person-1',
-                },
-            } as DataTableNode
-
-            firstTabLogic.actions.setEventsQuery(eventsQuery)
-
-            expect(firstTabLogic.values.eventsQuery).toEqual(eventsQuery)
-            expect(secondTabLogic.values.eventsQuery).toBeNull()
-
-            firstTabLogic.unmount()
-            secondTabLogic.unmount()
+            await expectLogic(logic, () => {
+                logic.actions.loadPersonUUID('some-uuid')
+            })
+                .toDispatchActions(['loadPersonUUID', 'loadPersonUUIDFailure'])
+                .toMatchValues({
+                    person: null,
+                    personError: 'boom',
+                })
         })
 
-        it('only applies person URL tab changes to the active internal tab', async () => {
-            logic.unmount()
+        it('swallows an aborted query without surfacing an error', async () => {
+            const abortError = new Error('aborted')
+            abortError.name = 'AbortError'
+            jest.spyOn(api, 'query').mockRejectedValueOnce(abortError)
 
-            const unmountSceneLogic = sceneLogic({ scenes }).mount()
-            sceneLogic.actions.setTabs([
-                {
-                    id: 'tab-a',
-                    title: 'Person A',
-                    pathname: '/person/same-person',
-                    search: '',
-                    hash: '',
-                    active: true,
-                    iconType: 'persons',
-                },
-                {
-                    id: 'tab-b',
-                    title: 'Person B',
-                    pathname: '/person/same-person',
-                    search: '',
-                    hash: '',
-                    active: false,
-                    iconType: 'persons',
-                },
-            ])
+            await expectLogic(logic, () => {
+                logic.actions.loadPersonUUID('some-uuid')
+            })
+                .toDispatchActions(['loadPersonUUID', 'loadPersonUUIDSuccess'])
+                .toNotHaveDispatchedActions(['loadPersonUUIDFailure'])
+                .toMatchValues({
+                    person: null,
+                    personError: null,
+                })
+        })
 
-            const firstTabLogic = personsLogic({ syncWithUrl: true, urlId: 'same-person', tabId: 'tab-a' })
-            const secondTabLogic = personsLogic({ syncWithUrl: true, urlId: 'same-person', tabId: 'tab-b' })
-            firstTabLogic.mount()
-            secondTabLogic.mount()
-            firstTabLogic.actions.setPerson(person)
-            secondTabLogic.actions.setPerson(person)
+        it('keeps the already-loaded person when an in-flight query is aborted', async () => {
+            const existingPerson: PersonType = {
+                id: 'person-1',
+                uuid: 'uuid-1',
+                distinct_ids: ['some-uuid'],
+                properties: {},
+                is_identified: true,
+                created_at: '2024-01-01',
+            }
+            logic.actions.setPerson(existingPerson)
 
-            await expectLogic(firstTabLogic, () => {
-                router.actions.push('/person/same-person', {}, { activeTab: PersonsTabType.EVENTS })
-            }).toFinishAllListeners()
+            const abortError = new Error('aborted')
+            abortError.name = 'AbortError'
+            jest.spyOn(api, 'query').mockRejectedValueOnce(abortError)
 
-            expect(firstTabLogic.values.activeTab).toBe(PersonsTabType.EVENTS)
-            expect(secondTabLogic.values.activeTab).toBeNull()
-
-            firstTabLogic.unmount()
-            secondTabLogic.unmount()
-            unmountSceneLogic()
+            await expectLogic(logic, () => {
+                logic.actions.loadPersonUUID('some-uuid')
+            })
+                .toDispatchActions(['loadPersonUUID', 'loadPersonUUIDSuccess'])
+                .toNotHaveDispatchedActions(['loadPersonUUIDFailure'])
+                .toMatchValues({
+                    person: existingPerson,
+                    personError: null,
+                })
         })
     })
 

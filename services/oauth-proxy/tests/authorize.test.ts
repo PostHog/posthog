@@ -22,7 +22,7 @@ describe('handleAuthorize', () => {
         expect(response.headers.get('content-type')).toContain('text/html')
 
         const html = await response.text()
-        expect(html).toContain('Log in to PostHog')
+        expect(html).toContain('Authenticate with PostHog')
         expect(html).toContain('US Cloud')
         expect(html).toContain('EU Cloud')
     })
@@ -202,12 +202,15 @@ describe('handleAuthorize', () => {
         expect(callbackPuts).toHaveLength(0)
     })
 
-    it('sets security headers on region picker page', async () => {
+    it('sets security and cache headers on region picker page', async () => {
         const request = new Request('https://oauth.posthog.com/oauth/authorize/?client_id=abc&response_type=code')
         const response = await handleAuthorize(request, mockKV)
 
         expect(response.headers.get('x-frame-options')).toBe('DENY')
         expect(response.headers.get('x-content-type-options')).toBe('nosniff')
         expect(response.headers.get('referrer-policy')).toBe('no-referrer')
+        expect(response.headers.get('cache-control')).toBe(
+            'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800'
+        )
     })
 })

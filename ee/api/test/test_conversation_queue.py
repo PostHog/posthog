@@ -7,8 +7,9 @@ from rest_framework import status
 from posthog.models import Team
 from posthog.models.user import User
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.queue import ConversationQueueStore, build_queue_message
-from ee.models.assistant import Conversation
 
 
 class TestConversationQueue(APIBaseTest):

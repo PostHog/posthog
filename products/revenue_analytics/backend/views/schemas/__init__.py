@@ -1,4 +1,4 @@
-from posthog.schema import DatabaseSchemaManagedViewTableKind
+from posthog.schema_enums import DatabaseSchemaManagedViewTableKind
 
 from ._definitions import Schema
 from .charge import SCHEMA as CHARGE

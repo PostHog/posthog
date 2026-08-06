@@ -11,6 +11,7 @@ class AuthenticatedUser:
     scopes: list[str] | None = None
     token_expires_at: datetime | None = None
     application_id: str | None = None
+    is_staff: bool = False
 
 
 def resolve_distinct_id(auth_user: AuthenticatedUser, end_user_id: str | None) -> str:

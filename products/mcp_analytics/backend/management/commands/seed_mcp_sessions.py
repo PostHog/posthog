@@ -1,15 +1,23 @@
 import uuid
+import zlib
 import random
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
 
+from posthog.clickhouse.client import sync_execute
+from posthog.models.event.deletion import events_data_tables_via_sync_execute, events_read_tables_via_sync_execute
 from posthog.models.event.util import create_event
-from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.util import create_person, create_person_distinct_id, get_person_by_distinct_id
+from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
-from posthog.models.utils import uuid7
+from posthog.models.utils import UUIDT, uuid7
+from posthog.personhog_client.caller_tag import personhog_caller_tag
+from posthog.persons_db import persons_db_connection
+from posthog.persons_seed import insert_seed_distinct_id, insert_seed_person, update_seed_person
+
+from products.mcp_analytics.backend.models import MCPSession
 
 TOOL_NAMES = [
     "query_run",
@@ -22,7 +30,50 @@ TOOL_NAMES = [
     "error_tracking_issue_get",
 ]
 
-CLIENT_NAMES = ["Claude Desktop", "Cursor", "Windsurf", "Cline"]
+# Marks events as coming from the new MCP SDK — the tool detail page filters on this.
+NEW_SDK_SOURCE = "posthog_mcp_analytics"
+MCP_SERVER_NAME = "posthog-mcp"
+
+# Every seeded event carries this marker so --clear can target exactly what this
+# command created, never genuine SDK traffic sharing the same event names.
+SEEDED_MARKER_PROPERTY = "$mcp_seeded"
+SEEDED_EVENT_NAMES = ("$mcp_tool_call", "$mcp_missing_capability", "$exception")
+
+
+def stable_hash(value: str) -> int:
+    # Not hash(): that's salted per process, which would change how many RNG draws
+    # each session consumes and break --seed reproducibility across invocations.
+    return zlib.crc32(value.encode())
+
+
+# $mcp_tool_category powers the dashboard "share of calls by category" and the tool quality scope filter.
+TOOL_CATEGORIES = {
+    "query_run": "Querying",
+    "insight_get": "Product analytics",
+    "dashboard_get": "Product analytics",
+    "feature_flag_get": "Feature flags",
+    "experiment_get": "Experiments",
+    "person_get": "Persons",
+    "session_recording_get": "Session replay",
+    "error_tracking_issue_get": "Error tracking",
+}
+
+TOOL_DESCRIPTIONS = {
+    "query_run": "Run a HogQL query against the project's events and return rows.",
+    "insight_get": "Fetch a saved insight's definition and computed results.",
+    "dashboard_get": "Fetch a dashboard and the insights tiled on it.",
+    "feature_flag_get": "Look up a feature flag's configuration and rollout conditions.",
+    "experiment_get": "Fetch an experiment's setup and current results.",
+    "person_get": "Look up a person and their properties by distinct id.",
+    "session_recording_get": "Fetch metadata for a session recording.",
+    "error_tracking_issue_get": "Fetch an error-tracking issue and its impact.",
+}
+
+# Raw $mcp_client_name values that categorizeHarness() folds into the popular, logo-backed
+# harness buckets (Claude Code, OpenAI Codex, Cursor, Claude.ai, VS Code). Weighted toward the
+# most common agents so the breakdown looks realistic.
+CLIENT_NAMES = ["claude-code", "codex", "cursor", "claude-ai", "visual studio code"]
+CLIENT_WEIGHTS = [38, 26, 22, 9, 5]
 
 # Identified personas. About 70% of sessions are attached to one of these;
 # the rest stay anonymous with throwaway distinct_ids.
@@ -80,6 +131,19 @@ INTENTS_BY_TOOL: dict[str, list[str]] = {
 }
 DEFAULT_INTENT = "Helping the user investigate a recent product-analytics question without a specific recorded intent."
 
+MISSING_CAPABILITY_INTENTS: list[str] = [
+    "Create a new dashboard and arrange the most relevant insights on it.",
+    "Update a feature flag's rollout percentage for a specific customer cohort.",
+    "Create and launch an experiment for the new onboarding flow.",
+    "Define a behavioral cohort of users who started but did not finish checkout.",
+    "Add a deployment annotation to the signup conversion trend.",
+    "Invite a teammate and grant them access to this project.",
+    "Change an existing insight's filters and save the updated definition.",
+    "Export a short clip from a session recording for a bug report.",
+    "Resolve an error-tracking issue after confirming the fix is deployed.",
+    "Configure a new data warehouse source and start its first sync.",
+]
+
 
 # Session-level summarised intents. These intentionally repeat themes so the
 # clustering pipeline has something to cluster: variants of "check a feature
@@ -101,26 +165,70 @@ SESSION_INTENTS: list[str] = [
     "Pull the latest exception issue tied to the deploy so on-call can triage the regression.",
 ]
 
+# Paired with a fraction of failing tool calls so the tool detail "Failures" table
+# (which reads $exception events) has something to show.
+EXCEPTION_MESSAGES: list[str] = [
+    "TimeoutError: upstream query exceeded 30s deadline",
+    "ValidationError: missing required parameter 'project_id'",
+    "PermissionError: API key lacks scope for this resource",
+    "ConnectionError: ClickHouse connection reset by peer",
+    "KeyError: '$mcp_tool_name' not present in event payload",
+]
+
+# Fraction of failing tool calls that also emit a paired $exception event.
+EXCEPTION_PAIR_PROBABILITY = 0.6
+
 
 class Command(BaseCommand):
-    help = "Seed mcp_tool_call events into ClickHouse for local testing of MCP analytics."
+    help = "Seed MCP analytics events into ClickHouse for local testing."
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--team-id", type=int, required=True, help="Team ID to seed events for.")
         parser.add_argument("--sessions", type=int, default=101, help="Number of sessions to create.")
         parser.add_argument("--min-calls", type=int, default=4, help="Minimum tool calls per session (inclusive).")
         parser.add_argument("--max-calls", type=int, default=50, help="Maximum tool calls per session (inclusive).")
+        parser.add_argument(
+            "--days",
+            type=int,
+            default=0,
+            help="Spread sessions across the last N days (for trend charts). 0 keeps everything in the last hour.",
+        )
+        parser.add_argument(
+            "--missing-capabilities",
+            type=int,
+            default=None,
+            help="Number of missing-capability events to attach to distinct seeded sessions. "
+            "Defaults to 8, clamped to --sessions.",
+        )
         parser.add_argument("--seed", type=int, default=None, help="Optional random seed for reproducible output.")
+        parser.add_argument(
+            "--clear",
+            action="store_true",
+            help="Delete data previously seeded by this command before seeding — events marked with "
+            "$mcp_seeded, plus the session intent rows those events belong to. Genuine MCP traffic "
+            "and data seeded before the marker existed are left alone.",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         team_id: int = options["team_id"]
         session_count: int = options["sessions"]
         min_calls: int = options["min_calls"]
         max_calls: int = options["max_calls"]
+        days: int = options["days"]
+        # An explicit value is validated against --sessions; the default clamps instead,
+        # so low-volume smoke runs (--sessions 5) work without extra flags.
+        explicit_missing_capabilities: int | None = options["missing_capabilities"]
+        missing_capability_count: int = (
+            explicit_missing_capabilities if explicit_missing_capabilities is not None else min(8, session_count)
+        )
         seed: int | None = options["seed"]
+        clear: bool = options["clear"]
 
         if min_calls > max_calls:
             self.stderr.write(self.style.ERROR("--min-calls must be <= --max-calls"))
+            return
+        if missing_capability_count < 0 or missing_capability_count > session_count:
+            self.stderr.write(self.style.ERROR("--missing-capabilities must be between 0 and --sessions"))
             return
 
         try:
@@ -129,60 +237,113 @@ class Command(BaseCommand):
             self.stderr.write(self.style.ERROR(f"Team {team_id} does not exist."))
             return
 
+        if clear:
+            # Scoped to the seeded marker so genuine SDK traffic sharing these event names
+            # survives. The intent rows carry no marker of their own, so recover which
+            # sessions were seeded from the events before deleting them.
+            seeded_predicate = (
+                "team_id = %(team_id)s AND event IN %(events)s "
+                f"AND JSONExtractBool(properties, '{SEEDED_MARKER_PROPERTY}')"
+            )
+            clear_params = {"team_id": team_id, "events": SEEDED_EVENT_NAMES}
+            # Read through the distributed table: the sharded tables below only see the local shard.
+            read_table, *_ = events_read_tables_via_sync_execute()
+            seeded_session_ids = [
+                session_id
+                for (session_id,) in sync_execute(
+                    f"SELECT DISTINCT JSONExtractString(properties, '$session_id') "
+                    f"FROM {read_table} WHERE {seeded_predicate}",
+                    clear_params,
+                )
+                if session_id
+            ]
+            # Both tables create_event dual-writes to, and only where they exist.
+            for table in events_data_tables_via_sync_execute():
+                sync_execute(
+                    f"ALTER TABLE {table} DELETE WHERE {seeded_predicate} SETTINGS mutations_sync=1",
+                    clear_params,
+                )
+            if seeded_session_ids:
+                with team_scope(team_id):
+                    MCPSession.objects.filter(team=team, session_id__in=seeded_session_ids).delete()
+            self.stdout.write(
+                self.style.WARNING(
+                    f"Cleared previously seeded MCP data for team {team_id} ({len(seeded_session_ids)} sessions)."
+                )
+            )
+
         rng = random.Random(seed)
         now = datetime.now(tz=UTC)
         total_events = 0
+        seeded_sessions: list[tuple[str, str, str, dict[str, Any], str, datetime]] = []
 
-        # Create the identified personas. We write each one to BOTH Postgres
-        # (Person + PersonDistinctId) and ClickHouse (via create_person) so the
-        # distinct_id -> Person lookup in list_mcp_sessions can resolve name/email.
-        for persona in IDENTIFIED_PERSONAS:
-            properties = {
-                "email": persona["email"],
-                "name": persona["name"],
-                "role": persona["role"],
-            }
-            existing_person = get_person_by_distinct_id(team_id=team.id, distinct_id=persona["distinct_id"])
+        # distinct_id -> (person_uuid, person_properties). Events carry person_id so the
+        # person-on-events join (Top users table) keeps them — without a real person the
+        # inner join drops every row.
+        person_cache: dict[str, tuple[str, dict[str, Any]]] = {}
+
+        def ensure_person(
+            distinct_id: str, properties: dict[str, Any], is_identified: bool
+        ) -> tuple[str, dict[str, Any]]:
+            if distinct_id in person_cache:
+                return person_cache[distinct_id]
+            with personhog_caller_tag("mcp-analytics/seed-sessions"):
+                existing_person = get_person_by_distinct_id(
+                    team_id=team.id, distinct_id=distinct_id, distinct_id_limit=0
+                )
             if existing_person:
-                person = existing_person
-                person.properties = properties
-                person.is_identified = True
-                person.save(update_fields=["properties", "is_identified"])
+                person_uuid = str(existing_person.uuid)
+                if properties:
+                    with persons_db_connection(writer=True) as conn:
+                        update_seed_person(
+                            conn,
+                            team_id=team.id,
+                            uuid=person_uuid,
+                            properties=properties,
+                            is_identified=is_identified,
+                        )
             else:
-                person = Person.objects.create(  # nosemgrep: no-direct-persons-db-orm
-                    team=team, properties=properties, is_identified=True
-                )
-                PersonDistinctId.objects.create(  # nosemgrep: no-direct-persons-db-orm
-                    team=team, distinct_id=persona["distinct_id"], person=person
-                )
-            person_uuid = str(person.uuid)
+                person_uuid = str(UUIDT())
+                with persons_db_connection(writer=True) as conn:
+                    person_id = insert_seed_person(
+                        conn,
+                        team_id=team.id,
+                        properties=properties,
+                        is_identified=is_identified,
+                        uuid=person_uuid,
+                    )
+                    insert_seed_distinct_id(conn, team_id=team.id, person_id=person_id, distinct_id=distinct_id)
             create_person(
                 team_id=team.id,
                 uuid=person_uuid,
                 version=0,
-                is_identified=True,
+                is_identified=is_identified,
                 properties=properties,
             )
-            create_person_distinct_id(
-                team_id=team.id,
-                distinct_id=persona["distinct_id"],
-                person_id=person_uuid,
+            create_person_distinct_id(team_id=team.id, distinct_id=distinct_id, person_id=person_uuid)
+            person_cache[distinct_id] = (person_uuid, properties)
+            return person_cache[distinct_id]
+
+        # Create the identified personas up front (anonymous visitors are created lazily below).
+        for persona in IDENTIFIED_PERSONAS:
+            ensure_person(
+                persona["distinct_id"],
+                {"email": persona["email"], "name": persona["name"], "role": persona["role"]},
+                is_identified=True,
             )
 
         for session_idx in range(session_count):
-            # $mcp_session_id is the canonical session grouping key emitted by the MCP
-            # SDK. Use uuid4 because that's the format the real service emits (e.g.
-            # ba10420e-7ff2-4253-a6ac-3e404f14f8be).
-            mcp_session_id = str(uuid.uuid4())
-            # $session_id keeps the PostHog uuid7 convention so session-replay-style
-            # consumers don't choke on it.
+            # $session_id is the canonical session key — the @posthog/mcp SDK emits only
+            # this (no $mcp_session_id), so these fixtures mirror a plain SDK-instrumented
+            # server. uuid7 matches the PostHog session-id convention.
             session_id = str(uuid7())
             if rng.random() < IDENTIFIED_PROBABILITY:
                 persona = rng.choice(IDENTIFIED_PERSONAS)
                 distinct_id = persona["distinct_id"]
             else:
                 distinct_id = f"anon_{uuid.uuid4().hex[:8]}"
-            client_name = rng.choice(CLIENT_NAMES)
+            person_uuid, person_props = ensure_person(distinct_id, {}, is_identified=False)
+            client_name = rng.choices(CLIENT_NAMES, weights=CLIENT_WEIGHTS, k=1)[0]
             calls = rng.randint(min_calls, max_calls)
             # Anchor each session within the listing's default 24h window so it shows
             # up on the next request. The listing aggregates recent events on the fly,
@@ -190,8 +351,17 @@ class Command(BaseCommand):
             # clearly "in the past" without flirting with the window edge.
             call_intervals = [rng.randint(15, 90) for _ in range(calls)]
             total_call_duration = timedelta(seconds=sum(call_intervals))
-            session_end_offset_min = rng.randint(31, 59)
+            if days > 0:
+                # Spread session_end across the last N days so trend charts (bucketed
+                # by date over a 7-day window) show a curve instead of a single spike.
+                session_end_offset_min = rng.randint(31, days * 24 * 60)
+            else:
+                session_end_offset_min = rng.randint(31, 59)
             session_start = now - timedelta(minutes=session_end_offset_min) - total_call_duration
+
+            # One coherent intent per session so the clustering page has themes to group.
+            primary_tool = rng.choice(TOOL_NAMES)
+            session_intent = rng.choice(INTENTS_BY_TOOL.get(primary_tool, [DEFAULT_INTENT]))
 
             cumulative_offset_s = 0
             for call_idx in range(calls):
@@ -199,24 +369,30 @@ class Command(BaseCommand):
                 timestamp = session_start + timedelta(seconds=cumulative_offset_s)
                 tool_name = rng.choice(TOOL_NAMES)
                 # Skew error rate and latency per tool so the Tool quality tab has variation.
-                tool_error_rate = (hash(tool_name) % 30) / 100.0
+                tool_error_rate = (stable_hash(tool_name) % 30) / 100.0
                 is_error = rng.random() < tool_error_rate
-                base_latency = 80 + (hash(tool_name) % 400)
+                base_latency = 80 + (stable_hash(tool_name) % 400)
                 duration_ms = max(1, int(rng.gauss(base_latency, base_latency * 0.4)))
                 if is_error:
                     duration_ms = int(duration_ms * rng.uniform(1.5, 3.0))
-                intent = rng.choice(INTENTS_BY_TOOL.get(tool_name, [DEFAULT_INTENT]))
                 create_event(
                     event_uuid=uuid.uuid4(),
-                    event="mcp_tool_call",
+                    event="$mcp_tool_call",
                     team=team,
                     distinct_id=distinct_id,
                     timestamp=timestamp,
+                    person_id=uuid.UUID(person_uuid),
+                    person_properties=person_props,
                     properties={
+                        SEEDED_MARKER_PROPERTY: True,
                         "$session_id": session_id,
-                        "$mcp_session_id": mcp_session_id,
+                        "$mcp_source": NEW_SDK_SOURCE,
+                        "$mcp_server_name": MCP_SERVER_NAME,
                         "$mcp_tool_name": tool_name,
-                        "$mcp_intent": intent,
+                        "$mcp_tool_category": TOOL_CATEGORIES.get(tool_name, "Other"),
+                        "$mcp_tool_description": TOOL_DESCRIPTIONS.get(tool_name, ""),
+                        "$mcp_intent": session_intent,
+                        "$mcp_intent_source": rng.choices(["context_parameter", "inferred"], weights=[7, 3], k=1)[0],
                         "$mcp_error_message": "Upstream returned 500" if is_error else "",
                         "$mcp_client_name": client_name,
                         "$mcp_client_version": "1.0.0",
@@ -228,12 +404,74 @@ class Command(BaseCommand):
                 )
                 total_events += 1
 
-            # Don't write to MCPSession (it's dormant) — the listing derives sessions
-            # on the fly from the events we just captured, grouped by $mcp_session_id.
+                # Pair some failures with an $exception event so the tool detail
+                # "Failures" table (which reads $exception events) has data.
+                if is_error and rng.random() < EXCEPTION_PAIR_PROBABILITY:
+                    exception_message = rng.choice(EXCEPTION_MESSAGES)
+                    create_event(
+                        event_uuid=uuid.uuid4(),
+                        event="$exception",
+                        team=team,
+                        distinct_id=distinct_id,
+                        timestamp=timestamp,
+                        person_id=uuid.UUID(person_uuid),
+                        person_properties=person_props,
+                        properties={
+                            SEEDED_MARKER_PROPERTY: True,
+                            "$session_id": session_id,
+                            "$mcp_tool_name": tool_name,
+                            "$mcp_client_name": client_name,
+                            "$exception_types": ["MCPToolError"],
+                            "$exception_values": [exception_message],
+                            "$exception_list": [
+                                {
+                                    "type": "MCPToolError",
+                                    "value": exception_message,
+                                    "mechanism": {"handled": True},
+                                }
+                            ],
+                        },
+                    )
+                    total_events += 1
+
+            # The session listing derives sessions on the fly from the events above,
+            # but intent clustering reads MCPSession.intent (keyed by $session_id), so
+            # store one row per session to give the clustering page something to group.
+            with team_scope(team_id):
+                MCPSession.objects.update_or_create(
+                    team=team, session_id=session_id, defaults={"intent": session_intent}
+                )
+            session_end = session_start + total_call_duration
+            seeded_sessions.append((session_id, distinct_id, person_uuid, person_props, client_name, session_end))
             self.stdout.write(
-                f"  session {session_idx + 1}/{session_count}: {calls} tool calls (mcp_session_id={mcp_session_id})"
+                f"  session {session_idx + 1}/{session_count}: {calls} tool calls (session_id={session_id})"
             )
 
+        for session_id, distinct_id, person_uuid, person_props, client_name, session_end in rng.sample(
+            seeded_sessions, k=missing_capability_count
+        ):
+            create_event(
+                event_uuid=uuid.uuid4(),
+                event="$mcp_missing_capability",
+                team=team,
+                distinct_id=distinct_id,
+                timestamp=session_end + timedelta(seconds=rng.randint(1, 30)),
+                person_id=uuid.UUID(person_uuid),
+                person_properties=person_props,
+                properties={
+                    SEEDED_MARKER_PROPERTY: True,
+                    "$session_id": session_id,
+                    "$mcp_source": NEW_SDK_SOURCE,
+                    "$mcp_server_name": MCP_SERVER_NAME,
+                    "$mcp_intent": rng.choice(MISSING_CAPABILITY_INTENTS),
+                    "$mcp_client_name": client_name,
+                },
+            )
+            total_events += 1
+
         self.stdout.write(
-            self.style.SUCCESS(f"Seeded {session_count} sessions ({total_events} events) for team {team_id}.")
+            self.style.SUCCESS(
+                f"Seeded {session_count} sessions ({total_events} events, including "
+                f"{missing_capability_count} missing-capability reports) for team {team_id}."
+            )
         )

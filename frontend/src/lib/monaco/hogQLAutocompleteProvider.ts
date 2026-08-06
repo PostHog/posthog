@@ -1,7 +1,7 @@
 import { BuiltLogic } from 'kea'
 import { languages } from 'monaco-editor'
 
-import type { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
+import type { codeEditorLogicType } from 'lib/monaco/codeEditorLogic'
 
 import { performQuery } from '~/queries/query'
 import {
@@ -87,15 +87,17 @@ const kindToSortText = (kind: AutocompleteCompletionItemKind, label: string): st
     return `3-${label}`
 }
 
+const emptyCompletionList = (): languages.CompletionList => ({
+    suggestions: [],
+    incomplete: false,
+})
+
 export const hogQLAutocompleteProvider = (type: HogLanguage): languages.CompletionItemProvider => ({
     triggerCharacters: [' ', ',', '.', '{'],
     provideCompletionItems: async (model, position) => {
         const logic: BuiltLogic<codeEditorLogicType> | undefined = (model as any).codeEditorLogic
         if (!logic || !logic.isMounted()) {
-            return {
-                suggestions: [],
-                incomplete: false,
-            }
+            return emptyCompletionList()
         }
         const word = model.getWordUntilPosition(position)
         const startOffset = model.getOffsetAt({
@@ -128,7 +130,13 @@ export const hogQLAutocompleteProvider = (type: HogLanguage): languages.Completi
             },
             { recursion: false }
         )
-        const response = await performQuery<HogQLAutocomplete>(query)
+        let response: NonNullable<HogQLAutocomplete['response']>
+        try {
+            response = await performQuery<HogQLAutocomplete>(query)
+        } catch {
+            return emptyCompletionList()
+        }
+
         const completionItems = response.suggestions
         const suggestions = completionItems.map<languages.CompletionItem>((item) => {
             const kind = convertCompletionItemKind(item.kind)

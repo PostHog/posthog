@@ -1,7 +1,6 @@
 from types import SimpleNamespace
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
 
 from rest_framework import serializers, status
 
@@ -11,15 +10,6 @@ from products.ai_observability.backend.models.trace_reviews import TraceReview
 
 
 class TestReviewQueuesApi(APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        self.feature_flag_patcher = patch(
-            "products.ai_observability.backend.api.trace_reviews.posthoganalytics.feature_enabled",
-            return_value=True,
-        )
-        self.mock_feature_enabled = self.feature_flag_patcher.start()
-        self.addCleanup(self.feature_flag_patcher.stop)
-
     def _queues_endpoint(self) -> str:
         return f"/api/environments/{self.team.id}/llm_analytics/review_queues/"
 
@@ -39,13 +29,6 @@ class TestReviewQueuesApi(APIBaseTest):
             created_by=self.user,
             reviewed_by=self.user,
         )
-
-    def test_returns_403_when_feature_flag_disabled(self):
-        self.mock_feature_enabled.return_value = False
-
-        response = self.client.get(self._queues_endpoint())
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_can_create_review_queue(self):
         response = self.client.post(self._queues_endpoint(), {"name": "Escalations"}, format="json")

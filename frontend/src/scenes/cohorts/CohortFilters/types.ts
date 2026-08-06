@@ -65,6 +65,7 @@ export enum BehavioralFilterKey {
     Behavioral = 'behavioral',
     Cohort = 'cohort',
     Person = 'person',
+    PersonMetadata = 'person_metadata',
 }
 
 export interface Field {

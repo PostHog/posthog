@@ -72,27 +72,31 @@ class MCPToolRegistry:
 
         return decorator
 
+    def _ensure_loaded(self) -> dict[str, MCPToolRegistration]:
+        # Tools self-register on import, so every read must trigger the import first. Keep the
+        # load-then-read invariant in one place — function-local import to avoid the tools <-> mcp_tool cycle.
+        from ee.hogai.tools import load_all_tools  # noqa: PLC0415 - ensure tools are registered
+
+        load_all_tools()
+        return self._tools
+
     def get(self, name: str, team: Team, user: User) -> MCPTool[Any] | None:
         """Get an MCP tool instance by name, constructed with team/user."""
-        import ee.hogai.tools  # noqa: F401 - ensure tools are registered
-
-        registration = self._tools.get(name)
+        registration = self._ensure_loaded().get(name)
         if registration:
             return registration.tool_cls(team=team, user=user)
         return None
 
     def get_scopes(self, name: str) -> list[str]:
         """Get the required scopes for a registered MCP tool."""
-        import ee.hogai.tools  # noqa: F401 - ensure tools are registered
-
-        registration = self._tools.get(name)
+        registration = self._ensure_loaded().get(name)
         if registration:
             return registration.scopes
         return []
 
     def get_names(self) -> list[str]:
         """Get list of registered MCP tool names."""
-        return list(self._tools.keys())
+        return list(self._ensure_loaded().keys())
 
 
 mcp_tool_registry = MCPToolRegistry()

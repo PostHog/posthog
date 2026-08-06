@@ -379,7 +379,7 @@ export function UpdateEmailPreferences(): JSX.Element {
                 <SimpleSwitch
                     setting="plugin_disabled"
                     label="Data pipeline errors"
-                    description="Get notified when data pipeline components (destinations, batch exports) encounter errors for all projects"
+                    description="Get notified when data pipeline components (destinations, batch exports, data warehouse sources) encounter errors for all projects"
                     dataAttr="pipeline_errors_enabled"
                 />
                 {user?.notification_settings?.plugin_disabled !== false && (

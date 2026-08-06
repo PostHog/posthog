@@ -129,6 +129,19 @@ class TestTrack:
             telemetry.flush(timeout=1.0)
             mock_send.assert_not_called()
 
+    def test_flush_async_drains_queue_without_blocking(self, telemetry_config: Path):
+        telemetry_config.write_text(
+            json.dumps({"enabled": True, "anonymous_id": "test-id", "first_run_notice_shown": True})
+        )
+        with patch.object(telemetry._client, "_send_batch") as mock_send:
+            telemetry.track("command_started", {"command": "test"})
+            telemetry.flush_async()
+            # The later blocking flush only joins the in-flight send; the queue
+            # was already drained, so exactly one batch goes out.
+            telemetry.flush(timeout=2.0)
+            mock_send.assert_called_once()
+            assert mock_send.call_args[0][0][0]["event"] == "command_started"
+
 
 class TestFirstRunNotice:
     def test_creates_config(self, telemetry_config: Path):
@@ -193,14 +206,18 @@ class TestInvokeTelemetry:
         )
         monkeypatch.setenv("POSTHOG_TELEMETRY_HOST", "http://localhost")
         monkeypatch.setenv("POSTHOG_TELEMETRY_API_KEY", "test-key")
+        # The suite itself may run under `hogli test`, which marks its whole
+        # process tree nested; pin the import-time capture for a stable assert.
+        monkeypatch.setattr("hogli.cli._IS_NESTED", False)
         with patch.object(telemetry._client, "_send_batch") as mock_send:
             runner = CliRunner()
             result = runner.invoke(cli, ["quickstart"])
             assert result.exit_code == 0
 
-            # Single batch call containing both events
-            mock_send.assert_called_once()
-            batch = mock_send.call_args[0][0]
+            # started is flushed eagerly in its own batch; completed flushes at
+            # command end -- two sends, so a hard kill can't lose the started event.
+            assert mock_send.call_count == 2
+            batch = [event for call in mock_send.call_args_list for event in call.args[0]]
             events = {e["event"] for e in batch}
             assert "command_started" in events
             assert "command_completed" in events
@@ -208,6 +225,8 @@ class TestInvokeTelemetry:
             started = next(e for e in batch if e["event"] == "command_started")
             assert started["properties"]["command"] == "quickstart"
             assert "is_ci" in started["properties"]
+            assert "hogli_version" in started["properties"]
+            assert started["properties"]["is_nested"] is False
 
             completed = next(e for e in batch if e["event"] == "command_completed")
             assert completed["properties"]["command"] == "quickstart"
@@ -215,6 +234,20 @@ class TestInvokeTelemetry:
             assert completed["properties"]["outcome"] == "success"
             assert "duration_s" in completed["properties"]
             assert "is_ci" in completed["properties"]
+
+    def test_first_run_shows_notice_and_emits_events(self, monkeypatch: pytest.MonkeyPatch, telemetry_config: Path):
+        """A brand-new install (no config file) must arm itself and emit events
+        in the same invocation -- the notice block must run before the gate."""
+        assert not telemetry_config.exists()
+        monkeypatch.setenv("POSTHOG_TELEMETRY_HOST", "http://localhost")
+        monkeypatch.setenv("POSTHOG_TELEMETRY_API_KEY", "test-key")
+        monkeypatch.setattr("hogli.cli._IS_NESTED", False)
+        with patch.object(telemetry._client, "_send_batch") as mock_send:
+            result = CliRunner().invoke(cli, ["quickstart"])
+            assert result.exit_code == 0
+            events = {e["event"] for call in mock_send.call_args_list for e in call.args[0]}
+            assert events == {"command_started", "command_completed"}
+        assert "hogli collects anonymous usage data" in result.output
 
     @pytest.mark.parametrize("command", ["telemetry:on", "telemetry:off", "telemetry:status"])
     def test_management_commands_emit_no_events(
@@ -231,7 +264,27 @@ class TestInvokeTelemetry:
             mock_send.assert_not_called()
 
 
+def _patch_cli_manifest(monkeypatch: pytest.MonkeyPatch, command_config: dict | None) -> None:
+    """Point hogli.cli at a fake manifest whose every command has *command_config*.
+
+    Keeps core tests off PostHog's hogli.yaml per the framework boundary.
+    """
+
+    class _FakeManifest:
+        def command_flag(self, command, key):
+            return bool((command_config or {}).get(key, False))
+
+        def get_command_config(self, command):
+            return command_config
+
+    monkeypatch.setattr("hogli.cli.get_manifest", lambda: _FakeManifest())
+
+
 class TestShouldTrack:
+    @pytest.fixture(autouse=True)
+    def _no_untracked_manifest(self, monkeypatch: pytest.MonkeyPatch):
+        _patch_cli_manifest(monkeypatch, None)
+
     @pytest.mark.parametrize(
         "command, expected",
         [
@@ -241,10 +294,15 @@ class TestShouldTrack:
             ("telemetry:on", False),
             ("telemetry:off", False),
             ("telemetry:status", False),
+            ("run", False),  # exec-replaces the process; events could never pair
         ],
     )
     def test_should_track(self, command, expected):
         assert _should_track(command) is expected
+
+    def test_manifest_untracked_key_suppresses_tracking(self, monkeypatch: pytest.MonkeyPatch):
+        _patch_cli_manifest(monkeypatch, {"untracked": True})
+        assert _should_track("devbox:ssh") is False
 
 
 class TestOutcome:

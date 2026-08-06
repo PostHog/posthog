@@ -238,13 +238,15 @@ async def test_delete_failure_keeps_redis_state_for_retry(activity_environment, 
     assert await _index_has(gemini_redis, "files/bad")
 
 
+@pytest.mark.parametrize("code", [403, 404])
 @pytest.mark.asyncio
-async def test_treats_gemini_404_as_success(activity_environment, fixed_now, gemini_redis):
+async def test_treats_gemini_already_gone_as_success(activity_environment, fixed_now, gemini_redis, code):
     # If a previous untrack failed and left an orphan key, the actual file may already be gone
-    # from Gemini. Don't keep retrying — drop the key and move on.
+    # from Gemini. Missing files surface as 403 PERMISSION_DENIED ("...or it may not exist")
+    # or 404. Don't keep retrying — drop the key and move on.
     await _track(gemini_redis, file_name="files/already-gone", workflow_id="wf-1", age=SWEEP_MIN_AGE * 10)
     raw = _StubRawClient()
-    raw.files.delete_raises_for = {"files/already-gone": APIError(code=404, response_json={})}
+    raw.files.delete_raises_for = {"files/already-gone": APIError(code=code, response_json={})}
     tmp = _StubTemporal({"wf-1": _Outcome(status=WorkflowExecutionStatus.COMPLETED)})
     p1, p2 = _patch_clients(raw, tmp)
     with p1, p2:

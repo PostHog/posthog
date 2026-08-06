@@ -1,6 +1,6 @@
 import FastPriorityQueue from 'fastpriorityqueue'
 
-import { promiseResolveReject } from 'lib/utils'
+import { promiseResolveReject } from 'lib/utils/async'
 
 // Note that this file also exists in the nodejs package, please keep them in sync as the tests only exist for this version
 

@@ -11,7 +11,7 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Label } from 'lib/ui/Label/Label'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import { experimentLogic } from '../experimentLogic'
 
@@ -28,7 +28,7 @@ function useStaleDataCheck({
     intervalSeconds,
     onRefresh,
 }: {
-    lastRefresh: string
+    lastRefresh: string | null
     enabled: boolean
     intervalSeconds: number
     onRefresh: () => void
@@ -65,7 +65,7 @@ function useStaleDataCheck({
     }, [lastRefresh, enabled, intervalSeconds, onRefresh])
 }
 
-export const ExperimentLastRefreshText = ({ lastRefresh }: { lastRefresh: string }): JSX.Element => {
+export const ExperimentLastRefreshText = ({ lastRefresh }: { lastRefresh: string | null }): JSX.Element => {
     const colorClass = lastRefresh
         ? dayjs().diff(dayjs(lastRefresh), 'hours') > 12
             ? 'text-danger'
@@ -93,10 +93,12 @@ export const ExperimentReloadAction = ({
     isRefreshing,
     lastRefresh,
     onClick,
+    progress,
 }: {
     isRefreshing: boolean
-    lastRefresh: string
+    lastRefresh: string | null
     onClick: () => void
+    progress?: { completed: number; total: number }
 }): JSX.Element => {
     const { autoRefresh } = useValues(experimentLogic)
     const { setAutoRefresh, setPageVisibility, stopAutoRefreshInterval } = useActions(experimentLogic)
@@ -130,6 +132,9 @@ export const ExperimentReloadAction = ({
         ...option,
         disabledReason: !autoRefresh.enabled ? 'Enable auto refresh to set the interval' : undefined,
     }))
+
+    const loadingText =
+        progress && progress.total > 0 ? `Loaded ${progress.completed} of ${progress.total} metrics` : 'Loading…'
 
     return (
         <div className="flex flex-col">
@@ -190,7 +195,7 @@ export const ExperimentReloadAction = ({
                         },
                     }}
                 >
-                    {isRefreshing ? 'Loading…' : <ExperimentLastRefreshText lastRefresh={lastRefresh} />}
+                    {isRefreshing ? loadingText : <ExperimentLastRefreshText lastRefresh={lastRefresh} />}
                 </LemonButton>
                 <LemonBadge
                     size="small"

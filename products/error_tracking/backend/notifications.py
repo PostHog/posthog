@@ -4,6 +4,7 @@ import structlog
 
 from posthog.models import User
 
+from products.error_tracking.backend.logic import build_issue_permalink_path, get_canonical_fingerprint
 from products.error_tracking.backend.models import ErrorTrackingIssueAssignment
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -23,7 +24,7 @@ class _AssignerExcludingResolver(RecipientsResolver):
         super().__init__()
         self._assigner_id = assigner_id
 
-    def resolve(self, target_type: TargetType, target_id: str, team_id: int) -> list[int]:
+    def resolve(self, target_type: TargetType, target_id: str, team_id: int | None) -> list[int]:
         users = super().resolve(target_type, target_id, team_id)
         return [uid for uid in users if uid != self._assigner_id]
 
@@ -48,7 +49,8 @@ def dispatch_issue_assigned_realtime(
         issue = assignment.issue
         title = f"{assigner.first_name or assigner.email} assigned an issue to you"[:100]
         body = (issue.name or "")[:200]
-        source_url = f"/project/{team.project_id}/error_tracking/{issue.id}"
+        fingerprint = get_canonical_fingerprint(team_id=assignment.team_id, issue_id=issue.id)
+        source_url = build_issue_permalink_path(project_id=team.project_id, issue_id=issue.id, fingerprint=fingerprint)
 
         if assignee["type"] == "user":
             if int(assignee["id"]) == assigner.id:

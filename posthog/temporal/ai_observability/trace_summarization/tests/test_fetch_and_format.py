@@ -5,9 +5,10 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from posthog.temporal.ai_observability.trace_summarization.fetch_and_format import (
+    _fetch_and_format_trace,
     _format_generation_text_repr,
     fetch_and_format_activity,
 )
@@ -67,6 +68,29 @@ class TestFormatGenerationTextRepr:
         assert "Tokens:" not in result
 
 
+class TestFetchAndFormatTrace:
+    @patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.llm_trace_to_formatter_format")
+    @patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.fetch_trace")
+    @patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.Team.objects.get")
+    def test_skips_trace_over_event_limit_before_formatting(
+        self, _mock_get_team: MagicMock, mock_fetch: MagicMock, mock_format: MagicMock
+    ) -> None:
+        mock_fetch.return_value = MagicMock(events=[MagicMock(properties={}) for _ in range(51)])
+
+        result = _fetch_and_format_trace(
+            trace_id="oversized-trace",
+            team_id=7,
+            window_start="2026-04-08T14:00:00+00:00",
+            window_end="2026-04-08T15:00:00+00:00",
+            max_trace_events=50,
+        )
+
+        assert result is not None
+        assert result.text_repr is None
+        assert result.event_count == 51
+        mock_format.assert_not_called()
+
+
 @patch(
     "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.Heartbeater",
     _noop_heartbeater,
@@ -106,7 +130,7 @@ class TestFetchAndFormatActivity:
     @pytest.mark.asyncio
     async def test_generation_not_found_returns_skipped(self, mock_team):
         with patch(
-            "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.execute_with_ai_events_fallback"
+            "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.query_ai_events"
         ) as mock_query:
             mock_query.return_value.results = []
 
@@ -181,7 +205,7 @@ class TestFetchAndFormatActivity:
 
         with (
             patch(
-                "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.execute_with_ai_events_fallback"
+                "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.query_ai_events"
             ) as mock_query,
             patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.get_async_client"),
             patch(

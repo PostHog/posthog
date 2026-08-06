@@ -1,5 +1,5 @@
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, flush_persons_and_events
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
@@ -14,13 +14,13 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
+from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tools.execute_sql.tool import ExecuteSQLTool, ExecuteSQLToolArgs
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
-from ee.models import AgentArtifact, Conversation
 
 
 class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -120,6 +120,19 @@ class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(right_y_axis_settings.label, "People")
         self.assertEqual(right_y_axis_settings.showTicks, False)
 
+        tool_call_message = artifact_messages.messages[1]
+        assert isinstance(tool_call_message, AssistantToolCallMessage)
+        ui_payload = tool_call_message.ui_payload
+        assert ui_payload is not None
+        payload = ui_payload["execute_sql"]
+        self.assertEqual(payload["kind"], "DataVisualizationNode")
+        self.assertEqual(payload["display"], "ActionsBar")
+        self.assertEqual(payload["chartSettings"]["xAxisLabel"], "Event name")
+        self.assertEqual(
+            payload["source"]["query"],
+            "SELECT event, count() AS events, uniq(distinct_id) AS people FROM events GROUP BY event",
+        )
+
     async def test_artifact_id_in_output(self):
         _create_event(team=self.team, distinct_id="user1", event="test_event")
 
@@ -199,7 +212,6 @@ class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(payload["query"], "SELECT count() FROM events WHERE {filters}")
         self.assertEqual(payload["filters"], {})
 
-    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     async def test_select_from_system_insights(self):
         await sync_to_async(Insight.objects.create)(
             team=self.team,

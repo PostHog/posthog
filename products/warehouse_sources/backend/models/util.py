@@ -1,10 +1,9 @@
 import re
 import socket
+from collections.abc import Mapping
 from ipaddress import IPv6Address, ip_address
-from typing import TYPE_CHECKING, Any, Protocol, Union
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, Union
 from urllib.parse import urlparse
-
-from django.db.models import Q
 
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
@@ -19,10 +18,11 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     StructDatabaseField,
     UnknownDatabaseField,
+    UUIDDatabaseField,
 )
 
 if TYPE_CHECKING:
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
@@ -33,7 +33,7 @@ class DatabaseFieldFactory(Protocol):
 
 
 def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "DataWarehouseTable", None]:
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
     table_names = [name]
@@ -46,8 +46,11 @@ def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "D
             table_names = [f"{chain[1]}_{chain[0]}_{chain[2]}", f"{chain[1]}{chain[0]}_{chain[2]}"]
 
     table: DataWarehouseSavedQuery | DataWarehouseTable | None = (
-        DataWarehouseTable.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
+        # `queryable()` ignores soft-deleted tables and orphans of a soft-deleted source.
+        DataWarehouseTable.objects.queryable()
         .filter(team=team, name__in=table_names)
+        # Deterministic resolution when more than one live table matches: newest wins.
+        .order_by("-created_at")
         .first()
     )
     if table is None:
@@ -135,6 +138,9 @@ def clean_type(column_type: str) -> str:
     # Replace newline characters followed by empty space
     column_type = re.sub(r"\n\s+", "", column_type)
 
+    if column_type.startswith("LowCardinality("):
+        column_type = column_type.replace("LowCardinality(", "")[:-1]
+
     if column_type.startswith("Nullable("):
         column_type = column_type.replace("Nullable(", "")[:-1]
 
@@ -146,8 +152,37 @@ def clean_type(column_type: str) -> str:
     return column_type
 
 
+_ColumnT = TypeVar("_ColumnT")
+
+
+def reconstruct_ordered_columns(
+    columns: Mapping[str, _ColumnT], column_order: list[str] | None
+) -> list[tuple[str, _ColumnT]]:
+    """Return ``(name, value)`` column pairs in the recorded SELECT order.
+
+    Column metadata originates as an ordered list (SELECT / DESCRIBE order) but is stored in a
+    Postgres ``jsonb`` object, which does not preserve key insertion order. ``column_order``
+    carries the order captured at write time. Apply it first (skipping names that no longer
+    exist), then append any columns discovered since that were never recorded. Rows written
+    before ``column_order`` existed have ``None`` and fall back to the stored jsonb key order.
+    """
+    if not column_order:
+        return list(columns.items())
+
+    ordered: list[tuple[str, _ColumnT]] = []
+    seen: set[str] = set()
+    for name in column_order:
+        if name in columns and name not in seen:
+            ordered.append((name, columns[name]))
+            seen.add(name)
+    for name, value in columns.items():
+        if name not in seen:
+            ordered.append((name, value))
+    return ordered
+
+
 CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
-    "UUID": StringDatabaseField,
+    "UUID": UUIDDatabaseField,
     "String": StringDatabaseField,
     "Nothing": UnknownDatabaseField,
     "DateTime64": DateTimeDatabaseField,
@@ -176,6 +211,15 @@ CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "Enum8": StringDatabaseField,
 }
 
+# Old-style column metadata stores only the ClickHouse type string and resolves through a
+# mapping on every query, so retyping UUID in CLICKHOUSE_HOGQL_MAPPING would flip every
+# legacy column at once on deploy. Pin those to their historical String typing — UUID typing
+# reaches a table only when a sync or materialization regenerates its column metadata.
+LEGACY_CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
+    **CLICKHOUSE_HOGQL_MAPPING,
+    "UUID": StringDatabaseField,
+}
+
 STR_TO_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "BooleanDatabaseField": BooleanDatabaseField,
     "DateDatabaseField": DateDatabaseField,
@@ -186,6 +230,7 @@ STR_TO_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "StringArrayDatabaseField": StringArrayDatabaseField,
     "StringDatabaseField": StringDatabaseField,
     "StringJSONDatabaseField": StringJSONDatabaseField,
+    "UUIDDatabaseField": UUIDDatabaseField,
     "StructDatabaseField": StructDatabaseField,
     "UnknownDatabaseField": UnknownDatabaseField,
     "boolean": BooleanDatabaseField,
@@ -226,14 +271,64 @@ POSTGRES_TO_CLICKHOUSE_TYPE = {
 }
 
 
+MYSQL_TO_CLICKHOUSE_TYPE = {
+    "tinyint": "Int8",
+    "smallint": "Int16",
+    "mediumint": "Int32",
+    "int": "Int32",
+    "integer": "Int32",
+    "bigint": "Int64",
+    # deltalake-style widening: unsigned ints map to the next signed type that holds their range.
+    "tinyint unsigned": "Int16",
+    "smallint unsigned": "Int32",
+    "mediumint unsigned": "Int64",
+    "int unsigned": "Int64",
+    "integer unsigned": "Int64",
+    "bigint unsigned": "UInt64",
+    "float": "Float32",
+    "double": "Float64",
+    "double precision": "Float64",
+    "real": "Float64",
+    "decimal": "Decimal",
+    "numeric": "Decimal",
+    "boolean": "Bool",
+    "bool": "Bool",
+    "bit": "String",
+    "date": "Date",
+    "datetime": "DateTime",
+    "timestamp": "DateTime",
+    "time": "String",
+    "year": "String",
+    "char": "String",
+    "varchar": "String",
+    "tinytext": "String",
+    "text": "String",
+    "mediumtext": "String",
+    "longtext": "String",
+    "binary": "String",
+    "varbinary": "String",
+    "tinyblob": "String",
+    "blob": "String",
+    "mediumblob": "String",
+    "longblob": "String",
+    "enum": "String",
+    "set": "String",
+    "json": "String",
+    "uuid": "String",
+}
+
+
 CLICKHOUSE_TYPE_TO_HOGQL_LABEL = {
+    "Int8": "integer",
     "Int16": "integer",
     "Int32": "integer",
     "Int64": "integer",
+    "UInt64": "integer",
     "Float32": "float",
     "Float64": "float",
     "Bool": "boolean",
     "Date": "date",
+    "DateTime": "datetime",
     "DateTime64": "datetime",
     "String": "string",
     "Decimal": "numeric",
@@ -383,6 +478,103 @@ def postgres_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dic
     return {
         column_name: postgres_column_to_dwh_column(column_name, postgres_type, nullable)
         for column_name, postgres_type, nullable in columns
+    }
+
+
+def mysql_column_to_dwh_column(_column_name: str, mysql_type: str, nullable: bool) -> dict[str, Any]:
+    # `information_schema.columns.data_type` carries the bare type, but be defensive against
+    # full `column_type` strings like `int(10) unsigned` by stripping display widths.
+    normalized_type = " ".join(re.sub(r"\(.*?\)", "", mysql_type.lower()).split())
+    clickhouse_type: str | None = MYSQL_TO_CLICKHOUSE_TYPE.get(normalized_type)
+
+    if clickhouse_type is None:
+        if normalized_type.startswith(("decimal", "numeric")):
+            clickhouse_type = "Decimal"
+        elif normalized_type.startswith(("datetime", "timestamp")):
+            clickhouse_type = "DateTime"
+        elif "int" in normalized_type:
+            clickhouse_type = "Int64"
+        else:
+            clickhouse_type = "String"
+
+    if nullable:
+        clickhouse_type = f"Nullable({clickhouse_type})"
+
+    raw_clickhouse_type = clean_type(clickhouse_type)
+    return {
+        "clickhouse": clickhouse_type,
+        "hogql": CLICKHOUSE_TYPE_TO_HOGQL_LABEL.get(raw_clickhouse_type, "string"),
+        "valid": True,
+    }
+
+
+def mysql_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[str, dict[str, Any]]:
+    return {
+        column_name: mysql_column_to_dwh_column(column_name, mysql_type, nullable)
+        for column_name, mysql_type, nullable in columns
+    }
+
+
+def snowflake_column_to_dwh_column(_column_name: str, snowflake_type: str, nullable: bool) -> dict[str, Any]:
+    normalized_type = snowflake_type.lower()
+
+    if normalized_type.startswith("number"):
+        clickhouse_type = "Decimal"
+    elif normalized_type.startswith("float"):
+        clickhouse_type = "Float64"
+    elif normalized_type.startswith("boolean"):
+        clickhouse_type = "Bool"
+    elif normalized_type.startswith("date"):
+        clickhouse_type = "Date"
+    elif normalized_type.startswith("timestamp"):
+        clickhouse_type = "DateTime64"
+    else:
+        # variant/object/array (and anything unrecognized) map to String.
+        clickhouse_type = "String"
+
+    if nullable:
+        clickhouse_type = f"Nullable({clickhouse_type})"
+
+    raw_clickhouse_type = clean_type(clickhouse_type)
+    return {
+        "clickhouse": clickhouse_type,
+        "hogql": CLICKHOUSE_TYPE_TO_HOGQL_LABEL.get(raw_clickhouse_type, "string"),
+        "valid": True,
+    }
+
+
+def snowflake_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[str, dict[str, Any]]:
+    return {
+        column_name: snowflake_column_to_dwh_column(column_name, snowflake_type, nullable)
+        for column_name, snowflake_type, nullable in columns
+    }
+
+
+def clickhouse_column_to_dwh_column(_column_name: str, clickhouse_type: str, nullable: bool) -> dict[str, Any]:
+    # The source is already ClickHouse, so the type string is a valid ClickHouse type — used verbatim.
+    # `system.columns.type` usually already encodes nullability, so only wrap when it doesn't.
+    ch_type = clickhouse_type.strip()
+    already_nullable = ch_type.startswith("Nullable(") or ch_type.startswith("LowCardinality(Nullable(")
+    if nullable and not already_nullable:
+        if ch_type.startswith("LowCardinality(") and ch_type.endswith(")"):
+            # LowCardinality must stay the outermost wrapper — ClickHouse rejects
+            # Nullable(LowCardinality(...)), so nest Nullable inside it instead.
+            inner = ch_type[len("LowCardinality(") : -1]
+            ch_type = f"LowCardinality(Nullable({inner}))"
+        else:
+            ch_type = f"Nullable({ch_type})"
+    raw_clickhouse_type = clean_type(ch_type)
+    return {
+        "clickhouse": ch_type,
+        "hogql": CLICKHOUSE_TYPE_TO_HOGQL_LABEL.get(raw_clickhouse_type, "string"),
+        "valid": True,
+    }
+
+
+def clickhouse_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[str, dict[str, Any]]:
+    return {
+        column_name: clickhouse_column_to_dwh_column(column_name, clickhouse_type, nullable)
+        for column_name, clickhouse_type, nullable in columns
     }
 
 

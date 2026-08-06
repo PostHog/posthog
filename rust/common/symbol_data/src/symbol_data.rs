@@ -12,6 +12,7 @@ pub enum SymbolDataType {
     HermesMap = 3,
     ProguardMapping = 4,
     AppleDsym = 5,
+    ElfDebugInfo = 6,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

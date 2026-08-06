@@ -1,4 +1,4 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { getDocusaurusSteps as getDocusaurusStepsPA } from '../product-analytics/docusaurus'
 import { StepDefinition } from '../steps'

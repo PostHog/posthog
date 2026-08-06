@@ -55,6 +55,39 @@ def _make_minimal_docx(text: str = "Hello World") -> bytes:
     return buf.getvalue()
 
 
+def _make_docx_with_table() -> bytes:
+    from docx import Document
+
+    doc = Document()
+    doc.add_heading("Report", level=1)
+    doc.add_paragraph("Intro paragraph.")
+    table = doc.add_table(rows=3, cols=2)
+    table.cell(0, 0).text = "Name"
+    table.cell(0, 1).text = "Role"
+    table.cell(1, 0).text = "Alice"
+    table.cell(1, 1).text = "Engineer"
+    table.cell(2, 0).text = "Bob"
+    table.cell(2, 1).text = "Designer"
+    doc.add_paragraph("Closing paragraph.")
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+def _make_table_only_docx() -> bytes:
+    from docx import Document
+
+    doc = Document()
+    table = doc.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "A"
+    table.cell(0, 1).text = "B"
+    table.cell(1, 0).text = "C"
+    table.cell(1, 1).text = "D"
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
 # ---------------------------------------------------------------------------
 # detect_content_type
 # ---------------------------------------------------------------------------
@@ -100,6 +133,37 @@ class TestDetectContentType:
         pdf_data = _make_minimal_pdf()
         result = detect_content_type(pdf_data, "sneaky.txt")
         assert result == "application/pdf"
+
+    def test_pk_prefixed_text_falls_through_to_extension(self) -> None:
+        data = b"PKCS#11 is a standard for cryptographic token interfaces."
+        assert detect_content_type(data, "notes.txt") == "text/plain"
+
+    def test_pk_prefixed_text_falls_through_to_utf8(self) -> None:
+        data = b"PK stands for something in this context."
+        assert detect_content_type(data, "noext") == "text/plain"
+
+    def test_valid_non_docx_zip_rejected(self) -> None:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("data.txt", "Hello from a zip")
+        with pytest.raises(UnsupportedFileTypeError):
+            detect_content_type(buf.getvalue(), "archive.csv")
+
+    def test_xlsx_zip_rejected(self) -> None:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr(
+                "[Content_Types].xml", '<Types><Default Extension="xml" ContentType="application/xml"/></Types>'
+            )
+            zf.writestr("xl/workbook.xml", "<workbook/>")
+        with pytest.raises(UnsupportedFileTypeError):
+            detect_content_type(buf.getvalue(), "sheet.xlsx")
+
+    def test_utf8_multibyte_boundary_split(self) -> None:
+        prefix = b"A" * 8190
+        # 3-byte UTF-8 char (e.g. U+2603 SNOWMAN: \xe2\x98\x83)
+        data = prefix + "☃".encode() + b"more text"
+        assert detect_content_type(data, "noext") == "text/plain"
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +223,30 @@ class TestParseFileHappyPaths:
         assert "# Test Heading" in result.content
         assert result.metadata["file_type"] == "docx"
 
+    def test_parse_docx_with_table(self) -> None:
+        data = _make_docx_with_table()
+        result = parse_file(data, "report.docx")
+        assert "Alice | Engineer" in result.content
+        assert "Intro paragraph" in result.content
+        assert "Closing paragraph" in result.content
+
+    def test_parse_docx_table_only(self) -> None:
+        data = _make_table_only_docx()
+        result = parse_file(data, "table.docx")
+        assert "A" in result.content
+        assert "D" in result.content
+
+    def test_title_from_sanitized_filename(self) -> None:
+        result = parse_file(b"hello", "../../evil/notes.txt")
+        assert result.title == "notes"
+
+    def test_csv_row_count_excludes_truncation_marker(self) -> None:
+        header = "col1,col2\n"
+        rows = "".join(f"val{i},data{i}\n" for i in range(15_000))
+        data = (header + rows).encode()
+        result = parse_file(data, "big.csv")
+        assert result.metadata["row_count"] == 10_000
+
 
 # ---------------------------------------------------------------------------
 # parse_file — security rejections
@@ -192,6 +280,11 @@ class TestParseFileSecurity:
         with patch("products.business_knowledge.backend.file_parse.MAX_FILE_DECOMPRESSED_BYTES", 50):
             with pytest.raises(ZipBombError):
                 parse_file(data, "bomb.docx")
+
+    def test_malformed_pdf_raises_file_parse_error(self) -> None:
+        data = b"%PDF-1.4 this is not a real PDF structure at all"
+        with pytest.raises(FileParseError):
+            parse_file(data, "broken.pdf")
 
     def test_unsupported_binary_rejected(self) -> None:
         with pytest.raises(UnsupportedFileTypeError):

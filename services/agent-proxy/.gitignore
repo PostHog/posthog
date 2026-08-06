@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.mjs.map
+.env
+.env.local
+.dev.vars
+!.dev.vars.example

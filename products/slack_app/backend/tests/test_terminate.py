@@ -61,8 +61,11 @@ class TestProcessPostHogCodeTaskTermination(TestCase):
             "message": {"ts": "1234.5678", "thread_ts": "1234.5678"},
         }
 
-    @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt-token")
-    @patch("products.tasks.backend.services.agent_command.send_cancel")
+    @patch(
+        "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
+        return_value="jwt-token",
+    )
+    @patch("products.tasks.backend.logic.services.agent_command.send_cancel")
     @patch("posthog.temporal.common.client.sync_connect")
     def test_command_dispatched_on_success(self, mock_sync_connect, mock_send_cancel, mock_token):
         mock_send_cancel.return_value = _command_result(success=True, status_code=200)
@@ -79,9 +82,12 @@ class TestProcessPostHogCodeTaskTermination(TestCase):
         mock_send_cancel.assert_called_once_with(self.task_run, auth_token="jwt-token")
         mock_handle.signal.assert_called_once()
 
-    @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt-token")
+    @patch(
+        "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
+        return_value="jwt-token",
+    )
     @patch("posthog.temporal.common.client.sync_connect")
-    @patch("products.tasks.backend.services.agent_command.send_cancel")
+    @patch("products.tasks.backend.logic.services.agent_command.send_cancel")
     def test_fallback_signal_on_connection_error(self, mock_send_cancel, mock_sync_connect, mock_token):
         mock_send_cancel.return_value = _command_result(
             success=False, status_code=502, error="Connection refused", retryable=True
@@ -98,8 +104,11 @@ class TestProcessPostHogCodeTaskTermination(TestCase):
         mock_send_cancel.assert_called_once_with(self.task_run, auth_token="jwt-token")
         mock_handle.signal.assert_called_once()
 
-    @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt-token")
-    @patch("products.tasks.backend.services.agent_command.send_cancel")
+    @patch(
+        "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
+        return_value="jwt-token",
+    )
+    @patch("products.tasks.backend.logic.services.agent_command.send_cancel")
     def test_still_signals_on_4xx(self, mock_send_cancel, mock_token):
         mock_send_cancel.return_value = _command_result(
             success=False, status_code=401, error="Unauthorized", retryable=False
@@ -120,7 +129,7 @@ class TestProcessPostHogCodeTaskTermination(TestCase):
         payload = self._make_payload(user_id="U_ALICE")
         payload["user"]["id"] = "U_BOB"
         # Should return early without any command or signal
-        with patch("products.tasks.backend.services.agent_command.send_cancel") as mock_send:
+        with patch("products.tasks.backend.logic.services.agent_command.send_cancel") as mock_send:
             process_posthog_code_task_termination(payload)
             mock_send.assert_not_called()
 

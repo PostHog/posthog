@@ -60,6 +60,8 @@
            FROM stripe_test_invoice
            WHERE notEquals(JSONExtractString(metadata, 'posthog_person_distinct_id'), '')) AS child_meta
         GROUP BY customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner
+  ORDER BY timestamp DESC
+  LIMIT 1 BY id
   '''
 # ---
 # name: TestCustomerStripeBuilder.test_build_customer_query_with_customer_and_invoice_schemas
@@ -111,6 +113,8 @@
            FROM stripe_test_invoice
            WHERE notEquals(JSONExtractString(metadata, 'posthog_person_distinct_id'), '')) AS child_meta
         GROUP BY customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner
+  ORDER BY timestamp DESC
+  LIMIT 1 BY id
   '''
 # ---
 # name: TestCustomerStripeBuilder.test_build_customer_query_with_customer_and_subscription_schemas
@@ -155,6 +159,8 @@
            FROM stripe_test_subscription
            WHERE notEquals(JSONExtractString(metadata, 'posthog_person_distinct_id'), '')) AS child_meta
         GROUP BY customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner
+  ORDER BY timestamp DESC
+  LIMIT 1 BY id
   '''
 # ---
 # name: TestCustomerStripeBuilder.test_build_customer_query_with_customer_schema
@@ -172,6 +178,8 @@
          NULL AS initial_coupon,
          NULL AS initial_coupon_id
   FROM stripe_test_customer AS outer
+  ORDER BY timestamp DESC
+  LIMIT 1 BY id
   '''
 # ---
 # name: TestCustomerStripeBuilder.test_build_with_customer_schema_but_no_table

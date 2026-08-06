@@ -1,7 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { MCPUseCaseCard } from './MCPUseCaseCard'
 
 const meta: Meta<typeof MCPUseCaseCard> = {
@@ -9,7 +7,6 @@ const meta: Meta<typeof MCPUseCaseCard> = {
     component: MCPUseCaseCard,
     parameters: {
         layout: 'centered',
-        featureFlags: [FEATURE_FLAGS.MCP_HINTS],
     },
 }
 export default meta

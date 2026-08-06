@@ -2,8 +2,8 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "calculation_interval": {
-            "description": "How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.\n\n* `every_15_minutes` - every_15_minutes\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly",
-            "enum": ["every_15_minutes", "hourly", "daily", "weekly", "monthly"],
+            "description": "How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.\n\n* `real_time` - real_time\n* `every_15_minutes` - every_15_minutes\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly",
+            "enum": ["real_time", "every_15_minutes", "hourly", "daily", "weekly", "monthly"],
             "type": "string"
         },
         "condition": {
@@ -27,37 +27,137 @@
         "config": {
             "anyOf": [
                 {
-                    "properties": {
-                        "check_ongoing_interval": {
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
+                    "anyOf": [
+                        {
+                            "properties": {
+                                "check_ongoing_interval": {
+                                    "anyOf": [
+                                        {
+                                            "type": "boolean"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "When true, evaluate the current (still incomplete) time interval in addition to completed ones."
                                 },
-                                {
-                                    "type": "null"
+                                "series_index": {
+                                    "description": "Zero-based index of the series in the insight's query to monitor.",
+                                    "type": "number"
+                                },
+                                "type": {
+                                    "default": "TrendsAlertConfig",
+                                    "enum": ["TrendsAlertConfig"],
+                                    "type": "string"
                                 }
-                            ],
-                            "default": null,
-                            "description": "When true, evaluate the current (still incomplete) time interval in addition to completed ones."
+                            },
+                            "required": ["series_index"],
+                            "type": "object"
                         },
-                        "series_index": {
-                            "description": "Zero-based index of the series in the insight's query to monitor.",
-                            "type": "number"
+                        {
+                            "properties": {
+                                "column": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column)."
+                                },
+                                "evaluation": {
+                                    "description": "How to read the result rows — an explicit choice, no implicit default.",
+                                    "enum": ["last_row", "first_row", "any_row"],
+                                    "type": "string"
+                                },
+                                "label_column": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Column whose value labels the evaluated row(s) in breach messages: every row in `any_row` mode, or the single evaluated row in `last_row`/`first_row`. When unset, the first non-evaluated column is used, falling back to the row number (any_row) or the value column name (last_row/first_row)."
+                                },
+                                "type": {
+                                    "default": "HogQLAlertConfig",
+                                    "enum": ["HogQLAlertConfig"],
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["evaluation"],
+                            "type": "object"
                         },
-                        "type": {
-                            "const": "TrendsAlertConfig",
-                            "default": "TrendsAlertConfig",
-                            "type": "string"
+                        {
+                            "properties": {
+                                "check_ongoing_interval": {
+                                    "anyOf": [
+                                        {
+                                            "type": "boolean"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "When true, evaluate the current (still in-progress) period; by default only completed periods are used."
+                                },
+                                "funnel_step": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Zero-based step index to evaluate. Null = the last step (overall conversion)."
+                                },
+                                "metric": {
+                                    "enum": ["conversion_from_start", "conversion_from_previous"],
+                                    "type": "string"
+                                },
+                                "type": {
+                                    "default": "FunnelsAlertConfig",
+                                    "enum": ["FunnelsAlertConfig"],
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["metric"],
+                            "type": "object"
+                        },
+                        {
+                            "properties": {
+                                "check_ongoing_interval": {
+                                    "anyOf": [
+                                        {
+                                            "type": "boolean"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one."
+                                },
+                                "type": {
+                                    "default": "MetricsAlertConfig",
+                                    "enum": ["MetricsAlertConfig"],
+                                    "type": "string"
+                                }
+                            },
+                            "type": "object"
                         }
-                    },
-                    "required": ["series_index"],
-                    "type": "object"
+                    ],
+                    "description": "Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the\ngenerated frontend types and MCP tool schemas) in sync with every kind alerts support."
                 },
                 {
                     "type": "null"
                 }
             ],
-            "description": "Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval)."
+            "description": "Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period)."
         },
         "detector_config": {
             "anyOf": [
@@ -84,7 +184,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
                                                                     },
                                                                     "lags_n": {
@@ -96,7 +195,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
                                                                     },
                                                                     "smooth_n": {
@@ -108,7 +206,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
                                                                     }
                                                                 },
@@ -118,7 +215,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
@@ -130,12 +226,11 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)"
                                                     },
                                                     "type": {
-                                                        "const": "zscore",
                                                         "default": "zscore",
+                                                        "enum": ["zscore"],
                                                         "type": "string"
                                                     },
                                                     "window": {
@@ -147,7 +242,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Rolling window size for calculating mean/std (default: 30)"
                                                     }
                                                 },
@@ -168,7 +262,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
                                                                     },
                                                                     "lags_n": {
@@ -180,7 +273,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
                                                                     },
                                                                     "smooth_n": {
@@ -192,7 +284,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
                                                                     }
                                                                 },
@@ -202,7 +293,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
@@ -214,12 +304,11 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)"
                                                     },
                                                     "type": {
-                                                        "const": "mad",
                                                         "default": "mad",
+                                                        "enum": ["mad"],
                                                         "type": "string"
                                                     },
                                                     "window": {
@@ -231,7 +320,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Rolling window size for calculating median/MAD (default: 30)"
                                                     }
                                                 },
@@ -248,7 +336,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)"
                                                     },
                                                     "preprocessing": {
@@ -264,7 +351,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
                                                                     },
                                                                     "lags_n": {
@@ -276,7 +362,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
                                                                     },
                                                                     "smooth_n": {
@@ -288,7 +373,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
                                                                     }
                                                                 },
@@ -298,12 +382,11 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "type": {
-                                                        "const": "iqr",
                                                         "default": "iqr",
+                                                        "enum": ["iqr"],
                                                         "type": "string"
                                                     },
                                                     "window": {
@@ -315,7 +398,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Rolling window size for calculating quartiles (default: 30)"
                                                     }
                                                 },
@@ -332,7 +414,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Lower bound - values below this are anomalies"
                                                     },
                                                     "preprocessing": {
@@ -348,7 +429,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
                                                                     },
                                                                     "lags_n": {
@@ -360,7 +440,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
                                                                     },
                                                                     "smooth_n": {
@@ -372,7 +451,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
                                                                     }
                                                                 },
@@ -382,12 +460,11 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "type": {
-                                                        "const": "threshold",
                                                         "default": "threshold",
+                                                        "enum": ["threshold"],
                                                         "type": "string"
                                                     },
                                                     "upper_bound": {
@@ -399,7 +476,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Upper bound - values above this are anomalies"
                                                     }
                                                 },
@@ -420,7 +496,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
                                                                     },
                                                                     "lags_n": {
@@ -432,7 +507,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
                                                                     },
                                                                     "smooth_n": {
@@ -444,7 +518,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
                                                                     }
                                                                 },
@@ -454,7 +527,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
@@ -466,12 +538,11 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Anomaly probability threshold (default: 0.9)"
                                                     },
                                                     "type": {
-                                                        "const": "ecod",
                                                         "default": "ecod",
+                                                        "enum": ["ecod"],
                                                         "type": "string"
                                                     },
                                                     "window": {
@@ -483,7 +554,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                                                     }
                                                 },
@@ -504,7 +574,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
                                                                     },
                                                                     "lags_n": {
@@ -516,7 +585,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
                                                                     },
                                                                     "smooth_n": {
@@ -528,7 +596,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
                                                                     }
                                                                 },
@@ -538,7 +605,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
@@ -550,12 +616,11 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Anomaly probability threshold (default: 0.9)"
                                                     },
                                                     "type": {
-                                                        "const": "copod",
                                                         "default": "copod",
+                                                        "enum": ["copod"],
                                                         "type": "string"
                                                     },
                                                     "window": {
@@ -567,7 +632,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                                                     }
                                                 },
@@ -584,7 +648,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Number of trees in the forest (default: 100)"
                                                     },
                                                     "preprocessing": {
@@ -600,7 +663,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
                                                                     },
                                                                     "lags_n": {
@@ -612,7 +674,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
                                                                     },
                                                                     "smooth_n": {
@@ -624,7 +685,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
                                                                     }
                                                                 },
@@ -634,7 +694,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
@@ -646,12 +705,11 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Anomaly probability threshold (default: 0.9)"
                                                     },
                                                     "type": {
-                                                        "const": "isolation_forest",
                                                         "default": "isolation_forest",
+                                                        "enum": ["isolation_forest"],
                                                         "type": "string"
                                                     },
                                                     "window": {
@@ -663,7 +721,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                                                     }
                                                 },
@@ -681,7 +738,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Distance method: 'largest', 'mean', 'median' (default: 'largest')"
                                                     },
                                                     "n_neighbors": {
@@ -693,7 +749,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Number of neighbors to consider (default: 5)"
                                                     },
                                                     "preprocessing": {
@@ -709,7 +764,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
                                                                     },
                                                                     "lags_n": {
@@ -721,7 +775,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
                                                                     },
                                                                     "smooth_n": {
@@ -733,7 +786,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
                                                                     }
                                                                 },
@@ -743,7 +795,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
@@ -755,12 +806,11 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Anomaly probability threshold (default: 0.9)"
                                                     },
                                                     "type": {
-                                                        "const": "knn",
                                                         "default": "knn",
+                                                        "enum": ["knn"],
                                                         "type": "string"
                                                     },
                                                     "window": {
@@ -772,7 +822,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                                                     }
                                                 },
@@ -789,7 +838,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Number of histogram bins (default: 10)"
                                                     },
                                                     "preprocessing": {
@@ -805,7 +853,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
                                                                     },
                                                                     "lags_n": {
@@ -817,7 +864,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
                                                                     },
                                                                     "smooth_n": {
@@ -829,7 +875,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
                                                                     }
                                                                 },
@@ -839,7 +884,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
@@ -851,12 +895,11 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Anomaly probability threshold (default: 0.9)"
                                                     },
                                                     "type": {
-                                                        "const": "hbos",
                                                         "default": "hbos",
+                                                        "enum": ["hbos"],
                                                         "type": "string"
                                                     },
                                                     "window": {
@@ -868,7 +911,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                                                     }
                                                 },
@@ -885,7 +927,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Number of neighbors for LOF (default: 20)"
                                                     },
                                                     "preprocessing": {
@@ -901,7 +942,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
                                                                     },
                                                                     "lags_n": {
@@ -913,7 +953,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
                                                                     },
                                                                     "smooth_n": {
@@ -925,7 +964,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
                                                                     }
                                                                 },
@@ -935,7 +973,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
@@ -947,12 +984,11 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Anomaly probability threshold (default: 0.9)"
                                                     },
                                                     "type": {
-                                                        "const": "lof",
                                                         "default": "lof",
+                                                        "enum": ["lof"],
                                                         "type": "string"
                                                     },
                                                     "window": {
@@ -964,7 +1000,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                                                     }
                                                 },
@@ -981,7 +1016,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "SVM kernel type (default: \"rbf\")"
                                                     },
                                                     "nu": {
@@ -993,7 +1027,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Upper bound on training errors fraction (default: 0.1)"
                                                     },
                                                     "preprocessing": {
@@ -1009,7 +1042,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
                                                                     },
                                                                     "lags_n": {
@@ -1021,7 +1053,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
                                                                     },
                                                                     "smooth_n": {
@@ -1033,7 +1064,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
                                                                     }
                                                                 },
@@ -1043,7 +1073,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
@@ -1055,12 +1084,11 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Anomaly probability threshold (default: 0.9)"
                                                     },
                                                     "type": {
-                                                        "const": "ocsvm",
                                                         "default": "ocsvm",
+                                                        "enum": ["ocsvm"],
                                                         "type": "string"
                                                     },
                                                     "window": {
@@ -1072,7 +1100,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                                                     }
                                                 },
@@ -1093,7 +1120,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
                                                                     },
                                                                     "lags_n": {
@@ -1105,7 +1131,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
                                                                     },
                                                                     "smooth_n": {
@@ -1117,7 +1142,6 @@
                                                                                 "type": "null"
                                                                             }
                                                                         ],
-                                                                        "default": null,
                                                                         "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
                                                                     }
                                                                 },
@@ -1127,7 +1151,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
@@ -1139,12 +1162,11 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Anomaly probability threshold (default: 0.9)"
                                                     },
                                                     "type": {
-                                                        "const": "pca",
                                                         "default": "pca",
+                                                        "enum": ["pca"],
                                                         "type": "string"
                                                     },
                                                     "window": {
@@ -1156,7 +1178,6 @@
                                                                 "type": "null"
                                                             }
                                                         ],
-                                                        "default": null,
                                                         "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                                                     }
                                                 },
@@ -1172,8 +1193,8 @@
                                     "type": "string"
                                 },
                                 "type": {
-                                    "const": "ensemble",
                                     "default": "ensemble",
+                                    "enum": ["ensemble"],
                                     "type": "string"
                                 }
                             },
@@ -1195,7 +1216,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
                                                 },
                                                 "lags_n": {
@@ -1207,7 +1227,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
                                                 },
                                                 "smooth_n": {
@@ -1219,7 +1238,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
                                                 }
                                             },
@@ -1229,7 +1247,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
@@ -1241,12 +1258,11 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)"
                                 },
                                 "type": {
-                                    "const": "zscore",
                                     "default": "zscore",
+                                    "enum": ["zscore"],
                                     "type": "string"
                                 },
                                 "window": {
@@ -1258,7 +1274,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Rolling window size for calculating mean/std (default: 30)"
                                 }
                             },
@@ -1279,7 +1294,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
                                                 },
                                                 "lags_n": {
@@ -1291,7 +1305,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
                                                 },
                                                 "smooth_n": {
@@ -1303,7 +1316,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
                                                 }
                                             },
@@ -1313,7 +1325,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
@@ -1325,12 +1336,11 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)"
                                 },
                                 "type": {
-                                    "const": "mad",
                                     "default": "mad",
+                                    "enum": ["mad"],
                                     "type": "string"
                                 },
                                 "window": {
@@ -1342,7 +1352,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Rolling window size for calculating median/MAD (default: 30)"
                                 }
                             },
@@ -1359,7 +1368,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)"
                                 },
                                 "preprocessing": {
@@ -1375,7 +1383,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
                                                 },
                                                 "lags_n": {
@@ -1387,7 +1394,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
                                                 },
                                                 "smooth_n": {
@@ -1399,7 +1405,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
                                                 }
                                             },
@@ -1409,12 +1414,11 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Preprocessing transforms applied before detection"
                                 },
                                 "type": {
-                                    "const": "iqr",
                                     "default": "iqr",
+                                    "enum": ["iqr"],
                                     "type": "string"
                                 },
                                 "window": {
@@ -1426,7 +1430,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Rolling window size for calculating quartiles (default: 30)"
                                 }
                             },
@@ -1443,7 +1446,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Lower bound - values below this are anomalies"
                                 },
                                 "preprocessing": {
@@ -1459,7 +1461,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
                                                 },
                                                 "lags_n": {
@@ -1471,7 +1472,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
                                                 },
                                                 "smooth_n": {
@@ -1483,7 +1483,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
                                                 }
                                             },
@@ -1493,12 +1492,11 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Preprocessing transforms applied before detection"
                                 },
                                 "type": {
-                                    "const": "threshold",
                                     "default": "threshold",
+                                    "enum": ["threshold"],
                                     "type": "string"
                                 },
                                 "upper_bound": {
@@ -1510,7 +1508,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Upper bound - values above this are anomalies"
                                 }
                             },
@@ -1531,7 +1528,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
                                                 },
                                                 "lags_n": {
@@ -1543,7 +1539,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
                                                 },
                                                 "smooth_n": {
@@ -1555,7 +1550,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
                                                 }
                                             },
@@ -1565,7 +1559,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
@@ -1577,12 +1570,11 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Anomaly probability threshold (default: 0.9)"
                                 },
                                 "type": {
-                                    "const": "ecod",
                                     "default": "ecod",
+                                    "enum": ["ecod"],
                                     "type": "string"
                                 },
                                 "window": {
@@ -1594,7 +1586,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                                 }
                             },
@@ -1615,7 +1606,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
                                                 },
                                                 "lags_n": {
@@ -1627,7 +1617,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
                                                 },
                                                 "smooth_n": {
@@ -1639,7 +1628,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
                                                 }
                                             },
@@ -1649,7 +1637,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
@@ -1661,12 +1648,11 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Anomaly probability threshold (default: 0.9)"
                                 },
                                 "type": {
-                                    "const": "copod",
                                     "default": "copod",
+                                    "enum": ["copod"],
                                     "type": "string"
                                 },
                                 "window": {
@@ -1678,7 +1664,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                                 }
                             },
@@ -1695,7 +1680,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Number of trees in the forest (default: 100)"
                                 },
                                 "preprocessing": {
@@ -1711,7 +1695,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
                                                 },
                                                 "lags_n": {
@@ -1723,7 +1706,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
                                                 },
                                                 "smooth_n": {
@@ -1735,7 +1717,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
                                                 }
                                             },
@@ -1745,7 +1726,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
@@ -1757,12 +1737,11 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Anomaly probability threshold (default: 0.9)"
                                 },
                                 "type": {
-                                    "const": "isolation_forest",
                                     "default": "isolation_forest",
+                                    "enum": ["isolation_forest"],
                                     "type": "string"
                                 },
                                 "window": {
@@ -1774,7 +1753,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                                 }
                             },
@@ -1792,7 +1770,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Distance method: 'largest', 'mean', 'median' (default: 'largest')"
                                 },
                                 "n_neighbors": {
@@ -1804,7 +1781,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Number of neighbors to consider (default: 5)"
                                 },
                                 "preprocessing": {
@@ -1820,7 +1796,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
                                                 },
                                                 "lags_n": {
@@ -1832,7 +1807,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
                                                 },
                                                 "smooth_n": {
@@ -1844,7 +1818,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
                                                 }
                                             },
@@ -1854,7 +1827,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
@@ -1866,12 +1838,11 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Anomaly probability threshold (default: 0.9)"
                                 },
                                 "type": {
-                                    "const": "knn",
                                     "default": "knn",
+                                    "enum": ["knn"],
                                     "type": "string"
                                 },
                                 "window": {
@@ -1883,7 +1854,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                                 }
                             },
@@ -1900,7 +1870,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Number of histogram bins (default: 10)"
                                 },
                                 "preprocessing": {
@@ -1916,7 +1885,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
                                                 },
                                                 "lags_n": {
@@ -1928,7 +1896,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
                                                 },
                                                 "smooth_n": {
@@ -1940,7 +1907,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
                                                 }
                                             },
@@ -1950,7 +1916,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
@@ -1962,12 +1927,11 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Anomaly probability threshold (default: 0.9)"
                                 },
                                 "type": {
-                                    "const": "hbos",
                                     "default": "hbos",
+                                    "enum": ["hbos"],
                                     "type": "string"
                                 },
                                 "window": {
@@ -1979,7 +1943,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                                 }
                             },
@@ -1996,7 +1959,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Number of neighbors for LOF (default: 20)"
                                 },
                                 "preprocessing": {
@@ -2012,7 +1974,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
                                                 },
                                                 "lags_n": {
@@ -2024,7 +1985,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
                                                 },
                                                 "smooth_n": {
@@ -2036,7 +1996,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
                                                 }
                                             },
@@ -2046,7 +2005,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
@@ -2058,12 +2016,11 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Anomaly probability threshold (default: 0.9)"
                                 },
                                 "type": {
-                                    "const": "lof",
                                     "default": "lof",
+                                    "enum": ["lof"],
                                     "type": "string"
                                 },
                                 "window": {
@@ -2075,7 +2032,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                                 }
                             },
@@ -2092,7 +2048,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "SVM kernel type (default: \"rbf\")"
                                 },
                                 "nu": {
@@ -2104,7 +2059,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Upper bound on training errors fraction (default: 0.1)"
                                 },
                                 "preprocessing": {
@@ -2120,7 +2074,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
                                                 },
                                                 "lags_n": {
@@ -2132,7 +2085,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
                                                 },
                                                 "smooth_n": {
@@ -2144,7 +2096,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
                                                 }
                                             },
@@ -2154,7 +2105,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
@@ -2166,12 +2116,11 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Anomaly probability threshold (default: 0.9)"
                                 },
                                 "type": {
-                                    "const": "ocsvm",
                                     "default": "ocsvm",
+                                    "enum": ["ocsvm"],
                                     "type": "string"
                                 },
                                 "window": {
@@ -2183,7 +2132,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                                 }
                             },
@@ -2204,7 +2152,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
                                                 },
                                                 "lags_n": {
@@ -2216,7 +2163,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
                                                 },
                                                 "smooth_n": {
@@ -2228,7 +2174,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
                                                 }
                                             },
@@ -2238,7 +2183,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
@@ -2250,12 +2194,11 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Anomaly probability threshold (default: 0.9)"
                                 },
                                 "type": {
-                                    "const": "pca",
                                     "default": "pca",
+                                    "enum": ["pca"],
                                     "type": "string"
                                 },
                                 "window": {
@@ -2267,7 +2210,6 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "default": null,
                                     "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
                                 }
                             },
@@ -2298,12 +2240,13 @@
             "type": "boolean"
         },
         "investigation_inconclusive_action": {
-            "description": "How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.\n\n* `notify` - Notify\n* `suppress` - Suppress",
+            "description": "How to handle an 'inconclusive' verdict: whether gated notifications fire and whether the investigation surfaces in the Signals inbox. 'notify' is the safe default — an agent that can't be sure is itself useful signal. False positives never reach the inbox regardless of this setting.\n\n* `notify` - Notify\n* `suppress` - Suppress",
             "enum": ["notify", "suppress"],
             "type": "string"
         },
         "name": {
             "description": "Human-readable name for the alert.",
+            "maxLength": 255,
             "type": "string"
         },
         "schedule_restriction": {
@@ -2371,7 +2314,7 @@
             "description": "Threshold configuration with bounds and type for evaluating the alert.",
             "properties": {
                 "configuration": {
-                    "description": "Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage).",
+                    "description": "Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set.",
                     "properties": {
                         "bounds": {
                             "anyOf": [
@@ -2386,7 +2329,6 @@
                                                     "type": "null"
                                                 }
                                             ],
-                                            "default": null,
                                             "description": "Alert fires when the value drops below this number."
                                         },
                                         "upper": {
@@ -2398,7 +2340,6 @@
                                                     "type": "null"
                                                 }
                                             ],
-                                            "default": null,
                                             "description": "Alert fires when the value exceeds this number."
                                         }
                                     },
@@ -2407,8 +2348,7 @@
                                 {
                                     "type": "null"
                                 }
-                            ],
-                            "default": null
+                            ]
                         },
                         "type": {
                             "description": "Whether bounds are compared as absolute values or as percentage change from the previous interval.",
@@ -2429,6 +2369,7 @@
                 },
                 "name": {
                     "description": "Optional name for the threshold.",
+                    "maxLength": 255,
                     "type": "string"
                 }
             },

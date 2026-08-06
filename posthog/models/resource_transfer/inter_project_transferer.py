@@ -210,7 +210,7 @@ def dag_sort_duplication_graph(graph: Iterable[ResourceTransferVertex]) -> tuple
 
 def build_resource_duplication_graph(
     resource: Any, exclude_set: set[ResourceTransferKey], depth: int = 1
-) -> Generator[ResourceTransferVertex, None, None]:
+) -> Generator[ResourceTransferVertex]:
     """
     This function builds a graph representing the relations in the connected component that `resource` is a member of.
 

@@ -190,6 +190,17 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         assert result.count > 0
 
     @freeze_time("2025-12-16T10:33:00Z")
+    def test_null_filter_values_treated_as_empty(self):
+        # The frontend/API can persist explicit `null` for these keys (as opposed to
+        # omitting them), which previously crashed every check with a pydantic
+        # ValidationError because `dict.get(key, default)` only falls back when the
+        # key is absent, not when its value is None.
+        alert = self._make_alert(filters={"serviceNames": None, "severityLevels": None})
+        result = self._make_query(alert).execute()
+        assert isinstance(result, AlertCheckCountResult)
+        assert result.count > 0
+
+    @freeze_time("2025-12-16T10:33:00Z")
     def test_raw_scan_path_body_filter(self):
         alert = self._make_alert(
             filters={
@@ -231,6 +242,35 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
                                     "value": "argo-rollouts-dashboard",
                                     "operator": "icontains",
                                     "type": "log_resource_attribute",
+                                }
+                            ],
+                        }
+                    ],
+                },
+            }
+        )
+        result = self._make_query(alert).execute()
+        assert isinstance(result, AlertCheckCountResult)
+        assert result.count > 0
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_raw_scan_path_log_attribute_filter(self):
+        # log_attribute filters read the `attributes_map_str` Map column. This only happens with
+        # propertyGroupsMode=OPTIMIZED; without it the read falls back to JSONExtract, which is
+        # illegal on a Map and the query errors at execution time.
+        alert = self._make_alert(
+            filters={
+                "filterGroup": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "log.iostream",
+                                    "value": "stderr",
+                                    "operator": "exact",
+                                    "type": "log_attribute",
                                 }
                             ],
                         }

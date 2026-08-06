@@ -8,6 +8,7 @@ from posthog.schema import (
     FunnelsQuery,
     LifecycleQuery,
     PathsQuery,
+    PathsV2Query,
     RetentionQuery,
     StickinessQuery,
     TrendsQuery,
@@ -47,7 +48,7 @@ def to_dict(query: BaseModel) -> dict:
 
     if isinstance(
         query,
-        (TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery),
+        (TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery),
     ):
         insightFilterKey = filter_key_for_query(query)
 
@@ -113,10 +114,13 @@ def to_dict(query: BaseModel) -> dict:
                         "stacked",
                         "detailedResultsAggregationType",
                         "excludeBoxPlotOutliers",
+                        "showAnnotations",
                         "showFullUrls",
                         "selectedInterval",
                         "funnelStepReference",
                         "breakdownSorting",
+                        "legendPosition",
+                        "chartStyle",
                     ]
                 }
 
@@ -150,6 +154,8 @@ def filter_key_for_query(node: InsightQueryNode) -> str:
         return "retentionFilter"
     elif isinstance(node, PathsQuery):
         return "pathsFilter"
+    elif isinstance(node, PathsV2Query):
+        return "pathsV2Filter"
     elif isinstance(node, StickinessQuery):
         return "stickinessFilter"
     elif isinstance(node, LifecycleQuery):
@@ -168,6 +174,7 @@ def grouped_chart_display_types(display: ChartDisplayType) -> ChartDisplayType:
             | ChartDisplayType.ACTIONS_UNSTACKED_BAR
             | ChartDisplayType.ACTIONS_STACKED_BAR
             | ChartDisplayType.TWO_DIMENSIONAL_HEATMAP
+            | ChartDisplayType.METRIC
         ):
             # standard time series
             return ChartDisplayType.ACTIONS_LINE_GRAPH
@@ -196,6 +203,10 @@ def grouped_chart_display_types(display: ChartDisplayType) -> ChartDisplayType:
         case ChartDisplayType.BOX_PLOT:
             # separate runner
             return ChartDisplayType.BOX_PLOT
+
+        case ChartDisplayType.SLOPE_GRAPH:
+            # separate runner — only the two range endpoints, cached on its own key
+            return ChartDisplayType.SLOPE_GRAPH
 
         case ChartDisplayType.AUTO:
             return ChartDisplayType.AUTO

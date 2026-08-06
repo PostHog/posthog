@@ -3,18 +3,27 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import InterfaceError, OperationalError
 from django.utils import timezone
 
-from posthog.models.llm_prompt import LLMPrompt
+from parameterized import parameterized
+
+from posthog.storage.hypercache import HyperCacheDependencyUnavailable
 from posthog.storage.llm_prompt_cache import (
+    _DB_UNAVAILABLE_CAPTURE_THROTTLE_KEY,
+    _load_prompt_cache,
     _serialize_prompt,
     get_prompt_by_name_from_cache,
+    invalidate_prompt_label_cache,
     invalidate_prompt_latest_cache,
     invalidate_prompt_name_caches,
     invalidate_prompt_version_cache,
     llm_prompts_hypercache,
 )
-from posthog.storage.llm_prompt_cache_keys import prompt_latest_cache_key
+from posthog.storage.llm_prompt_cache_keys import prompt_label_cache_key, prompt_latest_cache_key
+from posthog.utils import safe_cache_delete
+
+from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel
 
 
 class TestLLMPromptCache(BaseTest):
@@ -24,6 +33,9 @@ class TestLLMPromptCache(BaseTest):
         super().setUp()
         self._clear_known_latest_cache_keys()
         self._clear_known_version_cache_keys()
+        # The DB-unavailable capture is throttled through the cache, so leftover state from an
+        # earlier test would silently throttle the capture a later test asserts on.
+        safe_cache_delete(_DB_UNAVAILABLE_CAPTURE_THROTTLE_KEY)
 
     def tearDown(self):
         self._clear_known_latest_cache_keys()
@@ -115,6 +127,7 @@ class TestLLMPromptCache(BaseTest):
                 "id",
                 "name",
                 "prompt",
+                "config",
                 "version",
                 "created_at",
                 "updated_at",
@@ -180,7 +193,10 @@ class TestLLMPromptCache(BaseTest):
         self.create_prompt_version(name="existing-prompt", version=1, is_latest=True)
         get_prompt_by_name_from_cache(self.team, "existing-prompt")
 
-        with patch("posthog.models.llm_prompt.transaction.on_commit", side_effect=lambda callback: None):
+        with patch(
+            "products.ai_observability.backend.models.llm_prompt.transaction.on_commit",
+            side_effect=lambda callback: None,
+        ):
             self.create_prompt_version(name="new-prompt", version=1, is_latest=True)
 
         cached_prompt = get_prompt_by_name_from_cache(self.team, "new-prompt")
@@ -215,7 +231,10 @@ class TestLLMPromptCache(BaseTest):
         assert cached_old is not None
         self.assertEqual(cached_old["id"], str(old_v1.id))
 
-        with patch("posthog.models.llm_prompt.transaction.on_commit", side_effect=lambda callback: None):
+        with patch(
+            "products.ai_observability.backend.models.llm_prompt.transaction.on_commit",
+            side_effect=lambda callback: None,
+        ):
             LLMPrompt.objects.filter(team=self.team, name="reused-prompt", deleted=False).update(
                 deleted=True, is_latest=False
             )
@@ -236,7 +255,10 @@ class TestLLMPromptCache(BaseTest):
         assert cached_old is not None
         self.assertEqual(cached_old["id"], str(old_v1.id))
 
-        with patch("posthog.models.llm_prompt.transaction.on_commit", side_effect=lambda callback: None):
+        with patch(
+            "products.ai_observability.backend.models.llm_prompt.transaction.on_commit",
+            side_effect=lambda callback: None,
+        ):
             LLMPrompt.objects.filter(team=self.team, name="reused-prompt", deleted=False).update(
                 deleted=True,
                 is_latest=False,
@@ -250,6 +272,53 @@ class TestLLMPromptCache(BaseTest):
         assert refreshed is not None
         self.assertEqual(refreshed["id"], str(new_v1.id))
         self.assertNotEqual(refreshed["id"], str(old_v1.id))
+
+    @parameterized.expand([("operational_error", OperationalError), ("interface_error", InterfaceError)])
+    def test_transient_db_error_on_read_degrades_to_miss(self, _name, error_cls):
+        self.create_prompt_version(name="cached-prompt", version=1, is_latest=True)
+
+        # Cold cache forces the DB tier; a transient failure there (e.g. a PgBouncer
+        # query_wait_timeout) must degrade to a miss rather than bubbling a 500 to the caller.
+        with patch(
+            "posthog.storage.llm_prompt_cache._get_latest_prompt_from_db",
+            side_effect=error_cls("query_wait_timeout"),
+        ):
+            result = get_prompt_by_name_from_cache(self.team, "cached-prompt")
+
+        self.assertIsNone(result)
+
+    @parameterized.expand(
+        [
+            ("latest_operational_error", OperationalError, None),
+            ("latest_interface_error", InterfaceError, None),
+            ("label_operational_error", OperationalError, "production"),
+        ]
+    )
+    def test_load_fn_reports_and_reraises_transient_db_error_as_dependency_unavailable(self, _name, error_cls, label):
+        # HyperCacheDependencyUnavailable is what makes the cache tier return a miss without caching
+        # a miss sentinel, so the next read retries instead of serving "not found" for the whole
+        # cache_miss_ttl. The tier does not report the error, so the load_fn owns the capture:
+        # without it a versioned read over a warm latest entry 404s through an outage silently.
+        #
+        # The label case is here because label resolution is a third DB query on its own branch, so
+        # it has to sit inside the same guard. Landing it outside changes nothing the read-path test
+        # can see, since the wrapper in get_prompt_by_name_from_cache still returns None, so this is
+        # the only place the degrade and the report are pinned down for that branch.
+        if label is None:
+            cache_key = prompt_latest_cache_key(self.team.id, "cached-prompt")
+            db_fn = "_get_latest_prompt_from_db"
+        else:
+            cache_key = prompt_label_cache_key(self.team.id, "cached-prompt", label)
+            db_fn = "_get_labeled_prompt_from_db"
+
+        with (
+            patch("posthog.utils.capture_exception") as mock_capture,
+            patch(f"posthog.storage.llm_prompt_cache.{db_fn}", side_effect=error_cls("query_wait_timeout")),
+        ):
+            with self.assertRaises(HyperCacheDependencyUnavailable):
+                _load_prompt_cache(cache_key)
+
+        mock_capture.assert_called_once()
 
     def test_exact_fetch_refreshes_latest_cache_entry_missing_generation_marker(self):
         self.create_prompt_version(name="cached-prompt", version=1, is_latest=False, prompt="v1")
@@ -274,7 +343,7 @@ class TestLLMPromptCache(BaseTest):
 class TestLLMPromptCacheSignals(BaseTest):
     def test_model_signal_invalidates_latest_and_exact_version_caches_on_commit(self):
         with (
-            patch("posthog.models.llm_prompt.transaction.on_commit") as mock_on_commit,
+            patch("products.ai_observability.backend.models.llm_prompt.transaction.on_commit") as mock_on_commit,
             patch("posthog.storage.llm_prompt_cache.invalidate_prompt_latest_cache") as mock_invalidate_latest,
             patch("posthog.storage.llm_prompt_cache.invalidate_prompt_version_cache") as mock_invalidate_version,
         ):
@@ -290,3 +359,24 @@ class TestLLMPromptCacheSignals(BaseTest):
         self.assertTrue(mock_on_commit.called)
         mock_invalidate_latest.assert_called_with(self.team.id, "signal-prompt")
         mock_invalidate_version.assert_called_with(self.team.id, "signal-prompt", 1)
+
+    def test_label_cache_never_touches_object_storage(self):
+        prompt = LLMPrompt.objects.create(
+            team=self.team, name="labeled-prompt", prompt="content", version=1, is_latest=True
+        )
+        LLMPromptLabel.objects.create(team=self.team, prompt_name="labeled-prompt", name="production", prompt=prompt)
+        # Warm the latest entry (the label path reads it for the generation marker); it
+        # belongs to the S3-enabled instance, so it must be a redis hit inside the patch.
+        get_prompt_by_name_from_cache(self.team, "labeled-prompt")
+
+        # Miss -> DB fill -> hit -> invalidation: none of it may reach S3, or a stale
+        # fill would persist there without a TTL and resurrect past every redis expiry.
+        with patch("posthog.storage.hypercache.object_storage") as mock_storage:
+            fetched = get_prompt_by_name_from_cache(self.team, "labeled-prompt", label="production")
+            assert fetched is not None and fetched["label"] == "production"
+            get_prompt_by_name_from_cache(self.team, "labeled-prompt", label="production")
+            invalidate_prompt_label_cache(self.team.id, "labeled-prompt", "production")
+
+        mock_storage.read.assert_not_called()
+        mock_storage.write.assert_not_called()
+        mock_storage.delete.assert_not_called()

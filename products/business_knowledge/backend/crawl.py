@@ -79,12 +79,25 @@ class _PerHostSemaphoreRegistry:
             return sem
 
 
-def _fetch_one(url: str, *, etag: str | None, registry: _PerHostSemaphoreRegistry) -> CrawlOutcome:
+def _fetch_one(
+    url: str,
+    *,
+    etag: str | None,
+    registry: _PerHostSemaphoreRegistry,
+    prefetched: dict[str, url_fetch.FetchResult],
+) -> CrawlOutcome:
     """
     Fetch + parse a single URL. Never raises — all failures return a
     CrawlOutcome(status="error", error=...). Matches the `url_fetch.fetch_url`
     contract for SSRF re-validation per-hop.
+
+    Pages already downloaded during discovery (`prefetched`) skip the network
+    round-trip entirely and go straight to parsing.
     """
+
+    result = prefetched.get(url_fetch.prefetch_key(url))
+    if result is not None:
+        return _parse_outcome(url, result)
 
     sem = registry.get(_host_of(url))
     sem.acquire()
@@ -102,36 +115,40 @@ def _fetch_one(url: str, *, etag: str | None, registry: _PerHostSemaphoreRegistr
                 etag=result.etag or (etag or ""),
             )
 
-        if not result.body:
-            return CrawlOutcome(url=url, final_url=result.final_url, status="error", error="Remote response was empty.")
+        return _parse_outcome(url, result)
+    finally:
+        sem.release()
 
-        if not url_fetch.is_html_content_type(result.content_type):
-            return CrawlOutcome(url=url, final_url=result.final_url, status="error", error="Unsupported content type.")
 
-        title, text = html_parse.parse_html(result.body, result.final_url)
-        if not text.strip():
-            return CrawlOutcome(
-                url=url, final_url=result.final_url, status="error", error="Could not extract any text."
-            )
-        # Per-page byte cap — trimming beats rejecting a huge wiki page.
-        if len(text.encode("utf-8")) > MAX_TEXT_SIZE_BYTES:
-            return CrawlOutcome(
-                url=url,
-                final_url=result.final_url,
-                status="error",
-                error="Page content exceeds the maximum allowed size.",
-            )
+def _parse_outcome(url: str, result: url_fetch.FetchResult) -> CrawlOutcome:
+    """Parse a fetched body into a CrawlOutcome. Network-free."""
+
+    if not result.body:
+        return CrawlOutcome(url=url, final_url=result.final_url, status="error", error="Remote response was empty.")
+
+    if not url_fetch.is_html_content_type(result.content_type):
+        return CrawlOutcome(url=url, final_url=result.final_url, status="error", error="Unsupported content type.")
+
+    title, text = html_parse.parse_html(result.body, result.final_url, content_type=result.content_type)
+    if not text.strip():
+        return CrawlOutcome(url=url, final_url=result.final_url, status="error", error="Could not extract any text.")
+    # Per-page byte cap — trimming beats rejecting a huge wiki page.
+    if len(text.encode("utf-8")) > MAX_TEXT_SIZE_BYTES:
         return CrawlOutcome(
             url=url,
             final_url=result.final_url,
-            status="ok",
-            title=title,
-            text=text,
-            etag=result.etag or "",
-            content_hash=sha256_of(text),
+            status="error",
+            error="Page content exceeds the maximum allowed size.",
         )
-    finally:
-        sem.release()
+    return CrawlOutcome(
+        url=url,
+        final_url=result.final_url,
+        status="ok",
+        title=title,
+        text=text,
+        etag=result.etag or "",
+        content_hash=sha256_of(text),
+    )
 
 
 def fetch_many(
@@ -140,12 +157,16 @@ def fetch_many(
     etag_for: Callable[[str], str | None] | None = None,
     per_host: int = PER_HOST_CONCURRENCY,
     max_workers: int | None = None,
+    prefetched: dict[str, url_fetch.FetchResult] | None = None,
 ) -> list[CrawlOutcome]:
     """
     Fetch all `urls` in parallel, capped per-host by a threading semaphore.
 
     `etag_for(url)` — optional; called once per URL to pull a stored ETag
     for conditional GET. Returns None when we don't have one yet.
+
+    `prefetched` — optional bodies already downloaded during discovery
+    (keyed by normalized URL); matching URLs skip the network entirely.
 
     `max_workers` — defaults to `max(PER_HOST_CONCURRENCY * 4, 8)`. We want
     enough threads to saturate the per-host semaphore without going wild;
@@ -157,12 +178,19 @@ def fetch_many(
 
     registry = _PerHostSemaphoreRegistry(per_host)
     workers = max_workers if max_workers is not None else max(per_host * 4, 8)
+    cache = prefetched or {}
 
     results: list[CrawlOutcome] = []
     pool = ThreadPoolExecutor(max_workers=workers)
     try:
         futures = {
-            pool.submit(_fetch_one, url, etag=(etag_for(url) if etag_for else None), registry=registry): url
+            pool.submit(
+                _fetch_one,
+                url,
+                etag=(etag_for(url) if etag_for else None),
+                registry=registry,
+                prefetched=cache,
+            ): url
             for url in urls
         }
         done, not_done = wait(futures, timeout=CRAWL_TOTAL_TIMEOUT_SECONDS, return_when=ALL_COMPLETED)

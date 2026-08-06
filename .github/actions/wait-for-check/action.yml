@@ -1,0 +1,82 @@
+name: 'Wait for check'
+description: >-
+    Poll a commit for a named GitHub Actions check run until it completes, tolerating
+    transient API errors. First-party replacement for fountainhead/action-wait-for-check,
+    which crashed on a single bad API response and runs on a deprecated Node runtime.
+inputs:
+    token:
+        description: 'GitHub token used to read check runs'
+        required: true
+    checkName:
+        description: 'Exact name of the check run to wait for'
+        required: true
+    ref:
+        description: 'Commit SHA whose check runs are polled'
+        required: true
+    timeoutSeconds:
+        description: 'Give up after this many seconds'
+        required: false
+        default: '3600'
+    intervalSeconds:
+        description: 'Seconds between polls'
+        required: false
+        default: '30'
+outputs:
+    conclusion:
+        description: >-
+            Conclusion of the completed check (success, failure, cancelled, ...).
+            'timed_out' if the check did not complete before the timeout.
+        value: ${{ steps.poll.outputs.conclusion }}
+runs:
+    using: 'composite'
+    steps:
+        - name: Poll for check run
+          id: poll
+          shell: bash
+          env:
+              GH_TOKEN: ${{ inputs.token }}
+              CHECK_NAME: ${{ inputs.checkName }}
+              REF: ${{ inputs.ref }}
+              TIMEOUT_SECONDS: ${{ inputs.timeoutSeconds }}
+              INTERVAL_SECONDS: ${{ inputs.intervalSeconds }}
+          run: |
+              # Fail fast on caller mistakes: composite `required: true` is not
+              # runner-enforced, and bad numbers would otherwise degrade into a
+              # silent no-wait or an API busy-loop.
+              if ! [[ "$CHECK_NAME" && "$REF" && "$TIMEOUT_SECONDS" =~ ^[0-9]+$ && "$INTERVAL_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
+                echo "::error::wait-for-check: invalid inputs: checkName='$CHECK_NAME' ref='$REF' timeoutSeconds='$TIMEOUT_SECONDS' intervalSeconds='$INTERVAL_SECONDS'"
+                exit 1
+              fi
+              # A transient API error must not fail the wait — log it and retry
+              # until the deadline. Callers decide what a timed_out conclusion means.
+              conclusion=""
+              while [ "$SECONDS" -lt "$TIMEOUT_SECONDS" ]; do
+                # Server-side check_name filtering narrows the response; the jq
+                # re-checks the name so a filter regression can't select the wrong
+                # check, and only GitHub Actions' own check counts — other apps
+                # (e.g. CI mirrors) may report checks under the same name.
+                # filter=latest dedupes re-runs only within a check suite, and the
+                # same SHA can carry same-name runs from several suites (one per
+                # workflow run), so take the newest run (check run IDs are
+                # monotonic) and report it only once it completes — an older
+                # completed run must not mask a newer one still in flight.
+                if conclusion=$(gh api -X GET "repos/${GITHUB_REPOSITORY}/commits/${REF}/check-runs" \
+                    -f check_name="$CHECK_NAME" -f filter=latest \
+                    --jq '[.check_runs[] | select(.name == env.CHECK_NAME and .app.slug == "github-actions")] | max_by(.id) | select(.status == "completed") | .conclusion // empty'); then
+                  if [ -n "$conclusion" ]; then
+                    break
+                  fi
+                  echo "Check \"$CHECK_NAME\" has not completed yet; retrying in ${INTERVAL_SECONDS}s..."
+                else
+                  conclusion=""
+                  echo "GitHub API error while looking up check \"$CHECK_NAME\"; retrying in ${INTERVAL_SECONDS}s..."
+                fi
+                remaining=$(( TIMEOUT_SECONDS - SECONDS ))
+                if [ "$remaining" -lt 1 ]; then
+                  break
+                fi
+                sleep "$(( remaining < INTERVAL_SECONDS ? remaining : INTERVAL_SECONDS ))"
+              done
+              conclusion="${conclusion:-timed_out}"
+              echo "Check \"$CHECK_NAME\" conclusion: $conclusion"
+              echo "conclusion=$conclusion" >> "$GITHUB_OUTPUT"

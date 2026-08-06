@@ -76,7 +76,8 @@ describe('@posthog/replay-shared', () => {
             expect(store.sourceCount).toBe(1)
             expect(store.getUnloadedIndicesInRange(0, 0)).toEqual([0])
 
-            store.markLoaded(0, [])
+            store.markFetched(0, [])
+            store.markProcessed([0])
             expect(store.getUnloadedIndicesInRange(0, 0)).toEqual([])
         })
     })

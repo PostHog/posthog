@@ -20,13 +20,13 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
+from products.posthog_ai.backend.models.assistant import Conversation
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
 
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.chat_agent.insights.nodes import InsightDict, InsightSearchNode, NoInsightsException
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
-from ee.models.assistant import Conversation
 
 
 def create_mock_query_executor():

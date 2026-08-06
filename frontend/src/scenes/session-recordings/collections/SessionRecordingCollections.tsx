@@ -17,12 +17,10 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isObject } from 'lib/utils'
+import { isObject } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
 
 import {
@@ -136,7 +134,6 @@ export function SessionRecordingCollections(): JSX.Element {
     const { setSavedPlaylistsFilters, updatePlaylist, duplicatePlaylist, deletePlaylist } = useActions(
         sessionRecordingCollectionsLogic
     )
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const columns: LemonTableColumns<SessionRecordingPlaylistType> = [
         {
@@ -281,14 +278,6 @@ export function SessionRecordingCollections(): JSX.Element {
                                         label: 'Automatic',
                                         value: 'synthetic',
                                     },
-                                    ...(featureFlags[FEATURE_FLAGS.REPLAY_NEW_DETECTED_URL_COLLECTIONS] === 'test'
-                                        ? [
-                                              {
-                                                  label: 'New URLs',
-                                                  value: 'new-urls',
-                                              },
-                                          ]
-                                        : []),
                                 ]}
                             />
                         </div>

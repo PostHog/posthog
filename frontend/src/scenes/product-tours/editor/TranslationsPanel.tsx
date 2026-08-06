@@ -6,8 +6,8 @@ import { IconCopy, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { toSentenceCase } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { toSentenceCase } from 'lib/utils/strings'
 
 import { productTourLogic } from '../productTourLogic'
 

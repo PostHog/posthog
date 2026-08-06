@@ -1,5 +1,22 @@
 # End-to-End Testing
 
+## Where tests live
+
+Playwright tests are discovered from two locations (configured in `playwright.config.ts`):
+
+- `playwright/e2e/**/*.spec.ts` — cross-cutting and platform-level tests (auth, signup, shared dashboards, etc.) and any tests that don't have an obvious single-product owner.
+- `products/<product>/frontend/e2e/**/*.spec.ts` — tests owned by a specific product, co-located with that product's code.
+
+Shared fixtures, page models, and helpers live under `playwright/utils/`, `playwright/page-models/`, and `playwright/mocks/`. Import them from anywhere via TypeScript path aliases:
+
+```ts
+import { expect, test } from '@playwright-utils/workspace-test-base'
+import { randomString } from '@playwright-utils'
+import { InsightPage } from '@playwright-pages/insightPage'
+```
+
+When you add a new test for a feature owned by a specific product, prefer co-locating it under `products/<product>/frontend/e2e/` rather than adding it to `playwright/e2e/`.
+
 ## Running tests
 
 Spin up a full local E2E environment (backend, frontend, docker services, Playwright UI):
@@ -8,7 +25,7 @@ Spin up a full local E2E environment (backend, frontend, docker services, Playwr
 hogli test:e2e
 ```
 
-This uses `bin/phrocs-e2e.yaml` under the hood. If you need to reset the E2E database, trigger the `reset-db` process in the phrocs UI.
+This uses `bin/mprocs-e2e.yaml` under the hood. If you need to reset the E2E database, trigger the `reset-db` process in the phrocs UI.
 
 To run tests against an already-running PostHog instance:
 
@@ -24,6 +41,25 @@ Use the `/playwright-test` skill to have Claude Code write and validate end-to-e
 It will explore the UI with Playwright MCP tools, plan the tests, implement them, and run them in a loop until they pass reliably (including a flakiness check with `--repeat-each 10`).
 
 ## Writing tests
+
+### What belongs in this suite
+
+This suite is expensive as it runs the full stack and a real browser, and every spec costs PR runtime, runner credits, and a slice of the team's flake budget. Use these principles to decide whether a test is worth that cost.
+
+### Test what only a browser can prove
+
+E2E is uniquely suited to multi-step journeys where the frontend, network, backend, and datastores all have to agree at once. If a regression would surface in a Jest + kea test, a Storybook story, an API integration test, or a ClickHouse unit test, write it there instead — cheaper to run, easier to debug, no 8-vCPU runner tied up.
+
+### Prefer the cheapest layer that can catch the bug
+
+- "Page renders", "button is present", "heading reads X", "tab is active"
+  - Those are smoke checks, not e2e, and they belong in Jest or Storybook.
+- Visual regressions belong in Storybook visual review.
+- If a failure can be diagnosed without reading a backend log, the test probably didn't need the backend.
+
+### Each test should earn its slot
+
+The suite stays small on purpose; the bigger it gets, the noisier the flake signal becomes, and we drift back into "ignore the red, it's probably flake". You should treat adding a spec like adding a CI job. Justify it in the PR description (which cross-stack flow, why won't a lower layer catch it, how it sits next to the existing specs, etc.). Reviewers should push back when that justification is thin. "Nice to have coverage" isn't enough, but "this flow has broken in prod and nothing below this layer would have caught it" is.
 
 ### Best practices
 

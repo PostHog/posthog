@@ -10,7 +10,7 @@
  * - Team: Environment within project where data lives (e.g., "Production", "Staging")
  * - User: Configurable via LOGIN_USERNAME/LOGIN_PASSWORD env vars (defaults: test@posthog.com/12345678)
  */
-import { APIRequestContext, Page, request as playwrightRequest } from '@playwright/test'
+import { APIRequestContext, APIResponse, Page, request as playwrightRequest } from '@playwright/test'
 
 import { LOGIN_PASSWORD } from './playwright-test-core'
 
@@ -66,6 +66,7 @@ export interface PlaywrightWorkspaceSetupData {
     use_current_time?: boolean
     skip_onboarding?: boolean
     no_demo_data?: boolean
+    staff?: boolean
     insight_variables?: PlaywrightSetupVariable[]
     insights?: PlaywrightSetupInsight[]
     dashboards?: PlaywrightSetupDashboard[]
@@ -273,22 +274,28 @@ export class PlaywrightSetup {
     }
 
     async login(page: Page, workspace: PlaywrightWorkspaceSetupResult): Promise<void> {
-        await page.goto(`${this.baseURL}/login`)
-        await page.evaluate(
-            async ({ email, password }) => {
-                await fetch('/api/login/', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ email, password }),
+        const maxAttempts = 3
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            let response: APIResponse
+            try {
+                response = await page.request.post(`${this.baseURL}/api/login/`, {
+                    data: { email: workspace.user_email, password: LOGIN_PASSWORD },
                 })
-            },
-            {
-                email: workspace.user_email,
-                password: LOGIN_PASSWORD,
+            } catch (e) {
+                if (attempt === maxAttempts) {
+                    throw e
+                }
+                await new Promise((r) => setTimeout(r, 500 * attempt))
+                continue
             }
-        )
+            if (response.ok()) {
+                return
+            }
+            if (attempt === maxAttempts || response.status() < 500) {
+                throw new Error(`Login failed with status ${response.status()}`)
+            }
+            await new Promise((r) => setTimeout(r, 500 * attempt))
+        }
     }
 
     /**
@@ -302,6 +309,26 @@ export class PlaywrightSetup {
 
         await page.goto(`${this.baseURL}/project/${workspace.team_id}`)
     }
+
+    /**
+     * Seed a single HogFunctionTemplate row. Templates are global (not team-scoped) and
+     * Playwright CI doesn't run sync_hog_function_templates, so any test that exercises
+     * the workflow editor or hog function configuration must seed the templates it needs.
+     * Idempotent across parallel workers.
+     */
+    async seedHogFunctionTemplate(data: {
+        template_id: string
+        name?: string
+        status?: 'alpha' | 'beta' | 'stable' | 'deprecated' | 'hidden' | 'coming_soon' | 'client_side'
+        template_type?: 'destination' | 'transformation' | 'source_webhook' | 'site_destination' | 'site_app'
+        inputs_schema?: Array<Record<string, any>>
+    }): Promise<{ template_id: string; created: boolean }> {
+        const result = await this.callSetupEndpoint('hog_function_template', { data })
+        if (!result.success) {
+            throw new Error(`Failed to seed hog function template: ${result.error}`)
+        }
+        return result.result as { template_id: string; created: boolean }
+    }
 }
 
 /**
@@ -314,10 +341,7 @@ export function createPlaywrightSetup(baseURL?: string): PlaywrightSetup {
 /**
  * One-off workspace creation (for simple cases)
  */
-export async function createTestWorkspace(
-    setupType: string,
-    data?: Record<string, any>
-): Promise<TestSetupResponse> {
+export async function createTestWorkspace(setupType: string, data?: Record<string, any>): Promise<TestSetupResponse> {
     const playwrightSetup = createPlaywrightSetup()
     try {
         return await playwrightSetup.callSetupEndpoint(setupType, { data })

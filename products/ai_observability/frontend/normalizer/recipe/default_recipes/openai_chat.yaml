@@ -1,7 +1,6 @@
 # Example: { role: assistant, content: "hi", tool_calls: [{ id, type: function, function: { name, arguments } }] }
 
 id: openai_chat
-priority: 35
 
 rules:
     - on:

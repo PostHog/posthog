@@ -10,7 +10,17 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     NotebookApi,
+    NotebookCollabPresenceApi,
     NotebookCollabSaveApi,
+    NotebookKernelConfigApi,
+    NotebookKernelConfigResponseApi,
+    NotebookKernelStatusResponseApi,
+    NotebookMarkdownSaveApi,
+    NotebookSQLV2InterruptResponseApi,
+    NotebookSQLV2RunRequestApi,
+    NotebookSQLV2RunResponseApi,
+    NotebookSQLV2RunStatusResponseApi,
+    NotebookSQLV2StateResponseApi,
     NotebooksListParams,
     PaginatedNotebookMinimalListApi,
     PatchedNotebookApi,
@@ -38,7 +48,7 @@ export const getNotebooksListUrl = (projectId: string, params?: NotebooksListPar
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -175,6 +185,48 @@ export const notebooksActivityRetrieve = async (
     })
 }
 
+export const getNotebooksCollabMarkdownSaveCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/collab/markdown_save/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksCollabMarkdownSaveCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookMarkdownSaveApi: NotebookMarkdownSaveApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getNotebooksCollabMarkdownSaveCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookMarkdownSaveApi),
+    })
+}
+
+export const getNotebooksCollabPresenceCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/collab/presence/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksCollabPresenceCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookCollabPresenceApi: NotebookCollabPresenceApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getNotebooksCollabPresenceCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookCollabPresenceApi),
+    })
+}
+
 export const getNotebooksCollabSaveCreateUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/collab/save/`
 }
@@ -240,19 +292,19 @@ export const getNotebooksKernelConfigCreateUrl = (projectId: string, shortId: st
 }
 
 /**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ * Set the notebook's kernel compute configuration. Applies at sandbox provision time: a currently running kernel keeps its resources until restarted.
  */
 export const notebooksKernelConfigCreate = async (
     projectId: string,
     shortId: string,
-    notebookApi?: NonReadonly<NotebookApi>,
+    notebookKernelConfigApi?: NotebookKernelConfigApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getNotebooksKernelConfigCreateUrl(projectId, shortId), {
+): Promise<NotebookKernelConfigResponseApi> => {
+    return apiMutator<NotebookKernelConfigResponseApi>(getNotebooksKernelConfigCreateUrl(projectId, shortId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(notebookApi),
+        body: JSON.stringify(notebookKernelConfigApi),
     })
 }
 
@@ -363,14 +415,14 @@ export const getNotebooksKernelStatusRetrieveUrl = (projectId: string, shortId: 
 }
 
 /**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ * Live-checked kernel runtime state for this notebook, its compute configuration, and the catalog of dataframes/tables a cell can currently reference (with column schemas).
  */
 export const notebooksKernelStatusRetrieve = async (
     projectId: string,
     shortId: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getNotebooksKernelStatusRetrieveUrl(projectId, shortId), {
+): Promise<NotebookKernelStatusResponseApi> => {
+    return apiMutator<NotebookKernelStatusResponseApi>(getNotebooksKernelStatusRetrieveUrl(projectId, shortId), {
         ...options,
         method: 'GET',
     })
@@ -394,6 +446,86 @@ export const notebooksKernelStopCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(notebookApi),
+    })
+}
+
+export const getNotebooksSqlV2RunCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/sql_v2/run/`
+}
+
+/**
+ * Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; poll the run result endpoint until the status is terminal. Flag-gated (revamped-py-notebooks).
+ */
+export const notebooksSqlV2RunCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookSQLV2RunRequestApi: NotebookSQLV2RunRequestApi,
+    options?: RequestInit
+): Promise<NotebookSQLV2RunResponseApi> => {
+    return apiMutator<NotebookSQLV2RunResponseApi>(getNotebooksSqlV2RunCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookSQLV2RunRequestApi),
+    })
+}
+
+export const getNotebooksSqlV2RunsRetrieveUrl = (projectId: string, shortId: string, runId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/sql_v2/runs/${runId}/`
+}
+
+/**
+ * Read a run's durable state: its status, and — once done or interrupted — the result envelope (columns, first rows, stdout/stderr, media, error). Poll until terminal. Flag-gated (revamped-py-notebooks).
+ */
+export const notebooksSqlV2RunsRetrieve = async (
+    projectId: string,
+    shortId: string,
+    runId: string,
+    options?: RequestInit
+): Promise<NotebookSQLV2RunStatusResponseApi> => {
+    return apiMutator<NotebookSQLV2RunStatusResponseApi>(getNotebooksSqlV2RunsRetrieveUrl(projectId, shortId, runId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getNotebooksSqlV2RunsInterruptCreateUrl = (projectId: string, shortId: string, runId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/sql_v2/runs/${runId}/interrupt/`
+}
+
+/**
+ * Stop a running cell. Idempotent: interrupting an already-finished run returns its outcome unchanged. Flag-gated (revamped-py-notebooks).
+ */
+export const notebooksSqlV2RunsInterruptCreate = async (
+    projectId: string,
+    shortId: string,
+    runId: string,
+    options?: RequestInit
+): Promise<NotebookSQLV2InterruptResponseApi> => {
+    return apiMutator<NotebookSQLV2InterruptResponseApi>(
+        getNotebooksSqlV2RunsInterruptCreateUrl(projectId, shortId, runId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getNotebooksSqlV2StateRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/sql_v2/state/`
+}
+
+/**
+ * The full notebook view for agents: title, document source (markdown, or raw content for legacy rich-text notebooks), every cell with its dependency edges and derived run status (including staleness), and the kernel's runtime state and compute config. Flag-gated (revamped-py-notebooks).
+ */
+export const notebooksSqlV2StateRetrieve = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<NotebookSQLV2StateResponseApi> => {
+    return apiMutator<NotebookSQLV2StateResponseApi>(getNotebooksSqlV2StateRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
     })
 }
 

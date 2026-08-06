@@ -1,0 +1,584 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, Optional, cast
+
+from clickhouse_connect.driver.exceptions import ClickHouseError, DatabaseError, OperationalError
+from sshtunnel import BaseSSHTunnelForwarderError
+
+from posthog.schema import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigConverter,
+    SourceFieldSelectConfigOption,
+    SourceFieldSSHTunnelConfig,
+)
+
+from posthog.exceptions_capture import capture_exception
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import (
+    NOT_A_CLICKHOUSE_HTTP_RESPONSE,
+    BypassEnvProxy,
+    ClickHouseConnectionError,
+    _get_client,
+    clickhouse_source,
+    filter_clickhouse_incremental_fields,
+    get_clickhouse_row_count,
+    get_connection_metadata as get_clickhouse_connection_metadata,
+    get_primary_keys_for_schemas as get_clickhouse_primary_keys_for_schemas,
+    get_schemas as get_clickhouse_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    SSHTunnelMixin,
+    ValidateDatabaseHostMixin,
+    is_team_allowlisted_for_internal_hosts,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import (
+    reconcile_source_schema_metadata,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clickhouse import (
+    ClickHouseSourceConfig,
+)
+from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField
+
+if TYPE_CHECKING:
+    from clickhouse_connect.driver.client import Client as ClickHouseClient
+
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+
+# Shown when we can't map the failure to a specific cause. Names the usual
+# culprits so the user has something concrete to check, rather than a bare
+# "check your details".
+GENERIC_CONNECTION_ERROR = (
+    "Could not connect to ClickHouse. Check that the host and port are correct, the HTTPS setting matches "
+    "your server, and that PostHog's IP addresses are allowed through any firewall."
+)
+
+# A pasted URL or connection string in the host field otherwise fails DNS resolution with a
+# misleading "check the spelling" message that echoes the raw value back (which can embed
+# credentials). Catch it early with an actionable message that never reflects the input.
+_HOST_IS_URL_ERROR = (
+    "Enter just the hostname in the host field (for example, play.clickhouse.com), not a full URL or "
+    "connection string. Remove any scheme (like https://) and any username, password, port, or path."
+)
+
+# A transient gateway/rate-limit response that survived the in-process connect
+# retries. The connection details are fine — the server is momentarily busy or
+# waking (idle ClickHouse Cloud services routinely 5xx the first request), so
+# ask the user to retry rather than implying their credentials are wrong.
+_TEMPORARILY_UNAVAILABLE = (
+    "ClickHouse is temporarily busy or unavailable and didn't accept the connection. Wait a moment and try again."
+)
+
+# Connections that skip the egress proxy don't follow redirects, so a redirecting endpoint
+# comes back as a 3xx response code instead of a request to wherever it pointed.
+_REDIRECTED = (
+    "We reached your ClickHouse host but it redirected us, and redirects aren't followed. Point the source at the "
+    "ClickHouse HTTP interface directly rather than at a proxy or load balancer in front of it."
+)
+
+# Error message → user-friendly translation. Matched as a substring of the
+# exception string. Patterns are lowercase-matched.
+ClickHouseErrors: dict[str, str] = {
+    "authentication failed": "Invalid user or password",
+    "code: 516": "Invalid user or password",  # AUTHENTICATION_FAILED
+    "code: 81": "Database does not exist",  # UNKNOWN_DATABASE
+    "code: 60": "Table does not exist",  # UNKNOWN_TABLE
+    "code: 192": "Permission denied on the requested database or table",  # UNKNOWN_USER
+    "code: 497": "Permission denied on the requested database or table",  # ACCESS_DENIED
+    "nodename nor servname provided": "Could not resolve the ClickHouse host",
+    "name or service not known": "Could not resolve the ClickHouse host",
+    "connection refused": "Could not connect to ClickHouse on the given host/port",
+    "connection timed out": "Connection to ClickHouse timed out. Does your database have our IP addresses allow-listed?",
+    # Must stay above the generic "ssl" entry, which would otherwise match first and send the
+    # user to the wrong toggle. Verification runs against the configured ClickHouse host even
+    # over an SSH tunnel (server_hostname), so a mismatch is real: the certificate doesn't
+    # cover the host the user configured. Deliberately does not suggest turning verification
+    # off — that would train users into a MITM-able setup.
+    "hostname mismatch": "The server's TLS certificate doesn't cover the ClickHouse host configured for this source. Use a host name the certificate covers.",
+    "ssl": "TLS/SSL handshake failed. If your server does not use TLS, disable the HTTPS toggle.",
+    # The host answered but isn't serving the ClickHouse HTTP interface on this
+    # host/port (wrong port, a proxy, or a native-protocol port). Same wording
+    # as the sync-time non-retryable handling.
+    "returned response code 404": "We reached your ClickHouse host but it returned a 404, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+    # `_get_client` raises this when the host answers 2xx with a body that isn't a
+    # ClickHouse response (a proxy/LB page, or a different service on the host/port).
+    "did not return a valid clickhouse response": NOT_A_CLICKHOUSE_HTTP_RESPONSE,
+    "returned response code 301": _REDIRECTED,
+    "returned response code 302": _REDIRECTED,
+    "returned response code 307": _REDIRECTED,
+    "returned response code 308": _REDIRECTED,
+    "returned response code 429": _TEMPORARILY_UNAVAILABLE,
+    "returned response code 502": _TEMPORARILY_UNAVAILABLE,
+    "returned response code 503": _TEMPORARILY_UNAVAILABLE,
+    "returned response code 504": _TEMPORARILY_UNAVAILABLE,
+}
+
+
+@SourceRegistry.register
+class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+    # Lets users pick which columns to sync (and, in the wizard, surfaces the
+    # row-filter editor that shares the same column-selection modal).
+    supports_column_selection: bool = True
+    supports_row_filters: bool = True
+
+    api_docs_url = "https://clickhouse.com/docs"
+
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.CLICKHOUSE
+
+    def _bypass_env_proxy(self, config: ClickHouseSourceConfig, team_id: int) -> BypassEnvProxy:
+        """Why this connection may skip the egress proxy, or None to stay proxied.
+
+        Two cases, both of which the proxy would refuse. Internal teams may point a source at a
+        PostHog-internal host. And a tunneled connection is made to the tunnel's own loopback
+        bind address, which the proxy blocks by design — clickhouse-connect honours HTTP_PROXY
+        for every host including loopback, so the request would never reach the forwarded port
+        and the tunnel would open no channel to the customer's ClickHouse. The tunnel claim is
+        checked twice downstream: the tunnel helpers refuse to yield a non-loopback bind, and
+        `_get_client` refuses a non-loopback host claiming "tunnel_loopback".
+
+        ClickHouse is the only tunnel-capable source this bites: the other database drivers use
+        raw TCP sockets and ignore the proxy env vars entirely.
+        """
+        if self.ssh_tunnel_enabled(config):
+            return "tunnel_loopback"
+        if is_team_allowlisted_for_internal_hosts(team_id):
+            return "internal_team"
+        return None
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=SchemaExternalDataSourceType.CLICK_HOUSE,
+            category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["sql"],
+            releaseStatus=ReleaseStatus.GA,
+            caption="Enter your ClickHouse connection details to pull data into the PostHog Data warehouse. ClickHouse databases can be very large — we stream the data in Arrow batches to keep memory bounded.",
+            iconPath="/static/services/clickhouse.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/clickhouse",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="connection_string",
+                        label="Connection string (optional)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="https://user:password@play.clickhouse.com:8443/default",
+                        secret=True,
+                    ),
+                    SourceFieldInputConfig(
+                        name="host",
+                        label="Host",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="play.clickhouse.com",
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="port",
+                        label="Port",
+                        type=SourceFieldInputConfigType.NUMBER,
+                        required=True,
+                        placeholder="8443",
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="database",
+                        label="Database",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="default",
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="user",
+                        label="User",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="default",
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="password",
+                        label="Password",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=False,
+                        placeholder="",
+                        secret=True,
+                    ),
+                    SourceFieldSelectConfig(
+                        name="secure",
+                        label="Use HTTPS?",
+                        required=True,
+                        defaultValue="true",
+                        converter=SourceFieldSelectConfigConverter.STR_TO_BOOL,
+                        options=[
+                            SourceFieldSelectConfigOption(label="Yes", value="true"),
+                            SourceFieldSelectConfigOption(label="No", value="false"),
+                        ],
+                    ),
+                    SourceFieldSelectConfig(
+                        name="verify",
+                        label="Verify SSL certificate?",
+                        required=True,
+                        defaultValue="true",
+                        converter=SourceFieldSelectConfigConverter.STR_TO_BOOL,
+                        options=[
+                            SourceFieldSelectConfigOption(label="Yes", value="true"),
+                            SourceFieldSelectConfigOption(label="No", value="false"),
+                        ],
+                    ),
+                    SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
+                ],
+            ),
+        )
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "Code: 516": None,  # AUTHENTICATION_FAILED
+            "Code: 81": None,  # UNKNOWN_DATABASE
+            "Code: 60": None,  # UNKNOWN_TABLE
+            "Code: 192": None,  # UNKNOWN_USER
+            "Code: 497": None,  # ACCESS_DENIED
+            "Authentication failed": None,
+            # Raised by the `sshtunnel` library (via the shared `open_ssh_tunnel` helper) when the
+            # SSH tunnel can't be brought up — the bastion host is unreachable, the host/port is
+            # wrong, the SSH key/credentials are rejected, or a firewall blocks PostHog's IPs. It's
+            # in `Any_Source_Errors`, but the import activity's `_handle_import_error` only consults
+            # this per-source dict, so without the entry a down tunnel retries to the maximum and
+            # reports the customer's gateway misconfig as error-tracking noise. Postgres, MySQL, and
+            # MSSQL already treat this identical error as non-retryable.
+            "Could not establish session to SSH gateway": "Could not connect to your SSH tunnel. Check that the SSH host, port, and credentials are correct, the bastion host is running and reachable, and that PostHog's IP addresses are allowed through its firewall.",
+            "Could not resolve the ClickHouse host": None,
+            "nodename nor servname provided": None,
+            "Name or service not known": None,
+            "Connection refused": None,
+            "No route to host": None,
+            "certificate verify failed": None,
+            "SSL: WRONG_VERSION_NUMBER": None,
+            # clickhouse-connect's HTTP driver got a 404 back while opening the
+            # connection ("HTTPDriver for <url> returned response code 404").
+            # The host responded but isn't serving the ClickHouse HTTP interface
+            # on that path — typically a tunnel/proxy pointing at the wrong
+            # service or an offline endpoint. A real ClickHouse server never
+            # answers queries with 404, so retrying can't recover. We match only
+            # 404, not transient gateway codes (502/503/504), which stay retryable.
+            "returned response code 404": "We reached your ClickHouse host but it returned a 404, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+            # `_get_client` wraps the driver's construction-time probe failure ("too many
+            # values to unpack") into this message when the host answers 2xx with a body that
+            # isn't a ClickHouse response. The endpoint isn't serving the ClickHouse HTTP
+            # interface, so retrying replays the identical failure. We match the stable phrase
+            # from the wrapped message, not the volatile per-request URL or host.
+            "did not return a valid ClickHouse response": NOT_A_CLICKHOUSE_HTTP_RESPONSE,
+            # MEMORY_LIMIT_EXCEEDED — the source ClickHouse server (per-query
+            # `max_memory_usage` budget or a server-wide OvercommitTracker kill)
+            # ran out of memory running our extraction query. We already stream
+            # in bounded Arrow blocks, so there's nothing to change our side:
+            # the customer's database can't satisfy the query as configured.
+            # Retrying just re-loads an already memory-pressured server, so stop
+            # and tell them to act.
+            "Code: 241": "Your ClickHouse server ran out of memory while we were reading a table. This usually means the database is too small for the table being synced. Try scaling up your ClickHouse service (or raising its memory limit), or sync a smaller table or use an incremental sync, then resume.",
+            # NOT_ENOUGH_SPACE — the source ClickHouse server couldn't reserve
+            # disk space for a temporary file while running our extraction query
+            # (spilling a sort or buffering query output to disk). Its local disk
+            # / filesystem cache is full and can't evict enough to continue. Like
+            # Code: 241 this is a capacity problem on the customer's database, not
+            # something we can change our side, so retrying just re-loads an
+            # already disk-pressured server.
+            "Code: 243": "Your ClickHouse server ran out of disk space while we were reading a table (it couldn't reserve space for a temporary file). Try scaling up your ClickHouse service or freeing disk space, or sync a smaller table or use an incremental sync, then resume.",
+            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/core/arrow_utils.py`
+            # when an integer column's source type was widened (e.g. `Int32` → `Int64`) after
+            # the destination table was created with the narrower type. Delta Lake can't widen
+            # an existing column in place, so retrying won't help — the table must be reset and
+            # fully re-synced to adopt the new type.
+            "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
+            # Raised from `_get_table` when `system.columns` returns no columns for the
+            # configured table — the table no longer exists in the source database at sync
+            # time. It was dropped or renamed, or (commonly) the schema points at a
+            # materialized view's auto-generated `.inner_id.<uuid>` inner table whose UUID
+            # changed when the view was recreated. Either way the table is gone and retrying
+            # replays the identical failure, so stop and tell the customer to fix the schema.
+            # We match the stable suffix, not the volatile `<database>.<table>` prefix.
+            "not found or has no columns": "We couldn't find this table in your ClickHouse database — it may have been dropped or renamed. If you were syncing a materialized view, sync it by its own name rather than its internal `.inner_id.<uuid>` table (those names change whenever the view is recreated). Remove or re-point this table in your source, then resync.",
+            # UNKNOWN_TYPE (code 50) raised while ClickHouse streams our extraction
+            # query as Arrow: a selected column has a type ClickHouse can't serialize
+            # to Arrow (e.g. an `AggregateFunction(...)` state column on an aggregating
+            # materialized view). The column type is fixed, so retrying replays the
+            # identical failure. We match the stable Arrow-conversion phrase, not the
+            # volatile column name or type in the message.
+            "is not supported for conversion into Arrow data format": "One of the columns in this table has a type ClickHouse can't export (for example an `AggregateFunction` state column on an aggregating materialized view). Deselect that column in this schema's column settings, or sync a view that finalizes it, then resync.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_get_client` already retries dropped connections and rate limits in-process
+        # (see clickhouse.py's `_is_retryable_connect_error`) before re-raising as
+        # `ClickHouseConnectionError`. Bare HTTP 502/503/504 responses skip that
+        # in-process retry by design (there's no proxy CONNECT to re-dial) and go
+        # straight to Temporal's activity retry instead. Either way, once Temporal
+        # retries the activity the failure is transient and self-recovering, so
+        # don't surface it as tracked exception noise.
+        return {
+            "UNEXPECTED_EOF_WHILE_READING",
+            "EOF occurred in violation of protocol",
+            "Connection reset by peer",
+            "Connection aborted",
+            "Tunnel connection failed: 502",
+            "Tunnel connection failed: 503",
+            "Tunnel connection failed: 504",
+            "returned response code 429",
+            "returned response code 502",
+            "returned response code 503",
+            "returned response code 504",
+            # urllib3 raises this when the source drops the connection mid-transfer while
+            # `get_rows` is iterating `query_arrow_stream` — the byte count varies, but the
+            # "Connection broken: IncompleteRead" wording is stable. Unlike the connect-time
+            # drops above, this happens after the client is already constructed, so
+            # `_get_client`'s in-process retry never sees it; Temporal's activity retry
+            # reopens a fresh tunnel + client and resumes from the last committed cursor.
+            "Connection broken: IncompleteRead",
+            # requests/urllib3 raises this when the server accepts the connection but never
+            # answers within our timeout — typically ClickHouse Cloud still cold-resuming an
+            # idle service past our `METADATA_QUERY_TIMEOUT_SECONDS` allowance. Not in
+            # `_TRANSIENT_CONNECT_DROP_SUBSTRINGS`, so `_get_client` doesn't retry it in-process
+            # (a slow-to-wake service needs real wall-clock time, not an immediate re-dial);
+            # Temporal's activity retry provides that backoff and reopens a fresh connection.
+            "Read timed out",
+        }
+
+    @contextmanager
+    def direct_query_client(
+        self,
+        config: ClickHouseSourceConfig,
+        team_id: int,
+        *,
+        query_timeout: int,
+        settings: dict[str, Any] | None = None,
+    ) -> Iterator["ClickHouseClient"]:
+        """Open a client against the source's ClickHouse for a single direct (HogQL) query.
+
+        Opens the SSH tunnel (if any) for the life of the query and yields a clickhouse-connect
+        client, closing both on exit. Client construction is an internal detail, so it stays in
+        the product — the direct-SQL adapter drives the query through this method rather than
+        importing the client factory.
+        """
+        with self.with_ssh_tunnel(config, team_id) as (host, port):
+            client = _get_client(
+                host=host,
+                port=port,
+                database=config.database,
+                user=config.user,
+                password=config.password,
+                secure=config.secure,
+                verify=config.verify,
+                query_timeout=query_timeout,
+                settings=settings,
+                bypass_env_proxy=self._bypass_env_proxy(config, team_id),
+                server_hostname=config.host,
+            )
+            try:
+                yield client
+            finally:
+                client.close()
+
+    def get_schemas(
+        self,
+        config: ClickHouseSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+        api_version: str | None = None,
+    ) -> list[SourceSchema]:
+        schemas: list[SourceSchema] = []
+
+        bypass_env_proxy = self._bypass_env_proxy(config, team_id)
+
+        with self.with_ssh_tunnel(config, team_id) as (host, port):
+            db_schemas = get_clickhouse_schemas(
+                host=host,
+                port=port,
+                database=config.database,
+                user=config.user,
+                password=config.password,
+                secure=config.secure,
+                verify=config.verify,
+                names=names,
+                bypass_env_proxy=bypass_env_proxy,
+                server_hostname=config.host,
+            )
+
+            row_counts: dict[str, int] = {}
+            if with_counts:
+                row_counts = get_clickhouse_row_count(
+                    host=host,
+                    port=port,
+                    database=config.database,
+                    user=config.user,
+                    password=config.password,
+                    secure=config.secure,
+                    verify=config.verify,
+                    names=names,
+                    bypass_env_proxy=bypass_env_proxy,
+                    server_hostname=config.host,
+                )
+
+            detected_pks = get_clickhouse_primary_keys_for_schemas(
+                host=host,
+                port=port,
+                database=config.database,
+                user=config.user,
+                password=config.password,
+                secure=config.secure,
+                verify=config.verify,
+                table_names=list(db_schemas.keys()),
+                bypass_env_proxy=bypass_env_proxy,
+                server_hostname=config.host,
+            )
+
+        for table_name, columns in db_schemas.items():
+            incremental_field_tuples = filter_clickhouse_incremental_fields(columns)
+            # In ClickHouse the table's ORDER BY (sorting key) is the only access
+            # structure that accelerates `WHERE col >= …`; its leading column is
+            # the first entry returned by the PK helper (which queries
+            # is_in_sorting_key ORDER BY position).
+            sort_key = detected_pks.get(table_name)
+            leading_sort_key = sort_key[0] if sort_key else None
+            incremental_fields: list[IncrementalField] = [
+                {
+                    "label": field_name,
+                    "type": field_type,
+                    "field": field_name,
+                    "field_type": field_type,
+                    "nullable": nullable,
+                    "is_indexed": field_name == leading_sort_key,
+                }
+                for field_name, field_type, nullable in incremental_field_tuples
+            ]
+
+            schemas.append(
+                SourceSchema(
+                    name=table_name,
+                    supports_incremental=len(incremental_fields) > 0,
+                    supports_append=len(incremental_fields) > 0,
+                    incremental_fields=incremental_fields,
+                    row_count=row_counts.get(table_name),
+                    columns=columns,
+                    detected_primary_keys=detected_pks.get(table_name),
+                )
+            )
+
+        return schemas
+
+    def validate_credentials(
+        self,
+        config: ClickHouseSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
+    ) -> tuple[bool, str | None]:
+        is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
+        if not is_ssh_valid:
+            return is_ssh_valid, ssh_valid_errors
+
+        if "://" in config.host:
+            return False, _HOST_IS_URL_ERROR
+
+        valid_host, host_errors = self.is_database_host_valid(
+            config.host, team_id, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False
+        )
+        if not valid_host:
+            return valid_host, host_errors
+
+        try:
+            self.get_schemas(config, team_id, names=[schema_name] if schema_name else None, api_version=api_version)
+        except BaseSSHTunnelForwarderError as e:
+            return (
+                False,
+                e.value
+                or "Could not connect to ClickHouse via the SSH tunnel. Please check all connection details are valid.",
+            )
+        except ClickHouseConnectionError as e:
+            message = self._translate_error(str(e))
+            return False, message or GENERIC_CONNECTION_ERROR
+        except (DatabaseError, OperationalError, ClickHouseError) as e:
+            message = self._translate_error(str(e))
+            if message is None:
+                capture_exception(e)
+                return False, GENERIC_CONNECTION_ERROR
+            return False, message
+        except Exception as e:
+            capture_exception(e)
+            return False, GENERIC_CONNECTION_ERROR
+
+        return True, None
+
+    @staticmethod
+    def _translate_error(error_msg: str) -> str | None:
+        lowered = error_msg.lower()
+        for key, value in ClickHouseErrors.items():
+            if key in lowered:
+                return value
+        return None
+
+    def get_connection_metadata(self, config: ClickHouseSourceConfig, team_id: int) -> dict[str, object]:
+        with self.with_ssh_tunnel(config, team_id) as (host, port):
+            return get_clickhouse_connection_metadata(
+                host=host,
+                port=port,
+                database=config.database,
+                user=config.user,
+                password=config.password,
+                secure=config.secure,
+                verify=config.verify,
+                bypass_env_proxy=self._bypass_env_proxy(config, team_id),
+                server_hostname=config.host,
+            )
+
+    def source_for_pipeline(self, config: ClickHouseSourceConfig, inputs: SourceInputs) -> SourceResponse:
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+
+        ssh_tunnel = self.make_ssh_tunnel_func(config, inputs.team_id)
+
+        schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+
+        return clickhouse_source(
+            tunnel=ssh_tunnel,
+            user=config.user,
+            password=config.password,
+            database=config.database,
+            secure=config.secure,
+            verify=config.verify,
+            table_names=[inputs.schema_name],
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            logger=inputs.logger,
+            incremental_field=inputs.incremental_field,
+            incremental_field_type=inputs.incremental_field_type,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+            chunk_size_override=schema.chunk_size_override,
+            row_filters=inputs.row_filters,
+            enabled_columns=inputs.enabled_columns,
+            bypass_env_proxy=self._bypass_env_proxy(config, inputs.team_id),
+            server_hostname=config.host,
+        )
+
+    def reconcile_schema_metadata(
+        self,
+        source: "ExternalDataSource",
+        source_schemas: list[SourceSchema],
+        team_id: int,
+    ) -> list[str]:
+        """Persist per-schema column metadata so row filters validate and the
+        column picker populates. ClickHouse isn't a `SQLSource`, but the
+        reconcile step is driver-agnostic, so we reuse the shared helper."""
+        return reconcile_source_schema_metadata(source, source_schemas, team_id)

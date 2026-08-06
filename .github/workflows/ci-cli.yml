@@ -5,7 +5,18 @@ on:
     pull_request:
         paths:
             - 'cli/**'
+            - 'services/mcp/src/cli/**'
+            - 'services/mcp/src/tools/**'
+            - 'services/mcp/src/api/**'
+            - 'services/mcp/schema/**'
+            - 'services/mcp/scripts/build-cli*.ts'
+            - 'services/mcp/scripts/hono-esbuild-config.ts'
+            - 'services/mcp/package.json'
+            - 'dist-workspace.toml'
+            - 'pnpm-lock.yaml'
+            - '.github/workflows/release.yml'
             - '.github/workflows/ci-cli.yml'
+            - '.github/workflows/release-cli.yml'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -72,3 +83,21 @@ jobs:
 
             - name: Check formatting
               run: cargo fmt --all -- --check
+
+    api-cli-release-bundle:
+        name: API CLI release bundle
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter '@posthog/mcp...' install --frozen-lockfile
+
+            - name: Build API CLI release bundle
+              run: pnpm --dir services/mcp run build:cli:release
+
+            - name: Verify API CLI release bundle
+              run: node -e "const { statSync } = require('node:fs'); if (statSync('cli/lib/posthog-api-cli.mjs').size <= 0) process.exit(1)"

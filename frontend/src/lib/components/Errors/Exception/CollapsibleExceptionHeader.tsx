@@ -49,18 +49,20 @@ export function CollapsibleExceptionHeader({
 
     return (
         <div className="pb-1">
-            <div className="flex gap-2 items-center min-w-0">
-                {loading ? (
-                    <LemonSkeleton className="w-[25%] h-2" />
-                ) : (
-                    <>
-                        {runtime && <RuntimeIcon runtime={runtime} className="ml-1 shrink-0" />}
-                        <Tooltip title={type} delayMs={300}>
-                            <span className="font-semibold text-lg mb-0 truncate">{type}</span>
-                        </Tooltip>
-                        {part && <FingerprintRecordPartDisplay part={part} />}
-                    </>
-                )}
+            <div className="flex gap-2 items-center justify-between min-w-0">
+                <div className="flex gap-2 items-center min-w-0">
+                    {loading ? (
+                        <LemonSkeleton className="w-[25%] h-2" />
+                    ) : (
+                        <>
+                            {runtime && <RuntimeIcon runtime={runtime} className="ml-1 shrink-0" />}
+                            <Tooltip title={type} delayMs={300}>
+                                <span className="font-semibold text-lg mb-0 truncate">{type}</span>
+                            </Tooltip>
+                            {part && <FingerprintRecordPartDisplay part={part} />}
+                        </>
+                    )}
+                </div>
             </div>
             {(loading || value) && (
                 <div>

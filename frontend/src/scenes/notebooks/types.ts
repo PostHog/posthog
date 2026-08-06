@@ -1,19 +1,10 @@
-import { Attribute, ExtendedRegExpMatchArray } from '@tiptap/core'
-
 import { LemonButtonProps } from '@posthog/lemon-ui'
 
-import {
-    JSONContent,
-    RichContentEditorType,
-    RichContentNode,
-    RichContentNodeType,
-} from 'lib/components/RichContentEditor/types'
+import { JSONContent, RichContentNode, RichContentNodeType } from 'lib/components/RichContentEditor/types'
 
 import { UserBasicType, WithAccessControl } from '~/types'
 
 import type { NotebookNodeLogicProps } from './Nodes/notebookNodeLogic'
-
-export type { TableOfContentData } from '@tiptap/extension-table-of-contents'
 
 export type NotebookListItemType = {
     id: string
@@ -45,10 +36,15 @@ export type NotebookType = NotebookListItemType &
 
 export enum NotebookNodeType {
     Mention = RichContentNodeType.Mention,
+    MarkdownNotebook = 'ph-markdown-notebook',
     Query = 'ph-query',
     Python = 'ph-python',
+    // The revamped Python cell: runs in the notebook's sandbox kernel via the SQLV2 run
+    // path, unlike the legacy ph-python node's in-browser kernel.
+    PythonV2 = 'ph-python-v2',
     DuckSQL = 'ph-duck-sql',
     HogQLSQL = 'ph-hogql-sql',
+    SQLV2 = 'ph-sql-v2',
     Recording = 'ph-recording',
     RecordingPlaylist = 'ph-recording-playlist',
     FeatureFlag = 'ph-feature-flag',
@@ -96,20 +92,16 @@ export type NotebookPopoverVisibility = 'hidden' | 'visible' | 'peek'
 
 export type CustomNotebookNodeAttributes = Record<string, any>
 
+export type NotebookNodeAttributeConfig = {
+    default?: unknown
+}
+
 export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttributes> = Omit<
     NodeWrapperProps<T>,
     'updateAttributes'
 > & {
     Component: (props: NotebookNodeProps<T>) => JSX.Element | null
-    pasteOptions?: {
-        find: string | RegExp
-        getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
-    }
-    inputOptions?: {
-        find: string | RegExp
-        getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
-    }
-    attributes: Record<keyof T, Partial<Attribute>>
+    attributes: Record<keyof T, NotebookNodeAttributeConfig>
     serializedText?: (attributes: NotebookNodeAttributes<T>) => string
 }
 
@@ -159,21 +151,4 @@ export type NotebookNodeSettings =
 export type NotebookNodeAction = Pick<LemonButtonProps, 'icon'> & {
     text: string
     onClick: () => void
-}
-
-export interface NotebookEditor extends RichContentEditorType {
-    findCommentPosition: (markId: string) => number | null
-    getAllCommentTexts: () => Record<string, string>
-    removeComment: (pos: number) => void
-    getText: () => string
-}
-
-declare module '@tiptap/core' {
-    interface NodeConfig {
-        // TODO: Not a big fan of any here but it's ok for now
-        // the Node type should probably not be augmented with a new method as we are
-        // instead we should probably make a new extension type that does what we want
-        // or have some kind of wrapper around the existing Node
-        serializedText: (attrs: NotebookNodeAttributes<any>) => string
-    }
 }

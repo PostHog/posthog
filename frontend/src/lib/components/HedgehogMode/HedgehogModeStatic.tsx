@@ -1,11 +1,17 @@
 import clsx from 'clsx'
-import { useMemo } from 'react'
+import { Suspense, useMemo } from 'react'
 
-import { HedgehogActorOptions, StaticHedgehog } from '@posthog/hedgehog-mode'
+import type { HedgehogActorOptions } from '@posthog/hedgehog-mode'
+
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { HedgehogConfig, MinimalHedgehogConfig } from '~/types'
 
 import { getHedgehogModeAssetsUrl } from './HedgehogMode'
+
+const StaticHedgehog = lazyWithRetry(() =>
+    import('@posthog/hedgehog-mode').then((m) => ({ default: m.StaticHedgehog }))
+)
 
 export type HedgehogModeStaticProps = {
     size?: number | string
@@ -29,12 +35,14 @@ export function HedgehogModeStatic({ config, size, direction = 'right' }: Hedgeh
     }, [config])
 
     return (
-        <StaticHedgehog
-            options={actorOptions}
-            size={size}
-            assetsUrl={getHedgehogModeAssetsUrl()}
-            className={clsx('relative rendering-pixelated', direction === 'left' && '-scale-x-100')}
-        />
+        <Suspense fallback={null}>
+            <StaticHedgehog
+                options={actorOptions}
+                size={size}
+                assetsUrl={getHedgehogModeAssetsUrl()}
+                className={clsx('relative rendering-pixelated', direction === 'left' && '-scale-x-100')}
+            />
+        </Suspense>
     )
 }
 

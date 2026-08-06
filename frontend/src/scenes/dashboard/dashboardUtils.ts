@@ -4,13 +4,17 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { getDashboardWidgetCatalogEntry } from '@posthog/products-dashboards/frontend/widget_types/catalog'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import type { Dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
-import { objectClean, shouldCancelQuery, toParams } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { objectClean } from 'lib/utils/objects'
+import { shouldCancelQuery } from 'lib/utils/requests'
+import { toParams } from 'lib/utils/url'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { pollForResults } from '~/queries/query'
+import { parseErrorMessage, pollForResults } from '~/queries/query'
 import { DashboardFilter, HogQLVariable, TileFilters } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
@@ -27,6 +31,20 @@ import {
 } from '~/types'
 
 import { SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES } from './dashboardConstants'
+
+export function getInsightQueryError(insight: QueryBasedInsightModel): ApiError | null {
+    const queryStatus = insight.query_status
+    if (!queryStatus?.error) {
+        return null
+    }
+
+    const parsedError = parseErrorMessage(queryStatus.error_message ?? undefined)
+    return new ApiError(undefined, 400, undefined, {
+        detail: parsedError.message,
+        code: queryStatus.error_code ?? parsedError.code,
+        queryId: queryStatus.id,
+    })
+}
 
 /** Shape used for staff JSON export, customer save-as-template, and API `create_from_template_json`. */
 export function dashboardToSaveableTemplate(
@@ -63,6 +81,7 @@ export function dashboardToSaveableTemplate(
                 }
                 if (tile.button_tile) {
                     return {
+                        type: 'BUTTON' as const,
                         button_tile: {
                             url: tile.button_tile.url,
                             text: tile.button_tile.text,
@@ -132,9 +151,9 @@ export function getDashboardWidgetType(
     )
 }
 
-/** Widget tiles are not shown on shared/public/export dashboard views. */
+/** Widget tiles are hidden on export; on public/shared views they render with a login placeholder. */
 export function isWidgetTileVisibleOnPlacement(placement: DashboardPlacement): boolean {
-    return placement !== DashboardPlacement.Public && placement !== DashboardPlacement.Export
+    return placement !== DashboardPlacement.Export
 }
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
@@ -158,7 +177,12 @@ export const DEFAULT_AUTO_PREVIEW_TILE_LIMIT = 10
 
 const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
 
-export const QUICK_FILTER_DEBOUNCE_MS = 1500
+// A refresh that was rejected (concurrency limit, server-side calculation error) still resolves with an
+// insight-shaped payload: no result, an errored query_status. Committing it to the dashboard would wipe
+// the tile's existing data and render as an empty insight instead of an error.
+export function isRefreshRejectionStub(insight: QueryBasedInsightModel): boolean {
+    return !!insight.query_status?.error && insight.result == null
+}
 
 function staleAgeMinutes(effectiveLastRefresh: Dayjs | null): number | null {
     if (!effectiveLastRefresh) {
@@ -436,4 +460,26 @@ export function combineDashboardFilters(...filters: DashboardFilter[]): Dashboar
         })
         return combined
     }, {} as DashboardFilter)
+}
+
+const LAYOUT_EDIT_EVENT_SOURCES = new Set<DashboardEventSource>([
+    DashboardEventSource.SceneCommonButtons,
+    DashboardEventSource.CardEdgeHover,
+    DashboardEventSource.CardDragHandle,
+    DashboardEventSource.DashboardsList,
+])
+
+export function isLayoutEditEventSource(source: DashboardEventSource | null): boolean {
+    return source !== null && LAYOUT_EDIT_EVENT_SOURCES.has(source)
+}
+
+export function shouldSnapshotUrlAtEditModeEntry(source: DashboardEventSource | null): boolean {
+    return (
+        source !== null &&
+        (isLayoutEditEventSource(source) ||
+            source === DashboardEventSource.DashboardFilters ||
+            source === DashboardEventSource.DashboardVariableOverride ||
+            source === DashboardEventSource.DashboardInsightColorsModal ||
+            source === DashboardEventSource.DashboardHeaderOverridesBanner)
+    )
 }

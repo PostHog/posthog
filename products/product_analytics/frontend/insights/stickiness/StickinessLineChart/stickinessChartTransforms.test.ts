@@ -1,5 +1,8 @@
-import { DEFAULT_Y_AXIS_ID } from 'lib/hog-charts'
-import type { TooltipConfig } from 'lib/hog-charts'
+import { DEFAULT_Y_AXIS_ID } from '@posthog/quill-charts'
+import type { TooltipConfig, YAxisConfig } from '@posthog/quill-charts'
+
+import { hexToRGBA } from 'lib/utils/colors'
+import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
 import { ChartDisplayType } from '~/types'
 
@@ -8,6 +11,7 @@ import {
     buildStickinessLineTimeSeriesConfig,
     buildStickinessMainSeries,
     buildStickinessSeries,
+    buildStickinessTooltipTitle,
     stickinessPercentFormatter,
     toPercentData,
     type StickinessResultLike,
@@ -49,7 +53,7 @@ describe('stickinessChartTransforms', () => {
 
             expect(series).toMatchObject({
                 key: '0',
-                label: '$pageview',
+                label: 'Pageview',
                 data: [50, 30, 15, 5],
                 color: RED,
                 yAxisId: DEFAULT_Y_AXIS_ID,
@@ -58,6 +62,25 @@ describe('stickinessChartTransforms', () => {
             expect(series.fill).toBeUndefined()
             expect(series.visibility).toBeUndefined()
         })
+
+        it('humanizes built-in event labels, leaving custom events untouched', () => {
+            const core = buildStickinessMainSeries(makeResult({ label: '$pageview' }), 0, { getColor: () => RED })
+            const custom = buildStickinessMainSeries(makeResult({ label: 'Napped' }), 0, { getColor: () => RED })
+            expect(core.label).toBe('Pageview')
+            expect(custom.label).toBe('Napped')
+        })
+
+        it.each([
+            { compare_label: undefined, expectedColor: RED },
+            { compare_label: 'current' as const, expectedColor: RED },
+            { compare_label: 'previous' as const, expectedColor: hexToRGBA(RED, 0.5) },
+        ])(
+            'dims the compare-against-previous series to 0.5 alpha, leaving others full color (compare_label=$compare_label)',
+            ({ compare_label, expectedColor }) => {
+                const series = buildStickinessMainSeries(makeResult({ compare_label }), 0, { getColor: () => RED })
+                expect(series.color).toBe(expectedColor)
+            }
+        )
 
         it('never sets a partial-stroke / in-progress tail (stickiness has no incomplete buckets)', () => {
             const series = buildStickinessMainSeries(makeResult({ data: [1, 2, 3, 4, 5] }), 0, { getColor: () => RED })
@@ -173,22 +196,46 @@ describe('stickinessChartTransforms', () => {
         })
     })
 
+    describe('buildStickinessTooltipTitle', () => {
+        const makeDatum = (date_label?: string): SeriesDatum => ({
+            id: 0,
+            dataIndex: 0,
+            datasetIndex: 0,
+            order: 0,
+            count: 0,
+            date_label,
+        })
+
+        it.each<[string, string | null | undefined, SeriesDatum[], string]>([
+            ['passes the integer day through for a day interval', 'day', [makeDatum('3')], 'Stickiness on day 3'],
+            ['uses the query interval when set', 'week', [makeDatum('2')], 'Stickiness on week 2'],
+            ['defaults the interval to "day" when null', null, [makeDatum('3')], 'Stickiness on day 3'],
+            ['defaults the interval to "day" when undefined', undefined, [makeDatum('3')], 'Stickiness on day 3'],
+            ['renders an empty day when date_label is missing', 'day', [makeDatum(undefined)], 'Stickiness on day '],
+            ['renders an empty day when seriesData is empty', 'day', [], 'Stickiness on day '],
+        ])('%s', (_, interval, seriesData, expected) => {
+            expect(buildStickinessTooltipTitle(interval)(seriesData)).toBe(expected)
+        })
+    })
+
     describe('buildStickinessLineTimeSeriesConfig', () => {
         const TOOLTIP: TooltipConfig = { pinnable: true, placement: 'top' }
 
         it('returns yAxis with percent tick formatter and a linear scale by default', () => {
             const config = buildStickinessLineTimeSeriesConfig({})
-            expect(config.yAxis).not.toBeUndefined()
-            expect(config.yAxis!.scale).toBe('linear')
-            expect(config.yAxis!.showGrid).toBe(true)
-            expect(config.yAxis!.tickFormatter).not.toBeUndefined()
-            expect(config.yAxis!.tickFormatter!(50)).toBe('50.0%')
+            const yAxis = config.yAxis as YAxisConfig
+            expect(yAxis).not.toBeUndefined()
+            expect(yAxis.scale).toBe('linear')
+            expect(yAxis.showGrid).toBe(true)
+            expect(yAxis.tickFormatter).not.toBeUndefined()
+            expect(yAxis.tickFormatter!(50)).toBe('50.0%')
         })
 
         it('switches the y-scale to log when yAxisScaleType is log10', () => {
             const config = buildStickinessLineTimeSeriesConfig({ yAxisScaleType: 'log10' })
-            expect(config.yAxis).not.toBeUndefined()
-            expect(config.yAxis!.scale).toBe('log')
+            const yAxis = config.yAxis as YAxisConfig
+            expect(yAxis).not.toBeUndefined()
+            expect(yAxis.scale).toBe('log')
         })
 
         it('omits an xAxis date config — labels are pre-formatted interval counts', () => {

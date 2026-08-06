@@ -23,7 +23,6 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.cdp.validation import compile_hog
 from posthog.clickhouse.query_tagging import (
     Feature as QueryFeature,
     Product,
@@ -36,6 +35,7 @@ from posthog.temporal.ai_observability.message_utils import extract_text_from_me
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io
 from posthog.temporal.ai_observability.run_tagger import run_hog_tagger
 
+from ..hog import compile_ai_observability_hog
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from ..models.taggers import Tagger, TaggerType, validate_tagger_config
@@ -482,18 +482,18 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
         return TaggerSerializer(hydrated_tagger, context=self.get_serializer_context()).data
 
     @llma_track_latency("llma_taggers_list")
-    @monitor(feature=Feature.LLM_ANALYTICS, endpoint="llma_taggers_list", method="GET")
+    @monitor(feature=Feature.QUERY, endpoint="llma_taggers_list", method="GET")
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return super().list(request, *args, **kwargs)
 
     @llma_track_latency("llma_taggers_retrieve")
-    @monitor(feature=Feature.LLM_ANALYTICS, endpoint="llma_taggers_retrieve", method="GET")
+    @monitor(feature=Feature.QUERY, endpoint="llma_taggers_retrieve", method="GET")
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return super().retrieve(request, *args, **kwargs)
 
     @extend_schema(request=TaggerCreateSerializer, responses={201: OpenApiResponse(response=TaggerSerializer)})
     @llma_track_latency("llma_taggers_create")
-    @monitor(feature=Feature.LLM_ANALYTICS, endpoint="llma_taggers_create", method="POST")
+    @monitor(feature=Feature.QUERY, endpoint="llma_taggers_create", method="POST")
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -505,13 +505,13 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
 
     @extend_schema(request=TaggerUpdateSerializer, responses={200: OpenApiResponse(response=TaggerSerializer)})
     @llma_track_latency("llma_taggers_update")
-    @monitor(feature=Feature.LLM_ANALYTICS, endpoint="llma_taggers_update", method="PUT")
+    @monitor(feature=Feature.QUERY, endpoint="llma_taggers_update", method="PUT")
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._update_tagger(request=request, partial=False)
 
     @extend_schema(request=TaggerUpdateSerializer, responses={200: OpenApiResponse(response=TaggerSerializer)})
     @llma_track_latency("llma_taggers_partial_update")
-    @monitor(feature=Feature.LLM_ANALYTICS, endpoint="llma_taggers_partial_update", method="PATCH")
+    @monitor(feature=Feature.QUERY, endpoint="llma_taggers_partial_update", method="PATCH")
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._update_tagger(request=request, partial=True)
 
@@ -534,7 +534,7 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
     @extend_schema(request=TestHogTaggerRequestSerializer, responses=TestHogTaggerResponseSerializer)
     @action(detail=False, methods=["post"], url_path="test_hog", required_scopes=["tagger:read"])
     @llma_track_latency("llma_taggers_test_hog")
-    @monitor(feature=Feature.LLM_ANALYTICS, endpoint="llma_taggers_test_hog", method="POST")
+    @monitor(feature=Feature.QUERY, endpoint="llma_taggers_test_hog", method="POST")
     def test_hog(self, request: Request, **kwargs) -> Response:
         """Test Hog tagger code against sample events without saving."""
         test_serializer = TestHogTaggerRequestSerializer(data=request.data)
@@ -549,7 +549,7 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
         try:
             # Use "tagger" kind so we don't expose PRODUCT_ASYNC_FUNCTIONS (fetch, posthogCapture, …) —
             # taggers should only classify, never perform side effects.
-            bytecode = compile_hog(source, "tagger")
+            bytecode = compile_ai_observability_hog(source, "tagger")
         except (ValueError, SyntaxError):
             logger.exception("Compilation error in Hog source")
             return Response({"error": "Invalid Hog source provided"}, status=400)

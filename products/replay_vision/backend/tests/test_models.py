@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from posthog.test.base import BaseTest
 
 from django.db import IntegrityError
@@ -17,7 +19,7 @@ def _make_scanner(team, **overrides) -> ReplayScanner:
         "name": "my-scanner",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "test"},
-        "model": ScannerModel.GEMINI_3_FLASH,
+        "model": ScannerModel.GEMINI_3_6_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -50,7 +52,7 @@ class TestReplayScanner(BaseTest):
             name="shared",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "test"},
-            model=ScannerModel.GEMINI_3_FLASH,
+            model=ScannerModel.GEMINI_3_6_FLASH,
         )
 
     def test_str_includes_name_and_type(self) -> None:
@@ -83,7 +85,7 @@ class TestReplayScanner(BaseTest):
             ("scanner_config", {"prompt": "different prompt"}),
             ("query", {"properties": [{"key": "foo"}]}),
             ("sampling_rate", 0.25),
-            ("model", ScannerModel.GEMINI_3_FLASH_LITE),
+            ("model", ScannerModel.GEMINI_3_5_FLASH_LITE),
             ("emits_signals", True),
         ]
     )
@@ -130,6 +132,36 @@ class TestReplayScanner(BaseTest):
         self.assertEqual(scanner.scanner_version, 2)
         self.assertEqual(scanner.scanner_config, {"prompt": "persisted"})
 
+    @parameterized.expand([("full_save", None), ("update_fields_save", ["enabled"])])
+    def test_reenabling_resets_sweep_watermark(self, _label: str, update_fields: list[str] | None) -> None:
+        # Without the reset, a re-enabled scanner backfills every session since it was disabled.
+        stale = timezone.now() - timedelta(days=21)
+        scanner = self._create_scanner(enabled=False, last_swept_at=stale, last_seen_session_id="sess-tie")
+        scanner.enabled = True
+        scanner.save(update_fields=update_fields)
+        scanner.refresh_from_db()
+        self.assertGreater(scanner.last_swept_at, timezone.now() - timedelta(hours=1))
+        self.assertEqual(scanner.last_seen_session_id, "")
+
+    @parameterized.expand(
+        [
+            ("disable", True, False),
+            ("stays_enabled", True, True),
+            ("stays_disabled", False, False),
+        ]
+    )
+    def test_watermark_is_kept_unless_reenabled(self, label: str, enabled_before: bool, enabled_after: bool) -> None:
+        stale = timezone.now() - timedelta(days=21)
+        scanner = self._create_scanner(
+            name=label, enabled=enabled_before, last_swept_at=stale, last_seen_session_id="sess-tie"
+        )
+        scanner.enabled = enabled_after
+        scanner.description = "touched"
+        scanner.save()
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.last_swept_at, stale)
+        self.assertEqual(scanner.last_seen_session_id, "sess-tie")
+
 
 class TestReplayObservation(BaseTest):
     def _create_scanner(self, **overrides) -> ReplayScanner:
@@ -166,7 +198,7 @@ class TestReplayObservation(BaseTest):
             name="other-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "test"},
-            model=ScannerModel.GEMINI_3_FLASH,
+            model=ScannerModel.GEMINI_3_6_FLASH,
         )
         self._create_observation(scanner_a, session_id="shared-session")
         self._create_observation(scanner_b, session_id="shared-session")
@@ -233,7 +265,7 @@ class TestReplayObservation(BaseTest):
             name="doomed",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "test"},
-            model=ScannerModel.GEMINI_3_FLASH,
+            model=ScannerModel.GEMINI_3_6_FLASH,
         )
         self._create_observation(scanner, session_id="doomed-session")
         scanner_id = scanner.id

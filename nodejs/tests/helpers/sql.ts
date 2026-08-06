@@ -1,9 +1,12 @@
 import { DateTime } from 'luxon'
 
-import { defaultConfig } from '../../src/config/config'
+import { defaultConfig } from '~/common/config/config'
+import { PERSON_COLUMNS } from '~/common/persons/repositories/postgres-person-repository'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { UUIDT } from '~/common/utils/utils'
+
 import { CookielessServerHashMode, InternalPerson, ProjectId, RawOrganization, RawPerson, Team } from '../../src/types'
-import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
-import { UUIDT } from '../../src/utils/utils'
+import { assertRouterTargetsTestDatabase } from './database-guard'
 
 export const commonUserId = 1001
 export const commonOrganizationMembershipId = '0177364a-fc7b-0000-511c-137090b9e4e1'
@@ -101,6 +104,11 @@ END $$;
 `
 
 export async function clearDatabase(db: PostgresRouter) {
+    await Promise.all([
+        assertRouterTargetsTestDatabase(db, PostgresUse.COMMON_WRITE),
+        assertRouterTargetsTestDatabase(db, PostgresUse.PERSONS_WRITE),
+    ])
+
     await db
         .query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_COMMON_TABLES_QUERY, undefined, 'delete-common-tables')
         .catch((e) => {
@@ -122,21 +130,7 @@ export async function resetTestDatabase(): Promise<void> {
     const config = { ...defaultConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }
     const pg = new PostgresRouter(config)
 
-    // Delete common tables using COMMON_WRITE
-    await pg
-        .query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_COMMON_TABLES_QUERY, undefined, 'delete-common-tables')
-        .catch((e) => {
-            console.error('Error deleting common tables', e)
-            throw e
-        })
-
-    // Delete persons tables using PERSONS_WRITE
-    await pg
-        .query(PostgresUse.PERSONS_WRITE, POSTGRES_DELETE_PERSONS_TABLES_QUERY, undefined, 'delete-persons-tables')
-        .catch((e) => {
-            console.error('Error deleting persons tables', e)
-            throw e
-        })
+    await clearDatabase(pg)
 
     const teamIdToCreate = 2 // TODO: This might be wrong
     await createUserTeamAndOrganization(pg, teamIdToCreate)
@@ -482,7 +476,7 @@ export const createOrganizationMembership = async (pg: PostgresRouter, organizat
 }
 
 export async function fetchPostgresPersons(postgres: PostgresRouter, teamId: number) {
-    const query = `SELECT * FROM posthog_person WHERE team_id = ${teamId} ORDER BY id`
+    const query = `SELECT ${PERSON_COLUMNS} FROM posthog_person WHERE team_id = ${teamId} ORDER BY id`
     return (await postgres.query(PostgresUse.PERSONS_READ, query, undefined, 'persons')).rows.map(
         // NOTE: we map to update some values here to maintain
         // compatibility with `hub.fetchPersons`.
@@ -505,6 +499,7 @@ export async function fetchPostgresDistinctIdsForPerson(postgres: PostgresRouter
 }
 
 export async function resetBehavioralCohortsDatabase(postgres: PostgresRouter): Promise<void> {
+    await assertRouterTargetsTestDatabase(postgres, PostgresUse.BEHAVIORAL_COHORTS_RW)
     await postgres.query(
         PostgresUse.BEHAVIORAL_COHORTS_RW,
         'TRUNCATE TABLE cohort_membership',

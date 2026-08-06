@@ -4,21 +4,23 @@ import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 import express from 'ultimate-express'
 
-import { setupCommonRoutes, setupExpressApp } from '../api/router'
-import { KafkaProducerWrapper } from '../kafka/producer'
+import { setupCommonRoutes, setupExpressApp } from '~/common/api/router'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import { isTestEnv } from '~/common/utils/env-utils'
+import { configureEventLoopYield } from '~/common/utils/event-loop-yield'
+import { logger } from '~/common/utils/logger'
+import { NodeInstrumentation } from '~/common/utils/node-instrumentation'
+import { captureException, shutdown as posthogShutdown } from '~/common/utils/posthog'
+import { PubSub } from '~/common/utils/pubsub'
+import { delay } from '~/common/utils/utils'
+
 import { onShutdown } from '../lifecycle'
 import { PluginServerService, RedisPool } from '../types'
-import { PostgresRouter } from '../utils/db/postgres'
-import { isTestEnv } from '../utils/env-utils'
-import { configureEventLoopYield } from '../utils/event-loop-yield'
-import { logger } from '../utils/logger'
-import { NodeInstrumentation } from '../utils/node-instrumentation'
-import { captureException, shutdown as posthogShutdown } from '../utils/posthog'
-import { PubSub } from '../utils/pubsub'
-import { delay } from '../utils/utils'
 
 export type BaseServerConfig = {
     INTERNAL_API_SECRET: string
+    INTERNAL_API_SECRET_FALLBACKS: string
     INSTRUMENT_THREAD_PERFORMANCE: boolean
     HTTP_SERVER_PORT: number
     POD_TERMINATION_ENABLED: boolean
@@ -68,7 +70,10 @@ export class ServerLifecycle {
     private processListeners: Map<string, (...args: any[]) => void> = new Map()
 
     constructor(private config: BaseServerConfig) {
-        this.expressApp = setupExpressApp({ internalApiSecret: this.config.INTERNAL_API_SECRET })
+        this.expressApp = setupExpressApp({
+            internalApiSecret: this.config.INTERNAL_API_SECRET,
+            internalApiSecretFallbacks: this.config.INTERNAL_API_SECRET_FALLBACKS,
+        })
         this.nodeInstrumentation = new NodeInstrumentation(this.config.INSTRUMENT_THREAD_PERFORMANCE)
         configureEventLoopYield(this.config.EVENT_LOOP_YIELD_THRESHOLD_MS)
         this.setupContinuousProfiling()

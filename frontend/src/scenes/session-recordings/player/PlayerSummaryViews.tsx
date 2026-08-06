@@ -685,6 +685,9 @@ function SessionSummaryOutcomeBanner({ sessionSummary }: { sessionSummary: Sessi
 function SessionSummarySegments({ sessionSummary }: { sessionSummary: SessionSummaryContent }): JSX.Element | null {
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
 
+    // "Play from this moment" should start playback even if the player is paused
+    const seekToTimeAndPlay = (time: number): void => seekToTime(time, true)
+
     if (!sessionSummary?.segments) {
         return null
     }
@@ -704,7 +707,7 @@ function SessionSummarySegments({ sessionSummary }: { sessionSummary: SessionSum
                         segment={segment}
                         segmentOutcome={matchingSegmentOutcome}
                         keyActions={matchingKeyActions || []}
-                        onSeekToTime={seekToTime}
+                        onSeekToTime={seekToTimeAndPlay}
                     />
                 )
             })}

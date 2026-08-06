@@ -7,6 +7,19 @@ export function slackChannelId(channelValue: string): string {
     return channelValue.split('|')[0]
 }
 
+/**
+ * The friendly name half (`#channel-name`) of a `${channelId}|#${channelName}` picker value, for
+ * display. Falls back to the raw value when no name is encoded (e.g. a bare channel id). Mirrors
+ * the backend `_channel_display_name`.
+ */
+export function slackChannelDisplayName(channelValue: string): string {
+    const pipe = channelValue.indexOf('|')
+    if (pipe === -1) {
+        return channelValue
+    }
+    return channelValue.slice(pipe + 1).trim() || channelValue
+}
+
 function storageKey(integrationId: number): string | null {
     const teamId = getCurrentTeamIdOrNone()
     if (teamId == null) {

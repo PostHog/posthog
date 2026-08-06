@@ -22,7 +22,7 @@ class GenericEmails:
     """
 
     def __init__(self):
-        with open(get_absolute_path("../helpers/generic_emails.txt")) as f:
+        with open(get_absolute_path("../helpers/generic_emails.txt"), encoding="utf-8") as f:
             self.emails = {x.rstrip(): True for x in f}
 
     def is_generic(self, email: str) -> bool:

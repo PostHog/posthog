@@ -10,6 +10,7 @@ import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 
 import { HeatmapSettings } from '~/queries/schema/schema-general'
 
+import { getContrastingTextClass } from '../../colorUtils'
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import {
     buildFallbackGradientStops,
@@ -17,7 +18,6 @@ import {
     formatHeatmapValue,
     getHeatmapNullLabel,
     getHeatmapNullValue,
-    getHeatmapTextClassName,
     interpolateHeatmapColor,
     resolveGradientStops,
     stretchGradientStopsToValues,
@@ -62,7 +62,9 @@ const buildHeatmapData = (
 ): HeatmapData => {
     const xValues: string[] = []
     const yValues: string[] = []
-    const cellValues: Record<string, Record<string, number | null>> = {}
+    // Prototype-less: row labels are attacker-controlled and used as keys, so a `__proto__`
+    // label on a plain object would write through to Object.prototype (prototype pollution).
+    const cellValues: Record<string, Record<string, number | null>> = Object.create(null)
     const numericValues: number[] = []
     let duplicateCellCount = 0
 
@@ -101,7 +103,7 @@ const buildHeatmapData = (
         }
 
         if (!cellValues[yLabel]) {
-            cellValues[yLabel] = {}
+            cellValues[yLabel] = Object.create(null)
         }
 
         const cellKey = `${yLabel}||${xLabel}`
@@ -363,7 +365,7 @@ export function TwoDimensionalHeatmap({ allowSorting = true }: { allowSorting?: 
                                             key={`${yValue}-${xValue}`}
                                             className={clsx(
                                                 'border border-border px-2 py-1 text-center',
-                                                cellValue !== null && getHeatmapTextClassName(cellColor)
+                                                cellValue !== null && getContrastingTextClass(cellColor)
                                             )}
                                             style={{ backgroundColor: cellColor }}
                                         >

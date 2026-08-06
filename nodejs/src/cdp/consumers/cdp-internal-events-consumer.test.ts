@@ -1,10 +1,11 @@
 import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import '../../../tests/helpers/mocks/producer.mock'
 
+import { closeHub, createHub } from '~/common/utils/db/hub'
+
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import { createOrganization, createTeam, getFirstTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { insertHogFunction as _insertHogFunction, createInternalEvent, createKafkaMessage } from '../_tests/fixtures'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'

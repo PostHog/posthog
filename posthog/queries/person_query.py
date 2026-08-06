@@ -4,9 +4,6 @@ from uuid import UUID
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.constants import PropertyOperatorType
 from posthog.models import Filter
-from posthog.models.cohort import Cohort
-from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID, GET_STATIC_COHORTPEOPLE_BY_COHORT_ID
-from posthog.models.cohort.util import format_precalculated_cohort_query, format_static_cohort_query
 from posthog.models.entity import Entity
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -21,6 +18,10 @@ from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.trends.util import COUNT_PER_ACTOR_MATH_FUNCTIONS
 from posthog.queries.util import PersonPropertiesMode
+
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.sql import GET_COHORTPEOPLE_BY_COHORT_ID, GET_STATIC_COHORTPEOPLE_BY_COHORT_ID
+from products.cohorts.backend.models.util import format_precalculated_cohort_query, format_static_cohort_query
 
 
 class PersonQuery:

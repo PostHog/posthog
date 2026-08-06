@@ -5,7 +5,7 @@ import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import {
     ExperimentTrendsQuery,
@@ -96,7 +96,7 @@ function LegacyGoalTooltip({
     experiment: Experiment | null
     hasHighRunningTime: boolean
 }): JSX.Element {
-    if (!experiment?.parameters?.minimum_detectable_effect) {
+    if (!experiment?.running_time_calculation?.minimum_detectable_effect) {
         return <></>
     }
 
@@ -104,7 +104,7 @@ function LegacyGoalTooltip({
         <Tooltip
             title={
                 <div>
-                    <div>{`Based on the Minimum detectable effect of ${experiment.parameters.minimum_detectable_effect}%.`}</div>
+                    <div>{`Based on the Minimum detectable effect of ${experiment.running_time_calculation.minimum_detectable_effect}%.`}</div>
                     {hasHighRunningTime && (
                         <div className="mt-2">
                             Given the current data, this experiment might take a while to reach statistical
@@ -135,15 +135,15 @@ export function LegacyDataCollection(): JSX.Element {
     const firstPrimaryMetric = getFirstPrimaryMetric(experiment)
     const insightType = firstPrimaryMetric ? getInsightType(firstPrimaryMetric) : InsightType.FUNNELS
     const actualRunningTime = getActualRunningTime(experiment)
-    const minimumDetectableEffect = experiment?.parameters?.minimum_detectable_effect || DEFAULT_MDE
+    const minimumDetectableEffect = experiment?.running_time_calculation?.minimum_detectable_effect || DEFAULT_MDE
     const funnelResultsPersonsTotal = getFunnelResultsPersonsTotal(
         experiment,
         legacyPrimaryMetricsResults,
         getInsightType
     )
 
-    const recommendedRunningTime = experiment?.parameters?.recommended_running_time || 1
-    const recommendedSampleSize = experiment?.parameters?.recommended_sample_size || 100
+    const recommendedRunningTime = experiment?.running_time_calculation?.recommended_running_time || 1
+    const recommendedSampleSize = experiment?.running_time_calculation?.recommended_sample_size || 100
 
     const experimentProgressPercent =
         insightType === InsightType.FUNNELS

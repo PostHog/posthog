@@ -1,11 +1,22 @@
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { LazyLoader } from '~/common/utils/lazy-loader'
+import { logger } from '~/common/utils/logger'
+import { PubSub } from '~/common/utils/pubsub'
+
 import { Team } from '../../types'
-import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
-import { LazyLoader } from '../../utils/lazy-loader'
-import { logger } from '../../utils/logger'
-import { PubSub } from '../../utils/pubsub'
 import { Tagger, TaggerInfo } from '../types'
 
-const TAGGER_FIELDS = ['id', 'team_id', 'name', 'enabled', 'tagger_config', 'conditions', 'created_at', 'updated_at']
+const TAGGER_FIELDS = [
+    't.id',
+    't.team_id',
+    't.name',
+    't.enabled',
+    't.tagger_type',
+    't.tagger_config',
+    't.conditions',
+    't.created_at',
+    't.updated_at',
+]
 
 export class TaggerManagerService {
     private lazyLoader: LazyLoader<Tagger>
@@ -116,7 +127,10 @@ export class TaggerManagerService {
         // detail fetch, and we don't want to dispatch a run-tagger workflow for one.
         const response = await this.postgres.query<Tagger>(
             PostgresUse.COMMON_READ,
-            `SELECT ${TAGGER_FIELDS.join(', ')} FROM llm_analytics_tagger WHERE id = ANY($1) AND deleted = FALSE AND enabled = TRUE`,
+            `SELECT ${TAGGER_FIELDS.join(', ')}, mc.provider_key_id::text AS provider_key_id
+             FROM llm_analytics_tagger t
+             LEFT JOIN llm_analytics_llmmodelconfiguration mc ON t.model_configuration_id = mc.id
+             WHERE t.id = ANY($1) AND t.deleted = FALSE AND t.enabled = TRUE`,
             [ids],
             'fetchTaggers'
         )

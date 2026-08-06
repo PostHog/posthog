@@ -7,12 +7,19 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_persons_by_uuids
 from posthog.models.team import Team
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 
 # Case-insensitive batch email lookup. Exposed so tests can EXPLAIN the exact query that runs.
+# Identified persons sort first: several persons can share an email (e.g. an identified app
+# user plus an email-only stub whose sole distinct_id is the address itself), and only the
+# identified one carries distinct_ids that membership and analytics lookups can resolve.
+# created_at prefers the oldest person, and id breaks same-millisecond ties so the
+# pick is fully deterministic.
 PERSON_EMAIL_LOOKUP_QUERY = """
 SELECT id, properties.email
 FROM persons
 WHERE lower(properties.email) IN {emails}
+ORDER BY is_identified DESC, created_at ASC, id ASC
 """
 
 
@@ -23,10 +30,11 @@ def _get_persons_by_email(
 ) -> dict[str, Person]:
     """Batch look up persons by their properties.email value via ClickHouse.
 
-    Returns a dict mapping lowercase email -> Person for the first match.
-    Only checks ``properties.email`` (the canonical, materialized key with
-    a skip index). Uses the HogQL ``persons`` virtual table (argMax dedup
-    handled automatically).
+    Returns a dict mapping lowercase email -> Person, preferring identified
+    persons over unidentified ones (oldest first within each). Only checks
+    ``properties.email`` (the canonical, materialized key with a skip index).
+    Uses the HogQL ``persons`` virtual table (argMax dedup handled
+    automatically).
     """
     if not emails:
         return {}
@@ -51,7 +59,8 @@ def _get_persons_by_email(
             if lower not in email_to_uuid:
                 email_to_uuid[lower] = str(person_uuid)
 
-    persons = get_persons_by_uuids(team.pk, list(email_to_uuid.values()))
+    with personhog_caller_tag("conversations/email-person-lookup"):
+        persons = get_persons_by_uuids(team.pk, list(email_to_uuid.values()))
     uuid_to_person: dict[str, Person] = {str(p.uuid): p for p in persons}
 
     result: dict[str, Person] = {}

@@ -18,9 +18,12 @@ from posthog.rbac.user_access_control import (
     get_effective_access_level_for_member,
     get_effective_access_level_for_role,
     get_field_access_control_map,
+    model_to_resource,
 )
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -83,6 +86,13 @@ class BaseUserAccessControlTest(BaseTest):
 
 @pytest.mark.ee
 class TestUserAccessControl(BaseUserAccessControlTest):
+    def test_vision_action_models_map_to_vision_action_resource(self):
+        # VisionAction/VisionActionRun's _meta.model_name (visionaction/visionactionrun) differs from the
+        # vision_action scope object, so without the explicit mapping they silently drop out of
+        # object-level access control and a per-action grant wouldn't be enforced.
+        assert model_to_resource(VisionAction()) == "vision_action"
+        assert model_to_resource(VisionActionRun()) == "vision_action"
+
     def test_no_organization_id_passed(self):
         # Create a user without an organization
         user_without_org = User.objects.create(email="no-org@posthog.com", password="testtest")
@@ -108,6 +118,55 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         assert user_access_control._organization_membership is None
         assert user_access_control._organization is None
         assert user_access_control._user_role_ids == []
+
+    @parameterized.expand(
+        [
+            ("denial", "none", "member", "member"),
+            ("grant", "admin", "none", "none"),
+        ]
+    )
+    def test_role_rule_from_another_organization_is_ignored(self, _name, role_level, default_level, expected_level):
+        # Nothing scopes the role on an AccessControl row to the project's organization, so a rule
+        # can name a role the user holds in an unrelated organization
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self._create_access_control(resource_id=str(self.team.id), access_level=default_level)
+
+        other_organization = Organization.objects.create(name="Other organization")
+        other_membership = OrganizationMembership.objects.create(
+            organization=other_organization, user=self.user, level=OrganizationMembership.Level.MEMBER
+        )
+        foreign_role = Role.objects.create(name="Foreign role", organization=other_organization)
+        RoleMembership.objects.create(role=foreign_role, user=self.user, organization_member=other_membership)
+        self._create_access_control(resource_id=str(self.team.id), access_level=role_level, role=foreign_role)
+
+        self._clear_uac_caches()
+        assert self.user_access_control._user_role_ids == [self.role_a.id]
+        assert self.user_access_control.get_user_access_level(self.team) == expected_level
+
+    @parameterized.expand(
+        [
+            ("denial", "none", "member", "member"),
+            ("grant", "admin", "none", "none"),
+        ]
+    )
+    def test_member_rule_from_another_organization_is_ignored(self, _name, member_level, default_level, expected_level):
+        # Same as above for the member arm: nothing scopes `organization_member` to the project's
+        # organization, so a rule can name a membership the user holds in an unrelated organization
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self._create_access_control(resource_id=str(self.team.id), access_level=default_level)
+
+        other_organization = Organization.objects.create(name="Other organization")
+        other_membership = OrganizationMembership.objects.create(
+            organization=other_organization, user=self.user, level=OrganizationMembership.Level.MEMBER
+        )
+        self._create_access_control(
+            resource_id=str(self.team.id), access_level=member_level, organization_member=other_membership
+        )
+
+        self._clear_uac_caches()
+        assert self.user_access_control.get_user_access_level(self.team) == expected_level
 
     def test_without_available_product_features(self):
         self.organization.available_product_features = []
@@ -526,6 +585,31 @@ class TestUserAccessControlFileSystem(BaseUserAccessControlTest):
         filtered_for_user_after_removal = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
         # Now user is no longer project admin, so file_b is excluded again (they're not the creator).
         self.assertCountEqual([self.file_a], filtered_for_user_after_removal)
+
+    def test_filtering_ignores_rules_without_entitlement(self):
+        # Global "none" rule on file_b (user is not its creator)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="my_resource",
+            resource_id="def",
+            access_level="none",
+        )
+
+        # Sanity: with the entitlement the rule is enforced (file_b hidden)
+        self.assertCountEqual(
+            [self.file_a],
+            self.user_access_control.filter_and_annotate_file_system_queryset(FileSystem.objects.all()),
+        )
+
+        # Downgrade: drop the access_control entitlement -> stale rule must be ignored
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        fresh_uac = UserAccessControl(self.user, self.team)
+        self.assertCountEqual(
+            [self.file_a, self.file_b],
+            fresh_uac.filter_and_annotate_file_system_queryset(FileSystem.objects.all()),
+        )
 
 
 @pytest.mark.ee
@@ -1206,6 +1290,58 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
         assert self.notebook_3.id in notebook_ids
         assert self.notebook_2.id not in notebook_ids  # Explicitly blocked
 
+    def test_filter_queryset_ignores_rules_without_entitlement(self):
+        from products.notebooks.backend.models import Notebook
+
+        # Member-level "none" rule blocking notebook_2 for the user
+        self._create_access_control(
+            resource="notebook",
+            resource_id=str(self.notebook_2.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        # Sanity: with the entitlement the rule is enforced
+        self._clear_uac_caches()
+        enforced_ids = list(
+            self.user_access_control.filter_queryset_by_access_level(Notebook.objects.all()).values_list(
+                "id", flat=True
+            )
+        )
+        assert self.notebook_2.id not in enforced_ids
+
+        # Downgrade: drop the access_control entitlement -> stale rule must be ignored
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        fresh_uac = UserAccessControl(self.user, self.team)
+        filtered_ids = list(
+            fresh_uac.filter_queryset_by_access_level(Notebook.objects.all()).values_list("id", flat=True)
+        )
+        assert self.notebook_1.id in filtered_ids
+        assert self.notebook_2.id in filtered_ids
+        assert self.notebook_3.id in filtered_ids
+
+    def test_blocked_resource_ids_by_scope_ignores_rules_without_entitlement(self):
+        # Member-level "none" rule blocking notebook_2 for the user
+        self._create_access_control(
+            resource="notebook",
+            resource_id=str(self.notebook_2.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        # Sanity: with the entitlement the object is reported as blocked
+        self._clear_uac_caches()
+        assert str(self.notebook_2.id) in self.user_access_control.blocked_resource_ids_by_scope.get("notebook", set())
+
+        # Downgrade: drop the access_control entitlement -> stale rule must be ignored
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        fresh_uac = UserAccessControl(self.user, self.team)
+        assert fresh_uac.blocked_resource_ids_by_scope == {}
+
     @parameterized.expand(
         [
             (
@@ -1860,3 +1996,199 @@ class TestAccessControlMissingEE(BaseTest):
         qs = FileSystem.objects.filter(team=self.team)
         result = self.uac.filter_and_annotate_file_system_queryset(qs)
         assert list(result) == list(qs)
+
+
+class TestBlockedResourceIdsByScope(BaseTest):
+    """
+    Tests the deny-set precedence used by HogQL system tables.
+
+    These exercise UserAccessControl.blocked_resource_ids_by_scope directly,
+    which is also the single source of truth for the HogQL printer guard and
+    the cache-key fingerprint in query_runner.py.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from posthog.constants import AvailableFeature
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        self.membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        self.membership.level = OrganizationMembership.Level.MEMBER
+        self.membership.save()
+
+        self.uac = UserAccessControl(self.user, self.team)
+
+    def _blocked(self, resource="dashboard") -> set[str]:
+        return self.uac.blocked_resource_ids_by_scope.get(resource, set())
+
+    def test_empty_for_org_admin(self):
+        self.membership.level = OrganizationMembership.Level.ADMIN
+        self.membership.save()
+        self.uac = UserAccessControl(self.user, self.team)
+        assert self._blocked() == set()
+
+    def test_no_object_overrides_means_no_blocked_ids(self):
+        assert self._blocked() == set()
+
+    def test_object_default_none_blocks_object(self):
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="42",
+            access_level="none",
+        )
+        assert "42" in self._blocked()
+
+    def test_object_default_editor_allows_object(self):
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="42",
+            access_level="editor",
+        )
+        assert "42" not in self._blocked()
+
+    def test_object_default_none_with_member_editor_override_allows(self):
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="42",
+            access_level="none",
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="42",
+            access_level="editor",
+            organization_member=self.membership,
+        )
+        assert "42" not in self._blocked()
+
+    def test_object_default_editor_with_member_none_blocks(self):
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="42",
+            access_level="editor",
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="42",
+            access_level="none",
+            organization_member=self.membership,
+        )
+        assert "42" in self._blocked()
+
+    def test_multiple_objects_mixed_access(self):
+        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id="10", access_level="none")
+        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id="20", access_level="editor")
+        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id="30", access_level="none")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="30",
+            access_level="editor",
+            organization_member=self.membership,
+        )
+        assert self._blocked() == {"10"}
+
+
+@pytest.mark.ee
+class TestUserAccessControlFallbackParent(BaseUserAccessControlTest):
+    """Resolution through RESOURCE_FALLBACK_MAP: a synced table falls back to the source that syncs it."""
+
+    def setUp(self):
+        super().setUp()
+        self.membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        self.source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id="src",
+            connection_id="conn",
+            destination_id="dest",
+            source_type="Stripe",
+            prefix="test",
+        )
+        self.sourced_table = DataWarehouseTable.objects.create(
+            name="customers", format="Parquet", team=self.team, external_data_source=self.source, columns={}
+        )
+        self.self_managed_table = DataWarehouseTable.objects.create(
+            name="uploads", format="Parquet", team=self.team, columns={}
+        )
+
+    def _apply(self, rules, table):
+        # The four places a rule can be written about this table. The ladder exists because these are
+        # different statements: "this source" is not "all sources", and neither is "all tables".
+        targets = {
+            "this_table": ("warehouse_table", str(table.id)),
+            "this_source": ("external_data_source", str(self.source.id)),
+            "all_tables": ("warehouse_objects", None),
+            "all_sources": ("external_data_source", None),
+        }
+        for target, level in rules.items():
+            resource, resource_id = targets[target]
+            self._create_access_control(
+                resource=resource, resource_id=resource_id, access_level=level, organization_member=self.membership
+            )
+        self._clear_uac_caches()
+
+    def _level(self, table):
+        return self.user_access_control.get_user_access_level(table)
+
+    @parameterized.expand(
+        [
+            # A rule about a source reaches the tables it syncs, written either way round.
+            ("source_reaches_its_tables", {"this_source": "none"}, "none"),
+            ("all_sources_reaches_sourced_tables", {"all_sources": "none"}, "none"),
+            # The table's own rule is more specific than its source's, in both directions.
+            ("table_grant_beats_source_deny", {"this_source": "none", "this_table": "editor"}, "editor"),
+            ("table_deny_beats_source_grant", {"this_source": "editor", "this_table": "none"}, "none"),
+            # "All tables" is more specific than "all sources", so a broad table grant isn't capped
+            # by a source denial - which lets an editor on tables sync a schema they only view.
+            ("all_tables_beats_all_sources", {"all_sources": "none", "all_tables": "viewer"}, "viewer"),
+            # ...and one named source is more specific than "all tables".
+            ("one_source_beats_all_tables", {"this_source": "none", "all_tables": "editor"}, "none"),
+        ]
+    )
+    def test_sourced_table_resolution(self, _name, rules, expected):
+        self._apply(rules, self.sourced_table)
+
+        assert self._level(self.sourced_table) == expected
+
+    @parameterized.expand(
+        [
+            # A self-managed table has no source, so no rule about sources may reach it. Without this
+            # skip, restricting sources would silently lock every S3 table and direct connection that
+            # no source has ever touched.
+            ("all_sources_cannot_reach_it", {"all_sources": "none"}, "editor"),
+            ("one_source_cannot_reach_it", {"this_source": "none"}, "editor"),
+            # The rules that do apply to it still govern it - the skip isn't switching access off.
+            ("all_tables_still_governs_it", {"all_tables": "none"}, "none"),
+            ("its_own_rule_still_governs_it", {"this_table": "viewer"}, "viewer"),
+        ]
+    )
+    def test_self_managed_table_skips_the_source(self, _name, rules, expected):
+        self._apply(rules, self.self_managed_table)
+
+        assert self._level(self.self_managed_table) == expected
+
+    def test_source_denial_does_not_leak_across_sources(self):
+        other_source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id="src2",
+            connection_id="conn2",
+            destination_id="dest2",
+            source_type="Stripe",
+            prefix="other",
+        )
+        other_table = DataWarehouseTable.objects.create(
+            name="invoices", format="Parquet", team=self.team, external_data_source=other_source, columns={}
+        )
+        self._apply({"this_source": "none"}, self.sourced_table)
+
+        assert self._level(self.sourced_table) == "none"
+        assert self._level(other_table) == "editor"

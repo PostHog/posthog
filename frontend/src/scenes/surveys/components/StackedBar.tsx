@@ -2,7 +2,7 @@ import clsx from 'clsx'
 
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 const formatCount = (count: number, total: number): string => {
     if ((count / total) * 100 < 3) {

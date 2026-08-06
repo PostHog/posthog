@@ -10,13 +10,13 @@ import { actionEditLogic } from '../logics/actionEditLogic'
 import { actionLogic } from '../logics/actionLogic'
 
 export function ActionHogFunctions(): JSX.Element | null {
-    const { action, tabId } = useValues(actionLogic)
-    return !action ? null : <Functions action={action} tabId={tabId} />
+    const { action } = useValues(actionLogic)
+    return !action ? null : <Functions action={action} />
 }
 
-const Functions = ({ action, tabId }: { action: ActionType; tabId?: string }): JSX.Element => {
+const Functions = ({ action }: { action: ActionType }): JSX.Element => {
     const { hasCohortFilters, actionChanged, showCohortDisablesFunctionsWarning } = useValues(
-        actionEditLogic({ id: action?.id, action, tabId })
+        actionEditLogic({ id: action?.id, action })
     )
     return (
         <LemonCollapse

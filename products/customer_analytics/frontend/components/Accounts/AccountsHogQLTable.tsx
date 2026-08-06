@@ -1,42 +1,57 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useMemo } from 'react'
 
-import { LemonButton, LemonSkeleton, LemonTable, ProfilePicture } from '@posthog/lemon-ui'
+import { IconCheck, IconX } from '@posthog/icons'
+import { LemonButton, LemonColorGlyph, LemonSkeleton, LemonTable, ProfilePicture } from '@posthog/lemon-ui'
 
+import type { DataColorToken } from 'lib/colors'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { Sparkline } from 'lib/components/Sparkline'
+import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
+import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { percentage } from 'lib/utils/numbers'
+import { membersLogic } from 'scenes/organization/membersLogic'
+import { urls } from 'scenes/urls'
 
+import { tagsModel } from '~/models/tagsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableNode } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn, QueryContextColumnComponent } from '~/queries/types'
 
-import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
-import { ACCOUNTS_NAME_COLUMN, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
-import { AccountsColumnConfigurator } from './AccountsColumnConfigurator'
-import { ACCOUNTS_HOGQL_DATA_NODE_KEY, AccountRoleKey, accountsLogic } from './accountsLogic'
+import type {
+    AccountRelationshipDefinitionApi,
+    CustomPropertyDefinitionApi,
+} from 'products/customer_analytics/frontend/generated/api.schemas'
 
-type AccountAssignment = { id: number; email: string } | null
+import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
+import { formatCustomPropertyValue } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
+import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
+import {
+    ACCOUNTS_NAME_COLUMN,
+    AccountColumnDisplayConfig,
+    LEGACY_ROLE_COLUMNS,
+    accountsColumnConfigLogic,
+} from './accountsColumnConfigLogic'
+import { AccountExpansionTab, accountsExpansionLogic } from './accountsExpansionLogic'
+import { accountsLogic, savingRoleKey } from './accountsLogic'
+import { AccountsEvents } from './constants'
 
 // Shape the backend emits for the `name` column — see accounts_query_runner._calculate.
 type AccountNameCell = { name: string; external_id: string | null; id: string }
-
-const ROLE_LABELS: Record<AccountRoleKey, string> = {
-    csm: 'CSM',
-    account_executive: 'Account executive',
-    account_owner: 'Account owner',
-}
 
 const COLUMN_WIDTHS = {
     name: '240px',
     tag_names: '280px',
     notebook_count: '80px',
-    csm: '220px',
-    account_executive: '220px',
-    account_owner: '220px',
+    relationship: '220px',
 } as const
 
 function getCellAt(record: unknown, names: string[], column: string): unknown {
@@ -61,34 +76,55 @@ function getNameCell(record: unknown, visibleColumnNames: string[]): AccountName
     return typeof cell.id === 'string' && typeof cell.name === 'string' ? (cell as AccountNameCell) : undefined
 }
 
-function tupleToAssignment(value: unknown): AccountAssignment {
+// Relationship cells arrive as the array of ACTIVE assignee user ids from the
+// `accounts.relationships.values` lazy join ([] when nobody holds the relationship).
+function parseAssignedUserIds(value: unknown): number[] {
     if (!Array.isArray(value)) {
-        return null
+        return []
     }
-    const [id, email] = value as [unknown, unknown]
-    if (id === null || id === undefined || typeof email !== 'string' || !email) {
-        return null
-    }
-    const numericId = typeof id === 'number' ? id : Number(id)
-    if (!Number.isFinite(numericId)) {
-        return null
-    }
-    return { id: numericId, email }
+    return value.map((id) => (typeof id === 'number' ? id : Number(id))).filter((id) => Number.isFinite(id))
 }
 
 function NameCell({ record }: { record: unknown }): JSX.Element {
     const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
+    const { isAccountExpanded } = useValues(accountsExpansionLogic)
+    const { toggleAccountExpanded } = useActions(accountsExpansionLogic)
     const cell = getNameCell(record, visibleColumnNames)
     const name = cell?.name ?? ''
     const externalId = cell?.external_id ?? ''
+    const accountId = cell?.id
     return (
-        <div className="flex flex-col min-w-40">
-            <span className="font-medium">{name}</span>
+        <div className="flex flex-col min-w-40" data-account-id={accountId}>
+            {accountId ? (
+                <Link
+                    // Plain click opens the account details inline (keeping the list mounted); the href
+                    // stays so a modifier-click (cmd/ctrl/shift) opens the account's deep-link page in a new tab/window.
+                    to={urls.customerAnalyticsAccount(accountId)}
+                    className="font-semibold"
+                    onClick={(event) => {
+                        if (event.metaKey || event.ctrlKey || event.shiftKey) {
+                            return
+                        }
+                        event.preventDefault()
+                        event.stopPropagation()
+                        if (!isAccountExpanded(accountId)) {
+                            posthog.capture(AccountsEvents.AccountOpened)
+                        }
+                        toggleAccountExpanded(accountId)
+                    }}
+                >
+                    {name}
+                </Link>
+            ) : (
+                <span className="font-semibold">{name}</span>
+            )}
             {externalId ? (
                 <CopyToClipboardInline
                     explicitValue={externalId}
                     iconStyle={{ color: 'var(--color-accent)' }}
+                    iconSize="xsmall"
                     description="account ID"
+                    className="text-xs text-muted"
                 >
                     {externalId}
                 </CopyToClipboardInline>
@@ -98,10 +134,28 @@ function NameCell({ record }: { record: unknown }): JSX.Element {
 }
 
 function TagsCell({ record }: { record: unknown }): JSX.Element {
+    const { isTagsSaving, tagOverrides } = useValues(accountsLogic)
+    const { updateAccountTags, addTagToFilter } = useActions(accountsLogic)
+    const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
+    const { tags: tagsAvailable } = useValues(tagsModel)
     const getCell = useGetCell()
     const raw = getCell(record, 'tag_names')
-    const tags = Array.isArray(raw) ? (raw.filter((t) => typeof t === 'string') as string[]) : []
-    return tags.length > 0 ? <ObjectTags tags={tags} staticOnly /> : <span className="text-muted">—</span>
+    const cellTags = Array.isArray(raw) ? (raw.filter((t) => typeof t === 'string') as string[]) : []
+    const accountId = getNameCell(record, visibleColumnNames)?.id
+    if (!accountId) {
+        return cellTags.length > 0 ? <ObjectTags tags={cellTags} staticOnly /> : <span className="text-muted">—</span>
+    }
+    const tags = tagOverrides[accountId] ?? cellTags
+    return (
+        <ObjectTags
+            tags={tags}
+            onChange={(newTags) => updateAccountTags(accountId, newTags)}
+            onTagClick={addTagToFilter}
+            saving={isTagsSaving(accountId)}
+            tagsAvailable={(tagsAvailable || []).filter((tag) => !tags.includes(tag))}
+            data-attr="accounts-tags-cell"
+        />
+    )
 }
 
 function NotebookCountCell({ record }: { record: unknown }): JSX.Element {
@@ -110,24 +164,51 @@ function NotebookCountCell({ record }: { record: unknown }): JSX.Element {
     return count > 0 ? <span>{count}</span> : <span className="text-muted">—</span>
 }
 
-function RoleAssignmentCell({ record, role }: { record: unknown; role: AccountRoleKey }): JSX.Element {
-    const { isRoleSaving, accountOverrides } = useValues(accountsLogic)
+function RelationshipCell({
+    record,
+    column,
+    definition,
+}: {
+    record: unknown
+    column: string
+    definition: AccountRelationshipDefinitionApi
+}): JSX.Element {
+    const { isRoleSaving, relationshipOverrides } = useValues(accountsLogic)
     const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
     const { updateAccountRole } = useActions(accountsLogic)
+    const { meFirstMembers } = useValues(membersLogic)
     const getCell = useGetCell()
     const accountId = getNameCell(record, visibleColumnNames)?.id ?? ''
-    const overrideProperties = accountId ? accountOverrides[accountId]?.properties : undefined
-    const overrideRole = overrideProperties != null ? overrideProperties[role] : undefined
-    const assignment: AccountAssignment =
-        overrideRole === undefined ? tupleToAssignment(getCell(record, role)) : (overrideRole as AccountAssignment)
-    const saving = accountId ? isRoleSaving(accountId, role) : false
+    const override = accountId ? relationshipOverrides[savingRoleKey(accountId, column)] : undefined
+    const userIds = override ?? parseAssignedUserIds(getCell(record, column))
 
+    if (!definition.is_single_holder) {
+        // ponytail: multi-holder relationships are read-only here; manage them on the
+        // account's relationships tab. Add inline multi-assign if it's ever needed.
+        const users = userIds.map((id) => meFirstMembers.find((member) => member.user.id === id)?.user ?? null)
+        return (
+            <div data-attr={`accounts-${column}-cell`} className="flex flex-wrap items-center gap-2">
+                {users.length === 0 ? (
+                    <span className="text-muted">Unassigned</span>
+                ) : (
+                    users.map((user, index) => (
+                        <span key={userIds[index]} className="inline-flex items-center gap-1 text-sm">
+                            {user ? <ProfilePicture user={user} size="sm" /> : null}
+                            {user?.email ?? 'Unknown user'}
+                        </span>
+                    ))
+                )}
+            </div>
+        )
+    }
+
+    const saving = accountId ? isRoleSaving(accountId, column) : false
     return (
-        <div data-attr={`accounts-${role}-cell`}>
+        <div data-attr={`accounts-${column}-cell`}>
             <MemberSelect
-                value={assignment?.id ?? null}
+                value={userIds[0] ?? null}
                 defaultLabel="Unassigned"
-                onChange={(user) => accountId && updateAccountRole(accountId, role, user)}
+                onChange={(user) => accountId && updateAccountRole(accountId, column, user)}
             >
                 {(selectedUser) => (
                     <LemonButton
@@ -135,16 +216,12 @@ function RoleAssignmentCell({ record, role }: { record: unknown; role: AccountRo
                         size="small"
                         loading={saving}
                         disabledReason={saving ? 'Saving…' : undefined}
-                        icon={
-                            selectedUser ? (
-                                <ProfilePicture user={selectedUser} size="sm" />
-                            ) : assignment ? (
-                                <ProfilePicture user={{ email: assignment.email }} size="sm" />
-                            ) : undefined
-                        }
+                        icon={selectedUser ? <ProfilePicture user={selectedUser} size="sm" /> : undefined}
                     >
-                        {assignment ? (
-                            <span className="text-sm">{assignment.email}</span>
+                        {selectedUser ? (
+                            <span className="text-sm">{selectedUser.email}</span>
+                        ) : userIds.length > 0 ? (
+                            <span className="text-sm">Unknown user</span>
                         ) : (
                             <span className="text-muted">Unassigned</span>
                         )}
@@ -153,6 +230,204 @@ function RoleAssignmentCell({ record, role }: { record: unknown; role: AccountRo
             </MemberSelect>
         </div>
     )
+}
+
+// History cells arrive as [unix timestamp, value] pairs sorted ascending from the
+// `accounts.custom_properties_history.values` lazy join.
+function parseHistoryPoints(raw: unknown): [number, number][] {
+    if (!Array.isArray(raw)) {
+        return []
+    }
+    const points: [number, number][] = []
+    for (const entry of raw) {
+        if (!Array.isArray(entry) || entry.length < 2) {
+            continue
+        }
+        const timestamp = Number(entry[0])
+        const value = Number(entry[1])
+        if (Number.isFinite(timestamp) && Number.isFinite(value)) {
+            points.push([timestamp, value])
+        }
+    }
+    return points
+}
+
+export interface HistoryDisplay {
+    latest: [number, number] | null
+    /** The value in effect at the window start: the last write before the cutoff,
+     * carried forward, so sparsely-written properties still chart at any window. */
+    baseline: [number, number] | null
+    chartPoints: [number, number][]
+}
+
+export function buildHistoryDisplay(allPoints: [number, number][], windowDays: number, nowMs: number): HistoryDisplay {
+    const cutoff = Math.floor(nowMs / 1000) - windowDays * 24 * 60 * 60
+    const inWindow = allPoints.filter(([timestamp]) => timestamp >= cutoff)
+    const lastBefore = allPoints.filter(([timestamp]) => timestamp < cutoff).at(-1) ?? null
+    const carriedForward: [number, number] | null = lastBefore ? [cutoff, lastBefore[1]] : null
+    const latest = inWindow.at(-1) ?? lastBefore
+    return {
+        latest,
+        baseline: carriedForward ?? inWindow[0] ?? null,
+        chartPoints: carriedForward ? [carriedForward, ...inWindow] : inWindow,
+    }
+}
+
+function CustomPropertyHistoryCell({
+    raw,
+    definition,
+    display,
+}: {
+    raw: unknown
+    definition: CustomPropertyDefinitionApi
+    display: AccountColumnDisplayConfig
+}): JSX.Element {
+    const { latest, baseline, chartPoints } = buildHistoryDisplay(
+        parseHistoryPoints(raw),
+        display.window_days,
+        dayjs().valueOf()
+    )
+
+    if (!latest) {
+        return <span className="text-muted">—</span>
+    }
+    const formatValue = (value: number): string => formatCustomPropertyValue(String(value), definition)
+    if (chartPoints.length < 2) {
+        return (
+            <Tooltip title="Not enough history to chart yet — showing the current value.">
+                <span>{formatValue(latest[1])}</span>
+            </Tooltip>
+        )
+    }
+
+    if (display.mode === 'sparkline') {
+        // Each sparkline auto-scales to its own range, so the line shows the trend but not the
+        // magnitude — every row looks alike without the latest value spelled out next to it.
+        return (
+            // `min-w-min` lets the cell outgrow w-40 instead of spilling a long value into the next
+            // column, and the chart keeps a floor so it degrades rather than vanishing.
+            <div className="flex items-center gap-2 w-40 min-w-min">
+                <span className="tabular-nums whitespace-nowrap">{formatValue(latest[1])}</span>
+                <Sparkline
+                    type="line"
+                    className="h-8 min-w-8"
+                    data={chartPoints.map(([, value]) => value)}
+                    labels={chartPoints.map(([timestamp]) => dayjs.unix(timestamp).format('MMM D, YYYY HH:mm'))}
+                    renderTooltipValue={formatValue}
+                    maximumIndicator={false}
+                />
+            </div>
+        )
+    }
+
+    const delta = latest[1] - baseline![1]
+    const deltaClass = delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : 'text-muted'
+    // Percentage change against the window-start value; a zero baseline has no
+    // meaningful ratio, so fall back to the absolute delta.
+    const deltaText =
+        delta === 0
+            ? 'No change'
+            : baseline![1] === 0
+              ? `${delta > 0 ? '+' : '-'}${formatValue(Math.abs(delta))}`
+              : `${delta > 0 ? '+' : '-'}${percentage(Math.abs(delta / baseline![1]), 1)}`
+    return (
+        <Tooltip
+            title={`${formatValue(latest[1])} now, compared to ${formatValue(baseline![1])} ${display.window_days} days ago`}
+        >
+            <span className="inline-flex items-baseline gap-1.5">
+                <span>{formatValue(latest[1])}</span>
+                <span className={`text-xs ${deltaClass}`}>{deltaText}</span>
+            </span>
+        </Tooltip>
+    )
+}
+
+const CANONICAL_PROPERTY_TAB: Record<string, AccountExpansionTab> = {
+    'Last Slack message at': 'summaries',
+}
+
+export function getCanonicalPropertyTab(definition: CustomPropertyDefinitionApi): AccountExpansionTab | undefined {
+    return definition.is_canonical ? CANONICAL_PROPERTY_TAB[definition.name] : undefined
+}
+
+function CanonicalTimestampCell({
+    record,
+    definition,
+    value,
+    tab,
+}: {
+    record: unknown
+    definition: CustomPropertyDefinitionApi
+    value: string
+    tab: AccountExpansionTab
+}): JSX.Element {
+    const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
+    const { openAccountTab } = useActions(accountsExpansionLogic)
+    const accountId = getNameCell(record, visibleColumnNames)?.id
+    const label = <TZLabel time={value} showSeconds={definition.display_type === 'datetime'} />
+
+    if (!accountId) {
+        return label
+    }
+    return (
+        <Link
+            to={urls.customerAnalyticsAccount(accountId, tab)}
+            onClick={(event) => {
+                // Modifier-click keeps the href's new-tab behavior, matching the account name cell.
+                if (event.metaKey || event.ctrlKey || event.shiftKey) {
+                    return
+                }
+                event.preventDefault()
+                event.stopPropagation()
+                openAccountTab(accountId, tab)
+            }}
+        >
+            {label}
+        </Link>
+    )
+}
+
+function CustomPropertyCell({
+    record,
+    column,
+    definition,
+    display,
+}: {
+    record: unknown
+    column: string
+    definition: CustomPropertyDefinitionApi
+    display?: AccountColumnDisplayConfig
+}): JSX.Element {
+    const getCell = useGetCell()
+    const raw = getCell(record, column)
+    if (display) {
+        return <CustomPropertyHistoryCell raw={raw} definition={definition} display={display} />
+    }
+    const value = raw === null || raw === undefined ? '' : String(raw)
+
+    if (!value) {
+        return <span className="text-muted">—</span>
+    }
+    if (definition.display_type === 'date' || definition.display_type === 'datetime') {
+        const tab = getCanonicalPropertyTab(definition)
+        if (tab) {
+            return <CanonicalTimestampCell record={record} definition={definition} value={value} tab={tab} />
+        }
+        return <TZLabel time={value} showSeconds={definition.display_type === 'datetime'} />
+    }
+    if (definition.display_type === 'boolean') {
+        return value === 'true' || value === '1' ? <IconCheck /> : <IconX className="text-muted" />
+    }
+    if (definition.display_type === 'select') {
+        const option = definition.options?.find((candidate) => candidate.label === value)
+        return (
+            <span className="inline-flex items-center gap-1.5">
+                {option && <LemonColorGlyph colorToken={option.color as DataColorToken} size="small" />}
+                <span>{value}</span>
+            </span>
+        )
+    }
+    return <span>{formatCustomPropertyValue(value, definition)}</span>
 }
 
 function SortableColumnHeader({ column, label }: { column: string; label: string }): JSX.Element {
@@ -206,28 +481,36 @@ const KNOWN_COLUMN_TEMPLATES: Record<string, KnownColumnTemplate> = {
         width: COLUMN_WIDTHS.notebook_count,
         render: ({ record }) => <NotebookCountCell record={record} />,
     },
-    csm: {
-        label: ROLE_LABELS.csm,
-        width: COLUMN_WIDTHS.csm,
-        render: ({ record }) => <RoleAssignmentCell record={record} role="csm" />,
-    },
-    account_executive: {
-        label: ROLE_LABELS.account_executive,
-        width: COLUMN_WIDTHS.account_executive,
-        render: ({ record }) => <RoleAssignmentCell record={record} role="account_executive" />,
-    },
-    account_owner: {
-        label: ROLE_LABELS.account_owner,
-        width: COLUMN_WIDTHS.account_owner,
-        render: ({ record }) => <RoleAssignmentCell record={record} role="account_owner" />,
-    },
 }
 
 function useContextColumns(): Record<string, QueryContextColumn> {
-    const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
+    const { visibleColumnNames, aliasToDefinition, aliasToRelationshipDefinition, displayByAlias } =
+        useValues(accountsColumnConfigLogic)
     return useMemo(() => {
         const columns: Record<string, QueryContextColumn> = {}
         for (const key of visibleColumnNames) {
+            const definition = aliasToDefinition[key]
+            if (definition) {
+                const display = displayByAlias[key]
+                columns[key] = {
+                    renderTitle: () => <SortableColumnHeader column={key} label={definition.name} />,
+                    render: ({ record }) => (
+                        <CustomPropertyCell record={record} column={key} definition={definition} display={display} />
+                    ),
+                }
+                continue
+            }
+            const relationshipDefinition = aliasToRelationshipDefinition[key]
+            if (relationshipDefinition) {
+                columns[key] = {
+                    renderTitle: () => <SortableColumnHeader column={key} label={relationshipDefinition.name} />,
+                    width: COLUMN_WIDTHS.relationship,
+                    render: ({ record }) => (
+                        <RelationshipCell record={record} column={key} definition={relationshipDefinition} />
+                    ),
+                }
+                continue
+            }
             const template = KNOWN_COLUMN_TEMPLATES[key]
             const label = template?.label ?? key
             columns[key] = {
@@ -237,20 +520,41 @@ function useContextColumns(): Record<string, QueryContextColumn> {
             }
         }
         return columns
-    }, [visibleColumnNames])
+    }, [visibleColumnNames, aliasToDefinition, aliasToRelationshipDefinition, displayByAlias])
 }
 
 function useExpandable(): QueryContext<DataTableNode>['expandable'] {
     const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
+    const { expandedAccountIds } = useValues(accountsExpansionLogic)
+    const { toggleAccountExpanded } = useActions(accountsExpansionLogic)
     return useMemo(
         () => ({
             noIndent: true,
+            expandedRowClassName: '[&>td]:overflow-visible!',
+            isRowExpanded: ({ result }) => {
+                const cell = getNameCell(result, visibleColumnNames)
+                return !!cell && expandedAccountIds.includes(cell.id)
+            },
+            onRowExpand: ({ result }) => {
+                const cell = getNameCell(result, visibleColumnNames)
+                if (cell) {
+                    toggleAccountExpanded(cell.id)
+                }
+            },
+            onRowCollapse: ({ result }) => {
+                const cell = getNameCell(result, visibleColumnNames)
+                if (cell) {
+                    toggleAccountExpanded(cell.id)
+                }
+            },
             expandedRowRender: ({ result }) => {
-                const accountId = getNameCell(result, visibleColumnNames)?.id
-                return accountId ? <AccountNotebooksExpansion accountId={accountId} /> : null
+                const cell = getNameCell(result, visibleColumnNames)
+                return cell ? (
+                    <AccountNotebooksExpansion accountId={cell.id} externalId={cell.external_id ?? ''} />
+                ) : null
             },
         }),
-        [visibleColumnNames]
+        [visibleColumnNames, expandedAccountIds, toggleAccountExpanded]
     )
 }
 
@@ -282,9 +586,9 @@ const SKELETON_COLUMNS: LemonTableColumns<{ key: number }> = [
         width: COLUMN_WIDTHS.notebook_count,
         render: () => <LemonSkeleton className="h-4 w-4" />,
     },
-    ...(['csm', 'account_executive', 'account_owner'] as const).map((role) => ({
-        title: ROLE_LABELS[role],
-        width: COLUMN_WIDTHS[role],
+    ...Object.values(LEGACY_ROLE_COLUMNS).map((label) => ({
+        title: label,
+        width: COLUMN_WIDTHS.relationship,
         render: () => (
             <div className="flex items-center gap-2">
                 <LemonSkeleton.Circle className="h-5 w-5" />
@@ -310,41 +614,34 @@ function AccountsHogQLSkeleton(): JSX.Element {
     )
 }
 
-function AccountsHogQLDataTable({ query }: { query: DataTableNode }): JSX.Element {
+export function AccountsHogQLTable(): JSX.Element {
+    const { hogqlQuery, accountsQuerySource, sortedRowsTransformer } = useValues(accountsLogic)
     const { responseLoading, response } = useValues(dataNodeLogic)
     const contextColumns = useContextColumns()
     const expandable = useExpandable()
-    if (responseLoading && !response) {
+    // A null source means the query is still waiting on the relationship
+    // definitions — same skeleton as the initial fetch, not an empty table.
+    if ((responseLoading || !accountsQuerySource) && !response) {
         return <AccountsHogQLSkeleton />
     }
     return (
-        <DataTable
-            uniqueKey="customer-analytics-accounts-hogql"
-            query={query}
-            setQuery={() => {
-                // Filters are owned by accountsLogic; column/sort changes from the DataTable are ignored on purpose.
-            }}
-            context={{
-                columns: contextColumns,
-                expandable,
-                dataNodeLogicKey: ACCOUNTS_HOGQL_DATA_NODE_KEY,
-                emptyStateHeading: 'There are no matching accounts for this query',
-                emptyStateDetail: 'Try adjusting the filters or refreshing',
-            }}
-            readOnly
-        />
-    )
-}
-
-export function AccountsHogQLTable(): JSX.Element {
-    const { hogqlQuery } = useValues(accountsLogic)
-
-    return (
-        <div className="flex flex-col gap-2">
-            <div className="flex justify-end">
-                <AccountsColumnConfigurator />
-            </div>
-            <AccountsHogQLDataTable query={hogqlQuery} />
+        <div className="@container">
+            <DataTable
+                uniqueKey="customer-analytics-accounts-hogql"
+                query={hogqlQuery}
+                setQuery={() => {
+                    // Filters are owned by accountsLogic; column/sort changes from the DataTable are ignored on purpose.
+                }}
+                context={{
+                    columns: contextColumns,
+                    expandable,
+                    dataTableRowsTransformer: sortedRowsTransformer,
+                    dataNodeLogicKey: ACCOUNTS_HOGQL_DATA_NODE_KEY,
+                    emptyStateHeading: 'There are no matching accounts for this query',
+                    emptyStateDetail: 'Try adjusting the filters or refreshing',
+                }}
+                readOnly
+            />
         </div>
     )
 }

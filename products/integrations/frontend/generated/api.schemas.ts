@@ -19,13 +19,14 @@ export const OrganizationIntegrationKindEnumApi = {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `student` - Student
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -37,6 +38,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -150,46 +152,57 @@ export interface RoleLookupResponseApi {
 
 /**
  * * `anthropic` - Anthropic
- * `apns` - Apple Push
- * `azure-blob` - Azure Blob
- * `bing-ads` - Bing Ads
- * `clickup` - Clickup
- * `customerio-app` - Customerio App
- * `customerio-track` - Customerio Track
- * `customerio-webhook` - Customerio Webhook
- * `databricks` - Databricks
- * `email` - Email
- * `firebase` - Firebase
- * `github` - Github
- * `gitlab` - Gitlab
- * `google-ads` - Google Ads
- * `google-cloud-service-account` - Google Cloud Service Account
- * `google-cloud-storage` - Google Cloud Storage
- * `google-pubsub` - Google Pubsub
- * `google-sheets` - Google Sheets
- * `hubspot` - Hubspot
- * `intercom` - Intercom
- * `jira` - Jira
- * `linear` - Linear
- * `linkedin-ads` - Linkedin Ads
- * `meta-ads` - Meta Ads
- * `pinterest-ads` - Pinterest Ads
- * `postgresql` - Postgresql
- * `reddit-ads` - Reddit Ads
- * `salesforce` - Salesforce
- * `slack` - Slack
- * `slack-posthog-code` - Slack Posthog Code
- * `snapchat` - Snapchat
- * `stripe` - Stripe
- * `tiktok-ads` - Tiktok Ads
- * `twilio` - Twilio
- * `vercel` - Vercel
+ * * `apns` - Apple Push
+ * * `aws-redshift` - Aws Redshift
+ * * `aws-s3` - Aws S3
+ * * `azure-blob` - Azure Blob
+ * * `bing-ads` - Bing Ads
+ * * `clickup` - Clickup
+ * * `customerio-app` - Customerio App
+ * * `customerio-track` - Customerio Track
+ * * `customerio-webhook` - Customerio Webhook
+ * * `databricks` - Databricks
+ * * `email` - Email
+ * * `firebase` - Firebase
+ * * `github` - Github
+ * * `gitlab` - Gitlab
+ * * `google-ads` - Google Ads
+ * * `google-analytics` - Google Analytics
+ * * `google-cloud-service-account` - Google Cloud Service Account
+ * * `google-cloud-storage` - Google Cloud Storage
+ * * `google-pubsub` - Google Pubsub
+ * * `google-search-console` - Google Search Console
+ * * `google-sheets` - Google Sheets
+ * * `hubspot` - Hubspot
+ * * `intercom` - Intercom
+ * * `jira` - Jira
+ * * `linear` - Linear
+ * * `linkedin-ads` - Linkedin Ads
+ * * `meta-ads` - Meta Ads
+ * * `pardot` - Pardot
+ * * `pinterest-ads` - Pinterest Ads
+ * * `postgresql` - Postgresql
+ * * `posthog` - Posthog
+ * * `reddit-ads` - Reddit Ads
+ * * `resend` - Resend
+ * * `s3-compatible` - S3 Compatible
+ * * `salesforce` - Salesforce
+ * * `slack` - Slack
+ * * `slack-posthog-code` - Slack Posthog Code
+ * * `snapchat` - Snapchat
+ * * `snowflake` - Snowflake
+ * * `stripe` - Stripe
+ * * `tiktok-ads` - Tiktok Ads
+ * * `twilio` - Twilio
+ * * `vercel` - Vercel
  */
 export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeof IntegrationKindEnumApi]
 
 export const IntegrationKindEnumApi = {
     Anthropic: 'anthropic',
     Apns: 'apns',
+    AwsRedshift: 'aws-redshift',
+    AwsS3: 'aws-s3',
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
     Clickup: 'clickup',
@@ -202,9 +215,11 @@ export const IntegrationKindEnumApi = {
     Github: 'github',
     Gitlab: 'gitlab',
     GoogleAds: 'google-ads',
+    GoogleAnalytics: 'google-analytics',
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
     GooglePubsub: 'google-pubsub',
+    GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
     Hubspot: 'hubspot',
     Intercom: 'intercom',
@@ -212,13 +227,18 @@ export const IntegrationKindEnumApi = {
     Linear: 'linear',
     LinkedinAds: 'linkedin-ads',
     MetaAds: 'meta-ads',
+    Pardot: 'pardot',
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
+    Posthog: 'posthog',
     RedditAds: 'reddit-ads',
+    Resend: 'resend',
+    S3Compatible: 's3-compatible',
     Salesforce: 'salesforce',
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
     Snapchat: 'snapchat',
+    Snowflake: 'snowflake',
     Stripe: 'stripe',
     TiktokAds: 'tiktok-ads',
     Twilio: 'twilio',
@@ -300,9 +320,24 @@ export interface GitHubBranchesResponseApi {
 }
 
 export interface GitHubRepoApi {
+    /** GitHub repository numeric identifier. */
     id: number
+    /** Repository short name (without the owner prefix). */
     name: string
+    /** Fully-qualified repository name as 'owner/repo'. */
     full_name: string
+    /** Whether the repository is private. */
+    private?: boolean
+    /** The repository's default branch (e.g. 'main'). */
+    default_branch?: string
+    /** Primary programming language GitHub detected for the repository. */
+    language?: string
+    /** ISO 8601 timestamp of the most recent push, useful for sorting by recent activity. */
+    pushed_at?: string
+    /** Whether the repository is archived. */
+    archived?: boolean
+    /** Whether the PostHog GitHub App has write access — required to open pull requests. */
+    can_push?: boolean
 }
 
 export interface GitHubReposResponseApi {
@@ -330,6 +365,203 @@ export interface GitHubTeamsResponseApi {
     teams: GitHubTeamApi[]
     /** Whether more teams are available beyond this page. */
     has_more: boolean
+}
+
+export interface JiraProjectApi {
+    /** Jira project ID. */
+    id: string
+    /** Jira project key to pass as error tracking config.project_key. */
+    key: string
+    /** Jira project display name. */
+    name: string
+}
+
+export interface JiraProjectsResponseApi {
+    /** Jira projects available to this integration. */
+    projects: JiraProjectApi[]
+}
+
+export interface LinearTeamApi {
+    /** Linear team ID to pass as error tracking config.team_id. */
+    id: string
+    /** Linear team display name. */
+    name: string
+}
+
+export interface LinearTeamsResponseApi {
+    /** Linear teams available to this integration. */
+    teams: LinearTeamApi[]
+}
+
+export interface GitHubAvailableInstallationApi {
+    /** GitHub installation ID to pass to github/link_existing when linking this installation. */
+    installation_id: string
+    /**
+     * GitHub account (organization or user) the installation belongs to, for display in the picker.
+     * @nullable
+     */
+    account_name: string | null
+    /**
+     * GitHub account type, e.g. 'Organization' or 'User'.
+     * @nullable
+     */
+    account_type: string | null
+    /** A project in the organization that already has this installation linked. */
+    source_team_id: number
+}
+
+export interface GitHubAvailableInstallationsResponseApi {
+    /** Distinct GitHub installations in the organization available to link to this project. */
+    installations: GitHubAvailableInstallationApi[]
+}
+
+export interface GitHubLinkExistingRequestApi {
+    /**
+     * Sibling team in the same organization whose GitHub installation should be reused.
+     * @nullable
+     */
+    source_team_id?: number | null
+    /** GitHub installation ID to link; resolved within the organization when source_team_id is omitted. */
+    installation_id?: string
+}
+
+/**
+ * * `posthog_code` - posthog_code
+ */
+export type ConnectFromEnumApi = (typeof ConnectFromEnumApi)[keyof typeof ConnectFromEnumApi]
+
+export const ConnectFromEnumApi = {
+    PosthogCode: 'posthog_code',
+} as const
+
+export interface GitHubOAuthAuthorizeRequestApi {
+    /** GitHub installation ID to carry through the User OAuth flow. */
+    installation_id?: string
+    /** Relative URL to redirect to after the OAuth flow completes. */
+    next?: string
+    /** Originating surface for the connect flow; only 'posthog_code' is recognized.
+     *
+     * * `posthog_code` - posthog_code */
+    connect_from?: ConnectFromEnumApi
+}
+
+export interface GitHubOAuthAuthorizeResponseApi {
+    /** GitHub User OAuth URL the client should redirect to. */
+    oauth_url: string
+}
+
+export interface GitHubPrepareCallbackRequestApi {
+    /** Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Desktop). */
+    next?: string
+    /** GitHub installation ID being managed; binds the seeded update state so a callback can't swap in a different installation. */
+    installation_id?: string
+}
+
+export interface IntegrationAccessRequestApi {
+    /** The kind of integration the member is requesting be connected (e.g. 'slack', 'github').
+     *
+     * * `anthropic` - Anthropic
+     * * `apns` - Apple Push
+     * * `aws-redshift` - Aws Redshift
+     * * `aws-s3` - Aws S3
+     * * `azure-blob` - Azure Blob
+     * * `bing-ads` - Bing Ads
+     * * `clickup` - Clickup
+     * * `customerio-app` - Customerio App
+     * * `customerio-track` - Customerio Track
+     * * `customerio-webhook` - Customerio Webhook
+     * * `databricks` - Databricks
+     * * `email` - Email
+     * * `firebase` - Firebase
+     * * `github` - Github
+     * * `gitlab` - Gitlab
+     * * `google-ads` - Google Ads
+     * * `google-analytics` - Google Analytics
+     * * `google-cloud-service-account` - Google Cloud Service Account
+     * * `google-cloud-storage` - Google Cloud Storage
+     * * `google-pubsub` - Google Pubsub
+     * * `google-search-console` - Google Search Console
+     * * `google-sheets` - Google Sheets
+     * * `hubspot` - Hubspot
+     * * `intercom` - Intercom
+     * * `jira` - Jira
+     * * `linear` - Linear
+     * * `linkedin-ads` - Linkedin Ads
+     * * `meta-ads` - Meta Ads
+     * * `pardot` - Pardot
+     * * `pinterest-ads` - Pinterest Ads
+     * * `postgresql` - Postgresql
+     * * `posthog` - Posthog
+     * * `reddit-ads` - Reddit Ads
+     * * `resend` - Resend
+     * * `s3-compatible` - S3 Compatible
+     * * `salesforce` - Salesforce
+     * * `slack` - Slack
+     * * `slack-posthog-code` - Slack Posthog Code
+     * * `snapchat` - Snapchat
+     * * `snowflake` - Snowflake
+     * * `stripe` - Stripe
+     * * `tiktok-ads` - Tiktok Ads
+     * * `twilio` - Twilio
+     * * `vercel` - Vercel */
+    kind: IntegrationKindEnumApi
+    /**
+     * Explanation from the requester of why this integration is needed. Shown to admins in the notification email.
+     * @maxLength 2000
+     */
+    reason: string
+}
+
+export interface IntegrationAccessRequestResponseApi {
+    /** Whether the access request was accepted and the project admins were notified. */
+    success: boolean
+}
+
+/**
+ * Query parameters to send to the target.
+ */
+export type PostHogConnectionForwardApiQuery = { [key: string]: string }
+
+/**
+ * * `GET` - GET
+ * * `POST` - POST
+ * * `PUT` - PUT
+ * * `PATCH` - PATCH
+ * * `DELETE` - DELETE
+ */
+export type PostHogConnectionForwardMethodEnumApi =
+    (typeof PostHogConnectionForwardMethodEnumApi)[keyof typeof PostHogConnectionForwardMethodEnumApi]
+
+export const PostHogConnectionForwardMethodEnumApi = {
+    Get: 'GET',
+    Post: 'POST',
+    Put: 'PUT',
+    Patch: 'PATCH',
+    Delete: 'DELETE',
+} as const
+
+export interface PostHogConnectionForwardApi {
+    /** HTTP method to use against the target project's API.
+     *
+     * * `GET` - GET
+     * * `POST` - POST
+     * * `PUT` - PUT
+     * * `PATCH` - PATCH
+     * * `DELETE` - DELETE */
+    method: PostHogConnectionForwardMethodEnumApi
+    /** Relative target API path with no host or scheme, e.g. `api/projects/2/insights/`. */
+    path: string
+    /** Query parameters to send to the target. */
+    query?: PostHogConnectionForwardApiQuery
+    /** JSON request body for write methods. */
+    data?: unknown
+}
+
+export interface PostHogConnectionForwardResponseApi {
+    /** HTTP status the target project returned. */
+    status: number
+    /** The target project's response body, passed through. */
+    data: unknown
 }
 
 export type RoleExternalReferencesListParams = {
@@ -369,40 +601,49 @@ export type RoleExternalReferencesLookupRetrieveParams = {
 export type IntegrationsListParams = {
     /**
      * * `anthropic` - Anthropic
-     * `apns` - Apple Push
-     * `azure-blob` - Azure Blob
-     * `bing-ads` - Bing Ads
-     * `clickup` - Clickup
-     * `customerio-app` - Customerio App
-     * `customerio-track` - Customerio Track
-     * `customerio-webhook` - Customerio Webhook
-     * `databricks` - Databricks
-     * `email` - Email
-     * `firebase` - Firebase
-     * `github` - Github
-     * `gitlab` - Gitlab
-     * `google-ads` - Google Ads
-     * `google-cloud-service-account` - Google Cloud Service Account
-     * `google-cloud-storage` - Google Cloud Storage
-     * `google-pubsub` - Google Pubsub
-     * `google-sheets` - Google Sheets
-     * `hubspot` - Hubspot
-     * `intercom` - Intercom
-     * `jira` - Jira
-     * `linear` - Linear
-     * `linkedin-ads` - Linkedin Ads
-     * `meta-ads` - Meta Ads
-     * `pinterest-ads` - Pinterest Ads
-     * `postgresql` - Postgresql
-     * `reddit-ads` - Reddit Ads
-     * `salesforce` - Salesforce
-     * `slack` - Slack
-     * `slack-posthog-code` - Slack Posthog Code
-     * `snapchat` - Snapchat
-     * `stripe` - Stripe
-     * `tiktok-ads` - Tiktok Ads
-     * `twilio` - Twilio
-     * `vercel` - Vercel
+     * * `apns` - Apple Push
+     * * `aws-redshift` - Aws Redshift
+     * * `aws-s3` - Aws S3
+     * * `azure-blob` - Azure Blob
+     * * `bing-ads` - Bing Ads
+     * * `clickup` - Clickup
+     * * `customerio-app` - Customerio App
+     * * `customerio-track` - Customerio Track
+     * * `customerio-webhook` - Customerio Webhook
+     * * `databricks` - Databricks
+     * * `email` - Email
+     * * `firebase` - Firebase
+     * * `github` - Github
+     * * `gitlab` - Gitlab
+     * * `google-ads` - Google Ads
+     * * `google-analytics` - Google Analytics
+     * * `google-cloud-service-account` - Google Cloud Service Account
+     * * `google-cloud-storage` - Google Cloud Storage
+     * * `google-pubsub` - Google Pubsub
+     * * `google-search-console` - Google Search Console
+     * * `google-sheets` - Google Sheets
+     * * `hubspot` - Hubspot
+     * * `intercom` - Intercom
+     * * `jira` - Jira
+     * * `linear` - Linear
+     * * `linkedin-ads` - Linkedin Ads
+     * * `meta-ads` - Meta Ads
+     * * `pardot` - Pardot
+     * * `pinterest-ads` - Pinterest Ads
+     * * `postgresql` - Postgresql
+     * * `posthog` - Posthog
+     * * `reddit-ads` - Reddit Ads
+     * * `resend` - Resend
+     * * `s3-compatible` - S3 Compatible
+     * * `salesforce` - Salesforce
+     * * `slack` - Slack
+     * * `slack-posthog-code` - Slack Posthog Code
+     * * `snapchat` - Snapchat
+     * * `snowflake` - Snowflake
+     * * `stripe` - Stripe
+     * * `tiktok-ads` - Tiktok Ads
+     * * `twilio` - Twilio
+     * * `vercel` - Vercel
      */
     kind?: IntegrationsListKind
     /**
@@ -420,6 +661,8 @@ export type IntegrationsListKind = (typeof IntegrationsListKind)[keyof typeof In
 export const IntegrationsListKind = {
     Anthropic: 'anthropic',
     Apns: 'apns',
+    AwsRedshift: 'aws-redshift',
+    AwsS3: 'aws-s3',
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
     Clickup: 'clickup',
@@ -432,9 +675,11 @@ export const IntegrationsListKind = {
     Github: 'github',
     Gitlab: 'gitlab',
     GoogleAds: 'google-ads',
+    GoogleAnalytics: 'google-analytics',
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
     GooglePubsub: 'google-pubsub',
+    GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
     Hubspot: 'hubspot',
     Intercom: 'intercom',
@@ -442,13 +687,18 @@ export const IntegrationsListKind = {
     Linear: 'linear',
     LinkedinAds: 'linkedin-ads',
     MetaAds: 'meta-ads',
+    Pardot: 'pardot',
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
+    Posthog: 'posthog',
     RedditAds: 'reddit-ads',
+    Resend: 'resend',
+    S3Compatible: 's3-compatible',
     Salesforce: 'salesforce',
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
     Snapchat: 'snapchat',
+    Snowflake: 'snowflake',
     Stripe: 'stripe',
     TiktokAds: 'tiktok-ads',
     Twilio: 'twilio',

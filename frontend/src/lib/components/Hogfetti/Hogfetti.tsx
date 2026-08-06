@@ -1,58 +1,40 @@
 import React, { useCallback, useState } from 'react'
 
-import {
-    BlushingHog,
-    DetectiveHog,
-    ExperimentsHog,
-    ExplorerHog,
-    FeatureFlagHog,
-    HeartHog,
-    HospitalHog,
-    ListHog,
-    MailHog,
-    MicrophoneHog,
-    PoliceHog,
-    ProfessorHog,
-    ReadingHog,
-    RunningHog,
-    SleepingHog,
-    SpaceHog,
-    StarHog,
-    SupportHeroHog,
-    SurprisedHog,
-    TronHog,
-    WavingHog,
-    XRayHog,
-    XRayHog2,
-} from 'lib/components/hedgehogs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
-export type HogComponent = React.ComponentType<{ width: number; height: number }>
+import blushingHog from './hogs/blushing-hog.png'
+import detectiveHog from './hogs/detective-hog.png'
+import experimentsHog from './hogs/experiments-hog.png'
+import explorerHog from './hogs/explorer-hog.png'
+import featureFlagHog from './hogs/feature-flag-hog.png'
+import heartHog from './hogs/heart-hog.png'
+import mailHog from './hogs/mail-hog.png'
+import microphoneHog from './hogs/microphone-hog.png'
+import professorHog from './hogs/professor-hog.png'
+import runningHog from './hogs/running-hog.png'
+import spaceHog from './hogs/space-hog.png'
+import starHog from './hogs/star-hog.png'
+import surprisedHog from './hogs/surprised-hog.png'
+import tronHog from './hogs/tron-hog.png'
+import wavingHog from './hogs/waving-hog.png'
 
-const images: HogComponent[] = [
-    SurprisedHog,
-    XRayHog,
-    XRayHog2,
-    HospitalHog,
-    BlushingHog,
-    ExplorerHog,
-    RunningHog,
-    SpaceHog,
-    TronHog,
-    HeartHog,
-    StarHog,
-    PoliceHog,
-    SleepingHog,
-    ProfessorHog,
-    SupportHeroHog,
-    DetectiveHog,
-    MailHog,
-    FeatureFlagHog,
-    ExperimentsHog,
-    ListHog,
-    WavingHog,
-    ReadingHog,
-    MicrophoneHog,
+// Confetti hogs are bundled inline at 64×64 from ./hogs so this animation stays self-contained and lightweight.
+const images: string[] = [
+    surprisedHog,
+    blushingHog,
+    explorerHog,
+    runningHog,
+    spaceHog,
+    tronHog,
+    heartHog,
+    starHog,
+    professorHog,
+    detectiveHog,
+    mailHog,
+    featureFlagHog,
+    experimentsHog,
+    wavingHog,
+    microphoneHog,
 ]
 
 interface Particle {
@@ -143,7 +125,7 @@ export const useHogfetti = (options: HogfettiOptions = {}): HogfettiHook => {
             <div className="Hogfetti fixed top-0 left-0 w-full h-full pointer-events-none" style={{ zIndex: 9999 }}>
                 {particleSets.flatMap((set, setIndex) =>
                     set.map((particle, particleIndex) => {
-                        const HogComponent = images[particle.imageIndex]
+                        const hogSrc = images[particle.imageIndex]
                         return (
                             <div
                                 key={`${setIndex}-${particleIndex}`}
@@ -156,7 +138,7 @@ export const useHogfetti = (options: HogfettiOptions = {}): HogfettiHook => {
                                     transition: 'opacity 0.1s linear',
                                 }}
                             >
-                                <HogComponent width={particle.size} height={particle.size} />
+                                <img src={hogSrc} width={particle.size} height={particle.size} alt="" />
                             </div>
                         )
                     })

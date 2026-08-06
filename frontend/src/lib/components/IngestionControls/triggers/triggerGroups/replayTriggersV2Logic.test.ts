@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { teamLogic } from 'scenes/teamLogic'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { replayTriggersV2Logic } from './replayTriggersV2Logic'
@@ -10,6 +11,14 @@ describe('replayTriggersV2Logic', () => {
     let logic: ReturnType<typeof replayTriggersV2Logic.build>
 
     beforeEach(() => {
+        useMocks({
+            patch: {
+                'api/environments/:id': async ({ request }) => [
+                    200,
+                    { id: 1, ...((await request.json()) as Record<string, any>) },
+                ],
+            },
+        })
         initKeaTests()
         logic = replayTriggersV2Logic()
         logic.mount()
@@ -132,6 +141,68 @@ describe('replayTriggersV2Logic', () => {
                 } as any)
             }).toMatchValues({
                 previewLegacyGroups: expected,
+            })
+        })
+    })
+
+    describe('deleteTriggerGroup stays on V2', () => {
+        it('deleting the only group replaces it with a record-everything group', async () => {
+            logic.actions.setTriggerGroupsConfig({
+                version: 2,
+                groups: [
+                    {
+                        id: 'group-1',
+                        name: 'Checkout',
+                        sampleRate: 0.5,
+                        conditions: { matchType: 'all', urls: [{ url: '^/checkout$', matching: 'regex' }] },
+                    },
+                ],
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.deleteTriggerGroup('group-1')
+            }).toMatchValues({
+                triggerGroupsConfig: {
+                    version: 2,
+                    groups: [
+                        {
+                            id: expect.any(String),
+                            name: 'Record all sessions',
+                            sampleRate: 1,
+                            conditions: { matchType: 'all' },
+                        },
+                    ],
+                },
+            })
+        })
+
+        it('deleting one of several groups keeps the rest', async () => {
+            const group2 = {
+                id: 'group-2',
+                name: 'Signup',
+                sampleRate: 1,
+                conditions: { matchType: 'all' as const, events: [{ name: 'signed_up' }] },
+            }
+            logic.actions.setTriggerGroupsConfig({
+                version: 2,
+                groups: [
+                    {
+                        id: 'group-1',
+                        name: 'Checkout',
+                        sampleRate: 0.5,
+                        conditions: { matchType: 'all', urls: [{ url: '^/checkout$', matching: 'regex' }] },
+                    },
+                    group2,
+                ],
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.deleteTriggerGroup('group-1')
+            }).toMatchValues({
+                triggerGroupsConfig: {
+                    version: 2,
+                    groups: [group2],
+                },
             })
         })
     })

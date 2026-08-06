@@ -7,8 +7,9 @@ import { IconPerson, IconVideoCamera } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
-import { humanFriendlyLargeNumber, humanFriendlyNumber, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { LiveUserCountLogicProps, liveUserCountLogic } from './liveUserCountLogic'

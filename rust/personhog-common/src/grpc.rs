@@ -36,6 +36,10 @@ tokio::task_local! {
     /// Per-request caller tag, set by `GrpcMetricsLayer` and readable
     /// anywhere in the request's async call chain via `current_caller_tag()`.
     pub static CALLER_TAG: Arc<str>;
+
+    /// Per-request gRPC method name, set by `GrpcMetricsLayer` and readable
+    /// anywhere in the request's async call chain via `current_method_name()`.
+    pub static METHOD_NAME: Arc<str>;
 }
 
 /// Get the current client name from the task-local, or `"unknown"` if not set.
@@ -52,6 +56,51 @@ pub fn current_caller_tag() -> Arc<str> {
     CALLER_TAG
         .try_with(|t| t.clone())
         .unwrap_or_else(|_| Arc::from("unknown"))
+}
+
+/// Get the current gRPC method name from the task-local, or `"unknown"` if not set.
+pub fn current_method_name() -> Arc<str> {
+    METHOD_NAME
+        .try_with(|m| m.clone())
+        .unwrap_or_else(|_| Arc::from("unknown"))
+}
+
+/// Label for a failure carrying no gRPC status at all — a client-side
+/// error (a serialization failure, say) rather than anything a server
+/// said. Part of the same label vocabulary as [`code_as_str`], and
+/// deliberately distinct from its `unknown`, which is a real code a
+/// server can return.
+pub const NON_STATUS: &str = "non_status";
+
+/// Stable snake_case name for a gRPC status code, for use as a metric
+/// label. Codes are a fixed vocabulary, which is what makes them safe to
+/// label with; status *messages* never are. Shared so every service
+/// labels the same failure the same way — a dashboard comparing a
+/// client's view of an error against the router's should not have to
+/// translate between two spellings. Callers that classify errors which
+/// may carry no status at all complete the vocabulary with
+/// [`NON_STATUS`].
+pub fn code_as_str(code: tonic::Code) -> &'static str {
+    use tonic::Code;
+    match code {
+        Code::Ok => "ok",
+        Code::Cancelled => "cancelled",
+        Code::Unknown => "unknown",
+        Code::InvalidArgument => "invalid_argument",
+        Code::DeadlineExceeded => "deadline_exceeded",
+        Code::NotFound => "not_found",
+        Code::AlreadyExists => "already_exists",
+        Code::PermissionDenied => "permission_denied",
+        Code::ResourceExhausted => "resource_exhausted",
+        Code::FailedPrecondition => "failed_precondition",
+        Code::Aborted => "aborted",
+        Code::OutOfRange => "out_of_range",
+        Code::Unimplemented => "unimplemented",
+        Code::Internal => "internal",
+        Code::Unavailable => "unavailable",
+        Code::DataLoss => "data_loss",
+        Code::Unauthenticated => "unauthenticated",
+    }
 }
 
 const MAX_HEADER_TAG_LEN: usize = 128;
@@ -304,21 +353,26 @@ where
     }
 
     fn call(&mut self, request: Request<ReqBody>) -> Self::Future {
-        let method = extract_grpc_method(request.uri().path());
+        let method: Arc<str> = Arc::from(extract_grpc_method(request.uri().path()));
         let client = extract_client_name(&request);
         let caller_tag = extract_caller_tag(&request);
         gauge!("grpc_server_requests_in_flight", "method" => method.clone(), "client" => client.clone())
             .increment(1.0);
 
         let start = Instant::now();
-        // Call inner inside both scopes so any synchronous work in call()
-        // sees CLIENT_NAME and CALLER_TAG.
+        // Call inner inside all scopes so any synchronous work in call()
+        // sees CLIENT_NAME, CALLER_TAG, and METHOD_NAME.
         let inner = CLIENT_NAME.sync_scope(client.clone(), || {
-            CALLER_TAG.sync_scope(caller_tag.clone(), || self.inner.call(request))
+            CALLER_TAG.sync_scope(caller_tag.clone(), || {
+                METHOD_NAME.sync_scope(method.clone(), || self.inner.call(request))
+            })
         });
 
         GrpcMetricsFuture {
-            inner: CLIENT_NAME.scope(client.clone(), CALLER_TAG.scope(caller_tag, inner)),
+            inner: CLIENT_NAME.scope(
+                client.clone(),
+                CALLER_TAG.scope(caller_tag, METHOD_NAME.scope(method.clone(), inner)),
+            ),
             method,
             client,
             start,
@@ -329,15 +383,16 @@ where
 
 /// Future returned by [`GrpcMetricsService`].
 ///
-/// Wraps the inner service future with task-local client name and caller tag
-/// propagation, and records request metrics (counter, histogram, in-flight
-/// gauge) on completion or cancellation. Lives inline in the caller's async
-/// state machine — no heap allocation or dynamic dispatch.
+/// Wraps the inner service future with task-local client name, caller tag,
+/// and method name propagation, and records request metrics (counter,
+/// histogram, in-flight gauge) on completion or cancellation. Lives inline
+/// in the caller's async state machine — no heap allocation or dynamic dispatch.
 #[pin_project(PinnedDrop)]
+#[allow(clippy::type_complexity)]
 pub struct GrpcMetricsFuture<F> {
     #[pin]
-    inner: TaskLocalFuture<Arc<str>, TaskLocalFuture<Arc<str>, F>>,
-    method: String,
+    inner: TaskLocalFuture<Arc<str>, TaskLocalFuture<Arc<str>, TaskLocalFuture<Arc<str>, F>>>,
+    method: Arc<str>,
     client: Arc<str>,
     start: Instant,
     emit_processing_time_header: bool,

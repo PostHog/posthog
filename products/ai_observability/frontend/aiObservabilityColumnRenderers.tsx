@@ -6,7 +6,7 @@ import { IconFilter } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { PersonDisplay, PersonIcon } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode, DataVisualizationNode } from '~/queries/schema/schema-general'
@@ -22,11 +22,13 @@ import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDis
 import { EventData, useAIData } from './hooks/useAIData'
 import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentLazyLoaderLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
-import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
+import { normalizeMessages } from './messageNormalization'
+import type { GenerationSentimentLookup } from './sentimentQueries'
+import { GENERATION_SENTIMENT_SELECT } from './sentimentResults'
 import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
 import { TraceReviewValue } from './traceReviews/TraceReviewValue'
 import { CompatMessage } from './types'
-import { normalizeMessages, parseJSONPreview } from './utils'
+import { parseJSONPreview } from './utils'
 
 const truncateValue = (value: string): string => {
     if (value.length > 8) {
@@ -190,47 +192,83 @@ export function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JS
     return <PersonColumnCell person={personData} />
 }
 
-function LazySentimentColumnCell({ traceId }: { traceId: string }): JSX.Element {
-    const { sentimentByTraceId, isTraceLoading } = useValues(llmSentimentLazyLoaderLogic)
-    const { ensureSentimentLoaded } = useActions(llmSentimentLazyLoaderLogic)
-    const { dateFilter } = useValues(aiObservabilitySharedLogic)
+// Avatar only (no name) for inline use beside a title; a click still opens the
+// full person popover. Shares the lazy person loader with LazyPersonColumnCell.
+export function LazyPersonAvatar({ distinctId }: { distinctId: string }): JSX.Element {
+    const { personsCache, currentTeamId } = useValues(llmPersonsLazyLoaderLogic)
+    const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
 
-    const cached = sentimentByTraceId[traceId]
-    const loading = isTraceLoading(traceId)
+    const cached = personsCache[distinctId]
 
-    // Deferred via effect so trace-messages/persons effects (which also run
-    // after commit) get a chance to dispatch before sentiment's batched
-    // fan-out claims the browser's connection pool.
     useEffect(() => {
-        if (cached === undefined && !loading) {
-            ensureSentimentLoaded(traceId, dateFilter)
+        if (currentTeamId && cached === undefined) {
+            ensurePersonLoaded(distinctId)
         }
-    }, [traceId, cached, loading, dateFilter, ensureSentimentLoaded])
+    }, [currentTeamId, cached, distinctId, ensurePersonLoaded])
 
-    if (loading || cached === undefined) {
-        return <AIDataLoading variant="inline" />
-    }
+    const personData: PersonData = cached
+        ? { distinct_id: cached.distinct_id, properties: cached.properties }
+        : { distinct_id: distinctId }
 
-    if (cached === null) {
-        return <>–</>
-    }
-
-    return <SentimentBar label={cached.label} score={cached.score} size="full" messages={cached.messages} />
+    return (
+        <PersonDisplay person={personData}>
+            <PersonIcon person={personData} size="md" />
+        </PersonDisplay>
+    )
 }
 
-function LazyGenerationSentimentCell({ generationEventId }: { generationEventId: string }): JSX.Element {
-    const { sentimentByGenerationId, isGenerationLoading } = useValues(llmGenerationSentimentLazyLoaderLogic)
-    const { ensureGenerationSentimentLoaded } = useActions(llmGenerationSentimentLazyLoaderLogic)
-    const { dateFilter } = useValues(aiObservabilitySharedLogic)
+function getStringColumnValue(record: unknown[], columns: string[], column: string): string | null {
+    const index = columns.findIndex((col) => col === column)
+    if (index < 0) {
+        return null
+    }
 
-    const cached = sentimentByGenerationId[generationEventId]
-    const loading = isGenerationLoading(generationEventId)
+    const value = record[index]
+    return typeof value === 'string' && value ? value : null
+}
+
+function getGenerationSentimentLookup(record: unknown, query: DataTableNode): GenerationSentimentLookup | null {
+    if (!Array.isArray(record) || !isEventsQuery(query.source)) {
+        return null
+    }
+
+    const columns = query.source.select ?? []
+    const eventId = getStringColumnValue(record, columns, 'uuid')
+    const traceId = getStringColumnValue(record, columns, 'properties.$ai_trace_id')
+
+    if (!eventId || !traceId) {
+        return null
+    }
+
+    const generationId = getStringColumnValue(record, columns, 'properties.$ai_generation_id')
+    const generationIds = generationId && generationId !== eventId ? [eventId, generationId] : [eventId]
+
+    return {
+        key: eventId,
+        traceId,
+        generationIds,
+    }
+}
+
+function LazyGenerationSentimentCell({ lookup }: { lookup: GenerationSentimentLookup }): JSX.Element {
+    const { getGenerationSentiment, isGenerationLoading } = useValues(llmGenerationSentimentLazyLoaderLogic)
+    const { ensureGenerationSentimentLoaded } = useActions(llmGenerationSentimentLazyLoaderLogic)
+
+    const lookupKey = lookup.key
+    const lookupTraceId = lookup.traceId
+    const lookupGenerationIdsKey = lookup.generationIds.join('\0')
+    const cached = getGenerationSentiment(lookupKey)
+    const loading = isGenerationLoading(lookupKey)
 
     useEffect(() => {
         if (cached === undefined && !loading) {
-            ensureGenerationSentimentLoaded(generationEventId, dateFilter)
+            ensureGenerationSentimentLoaded({
+                key: lookupKey,
+                traceId: lookupTraceId,
+                generationIds: lookupGenerationIdsKey ? lookupGenerationIdsKey.split('\0') : [],
+            })
         }
-    }, [generationEventId, cached, loading, dateFilter, ensureGenerationSentimentLoaded])
+    }, [cached, ensureGenerationSentimentLoaded, loading, lookupGenerationIdsKey, lookupKey, lookupTraceId])
 
     if (loading || cached === undefined) {
         return <AIDataLoading variant="inline" />
@@ -289,7 +327,7 @@ function AIInputCell({ eventData }: { eventData: EventData }): JSX.Element {
     let inputNormalized: CompatMessage[] | undefined
     try {
         const parsed = parseJSONPreview(input)
-        inputNormalized = normalizeMessages(parsed, 'user')
+        inputNormalized = normalizeMessages(parsed, 'user').messages
     } catch (e) {
         console.warn('Error normalizing properties.$ai_input', e)
     }
@@ -311,7 +349,7 @@ function AIOutputCell({ eventData }: { eventData: EventData }): JSX.Element {
     let outputNormalized: CompatMessage[] | undefined
     try {
         const parsed = parseJSONPreview(output)
-        outputNormalized = normalizeMessages(parsed, 'assistant')
+        outputNormalized = normalizeMessages(parsed, 'assistant').messages
     } catch (e) {
         console.warn('Error normalizing properties.$ai_output_choices', e)
     }
@@ -490,33 +528,28 @@ export const aiObservabilityColumnRenderers: Record<string, QueryContextColumn> 
                 return <>–</>
             }
             const traceRecord = record as LLMTrace
-            if (!traceRecord.id) {
+            if (!traceRecord.sentiment) {
                 return <>–</>
             }
-            return <LazySentimentColumnCell traceId={traceRecord.id} />
+            return (
+                <SentimentBar
+                    label={traceRecord.sentiment.label}
+                    score={traceRecord.sentiment.score}
+                    size="full"
+                    messages={traceRecord.sentiment.messages}
+                />
+            )
         },
     },
-    "'' -- Sentiment": {
+    [GENERATION_SENTIMENT_SELECT]: {
         title: 'Sentiment',
         render: ({ record, query }) => {
-            if (!Array.isArray(record) || !isDataTableNode(query) || !isEventsQuery(query.source)) {
+            if (!isDataTableNode(query)) {
                 return <>–</>
             }
 
-            const select = query.source.select ?? []
-            const uuidIdx = select.findIndex((c) => c === 'uuid')
-
-            if (uuidIdx < 0) {
-                return <>–</>
-            }
-
-            const uuid = record[uuidIdx]
-
-            if (typeof uuid !== 'string') {
-                return <>–</>
-            }
-
-            return <LazyGenerationSentimentCell generationEventId={uuid} />
+            const lookup = getGenerationSentimentLookup(record, query)
+            return lookup ? <LazyGenerationSentimentCell lookup={lookup} /> : <>–</>
         },
     },
     'properties.$ai_tools_called': {

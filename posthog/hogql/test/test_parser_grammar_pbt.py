@@ -18,12 +18,11 @@ Contract — **bidirectional parity** between the two backends:
     3. If one accepts and the other rejects → test fails: the two
        backends must agree on the accepted grammar surface.
 
-The comparison is between the Python parser (the original reference
-implementation, an ANTLR4-generated parser + a parse-tree visitor in
-``HogQLParseTreeConverter``) and the C++ parser (a hand-ported visitor
-over the same ANTLR4-generated parser, exposed to Python via the
-``hogql_parser`` wheel). Both consume the same ``.g4`` grammar; AST
-divergences here are visitor-implementation bugs in one of them.
+The comparison is between the rust parser (``rust-py``, the production
+default, a hand-written recursive-descent parser exposed via the
+``hogql_parser_rs`` wheel) and the C++ parser (the reference oracle, a
+hand-ported ANTLR4 visitor exposed via the ``hogql_parser`` wheel). AST
+divergences here are parser-implementation bugs in one of them.
 
 Opt-in via ``RUN_PBT=1`` — the grind is slow and intended for offline
 audit runs rather than every CI build.
@@ -32,6 +31,7 @@ audit runs rather than every CI build.
 from __future__ import annotations
 
 import os
+from collections import defaultdict
 from typing import Any
 
 import pytest
@@ -39,16 +39,24 @@ import pytest
 from hypothesis import (
     HealthCheck,
     assume,
+    event,
     given,
     settings,
     strategies as st,
+    target,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.errors import BaseHogQLError
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.test._generated_grammar_strategies import expr_strategy, select_strategy
+from posthog.hogql.parser import parse_expr, parse_select, parse_string_template
+from posthog.hogql.scripts._diagnostic_common import ast_depth, ast_kpaths
+from posthog.hogql.test._generated_grammar_strategies import (
+    expr_strategy,
+    fullTemplateString_strategy as full_template_string_strategy,
+    select_strategy,
+)
 from posthog.hogql.test._grammar_token_strategies import _RESERVED_KEYWORDS
+from posthog.hogql.test._pbt_corpus_db import shared_corpus_database
 from posthog.hogql.visitor import clear_locations
 
 pytestmark = pytest.mark.skipif(
@@ -502,11 +510,10 @@ def _apply_grammar_mutation(query: str) -> st.SearchStrategy[str]:
 # Differential parsing harness
 # ---------------------------------------------------------------------------
 
-# The two backends under comparison. Both implement the same `.g4`
-# grammar — the Python one via an ANTLR4-generated parser + a
-# HogQLParseTreeConverter visitor, the C++ one via a hand-ported
-# visitor exposed through the `hogql_parser` wheel.
-_BACKEND_A = "python"
+# The two backends under comparison: the rust parser (`rust-py`, the
+# production default) against the C++ parser (the reference oracle,
+# exposed through the `hogql_parser` wheel).
+_BACKEND_A = "rust-py"
 _BACKEND_B = "cpp-json"
 
 
@@ -523,9 +530,22 @@ def _try_parse(query: str, rule: str, backend: str) -> tuple[bool, ast.AST | Non
     the failure. The whole point of the differential PBT is to surface
     asymmetric crashes; swallowing them here would defeat that.
     """
-    parser_fn = parse_expr if rule == "expr" else parse_select
     try:
-        node = parser_fn(query, backend=backend)  # type: ignore[arg-type]
+        if rule == "expr":
+            node: ast.AST = parse_expr(query, backend=backend)  # type: ignore[arg-type]
+        elif rule == "select":
+            node = parse_select(query, backend=backend)  # type: ignore[arg-type]
+        elif rule == "full_template_string":
+            # The strategy emits "F'<contents>" (the wrapped F-string grammar form), but
+            # `parse_string_template` takes the inside and re-adds the F-quote itself, so
+            # strip the leading "F'" here. Asserted (rather than `removeprefix`) so a future
+            # strategy or jiggle regression that drops the leading "F'" fails loudly instead
+            # of silently producing "F'F'…" inputs that both backends accept (the second F'
+            # becomes FULL_STRING_TEXT content) and that the parity assertion treats as fine.
+            assert query.startswith("F'"), f"fullTemplateString strategy emitted unexpected prefix: {query!r}"
+            node = parse_string_template(query[2:], backend=backend)  # type: ignore[arg-type]
+        else:
+            raise ValueError(f"unknown rule: {rule!r}")
         return True, clear_locations(node)
     except BaseHogQLError:
         return False, None
@@ -548,16 +568,31 @@ def _assert_backends_agree(query: str, rule: str) -> None:
         # Both rejected — uninteresting; the grammar generator can
         # over-produce strings that neither visitor accepts. ``assume(False)``
         # raises ``UnsatisfiedAssumption`` to skip the example.
+        event("outcome", "both_reject")
         assume(False)
 
     if a_ok != b_ok:
+        event("outcome", "accept/reject divergence")
         accepted, rejected = (_BACKEND_A, _BACKEND_B) if a_ok else (_BACKEND_B, _BACKEND_A)
         raise AssertionError(f"{accepted!r} accepted but {rejected!r} rejected ({rule!r}): {query!r}")
 
     if a_ast != b_ast:
+        event("outcome", "ast mismatch")
         raise AssertionError(
             f"AST mismatch for {rule!r}: {query!r}\n  {_BACKEND_A}:  {a_ast!r}\n  {_BACKEND_B}: {b_ast!r}"
         )
+
+    # Both backends accepted and agree. Surface a coverage-flavoured signal
+    # to Hypothesis so the shrinker preserves interesting shapes (deep ASTs,
+    # novel k-paths) when it minimises failing examples — and so the optional
+    # `Phase.target` hill-climbing phase can hunt for them at generation time
+    # if turned on. Both targets are cheap in-process AST walks; no native
+    # instrumentation needed.
+    event("outcome", "match")
+    kpaths = ast_kpaths(a_ast, _KPATH_K)
+    target(float(len(kpaths - _SEEN_KPATHS[rule])), label="novel_kpaths")
+    _SEEN_KPATHS[rule].update(kpaths)
+    target(float(ast_depth(a_ast)), label="ast_depth")
 
 
 # Shared Hypothesis settings. Strategies overgenerate (semantic-visitor
@@ -565,6 +600,11 @@ def _assert_backends_agree(query: str, rule: str) -> None:
 _PBT_SETTINGS = settings(
     max_examples=int(os.environ.get("GRAMMAR_PBT_EXAMPLES", "1000")),
     deadline=None,
+    # Replay the per-developer local seed read-only + write new examples to the
+    # default `.hypothesis/examples` (see _pbt_corpus_db). The seed dir is
+    # `.gitignore`d — devs populate it locally if they want, nothing churns the
+    # repo.
+    database=shared_corpus_database(),
     # ``too_slow`` and ``filter_too_much`` are characteristics of the
     # grind itself (deep ASTs, semantic-visitor rejections drop a
     # sizable fraction). ``data_too_large`` is deliberately *not*
@@ -578,6 +618,13 @@ _PBT_SETTINGS = settings(
         HealthCheck.filter_too_much,
     ],
 )
+
+# Per-rule AST k-path coverage seen so far this session — feeds the `target()`
+# steering in `_assert_backends_agree`. Keyed by rule so expr / select / full
+# template don't pollute each other's novelty signal. Process-local, so the
+# steering only counts within a single pytest run.
+_SEEN_KPATHS: dict[str, set[tuple[str, ...]]] = defaultdict(set)
+_KPATH_K: int = int(os.environ.get("GRAMMAR_PBT_KPATH_K", "2"))
 
 # Wall-clock timeout per test (via pytest-timeout, which is already a
 # project dependency). Hypothesis shrinking on a deep AST tree can run
@@ -621,3 +668,26 @@ class TestSelectGrammarPBT:
     @_PBT_SETTINGS
     def test_select_backends_agree_with_jiggle(self, query: str) -> None:
         _assert_backends_agree(query, rule="select")
+
+
+@pytest.mark.timeout(_PBT_TIMEOUT_SECONDS)
+class TestFullTemplateStringGrammarPBT:
+    """``parse_string_template`` differential parity over the full
+    ``fullTemplateString`` grammar surface — auto-generated from .g4.
+
+    Covers the standalone ``parseFullTemplateString`` parser entry point
+    (the ``F'…`` form used by the public ``parse_string_template`` API),
+    which isn't reachable from the ``expr``/``select`` grammar rules.
+    The grammar rule is ``QUOTE_SINGLE_TEMPLATE_FULL stringContentsFull* EOF``
+    — no closing quote; the body lexes through to end-of-input.
+    """
+
+    @given(query=full_template_string_strategy())
+    @_PBT_SETTINGS
+    def test_full_template_string_backends_agree(self, query: str) -> None:
+        _assert_backends_agree(query, rule="full_template_string")
+
+    @given(query=full_template_string_strategy().flatmap(_apply_jiggle))
+    @_PBT_SETTINGS
+    def test_full_template_string_backends_agree_with_jiggle(self, query: str) -> None:
+        _assert_backends_agree(query, rule="full_template_string")

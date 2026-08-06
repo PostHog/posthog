@@ -12,15 +12,17 @@ import { urls } from 'scenes/urls'
 import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { ItemMode } from '~/types'
 
-export interface InsightSceneProps {
-    tabId?: string
-}
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
-export function InsightScene({ tabId }: InsightSceneProps = {}): JSX.Element {
-    if (!tabId) {
-        throw new Error('<InsightScene /> must receive a tabId prop')
-    }
-    const { insightId, insight, insightLogicRef, insightMode, dashboardId } = useValues(insightSceneLogic({ tabId }))
+export function InsightScene(): JSX.Element {
+    const { insightId, insight, insightLogicRef, insightMode, dashboardId } = useValues(insightSceneLogic)
+
+    useAttachedContext(
+        insight?.short_id && insight?.query
+            ? [{ type: 'insight', key: insight.short_id, label: insight.name || insight.derived_name || undefined }]
+            : null
+    )
+
     useEffect(() => {
         // Redirect data viz nodes to the sql editor
         if (insightId && insight?.query?.kind === NodeKind.DataVisualizationNode && insightMode === ItemMode.Edit) {
@@ -41,7 +43,7 @@ export function InsightScene({ tabId }: InsightSceneProps = {}): JSX.Element {
             insight?.short_id &&
             (insight?.query?.kind !== NodeKind.DataVisualizationNode || insightMode !== ItemMode.Edit))
     ) {
-        return <InsightAsScene insightId={insightId} tabId={tabId} attachTo={insightSceneLogic({ tabId })} />
+        return <InsightAsScene insightId={insightId} attachTo={insightSceneLogic} />
     }
 
     if (insightLogicRef?.logic?.values?.insightLoading) {

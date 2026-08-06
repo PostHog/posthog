@@ -1,5 +1,8 @@
 import datetime
-from collections.abc import Mapping
+from collections.abc import (  # noqa: F401 — Sequence resolves inherited langchain field annotations lazily in this namespace
+    Mapping,
+    Sequence,
+)
 from functools import cached_property
 from typing import Any, cast
 
@@ -32,10 +35,12 @@ BILLING_SKIPPED_COUNTER = Counter(
 PROJECT_ORG_USER_CONTEXT_PROMPT = """
 You are currently in project {{{project_name}}}, which is part of the {{{organization_name}}} organization.
 The user's name appears to be {{{user_full_name}}} ({{{user_email}}}). Feel free to use their first name when greeting. DO NOT use this name if it appears possibly fake.
-All PostHog app URLs must use relative paths without a domain (no us.posthog.com, eu.posthog.com, app.posthog.com), and omit the `/project/:id/` prefix. Never include `/-/` in URLs.
+All PostHog app URLs must use root-relative paths starting with `/`, without a domain (no us.posthog.com, eu.posthog.com, app.posthog.com), and omit the `/project/:id/` prefix. Never include `/-/` in URLs. Never use relative paths like `../` or `./` — always start with `/`.
 Use Markdown with descriptive anchor text, for example "[Cohorts view](/cohorts)".
 
 Key URL patterns:
+- Dashboard: `/dashboard/<id>`, e.g. `/dashboard/12345`
+- Insights: `/insights/<short_id>`, e.g. `/insights/abc123`
 - Settings: `/settings/<section-id>` where section IDs use hyphens, e.g. `/settings/organization-members`, `/settings/environment-replay`, `/settings/user-api-keys`
 - Data management: `/data-management/events`, `/data-management/properties`
 - Billing: `/organization/billing`

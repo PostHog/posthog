@@ -295,6 +295,7 @@ def get_person_property_updates_from_clickhouse(
         max_expanded_ast_elements=4000000,
         transform_null_in=1,
         optimize_min_equality_disjunction_chain_length=4294967295,
+        optimize_min_inequality_conjunction_chain_length=4294967295,
         allow_experimental_join_condition=1,
         use_hive_partitioning=0
     """
@@ -457,6 +458,7 @@ def get_raw_person_property_updates_from_clickhouse(
         max_expanded_ast_elements=4000000,
         transform_null_in=1,
         optimize_min_equality_disjunction_chain_length=4294967295,
+        optimize_min_inequality_conjunction_chain_length=4294967295,
         allow_experimental_join_condition=1,
         use_hive_partitioning=0
     """
@@ -658,6 +660,7 @@ def get_affected_person_ids_from_clickhouse(
         max_expanded_ast_elements=4000000,
         transform_null_in=1,
         optimize_min_equality_disjunction_chain_length=4294967295,
+        optimize_min_inequality_conjunction_chain_length=4294967295,
         allow_experimental_join_condition=1,
         use_hive_partitioning=0
     """
@@ -1402,7 +1405,7 @@ def fetch_person_from_postgres(cursor, team_id: int, person_uuid: str) -> dict |
             is_identified,
             created_at
         FROM posthog_person
-        WHERE team_id = %s AND uuid = %s::uuid
+        WHERE team_id = %s AND uuid = %s::uuid AND is_deleted = false
         """,
         (team_id, person_uuid),
     )

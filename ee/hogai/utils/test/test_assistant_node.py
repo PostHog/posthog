@@ -2,9 +2,10 @@ from posthog.test.base import BaseTest
 
 from langchain_core.runnables import RunnableConfig
 
+from products.posthog_ai.backend.models.assistant import CoreMemory
+
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.models.assistant import CoreMemory
 
 
 class TestAssistantNode(BaseTest):

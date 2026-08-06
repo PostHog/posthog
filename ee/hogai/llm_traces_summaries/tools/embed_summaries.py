@@ -9,6 +9,8 @@ from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.routing import get_producer
 from posthog.models.team.team import Team
 
+from products.ai_observability.backend.models.llm_traces_summaries import LLMTraceSummary
+
 from ee.hogai.llm_traces_summaries.constants import (
     DOCUMENT_EMBEDDINGS_TOPIC,
     LLM_TRACES_SUMMARIES_DOCUMENT_TYPE,
@@ -17,7 +19,6 @@ from ee.hogai.llm_traces_summaries.constants import (
     LLM_TRACES_SUMMARIES_SEARCH_QUERY_MAX_ATTEMPTS,
     LLM_TRACES_SUMMARIES_SEARCH_QUERY_POLL_INTERVAL_SECONDS,
 )
-from ee.models.llm_traces_summaries import LLMTraceSummary
 
 
 class LLMTracesSummarizerEmbedder:
@@ -97,7 +98,13 @@ class LLMTracesSummarizerEmbedder:
         return result[0][0] > 0
 
     def embed_document(
-        self, content: str, document_id: str, document_type: str, rendering: str, product: str
+        self,
+        content: str,
+        document_id: str,
+        document_type: str,
+        rendering: str,
+        product: str,
+        metadata: dict | None = None,
     ) -> datetime:
         timestamp = timezone.now()
         payload = {
@@ -108,6 +115,7 @@ class LLMTracesSummarizerEmbedder:
             "document_id": document_id,
             "timestamp": timestamp.isoformat(),
             "content": content,
+            "metadata": metadata or {},
             "models": [self._embedding_model_name.value],
         }
         self._producer.produce(topic=DOCUMENT_EMBEDDINGS_TOPIC, data=payload)

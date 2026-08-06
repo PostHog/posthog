@@ -1,9 +1,11 @@
 from datetime import timedelta
 
-import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.apps import apps
+from django.conf import settings
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -13,22 +15,31 @@ from posthog.schema import EventsQuery
 
 from posthog.api.personal_api_key import PersonalAPIKeySerializer
 from posthog.constants import AvailableFeature
+from posthog.helpers.dev_api_key import get_local_dev_api_key_value
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT, PersonalAPIKey
 from posthog.models.team.team import Team
-from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token_personal, hash_key_value
+from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token_personal, hash_key_value, mask_key_value
 
-from products.error_tracking.backend.models import ErrorTrackingIssue
 from products.product_analytics.backend.models.insight import Insight
+
+ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
 
 
 class TestPersonalAPIKeysAPI(APIBaseTest):
     def test_create_personal_api_key(self):
         label = "Test key uno"
+        description = "Test description"
         response = self.client.post(
             "/api/personal_api_keys",
-            {"label": label, "scopes": ["insight:read"], "scoped_organizations": [], "scoped_teams": []},
+            {
+                "label": label,
+                "description": description,
+                "scopes": ["insight:read"],
+                "scoped_organizations": [],
+                "scoped_teams": [],
+            },
         )
         assert response.status_code == 201
         data = response.json()
@@ -38,6 +49,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert response.json() == {
             "id": key.id,
             "label": label,
+            "description": description,
             "created_at": data["created_at"],
             "last_used_at": None,
             "last_rolled_at": None,
@@ -48,8 +60,23 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "scoped_teams": [],
             "value": data["value"],
             "mask_value": data["mask_value"],
+            "local_dev_value": None,
         }
         assert data["value"].startswith("phx_")  # Personal API key prefix
+
+    def test_create_personal_api_key_normalizes_blank_description_to_null(self):
+        response = self.client.post(
+            "/api/personal_api_keys",
+            {
+                "label": "test",
+                "description": "",
+                "scopes": ["insight:read"],
+                "scoped_organizations": [],
+                "scoped_teams": [],
+            },
+        )
+        assert response.status_code == 201
+        assert response.json()["description"] is None
 
     def test_create_too_many_api_keys(self):
         for i in range(0, 10):
@@ -206,6 +233,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert response_data[0] == {
             "id": my_key.id,
             "label": my_label,
+            "description": None,
             "last_used_at": None,
             "last_rolled_at": None,
             "user_id": self.user.id,
@@ -215,6 +243,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "scoped_teams": None,
             "value": None,
             "mask_value": my_key.mask_value,
+            "local_dev_value": None,
         }
 
     def test_get_own_personal_api_key(self):
@@ -474,7 +503,6 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
         response = self.client.get("/api/users/@me/", headers={"authorization": f"Bearer {self.value}"})
         assert response.status_code == status.HTTP_200_OK
 
-    @pytest.mark.requires_secrets
     def test_does_not_interfere_with_other_auth_methods(self):
         from django.utils import timezone
 
@@ -600,32 +628,23 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json()["detail"] == "API key missing required scope 'feature_flag:write'"
 
-    def test_allows_legacy_feature_flag_local_evaluation_with_personal_api_key(self):
-        response = self._do_request(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
-
+    def test_allows_action_with_required_scopes(self):
+        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/my_flags")
         assert response.status_code == status.HTTP_200_OK
-        response_data = response.json()
-        assert "flags" in response_data
-        assert "group_type_mapping" in response_data
-        assert "cohorts" in response_data
 
-    def test_legacy_feature_flag_evaluation_with_no_current_team(self):
+    def test_feature_flag_list_with_no_current_team(self):
+        # LegacyFeatureFlagViewSet resolves the project from the token when the user
+        # has no current_team (param_derived_from_user_current_team), so the list route
+        # must still work in that case.
         original_team = self.user.current_team
-
         try:
             self.user.current_team = None
             self.user.save()
-
-            # Use team token to provide team context when user.current_team is None
-            response = self._do_request(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
+            response = self._do_request(f"/api/feature_flag/?token={self.team.api_token}")
             assert response.status_code == status.HTTP_200_OK
         finally:
             self.user.current_team = original_team
             self.user.save()
-
-    def test_allows_action_with_required_scopes(self):
-        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
-        assert response.status_code == status.HTTP_200_OK
 
     def test_allows_custom_error_tracking_read_action(self):
         self.key.scopes = ["error_tracking:read"]
@@ -788,6 +807,41 @@ class TestPersonalAPIKeysWithCommentScope(PersonalAPIKeysBaseTest):
         assert response.json()["detail"] == "API key missing required scope 'comment:read'"
 
 
+class TestPersonalAPIKeysWithPersonScope(PersonalAPIKeysBaseTest):
+    # Regression: batch_by_distinct_ids and batch_by_uuids shipped without
+    # `required_scopes`, so APIScopePermission rejected every personal API key —
+    # even one scoped `*` — with "This action does not support personal API key
+    # access". Both are reads, so they must accept `person:read`.
+
+    @parameterized.expand(["batch_by_distinct_ids", "batch_by_uuids"])
+    def test_allows_batch_endpoint_with_person_read_scope(self, action):
+        self.key.scopes = ["person:read"]
+        self.key.save()
+        body: dict[str, list[str]] = {"distinct_ids": []} if action == "batch_by_distinct_ids" else {"uuids": []}
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/persons/{action}/",
+            body,
+            format="json",
+            headers={"authorization": f"Bearer {self.value}"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"results": {}}
+
+    @parameterized.expand(["batch_by_distinct_ids", "batch_by_uuids"])
+    def test_denies_batch_endpoint_without_person_scope(self, action):
+        self.key.scopes = ["feature_flag:read"]
+        self.key.save()
+        body: dict[str, list[str]] = {"distinct_ids": []} if action == "batch_by_distinct_ids" else {"uuids": []}
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/persons/{action}/",
+            body,
+            format="json",
+            headers={"authorization": f"Bearer {self.value}"},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "API key missing required scope 'person:read'"
+
+
 class TestPersonalAPIKeysWithApprovalsScope(PersonalAPIKeysBaseTest):
     def setUp(self):
         super().setUp()
@@ -832,7 +886,7 @@ class TestPersonalAPIKeysWithApprovalsScope(PersonalAPIKeysBaseTest):
         assert response.json()["detail"] == "API key missing required scope 'approvals:read'"
 
     def _create_change_request(self):
-        from posthog.approvals.models import ChangeRequest, ChangeRequestState
+        from products.approvals.backend.models import ChangeRequest, ChangeRequestState
 
         return ChangeRequest.objects.create(
             team=self.team,
@@ -1120,3 +1174,82 @@ class TestPersonalAPIKeyLLMGatewayFeatureFlag(APIBaseTest):
         assert response.status_code == 201
         assert response.json()["scopes"] == ["insight:read"]
         mock_feature_enabled.assert_not_called()
+
+
+DEV_KEY_UNDER_TEST = "phx_dev_local_key_for_reveal_tests_1234"
+REVEAL_GATES_OPEN = {
+    "DEBUG": True,
+    "ALLOW_DEV_API_KEY_REVEAL": True,
+    "CLOUD_DEPLOYMENT": None,
+    "DEV_API_KEY": DEV_KEY_UNDER_TEST,
+}
+
+
+class TestLocalDevAPIKeyReveal(APIBaseTest):
+    def _dev_key(self) -> PersonalAPIKey:
+        # Unsaved instance: the reveal check only reads secure_value, so no DB round trip is needed.
+        return PersonalAPIKey(secure_value=hash_key_value(DEV_KEY_UNDER_TEST))
+
+    @override_settings(**REVEAL_GATES_OPEN)
+    def test_reveals_the_seeded_dev_key(self):
+        assert get_local_dev_api_key_value(self._dev_key()) == DEV_KEY_UNDER_TEST
+
+    @parameterized.expand(
+        [
+            ("flag_off", {"ALLOW_DEV_API_KEY_REVEAL": False}),
+            ("not_debug", {"DEBUG": False}),
+            ("cloud_deployment", {"CLOUD_DEPLOYMENT": "E2E"}),
+        ]
+    )
+    def test_does_not_reveal_when_a_gate_is_closed(self, _, closed_gate):
+        with override_settings(**{**REVEAL_GATES_OPEN, **closed_gate}):
+            assert get_local_dev_api_key_value(self._dev_key()) is None
+
+    @override_settings(**REVEAL_GATES_OPEN)
+    def test_does_not_reveal_a_key_other_than_the_dev_key(self):
+        other_key = PersonalAPIKey(secure_value=hash_key_value(generate_random_token_personal()))
+        assert get_local_dev_api_key_value(other_key) is None
+
+    @override_settings(**REVEAL_GATES_OPEN)
+    def test_tolerates_dev_api_key_being_undefined(self):
+        # DEV_API_KEY ships with the EE settings, so it is absent entirely in OSS builds.
+        del settings.DEV_API_KEY
+        assert get_local_dev_api_key_value(self._dev_key()) is None
+
+    def test_resolves_the_dev_key_per_call_rather_than_once_at_import(self):
+        rotated_key = "phx_dev_local_rotated_key_for_reveal_5678"
+        with override_settings(**REVEAL_GATES_OPEN):
+            assert get_local_dev_api_key_value(self._dev_key()) == DEV_KEY_UNDER_TEST
+        with override_settings(**{**REVEAL_GATES_OPEN, "DEV_API_KEY": rotated_key}):
+            assert get_local_dev_api_key_value(self._dev_key()) is None
+            rotated = PersonalAPIKey(secure_value=hash_key_value(rotated_key))
+            assert get_local_dev_api_key_value(rotated) == rotated_key
+
+    @override_settings(**REVEAL_GATES_OPEN)
+    def test_api_returns_the_revealed_value_while_leaving_value_unset(self):
+        key = PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Local Development Key",
+            secure_value=hash_key_value(DEV_KEY_UNDER_TEST),
+            mask_value=mask_key_value(DEV_KEY_UNDER_TEST),
+            scopes=["*"],
+        )
+
+        other_key = PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Some other key",
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["*"],
+        )
+
+        response = self.client.get("/api/personal_api_keys")
+
+        assert response.status_code == 200
+        by_id = {k["id"]: k for k in response.json()}
+        assert by_id[key.id]["local_dev_value"] == DEV_KEY_UNDER_TEST
+        # Resolving the value once per serializer rather than per instance would hand the dev
+        # plaintext to every key in the list.
+        assert by_id[other_key.id]["local_dev_value"] is None
+        # `value` stays the create/roll-only channel that pops the one-time dialog in the UI.
+        assert by_id[key.id]["value"] is None
+        assert by_id[key.id]["mask_value"] == mask_key_value(DEV_KEY_UNDER_TEST)

@@ -37,6 +37,7 @@ from posthog.hogql_queries.insights.funnels.utils import (
     entity_config_mismatch,
     get_breakdown_expr,
 )
+from posthog.hogql_queries.insights.utils.aggregations import FirstTimeForUserDataWarehouseConfig
 from posthog.hogql_queries.insights.utils.breakdowns import NOT_IN_COHORT_ID, strip_user_aliases
 from posthog.hogql_queries.insights.utils.data_warehouse_schema_mixin import DataWarehouseSchemaMixin
 from posthog.hogql_queries.insights.utils.properties import Properties
@@ -204,6 +205,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
         where_exprs = [
             self._date_range_expr(),
+            self._day_of_week_filter_expr(ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"])),
             self._entity_expr(skip_entity_filter),
             *self._properties_expr(),
             self._aggregation_target_filter(),
@@ -221,6 +223,20 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         )
         return stmt
 
+    def _warehouse_timestamp_expr(self, table_entity: FunnelsDataWarehouseNode) -> ast.Expr:
+        field = self.get_warehouse_field(table_entity.table_name, table_entity.timestamp_field)
+
+        if isinstance(field, DateTimeDatabaseField) or isinstance(field, DateDatabaseField):
+            return ast.Field(chain=[self.EVENT_TABLE_ALIAS, table_entity.timestamp_field])
+        elif isinstance(field, StringDatabaseField):
+            return ast.Call(
+                name="toDateTime", args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, table_entity.timestamp_field])]
+            )
+        else:
+            raise ValidationError(
+                detail=f"Unsupported timestamp field type for {table_entity.table_name}.{table_entity.timestamp_field}"
+            )
+
     def _build_data_warehouse_table_query(
         self,
         table_config_index: int,
@@ -231,19 +247,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
         all_step_cols = self._get_funnel_cols(table_entity, table_config_index)
 
-        field = self.get_warehouse_field(table_entity.table_name, table_entity.timestamp_field)
-
-        timestamp_expr: ast.Expr
-        if isinstance(field, DateTimeDatabaseField) or isinstance(field, DateDatabaseField):
-            timestamp_expr = ast.Field(chain=[self.EVENT_TABLE_ALIAS, table_entity.timestamp_field])
-        elif isinstance(field, StringDatabaseField):
-            timestamp_expr = ast.Call(
-                name="toDateTime", args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, table_entity.timestamp_field])]
-            )
-        else:
-            raise ValidationError(
-                detail=f"Unsupported timestamp field type for {table_entity.table_name}.{table_entity.timestamp_field}"
-            )
+        timestamp_expr = self._warehouse_timestamp_expr(table_entity)
 
         tag_contains_user_hogql()
         select: list[ast.Expr] = [
@@ -258,7 +262,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         select_from = ast.JoinExpr(table=ast.Field(chain=[table_entity.table_name]), alias=self.EVENT_TABLE_ALIAS)
 
         date_range = self._date_range()
-        where_exprs: list[ast.Expr] = [
+        where_exprs: list[ast.Expr | None] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
                 left=ast.Field(chain=["timestamp"]),
@@ -269,6 +273,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 left=ast.Field(chain=["timestamp"]),
                 right=ast.Constant(value=date_range.date_to()),
             ),
+            self._day_of_week_filter_expr(ast.Field(chain=["timestamp"])),
         ]
         where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 
@@ -363,6 +368,10 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 child_exprs.append(self._build_step_query(child, table_entity))
             if step_entity.operator == FilterLogicalOperator.OR_:
                 event_expr = ast.Or(exprs=child_exprs)
+            else:
+                raise ValidationError(
+                    f"Funnel step event groups only support the OR operator, got {step_entity.operator}"
+                )
         elif step_entity.event is None:
             # all events
             if isinstance(table_entity, FunnelsDataWarehouseNode):
@@ -382,22 +391,38 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             filters.append(filter_expr)
 
         if step_entity.math == FunnelMathType.FIRST_TIME_FOR_USER:
-            subquery = FirstTimeForUserAggregationQuery(self.context, filter_expr, event_expr).to_query()
-            first_time_filter = ast.CompareOperation(
-                left=ast.Field(chain=["e", "uuid"]), right=subquery, op=ast.CompareOperationOp.GlobalIn
-            )
+            dwh_config, lhs = self._first_time_config_and_lhs(table_entity)
+            subquery = FirstTimeForUserAggregationQuery(
+                self.context, filter_expr, event_expr, dwh_config=dwh_config
+            ).to_query()
+            first_time_filter = ast.CompareOperation(left=lhs, right=subquery, op=ast.CompareOperationOp.GlobalIn)
             return ast.And(exprs=[*filters, first_time_filter])
         elif step_entity.math == FunnelMathType.FIRST_TIME_FOR_USER_WITH_FILTERS:
+            dwh_config, lhs = self._first_time_config_and_lhs(table_entity)
             subquery = FirstTimeForUserAggregationQuery(
-                self.context, ast.Constant(value=1), ast.And(exprs=filters)
+                self.context, ast.Constant(value=1), ast.And(exprs=filters), dwh_config=dwh_config
             ).to_query()
-            first_time_filter = ast.CompareOperation(
-                left=ast.Field(chain=["e", "uuid"]), right=subquery, op=ast.CompareOperationOp.GlobalIn
-            )
+            first_time_filter = ast.CompareOperation(left=lhs, right=subquery, op=ast.CompareOperationOp.GlobalIn)
             return ast.And(exprs=[*filters, first_time_filter])
         elif len(filters) > 1:
             return ast.And(exprs=filters)
         return filters[0]
+
+    def _first_time_config_and_lhs(
+        self, table_entity: FunnelsDataWarehouseNode | None
+    ) -> tuple[FirstTimeForUserDataWarehouseConfig | None, ast.Expr]:
+        # The first-time-for-user subquery defaults to the events table; for a data warehouse step it
+        # must target the DWH table, timestamp, aggregation target, and id field instead.
+        if isinstance(table_entity, FunnelsDataWarehouseNode):
+            dwh_config = FirstTimeForUserDataWarehouseConfig(
+                table_expr=ast.Field(chain=[table_entity.table_name]),
+                timestamp_expr=self._warehouse_timestamp_expr(table_entity),
+                group_by_expr=parse_expr(table_entity.aggregation_target_field),
+                id_select_expr=ast.Field(chain=[table_entity.id_field]),
+            )
+            lhs: ast.Expr = ast.Field(chain=[self.EVENT_TABLE_ALIAS, table_entity.id_field])
+            return dwh_config, lhs
+        return None, ast.Field(chain=[self.EVENT_TABLE_ALIAS, "uuid"])
 
     def _get_steps_conditions(self, steps_with_index: Sequence[tuple[int, FunnelEntityNode]]) -> ast.Expr:
         step_conditions: list[ast.Expr] = []
@@ -423,8 +448,13 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             return get_breakdown_expr(breakdown, properties_column)
         elif breakdownType == "event":
             properties_column = "properties"
-            normalize_url = breakdownFilter.breakdown_normalize_url
-            return get_breakdown_expr(breakdown, properties_column, normalize_url=normalize_url)
+            return get_breakdown_expr(
+                breakdown,
+                properties_column,
+                normalize_url=breakdownFilter.breakdown_normalize_url,
+                path_cleaning=breakdownFilter.breakdown_path_cleaning,
+                team=self.context.team,
+            )
         elif breakdownType == "cohort":
             if isinstance(breakdown, int):
                 cohort_id = breakdown
@@ -454,7 +484,12 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         elif breakdownType == "data_warehouse":
             return get_breakdown_expr(breakdown, None)
         else:
-            raise ValidationError(detail=f"Unsupported breakdown type: {breakdownType}")
+            raise ValidationError(
+                detail=(
+                    f'"{breakdownType}" is not a supported breakdown type for funnels. '
+                    "Remove the breakdown or pick a different property to continue."
+                )
+            )
 
     def _query_has_array_breakdown(self) -> bool:
         breakdown, breakdownType = self.context.breakdown, self.context.breakdownType
@@ -516,10 +551,11 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             if isinstance(table_entity, FunnelsDataWarehouseNode):
                 if field == "uuid":
                     resolved_field = self.get_warehouse_field(table_entity.table_name, table_entity.id_field)
-                    if isinstance(resolved_field, UUIDDatabaseField):
+                    # Only non-nullable UUID columns may skip the null guard below
+                    if isinstance(resolved_field, UUIDDatabaseField) and not resolved_field.is_nullable():
                         return ast.Field(chain=[self.EVENT_TABLE_ALIAS, table_entity.id_field])
                     else:
-                        # Handle non-UUID fields:
+                        # Handle nullable or non-UUID fields:
                         # 1. Throw if we're encountering a null value.
                         # 2. Try to cast strings to UUID directly.
                         # 3. As a last resort, create a UUID by hashing the value with a table prefix.
@@ -611,6 +647,14 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 ),
             ]
         )
+
+    def _day_of_week_filter_expr(self, timestamp_field: ast.Expr) -> ast.Expr | None:
+        # Applies to every funnel viz type: events on excluded days don't exist for the funnel,
+        # so a step performed on an excluded day doesn't count towards the sequence, while the
+        # conversion window itself still spans excluded days. This holds regardless of
+        # skip_entity_filter, so strict order and exclusion steps can't see excluded-day events
+        # either — see test_days_of_week_hides_intervening_events_from_strict_order.
+        return self._date_range().day_of_week_filter_expr(timestamp_field)
 
     def _entity_expr(self, skip_entity_filter: bool) -> ast.Expr | None:
         query, funnelsFilter = self.context.query, self.context.funnelsFilter

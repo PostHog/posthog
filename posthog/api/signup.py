@@ -29,19 +29,21 @@ from posthog.api.webauthn import (
     WEBAUTHN_SIGNUP_EMAIL_KEY,
     WEBAUTHN_SIGNUP_USER_UUID_KEY,
 )
-from posthog.demo.matrix import MatrixManager
-from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.email import is_email_available
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailValidationHelper, validate_display_name
+from posthog.helpers.verified_domain_enforcement import resolve_login_organization
 from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
 from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle, SignupResendInviteThrottle
-from posthog.utils import get_can_create_org, is_relative_url
+from posthog.temporal.signup_enrichment.trigger import start_signup_enrichment_workflow
+from posthog.utils import get_can_create_org, get_trusted_client_ip, is_relative_url
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
+
+from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager
 
 logger = structlog.get_logger(__name__)
 
@@ -186,7 +188,10 @@ class SignupSerializer(serializers.Serializer):
         return value
 
     def is_email_auto_verified(self):
-        return self.is_social_signup
+        if self.is_social_signup:
+            return True
+        domain = self.validated_data.get("email", "").split("@")[-1].lower()
+        return domain in settings.EMAIL_VERIFICATION_SKIP_FOR_DOMAINS
 
     def create(self, validated_data, **kwargs):
         if settings.DEMO:
@@ -256,6 +261,11 @@ class SignupSerializer(serializers.Serializer):
                         verified=True,
                         label="Passkey",
                     )
+                    # Self-created during signup, so it counts as already-acknowledged for the
+                    # credential review interstitial. Otherwise the user would be asked to revoke
+                    # the only credential they just minted to log in with.
+                    self._user.credentials_reviewed_at = timezone.now()
+                    self._user.save(update_fields=["credentials_reviewed_at"])
 
         except IntegrityError as e:
             # This can happen if:
@@ -293,6 +303,17 @@ class SignupSerializer(serializers.Serializer):
             role_at_organization=role_at_organization,
             referral_source=referral_source,
             referral_source_ai_prompt=referral_source_ai_prompt,
+        )
+
+        # Fire-and-forget real-time enrichment for onboarding routing. Fully guarded and
+        # never raises, so it cannot block or fail signup.
+        start_signup_enrichment_workflow(
+            organization_id=str(self._organization.id),
+            distinct_id=user.distinct_id,
+            email=user.email,
+            role_at_organization=role_at_organization,
+            # Trusted-proxy-validated: a spoofed X-Forwarded-For must not pick the scored country.
+            ip_address=get_trusted_client_ip(request),
         )
 
         verify_email_or_login(request, user)
@@ -532,6 +553,17 @@ class InviteSignupSerializer(serializers.Serializer):
                 code="sso_enforced",
             )
 
+        # The check above keys on the email's own domain; this one keys on the org:
+        # an org that requires a verified email domain only admits members on its verified domains,
+        # so a pre-existing outside-domain invite can't be accepted.
+        if invite.target_email and OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(
+            invite.target_email, invite.organization
+        ):
+            raise serializers.ValidationError(
+                "This organization only allows members with a verified email domain. Please use an email address on one of the organization's domains.",
+                code="verified_domain_required",
+            )
+
         with transaction.atomic():
             if not user:
                 is_new_user = True
@@ -610,6 +642,10 @@ class InviteSignupSerializer(serializers.Serializer):
                 if invite.organization.enforce_2fa and not user.passkeys_enabled_for_2fa:
                     user.passkeys_enabled_for_2fa = True
                     user.save(update_fields=["passkeys_enabled_for_2fa"])
+                # Self-created during invite signup; treat as already-acknowledged so the
+                # credential review interstitial doesn't ask the user to revoke their own passkey.
+                user.credentials_reviewed_at = timezone.now()
+                user.save(update_fields=["credentials_reviewed_at"])
 
         if is_new_user:
             verify_email_or_login(self.context["request"], user)
@@ -795,6 +831,10 @@ def process_social_invite_signup(
             invite = TeamInviteSurrogate(invite_id)
         except Team.DoesNotExist:
             return None
+        # Legacy team signup tokens bind to no email and never expire, so this branch must run the
+        # domain gate itself — real invites get it upstream via their resolved organization.
+        if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(email, invite.organization):
+            return None
 
     # Capture before invite.use() — use() deletes the invite row, so the in-memory boolean is
     # the only safe source of truth for delegation routing.
@@ -841,7 +881,7 @@ def process_social_domain_jit_provisioning_signup(
             domain=domain,
             is_verified=domain_instance.is_verified,
             jit_provisioning_enabled=domain_instance.jit_provisioning_enabled,
-            scim_enabled=domain_instance.scim_enabled,
+            scim_enabled=domain_instance.idp_config.scim_enabled,
         )
         if domain_instance.is_verified and domain_instance.jit_provisioning_enabled:
             if not user:
@@ -892,10 +932,20 @@ def process_social_domain_jit_provisioning_signup(
                     domain=domain,
                     user=user.email,
                     organization=domain_instance.organization_id,
-                    scim_enabled=domain_instance.scim_enabled,
+                    scim_enabled=domain_instance.idp_config.scim_enabled,
                 )
 
     return user
+
+
+def _resolve_invite_organization(invite_id: str) -> Optional[Organization]:
+    """Organization an invite grants access to, or None for legacy team-invite surrogates / missing invites."""
+    try:
+        # nosemgrep: idor-lookup-without-org (invite UUID from server session serves as auth token)
+        invite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
+    except (OrganizationInvite.DoesNotExist, ValidationError):
+        return None
+    return invite.organization
 
 
 @partial
@@ -923,6 +973,25 @@ def social_create_user(
     if not invite_id and organization_domain_id:
         invite = lookup_invite_for_saml(email, organization_domain_id)
         invite_id = invite.id if invite else None
+
+    # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
+    # Joins (below) stay blocked for everyone.
+    if user and not resolve_login_organization(user):
+        logger.warning("social_create_user_blocked_domain_enforcement", user_id=user.pk)
+        return redirect("/login?error_code=verified_domain_required")
+
+    invite_organization = _resolve_invite_organization(invite_id) if invite_id else None
+    enforcement_email = user.email if user else email
+    if (
+        invite_organization is not None
+        and enforcement_email
+        and OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(enforcement_email, invite_organization)
+    ):
+        logger.warning(
+            "social_create_user_blocked_domain_enforcement",
+            organization=str(invite_organization.id),
+        )
+        return redirect("/login?error_code=verified_domain_required")
 
     if user:
         # If the user is already authenticated, we're looking for outstanding invites for them

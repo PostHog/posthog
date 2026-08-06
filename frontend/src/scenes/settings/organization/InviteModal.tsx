@@ -11,8 +11,9 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { capitalizeFirstLetter, isEmail, pluralize } from 'lib/utils'
 import { organizationMembershipLevelIntegers } from 'lib/utils/permissioning'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
+import { isEmail } from 'lib/utils/url'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -419,7 +420,14 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                         <p>
                             Invite others to your organization to collaborate together in PostHog. An invite is specific
                             to an email address and expires after 3 days. Name can be provided for the team member's
-                            convenience.
+                            convenience.{' '}
+                            <Link
+                                to="https://posthog.com/docs/settings/organizations#adding-new-members"
+                                target="_blank"
+                                targetBlankIcon
+                            >
+                                Docs
+                            </Link>
                         </p>
                     ) : (
                         <p>

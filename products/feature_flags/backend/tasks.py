@@ -1,6 +1,7 @@
 import time
 
 from django.conf import settings
+from django.core.cache import cache as django_cache
 from django.db.models import Count, F, Func, IntegerField, Max, Sum, TextField
 from django.db.models.functions import Cast
 
@@ -8,25 +9,40 @@ import structlog
 from celery import shared_task
 from prometheus_client import Gauge
 
+from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.api.capture import capture_batch_internal
 from posthog.models.team import Team
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
+from products.feature_flags.backend.canary import run_local_eval_canary
+from products.feature_flags.backend.cross_region_flag_sync import sync_cross_region_flags
 from products.feature_flags.backend.flags_cache import (
     cleanup_stale_expiry_tracking,
+    clear_flags_cache,
     get_cache_stats,
     refresh_expiring_flags_caches,
     update_flags_cache,
 )
 from products.feature_flags.backend.local_evaluation import (
     FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
-    FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG,
+    clear_flag_definition_caches,
     update_flag_caches,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.rebuild_queue import drain_rebuild_requests
 
 logger = structlog.get_logger(__name__)
+
+# Matches the task's hard time_limit so a crashed run's lock expires before the next
+# 5-minute schedule.
+LOCAL_EVAL_CANARY_LOCK_TIMEOUT_SECONDS = 90
+
+ENROLLMENT_MIGRATION_PAGE_SIZE = MAX_SELECT_RETURNED_ROWS
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
@@ -41,7 +57,39 @@ def update_team_flags_cache(team_id: int) -> None:
     update_flag_caches(team)
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
+# Bounded below the 1-minute schedule so a slow drain (e.g. a large post-eviction
+# backlog rebuilt inline) can't run past the next tick and pin a worker. Teams not
+# reached before the limit stay missing and are re-enqueued by their next miss.
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.FEATURE_FLAGS.value,
+    soft_time_limit=50,
+    time_limit=55,
+)
+def drain_flag_definitions_rebuild_requests() -> None:
+    """Drain the flag-definitions self-heal queue, rebuilding caches the Rust
+    /flags/definitions endpoint reported missing. Scheduled every minute."""
+    drain_rebuild_requests()
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)
+def sync_cross_region_flags_task() -> None:
+    """Celery entrypoint for sync_cross_region_flags.
+
+    On its own queue (not CeleryQueue.FEATURE_FLAGS) because it makes a blocking
+    cross-region HTTP call: a stalled upstream shouldn't be able to delay the
+    fast, sub-second signal-driven cache rebuilds sharing that queue.
+    """
+    sync_cross_region_flags()
+
+
+# Pinned: products.cohorts dispatches this by name (a static import would close a product-dependency
+# cycle), so a module move must not silently rename the registration out from under that caller.
+@shared_task(
+    name="products.feature_flags.backend.tasks.update_team_service_flags_cache",
+    ignore_result=True,
+    queue=CeleryQueue.FEATURE_FLAGS.value,
+)
 @skip_team_scope_audit
 def update_team_service_flags_cache(team_id: int) -> None:
     """
@@ -54,13 +102,121 @@ def update_team_service_flags_cache(team_id: int) -> None:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
         logger.debug("Team does not exist for service flags cache update", team_id=team_id)
-        HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(namespace="feature_flags", operation="update", result="failure").inc()
+        HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
+            namespace="feature_flags", cache_name="flags", operation="update", result="failure"
+        ).inc()
         return
 
     success = update_flags_cache(team)
     HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
-        namespace="feature_flags", operation="update", result="success" if success else "failure"
+        namespace="feature_flags", cache_name="flags", operation="update", result="success" if success else "failure"
     ).inc()
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
+    max_retries=3,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+)
+@skip_team_scope_audit
+def migrate_feature_enrollment_on_key_change(team_id: int, old_key: str, flag_id: int) -> None:
+    """
+    Copy `$feature_enrollment/<old_key>` person properties to the flag's key after a rename,
+    so existing early access opt-ins (and explicit opt-outs) keep applying — evaluation
+    derives the enrollment property name from the flag's current key.
+
+    The destination is the flag's key as of execution, not as of the rename, so a chain of
+    renames converges on the final key instead of stranding people on an intermediate one.
+    Writes use `$set_once`, so a person who makes a fresh choice under the new key during the
+    migration can't be clobbered, and retries are harmless. The old property is kept so
+    renaming back stays lossless. Enrollees are paged through by person id.
+    """
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        logger.exception("Team does not exist for enrollment migration", team_id=team_id)
+        return
+
+    flag = FeatureFlag.objects.filter(team_id=team_id, id=flag_id, deleted=False).first()
+    if flag is None:
+        return
+
+    new_key = flag.key
+    if new_key == old_key:
+        return
+
+    new_prop = f"$feature_enrollment/{new_key}"
+    cursor = ""
+
+    while True:
+        # Property access (rather than JSONExtractString) lets the HogQL printer use
+        # materialized person-property columns when available.
+        response = execute_hogql_query(
+            """
+            SELECT
+                toString(id) AS person_id,
+                argMax(pdi.distinct_id, created_at) AS distinct_id,
+                properties[{old_prop}] AS enrollment_value
+            FROM persons
+            WHERE properties[{old_prop}] IN ('true', 'false')
+            AND properties[{new_prop}] IS NULL
+            AND toString(id) > {cursor}
+            GROUP BY id, enrollment_value
+            ORDER BY person_id
+            LIMIT {limit}
+            """,
+            placeholders={
+                "old_prop": ast.Constant(value=f"$feature_enrollment/{old_key}"),
+                "new_prop": ast.Constant(value=new_prop),
+                "cursor": ast.Constant(value=cursor),
+                "limit": ast.Constant(value=ENROLLMENT_MIGRATION_PAGE_SIZE),
+            },
+            team=team,
+            limit_context=LimitContext.QUERY_ASYNC,
+        )
+
+        if not response.results:
+            return
+
+        # A person whose distinct ids all moved to another person in a merge joins to nothing
+        # and comes back blank; capture rejects the whole batch over one such event.
+        events = [
+            {
+                "event": "$set",
+                "distinct_id": distinct_id,
+                "properties": {"$set_once": {new_prop: enrollment_value == "true"}},
+            }
+            for _person_id, distinct_id, enrollment_value in response.results
+            if distinct_id
+        ]
+        if events:
+            capture_batch_internal(
+                events=events,
+                token=team.api_token,
+                event_source="feature_flag_enrollment_key_migration",
+                process_person_profile=True,
+            ).raise_for_status()
+
+        if len(response.results) < ENROLLMENT_MIGRATION_PAGE_SIZE:
+            return
+
+        cursor = response.results[-1][0]
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
+@skip_team_scope_audit
+def clear_team_evaluation_cache(team_id: int) -> None:
+    """Clear the /flags evaluation cache for a specific team, enqueued by staff tooling."""
+    clear_flags_cache(team_id)
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
+@skip_team_scope_audit
+def clear_team_definitions_cache(team_id: int) -> None:
+    """Clear the /flags/definitions local-eval cache for a specific team, enqueued by staff tooling."""
+    clear_flag_definition_caches(team_id)
 
 
 @shared_task(bind=True, base=PushGatewayTask, ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)
@@ -100,14 +256,14 @@ def refresh_expiring_flags_cache_entries(self: PushGatewayTask) -> None:
         limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
     )
 
-    successful, failed = refresh_expiring_flags_caches(
+    counts = refresh_expiring_flags_caches(
         ttl_threshold_hours=settings.FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,
         limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
     )
 
     # Record metrics
-    successful_gauge.set(successful)
-    failed_gauge.set(failed)
+    successful_gauge.set(counts.successful)
+    failed_gauge.set(counts.failed)
 
     # Note: Teams processed metrics are pushed to Pushgateway by
     # cache_expiry_manager.refresh_expiring_caches() via push_hypercache_teams_processed_metrics()
@@ -119,8 +275,8 @@ def refresh_expiring_flags_cache_entries(self: PushGatewayTask) -> None:
 
     logger.info(
         "Completed flags cache refresh",
-        successful_refreshes=successful,
-        failed_refreshes=failed,
+        successful_refreshes=counts.successful,
+        failed_refreshes=counts.failed,
         total_cached=stats_after.get("total_cached", 0),
         total_teams=stats_after.get("total_teams", 0),
         cache_coverage=stats_after.get("cache_coverage", "unknown"),
@@ -288,9 +444,8 @@ def compute_feature_flag_metrics(self: PushGatewayTask) -> None:
 @shared_task(bind=True, base=PushGatewayTask, ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)
 def refresh_expiring_flag_definitions_cache_entries(self: PushGatewayTask) -> None:
     """
-    Periodic task to refresh flag definitions caches before they expire.
+    Periodic task to refresh the flag definitions cache before entries expire.
 
-    Refreshes both with-cohorts and without-cohorts cache variants.
     Runs hourly and refreshes caches with TTL < 24 hours to prevent cache misses.
 
     Note: Most cache updates happen via Django signals when flags change.
@@ -317,44 +472,20 @@ def refresh_expiring_flag_definitions_cache_entries(self: PushGatewayTask) -> No
         limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
     )
 
-    total_successful = 0
-    total_failed = 0
+    counts = refresh_expiring_caches(
+        config=FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
+        ttl_threshold_hours=settings.FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,
+        limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
+    )
 
-    # Refresh both cache variants
-    for config, variant_name in [
-        (FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG, "with-cohorts"),
-        (FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG, "without-cohorts"),
-    ]:
-        try:
-            successful, failed = refresh_expiring_caches(
-                config=config,
-                ttl_threshold_hours=settings.FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,
-                limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
-            )
-            total_successful += successful
-            total_failed += failed
-            logger.info(
-                "Completed flag definitions cache refresh for variant",
-                variant=variant_name,
-                successful_refreshes=successful,
-                failed_refreshes=failed,
-            )
-        except Exception as e:
-            logger.exception(
-                "Failed to refresh flag definitions cache variant",
-                variant=variant_name,
-                error=str(e),
-            )
-            total_failed += 1
-
-    successful_gauge.set(total_successful)
-    failed_gauge.set(total_failed)
+    successful_gauge.set(counts.successful)
+    failed_gauge.set(counts.failed)
 
     duration = time.time() - start_time
     logger.info(
         "Completed flag definitions cache refresh",
-        total_successful_refreshes=total_successful,
-        total_failed_refreshes=total_failed,
+        successful_refreshes=counts.successful,
+        failed_refreshes=counts.failed,
         duration_seconds=duration,
     )
 
@@ -362,11 +493,10 @@ def refresh_expiring_flag_definitions_cache_entries(self: PushGatewayTask) -> No
 @shared_task(bind=True, base=PushGatewayTask, ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)
 def cleanup_stale_flag_definitions_expiry_tracking_task(self: PushGatewayTask) -> None:
     """
-    Periodic task to clean up stale entries in the flag definitions cache expiry tracking sorted sets.
+    Periodic task to clean up stale entries in the flag definitions cache expiry tracking sorted set.
 
     Removes entries for teams that no longer exist in the database.
     Runs daily to prevent sorted set bloat from deleted teams.
-    Cleans up both with-cohorts and without-cohorts sorted sets.
     """
 
     from posthog.storage.cache_expiry_manager import cleanup_stale_expiry_tracking
@@ -377,27 +507,40 @@ def cleanup_stale_flag_definitions_expiry_tracking_task(self: PushGatewayTask) -
         registry=self.metrics_registry,
     )
 
-    total_removed = 0
-    configs = [
-        (FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG, "with-cohorts"),
-        (FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG, "without-cohorts"),
-    ]
+    removed_count = cleanup_stale_expiry_tracking(FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG)
 
-    for config, variant_name in configs:
-        try:
-            removed_count = cleanup_stale_expiry_tracking(config)
-            total_removed += removed_count
-            logger.info(
-                "Completed flag definitions expiry tracking cleanup for variant",
-                variant=variant_name,
-                removed_count=removed_count,
-            )
-        except Exception as e:
-            logger.exception(
-                "Failed to cleanup flag definitions expiry tracking for variant",
-                variant=variant_name,
-                error=str(e),
-            )
+    entries_cleaned_gauge.set(removed_count)
+    logger.info("Completed flag definitions expiry tracking cleanup", removed_count=removed_count)
 
-    entries_cleaned_gauge.set(total_removed)
-    logger.info("Completed flag definitions expiry tracking cleanup", total_removed_count=total_removed)
+
+@shared_task(
+    bind=True,
+    base=PushGatewayTask,
+    ignore_result=True,
+    queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
+    soft_time_limit=60,
+    time_limit=LOCAL_EVAL_CANARY_LOCK_TIMEOUT_SECONDS,
+)
+def feature_flags_local_eval_canary_task(self: PushGatewayTask) -> None:
+    """Periodic canary for feature-flags local evaluation.
+
+    Builds the configured team's local-eval payload and checks its group_type_mapping
+    is non-empty. Does nothing unless FEATURE_FLAGS_CANARY_TEAM_ID is set. A
+    distributed lock skips overlapping runs.
+
+    Metrics:
+    - posthog_feature_flags_local_eval_canary_group_mapping_present (gauge, 1/0)
+    - posthog_feature_flags_local_eval_canary_failure_total (counter)
+    """
+    if settings.FEATURE_FLAGS_CANARY_TEAM_ID is None:
+        return
+
+    lock_key = "posthog:feature_flags_local_eval_canary:lock"
+    if not django_cache.add(lock_key, "locked", timeout=LOCAL_EVAL_CANARY_LOCK_TIMEOUT_SECONDS):
+        logger.info("Skipping feature flags local-eval canary - already running")
+        return
+
+    try:
+        run_local_eval_canary(self.metrics_registry)
+    finally:
+        django_cache.delete(lock_key)

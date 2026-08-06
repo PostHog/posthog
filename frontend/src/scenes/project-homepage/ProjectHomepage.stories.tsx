@@ -10,8 +10,12 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
+import type { MockResolverInfo } from '~/mocks/utils'
 
-const dashboardRaw = require('../dashboard/__mocks__/dashboard1.json')
+import __dashboard1 from '../dashboard/__mocks__/dashboard1.json'
+import __dashboards from '../dashboard/__mocks__/dashboards.json'
+
+const dashboardRaw = __dashboard1 as any
 // Mark all tiles as cached to prevent refresh attempts in storybook
 const dashboard = {
     ...dashboardRaw,
@@ -41,8 +45,8 @@ const insightMocks = dashboard.tiles.reduce((acc: Record<string, any>, tile: any
 }, {})
 
 // Add the generic insight fetching endpoint that requires from_dashboard param
-const insightFetchMock = (req: any): [number, any] => {
-    const insightId = req.params.id
+const insightFetchMock = ({ params }: MockResolverInfo): [number, any] => {
+    const insightId = params.id
 
     // Don't require from_dashboard in storybook to simplify things
     // Find the insight in the dashboard tiles
@@ -68,7 +72,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/dashboards/': require('../dashboard/__mocks__/dashboards.json'),
+                '/api/environments/:team_id/dashboards/': __dashboards as any,
                 '/api/environments/:team_id/dashboards/1/': dashboard,
                 ...insightMocks,
                 '/api/environments/:team_id/insights/:id/': insightFetchMock,

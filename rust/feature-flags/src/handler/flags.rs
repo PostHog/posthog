@@ -12,6 +12,7 @@ use crate::{
     utils::user_agent::{RuntimeType, UserAgentInfo},
 };
 use axum::extract::State;
+use chrono_tz::Tz;
 use common_types::TeamId;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
@@ -331,6 +332,7 @@ fn collect_excluded_by_tags(
 pub async fn evaluate_for_request(
     state: &State<router::State>,
     team_id: i32,
+    team_timezone: Tz,
     distinct_id: String,
     device_id: Option<String>,
     filtered_flags: FeatureFlagList,
@@ -361,6 +363,7 @@ pub async fn evaluate_for_request(
 
     let ctx = FeatureFlagEvaluationContext {
         team_id,
+        team_timezone,
         distinct_id,
         device_id,
         feature_flags: filtered_flags,
@@ -389,6 +392,7 @@ pub async fn evaluate_for_request(
             .config
             .realtime_cohort_evaluation_team_ids
             .includes_team(team_id),
+        membership_stamp_policy: state.config.realtime_cohort_membership_stamp_policy,
         detailed_analysis: detailed_analysis.unwrap_or(false),
         only_use_override_person_properties: only_use_override_person_properties.unwrap_or(false),
     };
@@ -630,12 +634,14 @@ mod tests {
         let server_sdks = vec![
             "posthog-python/1.4.0",
             "posthog-ruby/2.0.0",
+            "posthog-ruby2.0.0",
             "posthog-php/3.0.0",
             "posthog-java/1.0.0",
             "posthog-go/0.1.0",
             "posthog-node/2.2.0",
             "posthog-dotnet/1.0.0",
             "posthog-elixir/0.2.0",
+            "posthog-rs/0.10.0",
         ];
 
         for sdk in server_sdks {

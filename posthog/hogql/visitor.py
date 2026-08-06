@@ -133,6 +133,12 @@ class TraversingVisitor(Visitor[None]):
         for expr in node.exprs:
             self.visit(expr)
 
+    def visit_property_access(self, node: ast.PropertyAccess):
+        self.visit(node.expr)
+
+    def visit_json_subcolumn_access(self, node: ast.JsonSubcolumnAccess):
+        self.visit(node.expr)
+
     def visit_lambda(self, node: ast.Lambda):
         self.visit(node.expr)
 
@@ -282,8 +288,10 @@ class TraversingVisitor(Visitor[None]):
             self.visit(expr3)
 
     def visit_select_set_query_type(self, node: ast.SelectSetQueryType):
-        for type in node.types:
-            self.visit(type)
+        for select_type in node.types:
+            self.visit(select_type)
+        for column_type in node.columns.values():
+            self.visit(column_type)
 
     def visit_table_type(self, node: ast.TableType):
         pass
@@ -358,6 +366,13 @@ class TraversingVisitor(Visitor[None]):
     def visit_tuple_type(self, node: ast.TupleType):
         for expr in node.item_types:
             self.visit(expr)
+
+    def visit_aggregate_state_type(self, node: ast.AggregateStateType):
+        self.visit(node.wrapped_type)
+
+    def visit_map_type(self, node: ast.MapType):
+        self.visit(node.key_type)
+        self.visit(node.value_type)
 
     def visit_date_type(self, node: ast.DateType):
         pass
@@ -700,6 +715,25 @@ class CloningVisitor(Visitor[Any]):
             exprs=[self.visit(expr) for expr in node.exprs],
         )
 
+    def visit_property_access(self, node: ast.PropertyAccess):
+        return ast.PropertyAccess(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            expr=self.visit(node.expr),
+            keys=list(node.keys),
+        )
+
+    def visit_json_subcolumn_access(self, node: ast.JsonSubcolumnAccess):
+        return ast.JsonSubcolumnAccess(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            expr=self.visit(node.expr),
+            keys=list(node.keys),
+            access_type=node.access_type,
+        )
+
     def visit_lambda(self, node: ast.Lambda):
         return ast.Lambda(
             start=None if self.clear_locations else node.start,
@@ -751,6 +785,7 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             value=node.value,
+            inline_sentinel=node.inline_sentinel,
         )
 
     def visit_keyword(self, node: ast.Keyword):

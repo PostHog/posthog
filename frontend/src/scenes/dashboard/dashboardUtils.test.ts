@@ -1,8 +1,9 @@
 import { dayjs } from 'lib/dayjs'
 
-import { DashboardPlacement, DashboardTile, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardTile, DashboardType, InsightModel, QueryBasedInsightModel } from '~/types'
 
 import {
+    dashboardToSaveableTemplate,
     getDashboardTileDisplayName,
     isWidgetTileVisibleOnPlacement,
     parseURLFilters,
@@ -21,7 +22,7 @@ describe('getDashboardTileDisplayName', () => {
             color: null,
         }
 
-        expect(getDashboardTileDisplayName(tile)).toBe('error_tracking_list')
+        expect(getDashboardTileDisplayName(tile)).toBe('Top issues')
     })
 
     it('uses custom widget name when set', () => {
@@ -36,10 +37,41 @@ describe('getDashboardTileDisplayName', () => {
     })
 })
 
+describe('dashboardToSaveableTemplate', () => {
+    it('serializes a button tile with a BUTTON type discriminator', () => {
+        const dashboard = {
+            name: 'My dashboard',
+            description: '',
+            filters: {},
+            tags: [],
+            tiles: [
+                {
+                    id: 1,
+                    button_tile: {
+                        id: '1',
+                        url: '/replay/home',
+                        text: 'Watch replays',
+                        placement: 'left',
+                        style: 'primary',
+                    },
+                    layouts: {},
+                    color: null,
+                },
+            ],
+        } as unknown as DashboardType<InsightModel>
+
+        const tile = dashboardToSaveableTemplate(dashboard)?.tiles[0]
+        expect(tile).toMatchObject({
+            type: 'BUTTON',
+            button_tile: { url: '/replay/home', text: 'Watch replays' },
+        })
+    })
+})
+
 describe('isWidgetTileVisibleOnPlacement', () => {
     it.each([
         [DashboardPlacement.Dashboard, true],
-        [DashboardPlacement.Public, false],
+        [DashboardPlacement.Public, true],
         [DashboardPlacement.Export, false],
     ])('placement=%s → %s', (placement, expected) => {
         expect(isWidgetTileVisibleOnPlacement(placement)).toBe(expected)

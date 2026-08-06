@@ -11,7 +11,6 @@ from rest_framework import exceptions, status
 
 from posthog.constants import AvailableFeature
 from posthog.models.utils import sane_repr
-from posthog.tasks.tasks import sync_all_organization_available_product_features
 
 
 class LicenseError(exceptions.APIException):
@@ -69,6 +68,7 @@ class License(models.Model):
         AvailableFeature.RECORDINGS_FILE_EXPORT,
         AvailableFeature.RECORDINGS_PERFORMANCE,
         AvailableFeature.HIGH_FREQUENCY_ALERTS,
+        AvailableFeature.REAL_TIME_ALERTS,
     ]
 
     ENTERPRISE_PLAN = "enterprise"
@@ -117,4 +117,8 @@ def get_licensed_users_available() -> Optional[int]:
 
 @receiver(post_save, sender=License)
 def license_saved(sender, instance: License, created: bool, raw: bool, using: str, **kwargs: object) -> None:
+    # posthog.tasks.__init__ eagerly imports every task module (celery autoimport);
+    # this model loads at django.setup(), so keep the task graph off the module level.
+    from posthog.tasks.tasks import sync_all_organization_available_product_features  # noqa: PLC0415
+
     sync_all_organization_available_product_features()

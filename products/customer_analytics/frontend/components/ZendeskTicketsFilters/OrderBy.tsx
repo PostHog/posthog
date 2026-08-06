@@ -2,11 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { zendeskTicketsFiltersLogic } from './zendeskTicketsFiltersLogic'
 
-const label = (key: string) => {
+const label = (key: string): string => {
     switch (key) {
         case 'updated_at':
             return 'Updated'

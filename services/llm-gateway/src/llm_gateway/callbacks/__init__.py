@@ -20,10 +20,11 @@ def init_callbacks() -> None:
                 region_url=settings.posthog_api_base_url,
                 secondary_api_key=settings.posthog_secondary_project_token,
                 secondary_host=settings.posthog_secondary_host,
+                ai_lane_capture=settings.posthog_ai_lane_capture,
             )
         )
 
     callbacks.append(RateLimitCallback())
     callbacks.append(PrometheusCallback())
 
-    litellm.callbacks = callbacks  # ty: ignore[invalid-assignment]
+    litellm.callbacks = callbacks

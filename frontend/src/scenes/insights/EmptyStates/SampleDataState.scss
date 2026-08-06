@@ -1,0 +1,108 @@
+.SampleDataState {
+    position: relative;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    min-height: 6rem;
+
+    &__tag {
+        position: absolute;
+        top: 0.5rem;
+        right: 0.5rem;
+        z-index: 1;
+    }
+
+    &__viz {
+        display: flex;
+        flex: 1;
+        align-items: center;
+        justify-content: center;
+        min-height: 0;
+        overflow: hidden;
+        transition: opacity 0.3s ease;
+        animation: SampleDataState__breathe 5s ease-in-out infinite;
+
+        // Settle to full opacity while the user is interacting with the chart
+        &:hover {
+            opacity: 1;
+            animation: none;
+        }
+    }
+
+    &__chart {
+        // The quill chart root stretches via flex-1, so it needs a flex column parent
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        height: 100%;
+        opacity: 0;
+        animation: SampleDataState__fade-up 0.7s cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
+    }
+
+    &__row {
+        opacity: 0;
+        animation: SampleDataState__fade-up 0.5s ease-out forwards;
+    }
+
+    &__row-cell {
+        height: 0.5rem;
+        background: var(--color-skeleton-light);
+        border-radius: 0.25rem;
+    }
+
+    &__number {
+        opacity: 0;
+        animation: SampleDataState__fade-up 0.7s cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
+    }
+
+    // One-shot entrance animations complete instantly for reduced motion or screenshot tests;
+    // the looping "breathe" is dropped entirely.
+    &--static &__viz {
+        animation: none;
+    }
+
+    &--static &__chart,
+    &--static &__row,
+    &--static &__number {
+        animation-duration: 0s;
+        animation-delay: 0s;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .SampleDataState__viz {
+        animation: none;
+    }
+
+    .SampleDataState__chart,
+    .SampleDataState__row,
+    .SampleDataState__number {
+        animation-duration: 0s;
+        animation-delay: 0s;
+    }
+}
+
+@keyframes SampleDataState__fade-up {
+    from {
+        opacity: 0;
+        transform: translateY(0.375rem);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes SampleDataState__breathe {
+    0%,
+    100% {
+        opacity: 0.8;
+    }
+
+    50% {
+        opacity: 0.55;
+    }
+}

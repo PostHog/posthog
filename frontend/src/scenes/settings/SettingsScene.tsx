@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { useAnchor } from 'lib/hooks/useAnchor'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'

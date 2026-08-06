@@ -1,3 +1,10 @@
+BILLING_CONTEXT_UNAVAILABLE_PROMPT = (
+    "No billing information available. "
+    "Do not guess or infer billing details, plan pricing, or how specific plans work. "
+    'Search the PostHog documentation using the `search` tool with kind="docs" for the relevant billing or pricing topic, '
+    "and be transparent with the user that you cannot see their specific billing details."
+)
+
 BILLING_CONTEXT_PROMPT = """
 <billing_context>
 The user's organization has {{subscription_level}} subscription{{#billing_plan}} ({{billing_plan}}){{/billing_plan}}.

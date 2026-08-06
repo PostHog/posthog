@@ -1,8 +1,8 @@
-import { sanitizeString } from '~/utils/db/utils'
-import { LazyLoader } from '~/utils/lazy-loader'
-import { logger } from '~/utils/logger'
-import { TeamManager } from '~/utils/team-manager'
-import { GroupRepository } from '~/worker/ingestion/groups/repositories/group-repository.interface'
+import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
+import { sanitizeString } from '~/common/utils/db/utils'
+import { LazyLoader } from '~/common/utils/lazy-loader'
+import { logger } from '~/common/utils/logger'
+import { TeamManager } from '~/common/utils/team-manager'
 
 import { GroupTypeIndex, Team } from '../../../types'
 import { GroupType, HogFunctionInvocationGlobals } from '../../types'
@@ -31,7 +31,7 @@ export class GroupsManagerService {
 
     constructor(
         private teamManager: TeamManager,
-        private groupRepository: GroupRepository
+        private groupRepository: GroupReadRepository
     ) {
         this.groupTypesLoader = new LazyLoader({
             name: 'groups_manager_types',
@@ -123,6 +123,14 @@ export class GroupsManagerService {
      */
     public async addGroupsToGlobals(globals: HogFunctionInvocationGlobals): Promise<void> {
         if (globals.groups) {
+            return
+        }
+
+        // A malformed invocation can arrive with globals present but missing project/event
+        // (e.g. partial state rehydration). Skip enrichment rather than dereferencing them —
+        // an unguarded throw here becomes an unhandled rejection that crash-loops the worker.
+        if (!globals.project || !globals.event) {
+            globals.groups = {}
             return
         }
 

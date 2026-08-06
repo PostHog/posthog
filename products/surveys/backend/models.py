@@ -12,6 +12,7 @@ from django.dispatch import receiver
 from dateutil.rrule import DAILY, rrule
 from django_deprecate_fields import deprecate_field
 
+from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.utils import RootTeamMixin, UUIDModel, UUIDTModel
@@ -301,9 +302,9 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     actions = models.ManyToManyField(Action)
 
     @classmethod
-    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Survey"]:
+    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Survey"]:
         base_qs = cls.objects.filter(team=team)
-        return cls._filter_unfiled_queryset(base_qs, team, type="survey", ref_field="id")
+        return cls._filter_unfiled_queryset(base_qs, team, type="survey", ref_field="id", surface=surface)
 
     @classmethod
     def get_internal_flag_ids(

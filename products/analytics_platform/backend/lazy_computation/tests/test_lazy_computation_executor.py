@@ -20,6 +20,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.analytics_platform.backend.lazy_computation.computation_notifications import (
     job_channel,
@@ -30,13 +31,18 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     DEFAULT_RETRIES,
     DEFAULT_TTL_SCHEDULE,
     DEFAULT_WAIT_TIMEOUT_SECONDS,
+    EXPIRY_BUFFER_SECONDS,
     NON_RETRYABLE_CLICKHOUSE_ERROR_CODES,
+    PREAGGREGATION_INSERT_QUORUM,
+    PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS,
     LazyComputationExecutor,
     LazyComputationResult,
     LazyComputationTable,
     QueryInfo,
     TtlSchedule,
     _build_manual_insert_sql,
+    _get_insert_settings,
+    _written_rows,
     build_lazy_computation_insert_sql,
     compute_query_hash,
     create_lazy_computation_job,
@@ -45,6 +51,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     find_missing_contiguous_windows,
     is_non_retryable_error,
     parse_ttl_schedule,
+    run_lazy_computation_insert,
     split_ranges_by_ttl,
 )
 from products.analytics_platform.backend.models import PreaggregationJob
@@ -857,6 +864,50 @@ class TestBuildManualInsertSQL(BaseTest):
         assert "2024-01-01" in sql
         assert "2024-01-02" in sql
 
+    def test_uses_provided_modifiers_when_printing(self):
+        # Callers (web analytics session-id-set inserts) pass modifiers that change the
+        # execution plan the printer emits; dropping the pass-through would silently
+        # revert those inserts to the unoptimized shape while all results stay equal.
+        from posthog.schema import HogQLQueryModifiers, SessionTableVersion
+
+        job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+        sessions_query = """
+            SELECT toStartOfHour(sessions.$start_timestamp) AS time_window_start,
+                   uniqState(sessions.session_id) AS uniq_sessions_state
+            FROM sessions
+            WHERE and(
+                sessions.$start_timestamp >= {time_window_min},
+                sessions.$start_timestamp < {time_window_max},
+                sessions.session_id_v7 IN (SELECT DISTINCT events.$session_id_uuid FROM events)
+            )
+            GROUP BY time_window_start
+        """
+        modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2, sessionIdPushdown=True)
+
+        with_modifiers, _ = _build_manual_insert_sql(
+            team=self.team,
+            job=job,
+            insert_query=sessions_query,
+            table=LazyComputationTable.PREAGGREGATION_RESULTS,
+            modifiers=modifiers,
+        )
+        without_modifiers, _ = _build_manual_insert_sql(
+            team=self.team,
+            job=job,
+            insert_query=sessions_query,
+            table=LazyComputationTable.PREAGGREGATION_RESULTS,
+        )
+
+        assert "globalIn(raw_sessions.session_id_v7" in with_modifiers
+        assert "globalIn(raw_sessions.session_id_v7" not in without_modifiers
+
     def test_accepts_custom_placeholders(self):
         job = PreaggregationJob.objects.create(
             team=self.team,
@@ -1262,6 +1313,30 @@ class TestParseTtlSchedule(BaseTest):
         with pytest.raises(ValueError, match="must be positive"):
             parse_ttl_schedule(ttl)
 
+    @parameterized.expand(
+        [
+            ("zero_empty_ttl", {"empty_result_ttl_seconds": 0}),
+            ("negative_empty_ttl", {"empty_result_ttl_seconds": -60}),
+            ("zero_max_age", {"empty_result_max_age_seconds": 0}),
+            ("negative_max_age", {"empty_result_max_age_seconds": -60}),
+        ]
+    )
+    def test_rejects_non_positive_empty_result_settings(self, name, kwargs):
+        # Validated like every sibling TTL: 0 would expire a job the moment it is created.
+        with pytest.raises(ValueError, match="must be positive"):
+            parse_ttl_schedule(3600, **kwargs)
+
+    def test_carries_empty_result_settings(self):
+        schedule = parse_ttl_schedule(
+            {"default": 3600}, "UTC", empty_result_ttl_seconds=600, empty_result_max_age_seconds=86400
+        )
+        assert schedule.empty_result_ttl_seconds == 600
+        assert schedule.empty_result_max_age_seconds == 86400
+
+        uncapped = parse_ttl_schedule(3600)
+        assert uncapped.empty_result_ttl_seconds is None
+        assert uncapped.empty_result_max_age_seconds is None
+
 
 class TestSplitRangesByTtl(BaseTest):
     def test_single_range_uniform_ttl(self):
@@ -1304,6 +1379,18 @@ class TestSplitRangesByTtl(BaseTest):
         assert len(result) == 2
         assert result[0] == (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC), 3600)
         assert result[1] == (datetime(2024, 1, 5, tzinfo=UTC), datetime(2024, 1, 7, tzinfo=UTC), 3600)
+
+
+class TestWrittenRows(BaseTest):
+    """`sync_execute` only swaps an INSERT's result for the `written_rows` counter when that
+    counter is nonzero, so the driver's passthrough result is how a zero-row insert shows up."""
+
+    def test_int_result_is_the_row_count(self):
+        assert _written_rows(42) == 42
+
+    def test_passthrough_driver_result_means_zero_rows(self):
+        assert _written_rows([]) == 0
+        assert _written_rows(None) == 0
 
 
 class TestComputationExecutor(BaseTest):
@@ -1584,6 +1671,125 @@ class TestComputationExecutorExecute(BaseTest):
         time_diff = (job.expires_at - django_timezone.now()).total_seconds()
         assert one_hour - 100 < time_diff < one_hour + 100
 
+    # --- Empty inserts ---
+    #
+    # A job that writes no rows is only provisionally computed: the source may have had no
+    # activity, or it may not have been synced through the window yet. Coverage keys on the job
+    # existing rather than on rows existing, so an empty job holding a full band TTL freezes the
+    # window at zero even after the data lands. Callers that read a source which can lag opt into
+    # a capped TTL for that case.
+
+    LONG_TTL = 7 * 24 * 60 * 60
+    EMPTY_TTL = 6 * 60 * 60
+
+    def _expires_in_seconds(self, job_id) -> float:
+        job = PreaggregationJob.objects.get(id=job_id)
+        assert job.expires_at is not None
+        return (job.expires_at - django_timezone.now()).total_seconds()
+
+    def _execute_with_insert(self, run_insert, ttl_schedule) -> LazyComputationResult:
+        query_info, _ = self._make_query_info()
+        return LazyComputationExecutor(ttl_schedule=ttl_schedule).execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=run_insert,
+        )
+
+    def test_zero_row_insert_caps_ttl_when_opted_in(self):
+        result = self._execute_with_insert(
+            lambda t, j: 0,
+            TtlSchedule.from_seconds(self.LONG_TTL, empty_result_ttl_seconds=self.EMPTY_TTL),
+        )
+
+        assert result.ready is True
+        assert abs(self._expires_in_seconds(result.job_ids[0]) - self.EMPTY_TTL) < 100
+
+    def test_zero_row_insert_keeps_band_ttl_when_not_opted_in(self):
+        # Shared infrastructure: a caller whose source can't lag (event tables) is unaffected.
+        result = self._execute_with_insert(lambda t, j: 0, TtlSchedule.from_seconds(self.LONG_TTL))
+
+        assert result.ready is True
+        assert abs(self._expires_in_seconds(result.job_ids[0]) - self.LONG_TTL) < 100
+
+    def test_zero_row_insert_does_not_lengthen_a_shorter_ttl(self):
+        one_hour = 60 * 60
+        result = self._execute_with_insert(
+            lambda t, j: 0,
+            TtlSchedule.from_seconds(one_hour, empty_result_ttl_seconds=self.EMPTY_TTL),
+        )
+
+        assert result.ready is True
+        # The cap is a ceiling, not a floor — today's short band must still come back sooner.
+        assert abs(self._expires_in_seconds(result.job_ids[0]) - one_hour) < 100
+
+    def test_productive_insert_keeps_the_band_ttl(self):
+        result = self._execute_with_insert(
+            lambda t, j: 42,
+            TtlSchedule.from_seconds(self.LONG_TTL, empty_result_ttl_seconds=self.EMPTY_TTL),
+        )
+
+        assert result.ready is True
+        assert abs(self._expires_in_seconds(result.job_ids[0]) - self.LONG_TTL) < 100
+
+    def test_insert_that_cannot_report_a_row_count_keeps_the_band_ttl(self):
+        # Returning None isn't a claim that the window was empty, so leave the TTL alone.
+        result = self._execute_with_insert(
+            lambda t, j: None,
+            TtlSchedule.from_seconds(self.LONG_TTL, empty_result_ttl_seconds=self.EMPTY_TTL),
+        )
+
+        assert result.ready is True
+        assert abs(self._expires_in_seconds(result.job_ids[0]) - self.LONG_TTL) < 100
+
+    def test_empty_window_older_than_the_max_age_keeps_the_band_ttl(self):
+        # Past the horizon a sync could deliver in, empty means empty. Re-capping forever would
+        # turn the long band into a rescan of history that will never change. The fixed 2024
+        # window the helper uses is far outside any sane max age.
+        result = self._execute_with_insert(
+            lambda t, j: 0,
+            TtlSchedule.from_seconds(
+                self.LONG_TTL,
+                empty_result_ttl_seconds=self.EMPTY_TTL,
+                empty_result_max_age_seconds=14 * 24 * 60 * 60,
+            ),
+        )
+
+        assert result.ready is True
+        assert abs(self._expires_in_seconds(result.job_ids[0]) - self.LONG_TTL) < 100
+
+    def test_empty_window_inside_the_max_age_is_still_capped(self):
+        query_info, _ = self._make_query_info()
+        # A window that ended an hour ago is well inside the horizon.
+        end = django_timezone.now()
+        result = LazyComputationExecutor(
+            ttl_schedule=TtlSchedule.from_seconds(
+                self.LONG_TTL,
+                empty_result_ttl_seconds=self.EMPTY_TTL,
+                empty_result_max_age_seconds=14 * 24 * 60 * 60,
+            )
+        ).execute(
+            team=self.team,
+            query_info=query_info,
+            start=end - timedelta(hours=1),
+            end=end,
+            run_insert=lambda t, j: 0,
+        )
+
+        assert result.ready is True
+        assert abs(self._expires_in_seconds(result.job_ids[0]) - self.EMPTY_TTL) < 100
+
+    def test_max_age_alone_does_not_cap_anything(self):
+        # The horizon only bounds an opt-in that must still be made explicitly.
+        result = self._execute_with_insert(
+            lambda t, j: 0,
+            TtlSchedule.from_seconds(self.LONG_TTL, empty_result_max_age_seconds=14 * 24 * 60 * 60),
+        )
+
+        assert result.ready is True
+        assert abs(self._expires_in_seconds(result.job_ids[0]) - self.LONG_TTL) < 100
+
     def test_short_ttl_does_not_infinite_loop(self):
         query_info, _ = self._make_query_info()
 
@@ -1639,6 +1845,147 @@ class TestComputationExecutorExecute(BaseTest):
         # A new job was created (stale one was filtered out)
         assert insert_count[0] == 1
         assert stale_job.id not in result.job_ids
+
+    @parameterized.expand(
+        [
+            # Job computed mid-window (before window_end + lag): its session metrics were
+            # still in motion, so a long band TTL must not keep it — it recomputes once settled.
+            ("computed_before_window_settled", False),
+            # Job computed after the window settled: complete data, keeps the full band TTL.
+            ("computed_after_window_settled", True),
+        ]
+    )
+    def test_settling_period_caps_freshness_of_in_motion_jobs(self, _name: str, expect_reused: bool) -> None:
+        query_info, query_hash = self._make_query_info()
+
+        now = django_timezone.now()
+        # UTC-day-aligned window (the executor decomposes ranges at day boundaries) that
+        # ended 2 days ago; with a 24h finality lag its data became final 1 day ago.
+        window_end = datetime(now.year, now.month, now.day, tzinfo=UTC) - timedelta(days=2)
+        window_start = window_end - timedelta(days=1)
+        created_at = window_end - timedelta(hours=12) if not expect_reused else now - timedelta(hours=1)
+
+        job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=query_hash,
+            time_range_start=window_start,
+            time_range_end=window_end,
+            status=PreaggregationJob.Status.READY,
+            expires_at=now + timedelta(days=5),
+        )
+        PreaggregationJob.objects.filter(id=job.id).update(created_at=created_at)
+
+        schedule = TtlSchedule(rules=[], default_ttl_seconds=5 * 24 * 60 * 60, settling_period_seconds=24 * 60 * 60)
+        insert_count = [0]
+
+        result = LazyComputationExecutor(ttl_schedule=schedule).execute(
+            team=self.team,
+            query_info=query_info,
+            start=window_start,
+            end=window_end,
+            run_insert=lambda t, j: insert_count.__setitem__(0, insert_count[0] + 1),
+        )
+
+        assert result.ready is True
+        if expect_reused:
+            assert job.id in result.job_ids
+            assert insert_count[0] == 0
+        else:
+            assert job.id not in result.job_ids
+            assert insert_count[0] == 1
+
+    @parameterized.expand(
+        [
+            # Expired 1h ago (created 2h ago, 1h TTL) — within the 6h grace: served as-is.
+            ("within_grace", 1, True),
+            # Expired 9h ago — beyond the 6h grace: the normal recompute path runs.
+            ("beyond_grace", 9, False),
+        ]
+    )
+    def test_stale_ready_job_served_within_stale_while_revalidate(
+        self, _name: str, expired_hours_ago: int, served: bool
+    ) -> None:
+        query_info, query_hash = self._make_query_info()
+
+        stale_job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=query_hash,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.READY,
+            expires_at=django_timezone.now() - timedelta(hours=expired_hours_ago),
+        )
+        PreaggregationJob.objects.filter(id=stale_job.id).update(
+            created_at=django_timezone.now() - timedelta(hours=expired_hours_ago + 1),
+        )
+
+        executor = LazyComputationExecutor(
+            ttl_schedule=TtlSchedule.from_seconds(60 * 60), stale_while_revalidate_seconds=6 * 60 * 60
+        )
+        insert_count = [0]
+
+        result = executor.execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=lambda t, j: insert_count.__setitem__(0, insert_count[0] + 1),
+        )
+
+        assert result.ready is True
+        if served:
+            assert result.stale is True
+            assert result.job_ids == [stale_job.id]
+            assert insert_count[0] == 0, "serve-stale must not compute inline"
+        else:
+            assert result.stale is False
+            assert stale_job.id not in result.job_ids
+            assert insert_count[0] == 1
+
+    def test_stale_while_revalidate_rechecks_coverage_after_overlap_filtering(self):
+        query_info, query_hash = self._make_query_info()
+
+        now = django_timezone.now()
+        # An older broad stale job fully covers the range, but a newer narrow stale job
+        # overlaps it. The overlap filter prefers the newer job and evicts the broad one,
+        # reopening gaps (Jan 1–2 and Jan 3–4) — serving that set would silently drop
+        # covered days, so the executor must fall through to recompute instead.
+        for time_range, created_ago_h in [
+            ((datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 4, tzinfo=UTC)), 3),
+            ((datetime(2024, 1, 2, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC)), 2),
+        ]:
+            job = PreaggregationJob.objects.create(
+                team=self.team,
+                query_hash=query_hash,
+                time_range_start=time_range[0],
+                time_range_end=time_range[1],
+                status=PreaggregationJob.Status.READY,
+                expires_at=now - timedelta(hours=1),
+            )
+            PreaggregationJob.objects.filter(id=job.id).update(created_at=now - timedelta(hours=created_ago_h))
+
+        executor = LazyComputationExecutor(
+            ttl_schedule=TtlSchedule.from_seconds(60 * 60), stale_while_revalidate_seconds=6 * 60 * 60
+        )
+        insert_count = [0]
+
+        result = executor.execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 4, tzinfo=UTC),
+            run_insert=lambda t, j: insert_count.__setitem__(0, insert_count[0] + 1),
+        )
+
+        assert result.ready is True
+        assert result.stale is False, "gappy filtered coverage must not be served as a stale hit"
+        assert insert_count[0] > 0
+
+    def test_stale_while_revalidate_must_stay_under_expiry_buffer(self):
+        # A grace at/above EXPIRY_BUFFER_SECONDS could return PG jobs whose ClickHouse
+        # rows were already TTL-deleted — silent empty reads. Constructor must refuse.
+        with self.assertRaises(ValueError):
+            LazyComputationExecutor(stale_while_revalidate_seconds=EXPIRY_BUFFER_SECONDS)
 
     def test_fresh_ready_job_is_reused(self):
         query_info, query_hash = self._make_query_info()
@@ -2646,6 +2993,12 @@ class TestIsNonRetryableError(BaseTest):
             ("no_such_column", 16, "No such column"),
             ("timeout", 159, "Timeout exceeded"),
             ("too_many_queries", 202, "Too many simultaneous queries"),
+            # The read cap is deterministic for a given window: a retry re-scans
+            # the same data only to fail the same way.
+            ("too_many_rows_or_bytes", 307, "Limit for rows or bytes to read exceeded"),
+            # An OOM won't succeed on an immediate retry — retrying just re-pressures the
+            # cluster. Fail fast so the caller can react (e.g. cap the team's window).
+            ("memory_limit", 241, "Memory limit exceeded"),
         ]
     )
     def test_clickhouse_non_retryable_error_codes(self, name, code, message):
@@ -2655,7 +3008,7 @@ class TestIsNonRetryableError(BaseTest):
 
     @parameterized.expand(
         [
-            ("memory_limit", 241, "Memory limit exceeded"),
+            ("network_error", 210, "Network error"),
         ]
     )
     def test_clickhouse_retryable_error_codes(self, name, code, message):
@@ -2672,3 +3025,312 @@ class TestIsNonRetryableError(BaseTest):
     def test_generic_exception_is_retryable(self):
         error = Exception("Something went wrong")
         assert is_non_retryable_error(error) is False
+
+
+class TestInsertSettings(BaseTest):
+    def test_insert_settings_guarantee_read_your_writes(self):
+        settings = _get_insert_settings(self.team.pk)
+
+        # The executor marks jobs READY the moment the INSERT returns, which is only sound if
+        # the distributed write is synchronous. Production profiles default to async, so this
+        # must be set per-query — a missing value here means readers race the distribution queue.
+        assert settings["insert_distributed_sync"] == 1
+        assert settings["insert_quorum"] == PREAGGREGATION_INSERT_QUORUM
+        # Quorum breakage (dead replica, stale ZK registration) must fail fast and fall back,
+        # not hold the request for ClickHouse's 600s default quorum wait.
+        assert settings["insert_quorum_timeout"] == PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS
+        assert settings["load_balancing"] == "in_order"
+        assert settings["max_execution_time"] == HOGQL_INCREASED_MAX_EXECUTION_TIME
+        assert "readonly" not in settings
+
+
+class TestInsertSettingsAppliedToInserts(BaseTest):
+    INSERT_QUERY = """
+        SELECT
+            toStartOfDay(timestamp) as time_window_start,
+            [] as breakdown_value,
+            uniqExactState(person_id) as uniq_exact_state
+        FROM events
+        WHERE event = '$pageview'
+            AND timestamp >= {time_window_min}
+            AND timestamp < {time_window_max}
+        GROUP BY time_window_start
+    """
+
+    def test_manual_insert_path_passes_insert_settings_to_clickhouse(self):
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute"
+        ) as mock_execute:
+            result = ensure_precomputed(
+                team=self.team,
+                insert_query=self.INSERT_QUERY,
+                time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+                time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            )
+
+        assert result.ready is True
+        # Bind the assertion to the INSERT specifically, so the test doesn't break (or silently
+        # check the wrong call) if the executor flow ever issues other queries around the insert.
+        insert_calls = [c for c in mock_execute.call_args_list if c.args[0].lstrip().startswith("INSERT")]
+        assert len(insert_calls) == 1  # one missing range -> one INSERT
+        assert insert_calls[0].kwargs["settings"] == _get_insert_settings(self.team.pk)
+
+    def test_ast_insert_path_passes_insert_settings_to_clickhouse(self):
+        job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+        query = parse_select(
+            self.INSERT_QUERY,
+            placeholders={
+                "time_window_min": ast.Constant(value=datetime(2024, 1, 1, tzinfo=UTC)),
+                "time_window_max": ast.Constant(value=datetime(2024, 1, 2, tzinfo=UTC)),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS)
+
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute"
+        ) as mock_execute:
+            run_lazy_computation_insert(self.team, job, query_info)
+
+        assert mock_execute.call_count == 1
+        assert mock_execute.call_args.kwargs["settings"] == _get_insert_settings(self.team.pk)
+
+
+class TestInsertsReportRowsWritten(BaseTest):
+    """Both insert wrappers must hand `sync_execute`'s row count back to the executor.
+
+    The empty-window cap keys entirely on this return value, and `None` is deliberately read as
+    "no claim of emptiness" — so a wrapper that stopped returning would disable the cap silently,
+    with no exception and no failing assertion anywhere else.
+    """
+
+    INSERT_QUERY = TestInsertSettingsAppliedToInserts.INSERT_QUERY
+
+    def _pending_job(self) -> PreaggregationJob:
+        return PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+
+    def _query_info(self) -> QueryInfo:
+        query = parse_select(
+            self.INSERT_QUERY,
+            placeholders={
+                "time_window_min": ast.Constant(value=datetime(2024, 1, 1, tzinfo=UTC)),
+                "time_window_max": ast.Constant(value=datetime(2024, 1, 2, tzinfo=UTC)),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS)
+
+    @parameterized.expand([("productive", 42, 42), ("empty_passthrough", [], 0), ("empty_none", None, 0)])
+    def test_ast_insert_returns_rows_written(self, _name, sync_execute_result, expected):
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
+            return_value=sync_execute_result,
+        ):
+            assert run_lazy_computation_insert(self.team, self._pending_job(), self._query_info()) == expected
+
+    @parameterized.expand([("productive", 42, 42), ("empty_passthrough", [], 0), ("empty_none", None, 0)])
+    def test_manual_insert_returns_rows_written(self, _name, sync_execute_result, expected):
+        # `_run_manual_insert` is a closure inside ensure_precomputed, so drive it the way the
+        # executor does and read the count back off the capped TTL.
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
+            return_value=sync_execute_result,
+        ):
+            result = ensure_precomputed(
+                team=self.team,
+                insert_query=self.INSERT_QUERY,
+                time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+                time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+                ttl_seconds=7 * 24 * 60 * 60,
+                empty_result_ttl_seconds=60 * 60,
+            )
+
+        assert result.ready is True
+        job = PreaggregationJob.objects.get(id=result.job_ids[0])
+        assert job.expires_at is not None
+        expires_in = (job.expires_at - django_timezone.now()).total_seconds()
+        # Only a reported 0 caps the TTL; 42 and None must leave the 7-day band alone.
+        assert abs(expires_in - (60 * 60 if expected == 0 else 7 * 24 * 60 * 60)) < 100
+
+
+class TestMaxWindowDaysCap(BaseTest):
+    def test_parse_carries_max_window_days(self):
+        assert parse_ttl_schedule(3600, max_window_days=2).max_window_days == 2
+        assert parse_ttl_schedule({"default": 3600}, "UTC", max_window_days=1).max_window_days == 1
+        assert parse_ttl_schedule(3600).max_window_days is None
+
+    def test_cap_splits_merged_range_at_any_age(self):
+        schedule = TtlSchedule(rules=[], default_ttl_seconds=3600, max_window_days=1)
+        # an OLD 7-day range (uniform default TTL) must still split into 7 one-day jobs
+        ranges = [(datetime(2020, 1, 1, tzinfo=UTC), datetime(2020, 1, 8, tzinfo=UTC))]
+        result = split_ranges_by_ttl(ranges, schedule)
+        assert len(result) == 7
+        assert all((end - start) == timedelta(days=1) for start, end, _ in result)
+        assert result[0][0] == datetime(2020, 1, 1, tzinfo=UTC)
+        assert result[-1][1] == datetime(2020, 1, 8, tzinfo=UTC)
+        for prev, nxt in zip(result, result[1:]):
+            assert prev[1] == nxt[0]
+
+    def test_no_cap_merges_whole_range(self):
+        schedule = TtlSchedule(rules=[], default_ttl_seconds=3600, max_window_days=None)
+        ranges = [(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 8, tzinfo=UTC))]
+        assert split_ranges_by_ttl(ranges, schedule) == [
+            (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 8, tzinfo=UTC), 3600)
+        ]
+
+
+class TestExecuteOOMAndBudget(ClickhouseTestMixin, BaseTest):
+    def _query_info(self) -> QueryInfo:
+        s = parse_select(
+            """
+            SELECT toStartOfDay(timestamp) as time_window_start, [] as breakdown_value,
+                   uniqExactState(person_id) as uniq_exact_state
+            FROM events WHERE event = '$pageview' GROUP BY time_window_start
+            """
+        )
+        assert isinstance(s, ast.SelectQuery)
+        return QueryInfo(query=s, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+
+    def test_surfaces_memory_exceeded_on_oom(self):
+        def oom_insert(_t, _j) -> None:
+            raise ServerException(message="Memory limit (total) exceeded", code=241)
+
+        result = LazyComputationExecutor().execute(
+            team=self.team,
+            query_info=self._query_info(),
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=oom_insert,
+        )
+        assert result.ready is False
+        assert result.memory_exceeded is True
+
+    def test_oom_is_not_retried(self):
+        calls: list = []
+
+        def oom_insert(_t, job) -> None:
+            calls.append(job.id)
+            raise ServerException(message="Memory limit (total) exceeded", code=241)
+
+        LazyComputationExecutor(max_retries=1).execute(
+            team=self.team,
+            query_info=self._query_info(),
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=oom_insert,
+        )
+        # 241 is non-retryable → exactly one attempt, no second OOM
+        assert len(calls) == 1
+
+    def test_memory_exceeded_false_for_non_oom(self):
+        def syntax_insert(_t, _j) -> None:
+            raise ServerException(message="Syntax error", code=62)
+
+        result = LazyComputationExecutor().execute(
+            team=self.team,
+            query_info=self._query_info(),
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=syntax_insert,
+        )
+        assert result.ready is False
+        assert result.memory_exceeded is False
+
+    def test_bails_mid_loop_when_budget_exhausted(self):
+        # max_window_days=1 over a 7-day range → 7 one-day inline inserts; a spent wait
+        # budget must stop the loop before running the whole set back-to-back.
+        calls: list = []
+
+        def slow_insert(_t, job) -> None:
+            calls.append(job.id)
+            time_mod.sleep(0.1)
+
+        schedule = TtlSchedule(rules=[], default_ttl_seconds=3600, max_window_days=1)
+        result = LazyComputationExecutor(wait_timeout_seconds=0.5, ttl_schedule=schedule).execute(
+            team=self.team,
+            query_info=self._query_info(),
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 8, tzinfo=UTC),
+            run_insert=slow_insert,
+        )
+        assert result.ready is False
+        assert any("Timeout" in e for e in result.errors)
+        assert 1 <= len(calls) < 7
+
+
+class TestCheckOnlyMode(BaseTest):
+    """`run_inserts=False`: a user-facing read is either served from covering READY
+    jobs or told `ready=False` immediately — it must never create jobs, run inserts,
+    or block on another executor's pending job (the inline-backfill self-DoS)."""
+
+    def _execute(self, start: datetime, end: datetime) -> LazyComputationResult:
+        query = parse_select("SELECT 1")
+        assert isinstance(query, ast.SelectQuery)
+        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+
+        def forbidden_insert(team, job):
+            raise AssertionError("check-only mode must never run inserts")
+
+        return LazyComputationExecutor(run_inserts=False).execute(
+            team=self.team,
+            query_info=query_info,
+            start=start,
+            end=end,
+            run_insert=forbidden_insert,
+        )
+
+    def _ready_job(self, start: datetime, end: datetime) -> PreaggregationJob:
+        query = parse_select("SELECT 1")
+        assert isinstance(query, ast.SelectQuery)
+        return PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=compute_query_hash(
+                QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+            ),
+            time_range_start=start,
+            time_range_end=end,
+            status=PreaggregationJob.Status.READY,
+            computed_at=django_timezone.now(),
+            expires_at=django_timezone.now() + timedelta(hours=6),
+        )
+
+    def test_served_when_ready_jobs_cover_range(self):
+        job = self._ready_job(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC))
+        result = self._execute(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC))
+        assert result.ready is True
+        assert result.job_ids == [job.id]
+
+    def test_miss_creates_no_jobs(self):
+        result = self._execute(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC))
+        assert result.ready is False
+        assert PreaggregationJob.objects.filter(team=self.team).count() == 0
+
+    def test_partial_coverage_is_a_miss(self):
+        self._ready_job(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 2, tzinfo=UTC))
+        result = self._execute(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC))
+        assert result.ready is False
+        assert PreaggregationJob.objects.filter(team=self.team).count() == 1  # untouched
+
+    def test_pending_job_is_a_miss_without_waiting(self):
+        job = self._ready_job(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC))
+        job.status = PreaggregationJob.Status.PENDING
+        job.computed_at = None
+        job.save()
+        started = time_mod.monotonic()
+        result = self._execute(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC))
+        assert result.ready is False
+        assert time_mod.monotonic() - started < 5, "check-only must not block on pending jobs"

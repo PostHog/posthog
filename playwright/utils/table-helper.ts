@@ -16,10 +16,14 @@ async function cellsToArray(locator: Locator): Promise<string[]> {
 }
 
 export class TableRow {
+    readonly tr: Locator
+
     constructor(
         private readonly helper: TableHelper,
-        private readonly tr: Locator
-    ) {}
+        tr: Locator
+    ) {
+        this.tr = tr
+    }
 
     async column(nameOrIndex: string | number): Promise<string> {
         const index = typeof nameOrIndex === 'string' ? await this.helper.resolveColumnIndex(nameOrIndex) : nameOrIndex

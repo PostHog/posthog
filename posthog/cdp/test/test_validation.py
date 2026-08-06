@@ -1,27 +1,32 @@
 import json
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
+from posthog.hogql import ast
+
 from posthog.cdp.validation import (
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
     MappingsSerializer,
+    RecordAliasRewriter,
     compile_hog,
+    generate_template_bytecode,
 )
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
 
-def validate_inputs(schema, inputs, function_type="destination"):
+def validate_inputs(schema, inputs, function_type="destination", is_dwh_source=False):
     serializer = MappingsSerializer(
         data={
             "inputs_schema": schema,
             "inputs": inputs,
         },
-        context={"function_type": function_type},
+        context={"function_type": function_type, "is_dwh_source": is_dwh_source},
     )
     serializer.is_valid(raise_exception=True)
     return serializer.validated_data["inputs"]
@@ -373,6 +378,71 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
     @parameterized.expand(
         [
+            ("string_input", "string", "Hey {{ person.properties.name }}"),
+            (
+                "email_object_input",
+                "native_email",
+                {
+                    "to": "{{ person.properties.email }}",
+                    "from": "hi@posthog.com",
+                    "subject": "Hello",
+                    "html": "<p>hi</p>",
+                },
+            ),
+        ]
+    )
+    def test_liquid_syntax_in_hog_templated_input_names_the_expected_syntax(self, _name, item_type, value):
+        # Liquid-style {{ ... }} in a hog-templated field is the dominant authoring mistake
+        # behind template errors, and the transpiler's own message ("Placeholders are not
+        # allowed in this context") never names it - agents bisect blind on it. The error
+        # must state the expected single-curly syntax and call out Liquid.
+        inputs_schema = [{"key": "field", "type": item_type, "required": True}]
+        inputs = {"field": {"value": value}}
+
+        with pytest.raises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, inputs)
+        message = str(ctx.value.detail)
+        assert "{person.properties.email}" in message
+        assert "Liquid" in message
+
+    def test_liquid_templated_input_still_accepts_liquid_syntax(self):
+        inputs_schema = [{"key": "field", "type": "string", "required": True, "templating": "liquid"}]
+        inputs = {"field": {"value": "Hey {{ person.properties.name }}"}}
+
+        validated = validate_inputs(inputs_schema, inputs)
+        assert validated["field"]["value"] == "Hey {{ person.properties.name }}"
+
+    @parameterized.expand(
+        [
+            (
+                "single_missing_key_keeps_the_familiar_message",
+                {"to": "a@b.com", "subject": "hi", "html": "<p>hi</p>"},
+                "Missing value for 'from'.",
+            ),
+            (
+                "multiple_missing_keys_reported_at_once",
+                {"to": "a@b.com"},
+                "Missing values for 'from', 'subject', either 'text' or 'html'.",
+            ),
+            (
+                "body_alternatives_named_together",
+                {"from": "hi@posthog.com", "to": "a@b.com", "subject": "hi"},
+                "Missing value for either 'text' or 'html'.",
+            ),
+        ]
+    )
+    def test_email_input_reports_all_missing_keys_in_one_error(self, _name, value, expected):
+        # Email objects are typically authored programmatically; raising on the first absent
+        # key forces a validate round trip per key, so every missing key is named at once.
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True}]
+        inputs = {"email": {"value": value}}
+
+        with pytest.raises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, inputs)
+        assert expected in str(ctx.value.detail)
+
+    @parameterized.expand(
+        [
             ("person", "{person?.id}"),
             ("groups", "{groups.organization.id}"),
             ("source", "{source.name}"),
@@ -549,6 +619,48 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         else:
             validate_inputs(inputs_schema, inputs)
 
+    @parameterized.expand(
+        [
+            ("simple", "{record.name}", "{event.properties.name}"),
+            ("nested", "{record.address.city}", "{event.properties.address.city}"),
+            ("bare", "{record}", "{event.properties}"),
+            ("alongside_event", "{concat(record.id, event.event)}", "{concat(event.properties.id, event.event)}"),
+            ("bracket", "{record['self-serve']}", "{event.properties['self-serve']}"),
+        ]
+    )
+    def test_record_alias_rewritten_for_dwh_source(self, _name, template, equivalent):
+        # With a warehouse source, `{record.x}` compiles identically to `{event.properties.x}`.
+        rewritten = generate_template_bytecode(template, set(), function_type="destination", is_dwh_source=True)
+        expected = generate_template_bytecode(equivalent, set(), function_type="destination", is_dwh_source=False)
+        assert rewritten == expected
+
+    def test_record_alias_not_rewritten_without_dwh_source(self):
+        # Without a warehouse source, `record` is left untouched (compiles like any other global).
+        untouched = generate_template_bytecode("{record.name}", set(), function_type="destination", is_dwh_source=False)
+        rewritten = generate_template_bytecode("{record.name}", set(), function_type="destination", is_dwh_source=True)
+        assert untouched != rewritten
+
+    def test_record_alias_rewriter_only_touches_record_fields(self):
+        # AST-level: a `record` field is rewritten; a non-record field and a same-named string
+        # constant are structurally immune (the rewriter only visits ast.Field chains).
+        record_field = ast.Field(chain=["record", "id"])
+        other_field = ast.Field(chain=["event", "properties", "id"])
+        literal = ast.Constant(value="record.name")
+        node = ast.Call(name="concat", args=[record_field, other_field, literal])
+
+        RecordAliasRewriter().visit(node)
+
+        assert record_field.chain == ["event", "properties", "id"]
+        assert other_field.chain == ["event", "properties", "id"]
+        assert literal.value == "record.name"
+
+    def test_record_alias_rewritten_through_inputs_serializer(self):
+        inputs_schema = [{"key": "msg", "type": "string", "required": True}]
+        inputs = {"msg": {"value": "{record.id}"}}
+        validated = validate_inputs(inputs_schema, inputs, is_dwh_source=True)
+        expected = generate_template_bytecode("{event.properties.id}", set())
+        assert validated["msg"]["bytecode"] == expected
+
     def test_validate_boolean_input_with_bool_value(self):
         inputs_schema = [{"key": "opt_out", "type": "boolean", "required": False}]
         inputs = {"opt_out": {"value": True}}
@@ -663,3 +775,69 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         inputs = {"non_failure_status_codes": {"value": value}}
         with self.assertRaises(ValidationError):
             validate_inputs(inputs_schema, inputs)
+
+    def test_posthog_ticket_tags_schema_type_is_valid(self):
+        inputs_schema = [
+            {
+                "key": "tags",
+                "type": "posthog_ticket_tags",
+                "label": "Tags",
+                "required": False,
+            }
+        ]
+        validated = validate_inputs_schema(inputs_schema)
+        assert validated[0]["type"] == "posthog_ticket_tags"
+        assert validated[0]["key"] == "tags"
+
+    def test_customer_analytics_account_properties_compiles_dict_values_to_bytecode(self):
+        # Without the opt-in into transpilation, the dict values ship without bytecode and the
+        # Node runtime sets the literal placeholder string instead of the interpolated value.
+        inputs_schema = [{"key": "properties", "type": "customer_analytics_account_properties", "required": True}]
+        inputs = {"properties": {"value": {"Plan tier": "{event.properties.plan}", "MRR": "5000"}}}
+
+        validated = validate_inputs(inputs_schema, inputs)
+
+        assert validated["properties"].get("bytecode") is not None
+
+    def test_customer_analytics_account_relationships_validates_assignment_dict(self):
+        # Guards the type's registration in InputsSchemaItemSerializer's ChoiceField —
+        # without it, publishing a workflow with the relationships node 400s.
+        inputs_schema = [{"key": "relationships", "type": "customer_analytics_account_relationships", "required": True}]
+        inputs = {"relationships": {"value": {"0197f9f0-1111-0000-0000-000000000000": {"type": "user", "id": 42}}}}
+
+        validated = validate_inputs(inputs_schema, inputs)
+
+        assert validated["relationships"].get("bytecode") is not None
+
+    @parameterized.expand(
+        [
+            # Reproduces the original user report: a mixed literal prefix plus a workflow variable.
+            ("template_workflow_variable", ["zendesk/{variables.zendesk_ticketid}"]),
+            # Pure event-property substitution.
+            ("template_event_property", ["{event.properties.region}"]),
+            # Literal-only list still gets per-element bytecode — back-compat path.
+            ("literal_only", ["top_20"]),
+            # Mix of literal and templated tags in a single list.
+            ("mixed_literal_and_templated", ["plan_enterprise", "{event.properties.region}"]),
+        ]
+    )
+    def test_posthog_ticket_tags_compiles_per_element_bytecode(self, _name, value):
+        # Regression guard for the InputsItemSerializer opt-in. Before posthog_ticket_tags
+        # was added to the list of types that go through generate_template_bytecode, list
+        # values shipped without a `bytecode` field, so the Node runtime had nothing to
+        # interpolate against and tags ended up containing the literal placeholder text
+        # (e.g. a tag literally named `zendesk/{variables.zendesk_ticketid}`).
+        inputs_schema = [{"key": "tags", "type": "posthog_ticket_tags", "required": False}]
+        inputs = {"tags": {"value": value}}
+        validated = validate_inputs(inputs_schema, inputs)
+
+        bytecode = validated["tags"].get("bytecode")
+        assert bytecode is not None, "tags input must have bytecode after the opt-in"
+        assert isinstance(bytecode, list), "list values compile to a list of per-element bytecode"
+        assert len(bytecode) == len(value), "one bytecode entry per tag element"
+        for entry in bytecode:
+            assert isinstance(entry, list) and entry[:2] == ["_H", HOGQL_BYTECODE_VERSION], (
+                "each element is itself a Hog bytecode array"
+            )
+        # The original value round-trips so the UI can still render the templated source string.
+        assert validated["tags"]["value"] == value

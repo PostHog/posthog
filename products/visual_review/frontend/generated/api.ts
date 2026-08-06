@@ -48,7 +48,7 @@ export const getVisualReviewReposListUrl = (projectId: string, params?: VisualRe
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -159,7 +159,7 @@ export const getVisualReviewReposQuarantineListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -260,7 +260,7 @@ export const getVisualReviewReposRunsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -272,7 +272,7 @@ export const getVisualReviewReposRunsListUrl = (
 }
 
 /**
- * List runs in this repo, optionally filtered by review state.
+ * List runs in this repo, optionally filtered by review state and free-text search.
  */
 export const visualReviewReposRunsList = async (
     projectId: string,
@@ -315,7 +315,7 @@ export const getVisualReviewReposSnapshotsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -351,7 +351,7 @@ export const getVisualReviewRunsListUrl = (projectId: string, params?: VisualRev
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -363,7 +363,7 @@ export const getVisualReviewRunsListUrl = (projectId: string, params?: VisualRev
 }
 
 /**
- * List runs for the team, optionally filtered by review state, PR number, commit SHA, or branch.
+ * List runs for the team, optionally filtered by review state, PR number, commit SHA, branch, or free-text search.
  */
 export const visualReviewRunsList = async (
     projectId: string,
@@ -441,9 +441,9 @@ export const getVisualReviewRunsApproveCreateUrl = (projectId: string, id: strin
 
 /**
  * Mark snapshots reviewed (DB only).
-
-Records the per-snapshot "Accept change" decision. Does not commit the baseline
-or change the GitHub gate — call finalize to ship the run.
+ *
+ * Records the per-snapshot "Accept change" decision. Does not commit the baseline
+ * or change the GitHub gate — call finalize to ship the run.
  */
 export const visualReviewRunsApproveCreate = async (
     projectId: string,
@@ -483,11 +483,11 @@ export const getVisualReviewRunsFinalizeCreateUrl = (projectId: string, id: stri
 
 /**
  * Finalize a fully-reviewed run: commit the approved baseline and green the gate.
-
-Commits exactly the snapshots approved in the DB (tolerated ones keep their baseline)
-and only succeeds once every changed/new snapshot is resolved. With approve_all=true,
-any still-pending changed/new snapshot is approved first. With commit_to_github=false
-the server returns the signed baseline YAML instead of committing it.
+ *
+ * Commits exactly the snapshots approved in the DB (tolerated ones keep their baseline)
+ * and only succeeds once every changed/new snapshot is resolved. With approve_all=true,
+ * any still-pending changed/new snapshot is approved first. With commit_to_github=false
+ * the server returns the signed baseline YAML instead of committing it.
  */
 export const visualReviewRunsFinalizeCreate = async (
     projectId: string,
@@ -530,7 +530,7 @@ export const getVisualReviewRunsSnapshotHistoryListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -568,7 +568,7 @@ export const getVisualReviewRunsSnapshotsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -580,7 +580,7 @@ export const getVisualReviewRunsSnapshotsListUrl = (
 }
 
 /**
- * Get all snapshots for a run with diff results.
+ * Get a run's snapshots with diff results, excluding quarantined ones by default.
  */
 export const visualReviewRunsSnapshotsList = async (
     projectId: string,
@@ -624,7 +624,7 @@ export const getVisualReviewRunsToleratedHashesListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

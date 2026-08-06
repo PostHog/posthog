@@ -1,6 +1,6 @@
 # Experiment checks
 
-Run these checks against each experiment fetched via `read_data("experiments", id)` or `list_data("experiments")`.
+Run these checks against each experiment fetched via `experiment-get` or `experiment-list`.
 
 For each check, the "Look at" section tells you which fields to inspect on the experiment object.
 The "Findings" section lists what to report and at what severity.
@@ -31,7 +31,7 @@ Verifies the experiment has a valid primary metric configuration.
 
 Verifies the experiment's linked feature flag is valid and correctly configured.
 
-**Look at**: `feature_flag` (the linked flag object or ID), and fetch the flag via `read_data("feature_flags", feature_flag_id)` if only an ID is available.
+**Look at**: `feature_flag` (the linked flag object or ID), and fetch the flag via `feature-flag-get-definition` if only an ID is available.
 
 **Findings**:
 

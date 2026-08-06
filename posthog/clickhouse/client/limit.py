@@ -12,8 +12,9 @@ from prometheus_client import Counter
 
 from posthog import redis, settings
 from posthog.clickhouse.cluster import ExponentialBackoff
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import Product, add_fallback_query_tags, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
+from posthog.schema_enums import ProductKey
 from posthog.settings import TEST
 from posthog.utils import generate_short_id
 
@@ -24,8 +25,13 @@ DEFAULT_APP_DASHBOARD_CONCURRENT_QUERIES = 6
 CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER = Counter(
     "posthog_clickhouse_query_concurrency_limit_exceeded",
     "Number of times a team tried to exceed concurrency limit.",
-    ["task_name", "team_id", "limit", "limit_name", "result"],
+    ["task_name", "team_id", "limit", "limit_name", "result", "product"],
 )
+
+# The `product` label is derived from query tags that originate in a client-supplied productKey.
+# Restricting it to known product values keeps the Prometheus series count bounded — an arbitrary
+# tag can never mint a new series.
+_KNOWN_PRODUCT_LABELS: frozenset[str] = frozenset(p.value for p in Product) | frozenset(p.value for p in ProductKey)
 
 CONCURRENT_TASKS_LIMIT_EXCEEDED_COUNTER = Counter(
     "posthog_celery_task_concurrency_limit_exceeded",
@@ -102,6 +108,16 @@ class RateLimit:
         running_tasks_key = self.get_task_key(*args, **kwargs) if self.get_task_key else task_name
         task_id = self.get_task_id(*args, **kwargs)
         team_id: Optional[int] = kwargs.get("team_id", None)
+        # Attribute blocks to the originating product surface (web_analytics, product_analytics, …)
+        # so we can track which product a saturated org's rejections come from. The limiter runs
+        # before sync_execute's add_fallback_query_tags, so ad-hoc queries that only tag scene/kind
+        # (no explicit productKey) would otherwise label as "unknown" — apply the same fallback here.
+        # StrEnum → its value.
+        tags = get_query_tags()
+        if tags.product is None:
+            add_fallback_query_tags(tags)
+        product_value = str(tags.product) if tags.product else None
+        product_label = product_value if product_value in _KNOWN_PRODUCT_LABELS else "unknown"
 
         max_concurrency: int = self.max_concurrency
 
@@ -145,6 +161,7 @@ class RateLimit:
                     limit=max_concurrency,
                     limit_name=self.limit_name,
                     result=result,
+                    product=product_label,
                 ).inc()
                 return None, None
 
@@ -155,6 +172,7 @@ class RateLimit:
                     limit=max_concurrency,
                     limit_name=self.limit_name,
                     result="retry",
+                    product=product_label,
                 ).inc()
                 wait_sec = backoff(count)
                 self.sleep(wait_sec)
@@ -169,6 +187,7 @@ class RateLimit:
                 limit=max_concurrency,
                 limit_name=self.limit_name,
                 result="block",
+                product=product_label,
             ).inc()
 
             raise ConcurrencyLimitExceeded(
@@ -197,6 +216,7 @@ __APP_CONCURRENT_QUERY_PER_ORG: Optional[RateLimit] = None
 __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG: Optional[RateLimit] = None
 __MATERIALIZED_ENDPOINTS_CONCURRENT_QUERY_PER_TEAM: Optional[RateLimit] = None
 __EVENTS_LIST_CONCURRENT_QUERY_PER_TEAM: Optional[RateLimit] = None
+__LLM_ANALYTICS_CONCURRENT_QUERIES: Optional[RateLimit] = None
 
 
 def get_api_team_rate_limiter():
@@ -354,6 +374,32 @@ def get_events_list_rate_limiter():
             retry_timeout=30.0,
         )
     return __EVENTS_LIST_CONCURRENT_QUERY_PER_TEAM
+
+
+def get_llm_analytics_rate_limiter():
+    """
+    Limits concurrent background AI observability queries (ClickHouseUser.LLM_ANALYTICS).
+
+    Slots are global rather than per team or per org because the resource being protected is the
+    ClickHouse user's server-side concurrency cap, which every team's queries draw from.
+    """
+    global __LLM_ANALYTICS_CONCURRENT_QUERIES
+    if __LLM_ANALYTICS_CONCURRENT_QUERIES is None:
+        __LLM_ANALYTICS_CONCURRENT_QUERIES = RateLimit(
+            max_concurrency=settings.CLICKHOUSE_LLM_ANALYTICS_MAX_CONCURRENT_QUERIES,
+            applicable=lambda *args, **kwargs: not TEST,
+            limit_name="llm_analytics_background",
+            get_task_name=lambda *args, **kwargs: "llm_analytics:query:background",
+            get_task_id=lambda *args, **kwargs: kwargs.get("task_id") or generate_short_id(),
+            # Exceeds the 600s QUERY_ASYNC ClickHouse timeout so a worker dying mid-query cannot
+            # release its slot while the query it stands for is still running on the cluster.
+            ttl=900,
+            retry=0.25,
+            # Must stay well under the tightest AIO activity heartbeat timeout of 30s, otherwise
+            # waiting for a slot looks like a dead worker.
+            retry_timeout=10.0,
+        )
+    return __LLM_ANALYTICS_CONCURRENT_QUERIES
 
 
 class ConcurrencyLimitExceeded(Exception):

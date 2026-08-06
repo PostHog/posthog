@@ -3,7 +3,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -166,9 +166,10 @@ class PresenceAPITestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
-class PresenceFanoutSuppressionTestCase(TransactionTestCase):
-    """``send_user_push`` is dispatched via ``transaction.on_commit``; we need a
-    TransactionTestCase so the callback actually fires.
+class PresenceFanoutSuppressionTestCase(TestCase):
+    """``send_user_push`` is dispatched via ``transaction.on_commit``; the test
+    wraps dispatch in ``captureOnCommitCallbacks(execute=True)`` so the callback
+    fires despite TestCase's rolled-back transaction.
 
     The contract under test: any non-expired presence row for this user/task
     suppresses fanout to ALL of that user's push tokens — including the
@@ -239,7 +240,8 @@ class PresenceFanoutSuppressionTestCase(TransactionTestCase):
             )
             self._present(self.device_a, on_task=other_task, expires_in=timedelta(seconds=30))
 
-        notify_task_run_completed(self.task_run)
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_task_run_completed(self.task_run)
 
         mock_delay.assert_called_once()
         suppressed = mock_delay.call_args.args[4]

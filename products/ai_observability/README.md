@@ -35,7 +35,7 @@ products/ai_observability/
   mcp/                    # MCP tool definitions
   dags/                   # Dagster jobs + metrics
   skills/                 # Agent skills scoped to the product
-  docs/                   # Product-level docs (rollout plans, ADRs)
+  docs/                   # Product-level docs (architecture decision records)
   shared/                 # Cross-frontend/backend constants, schemas
   manifest.tsx            # Scene + navigation registration
   package.json            # Turborepo package (@posthog/products-ai-observability)
@@ -71,5 +71,4 @@ hogli build:openapi
 ## Further reading
 
 - [AGENTS.md](./AGENTS.md) — product-specific conventions.
-- [docs/ai-events-table-rollout.md](./docs/ai-events-table-rollout.md) — ongoing `ai_events` ClickHouse table rollout.
 - [products/architecture.md](../architecture.md) — target architecture for products (facades, contracts, isolation). This product has not yet been migrated.

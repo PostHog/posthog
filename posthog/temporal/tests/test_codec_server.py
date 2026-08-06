@@ -14,7 +14,7 @@ from posthog.temporal.common.codec import EncryptionCodec
 class CodecServerTestCase(TestCase):
     def setUp(self):
         self.client = Client()
-        self.codec = EncryptionCodec(settings)
+        self.codec = EncryptionCodec.from_settings(settings)
         # Set up test auth token
         self.test_token = "test-codec-auth-token"
 

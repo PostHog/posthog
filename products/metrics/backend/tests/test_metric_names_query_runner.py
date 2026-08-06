@@ -9,7 +9,18 @@ from rest_framework import status
 from posthog.clickhouse.client import sync_execute
 
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner
-from products.metrics.backend.tests.test_metric_query_runner import _insert_metric_row
+from products.metrics.backend.tests._seeder import seed_metric
+
+
+def _seed_point(
+    *,
+    team_id: int,
+    metric_name: str,
+    value: float,
+    timestamp: dt.datetime,
+    metric_type: str = "gauge",
+) -> None:
+    seed_metric(team_id=team_id, metric_name=metric_name, points=[(timestamp, value)], metric_type=metric_type)
 
 
 class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -35,21 +46,21 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_returns_distinct_names_with_metric_type(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
-        _insert_metric_row(
+        _seed_point(
             team_id=self.team.id,
             metric_name="http.server.duration",
             value=1.0,
             timestamp=anchor,
             metric_type="histogram",
         )
-        _insert_metric_row(
+        _seed_point(
             team_id=self.team.id,
             metric_name="http.server.duration",
             value=2.0,
             timestamp=anchor,
             metric_type="histogram",
         )
-        _insert_metric_row(
+        _seed_point(
             team_id=self.team.id,
             metric_name="queue.depth",
             value=12.0,
@@ -69,8 +80,8 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_search_filters_by_substring(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
-        _insert_metric_row(team_id=self.team.id, metric_name="http.server.duration", value=1.0, timestamp=anchor)
-        _insert_metric_row(team_id=self.team.id, metric_name="queue.depth", value=12.0, timestamp=anchor)
+        _seed_point(team_id=self.team.id, metric_name="http.server.duration", value=1.0, timestamp=anchor)
+        _seed_point(team_id=self.team.id, metric_name="queue.depth", value=12.0, timestamp=anchor)
 
         runner = MetricNamesQueryRunner(team=self.team, search="server")
         results = runner.run()
@@ -78,13 +89,13 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_exact_match_floats_to_top(self):
         anchor = timezone.now().replace(microsecond=0)
-        _insert_metric_row(
+        _seed_point(
             team_id=self.team.id,
             metric_name="foo.bar",
             value=1.0,
             timestamp=anchor - dt.timedelta(minutes=10),
         )
-        _insert_metric_row(
+        _seed_point(
             team_id=self.team.id,
             metric_name="bar",
             value=2.0,
@@ -97,7 +108,7 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_respects_team_isolation(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
-        _insert_metric_row(team_id=99999, metric_name="other.team.metric", value=1.0, timestamp=anchor)
+        _seed_point(team_id=99999, metric_name="other.team.metric", value=1.0, timestamp=anchor)
 
         runner = MetricNamesQueryRunner(team=self.team)
         self.assertEqual(runner.run(), [])
@@ -105,8 +116,8 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_lookback_excludes_old_data(self):
         old = timezone.now().replace(microsecond=0) - dt.timedelta(days=14)
         recent = timezone.now().replace(microsecond=0) - dt.timedelta(hours=1)
-        _insert_metric_row(team_id=self.team.id, metric_name="old.metric", value=1.0, timestamp=old)
-        _insert_metric_row(team_id=self.team.id, metric_name="recent.metric", value=2.0, timestamp=recent)
+        _seed_point(team_id=self.team.id, metric_name="old.metric", value=1.0, timestamp=old)
+        _seed_point(team_id=self.team.id, metric_name="recent.metric", value=2.0, timestamp=recent)
 
         runner = MetricNamesQueryRunner(team=self.team, lookback=dt.timedelta(days=7))
         names = [row["name"] for row in runner.run()]
@@ -133,8 +144,8 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
 
     def test_values_returns_metric_names(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
-        _insert_metric_row(team_id=self.team.id, metric_name="m1", value=1.0, timestamp=anchor)
-        _insert_metric_row(team_id=self.team.id, metric_name="m2", value=2.0, timestamp=anchor, metric_type="gauge")
+        _seed_point(team_id=self.team.id, metric_name="m1", value=1.0, timestamp=anchor)
+        _seed_point(team_id=self.team.id, metric_name="m2", value=2.0, timestamp=anchor, metric_type="gauge")
 
         response = self.client.get(f"/api/projects/{self.team.id}/metrics/values")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -144,8 +155,8 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
 
     def test_values_search_param(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
-        _insert_metric_row(team_id=self.team.id, metric_name="http.duration", value=1.0, timestamp=anchor)
-        _insert_metric_row(team_id=self.team.id, metric_name="queue.depth", value=2.0, timestamp=anchor)
+        _seed_point(team_id=self.team.id, metric_name="http.duration", value=1.0, timestamp=anchor)
+        _seed_point(team_id=self.team.id, metric_name="queue.depth", value=2.0, timestamp=anchor)
 
         response = self.client.get(f"/api/projects/{self.team.id}/metrics/values?value=http")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

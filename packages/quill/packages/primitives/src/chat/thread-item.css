@@ -1,0 +1,319 @@
+@layer components {
+    /*
+     * Feed-style message row. The row highlights on hover/focus-within and reveals the actions
+     * toolbar; a timestamp placed in the gutter (continuation rows) follows the same reveal.
+     */
+    .quill-thread-item-group {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .quill-thread-item {
+        position: relative;
+        display: flex;
+        gap: 0.5rem;
+        width: 100%;
+        min-width: 0;
+        padding-block: 0.375rem;
+        padding-inline: 0.5rem;
+        border-radius: 0.5rem;
+    }
+
+    .quill-thread-item:hover,
+    .quill-thread-item:focus-within {
+        background-color: var(--fill-hover);
+    }
+
+    .quill-thread-item__gutter {
+        display: flex;
+        flex-shrink: 0;
+        justify-content: flex-end;
+        width: 2.5rem;
+        padding-block-start: 0.125rem;
+    }
+
+    /* Continuation rows: a timestamp in the gutter only shows while the row is hovered/focused. */
+    .quill-thread-item__gutter > [data-slot='thread-item-timestamp'] {
+        opacity: 0;
+        transition: opacity 100ms ease-out;
+    }
+
+    .quill-thread-item:hover .quill-thread-item__gutter > [data-slot='thread-item-timestamp'],
+    .quill-thread-item:focus-within .quill-thread-item__gutter > [data-slot='thread-item-timestamp'] {
+        opacity: 1;
+    }
+
+    .quill-thread-item__content {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        gap: 0;
+        min-width: 0;
+        overflow-wrap: break-word;
+    }
+
+    .quill-thread-item__header {
+        display: flex;
+        gap: 0.375rem;
+        align-items: baseline;
+        min-width: 0;
+    }
+
+    .quill-thread-item__author {
+        font-size: var(--text-sm, 0.875rem);
+        font-weight: 600;
+        color: var(--foreground);
+    }
+
+    /*
+     * Author as a profile trigger (render={<button />} / <a />): pointer + hover underline, but it
+     * keeps the name's foreground color and rests without an underline — it's a person, not a
+     * body-copy link, so app-level anchor styling must not tint it.
+     */
+    button.quill-thread-item__author,
+    a.quill-thread-item__author {
+        color: var(--foreground);
+        text-decoration: none;
+        text-underline-offset: 4px;
+        cursor: pointer;
+    }
+
+    button.quill-thread-item__author:hover,
+    a.quill-thread-item__author:hover {
+        text-decoration: underline;
+    }
+
+    .quill-thread-item__timestamp {
+        font-size: var(--text-xs, 0.75rem);
+        color: var(--muted-foreground);
+        white-space: nowrap;
+    }
+
+    .quill-thread-item__body {
+        min-width: 0;
+        font-size: var(--text-sm, 0.875rem);
+        line-height: 1.5;
+        color: var(--foreground);
+        overflow-wrap: break-word;
+    }
+
+    .quill-thread-item__mention {
+        padding-inline: 0.25rem;
+        font-weight: 500;
+        color: var(--primary);
+        background-color: color-mix(in oklab, var(--primary) 10%, transparent);
+        border-radius: 0.25rem;
+    }
+
+    /* Mention as a profile trigger (render={<button />} / <a />). */
+    button.quill-thread-item__mention,
+    a.quill-thread-item__mention {
+        cursor: pointer;
+    }
+
+    button.quill-thread-item__mention:hover,
+    a.quill-thread-item__mention:hover {
+        background-color: color-mix(in oklab, var(--primary) 18%, transparent);
+    }
+
+    button.quill-thread-item__mention:focus-visible,
+    a.quill-thread-item__mention:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 30%, transparent);
+    }
+
+    .quill-thread-item__link {
+        color: var(--primary);
+        text-underline-offset: 4px;
+        cursor: pointer;
+    }
+
+    .quill-thread-item__link:hover {
+        text-decoration: underline;
+    }
+
+    /* Attachment — collapsible filename row + framed preview. */
+    .quill-thread-item__attachment {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        align-items: flex-start;
+        min-width: 0;
+        padding-block-start: 0.125rem;
+    }
+
+    .quill-thread-item__attachment-trigger {
+        display: inline-flex;
+        gap: 0.25rem;
+        align-items: center;
+        padding: 0;
+        font-size: var(--text-xs, 0.75rem);
+        color: var(--subtle-foreground, var(--muted-foreground));
+        cursor: pointer;
+        background: none;
+        border: none;
+        border-radius: 0.25rem;
+    }
+
+    .quill-thread-item__attachment-trigger:hover {
+        color: var(--foreground);
+    }
+
+    .quill-thread-item__attachment-trigger:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 30%, transparent);
+    }
+
+    .quill-thread-item__attachment-trigger svg[data-chevron] {
+        width: 0.875rem;
+        height: 0.875rem;
+
+        /* Optical nudge: centers the chevron against the filename's x-height. */
+        margin-block-start: 0.125rem;
+        transition: rotate 150ms ease;
+    }
+
+    /* Closed: chevron points into reading direction (mirrored in RTL); open: down. */
+    .quill-thread-item__attachment-trigger:not([data-panel-open]) svg[data-chevron] {
+        rotate: -90deg;
+    }
+
+    [dir='rtl'] .quill-thread-item__attachment-trigger:not([data-panel-open]) svg[data-chevron] {
+        rotate: 90deg;
+    }
+
+    .quill-thread-item__attachment-panel {
+        min-width: 0;
+        max-width: 100%;
+        height: var(--collapsible-panel-height);
+        overflow: hidden;
+        transition: height 200ms ease-out;
+    }
+
+    .quill-thread-item__attachment-panel[data-starting-style],
+    .quill-thread-item__attachment-panel[data-ending-style] {
+        height: 0;
+    }
+
+    .quill-thread-item__attachment-panel-content {
+        min-width: 0;
+        padding-block: 0.125rem;
+    }
+
+    .quill-thread-item__attachment-image {
+        display: block;
+        max-width: 100%;
+        max-height: 22.5rem;
+        border: 1px solid var(--border);
+        border-radius: 0.5rem;
+    }
+
+    .quill-thread-item__reactions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+        align-items: center;
+        padding-block-start: 0.125rem;
+    }
+
+    .quill-thread-item__reaction {
+        display: inline-flex;
+        gap: 0.25rem;
+        align-items: center;
+        height: 1.5rem;
+        padding-inline: 0.5rem;
+        font-size: var(--text-xs, 0.75rem);
+        font-weight: 500;
+        color: var(--foreground);
+        cursor: pointer;
+        background-color: var(--muted);
+        border: 1px solid transparent;
+        border-radius: 9999px;
+    }
+
+    .quill-thread-item__reaction:hover {
+        background-color: var(--background);
+        border-color: var(--border);
+    }
+
+    .quill-thread-item__reaction[data-pressed] {
+        color: var(--primary);
+        background-color: color-mix(in oklab, var(--primary) 10%, transparent);
+        border-color: color-mix(in oklab, var(--primary) 40%, transparent);
+    }
+
+    .quill-thread-item__reaction:disabled,
+    .quill-thread-item__reaction[aria-disabled='true'] {
+        pointer-events: none;
+        opacity: 0.5;
+    }
+
+    .quill-thread-item__reaction:focus-visible {
+        border-color: var(--ring);
+        outline: none;
+        box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 30%, transparent);
+    }
+
+    .quill-thread-item__reaction-emoji {
+        font-size: 0.875rem;
+        line-height: 1;
+    }
+
+    /*
+     * Actions toolbar — floats over the row's top end corner. Hidden with opacity + pointer-events
+     * (never display: none) so buttons stay in the tab order; :focus-within reveals it for keyboard.
+     */
+    .quill-thread-item__actions {
+        position: absolute;
+        inset-block-start: -0.75rem;
+        inset-inline-end: 0.5rem;
+        z-index: 10;
+        display: flex;
+        gap: 0.125rem;
+        align-items: center;
+        padding: 0.125rem;
+        pointer-events: none;
+        background-color: var(--background);
+        border: 1px solid var(--border);
+        border-radius: 0.5rem;
+        box-shadow: var(--shadow-sm);
+        opacity: 0;
+        transition: opacity 100ms ease-out;
+    }
+
+    .quill-thread-item:hover .quill-thread-item__actions,
+    .quill-thread-item:focus-within .quill-thread-item__actions {
+        pointer-events: auto;
+        opacity: 1;
+    }
+
+    /*
+     * Reply summary — a Button (variant default), so rest/hover/focus chrome is Button's.
+     * Only the row shape is ours: stretch to the content column so the hover target matches
+     * Slack-style thread bars. Optical alignment: tighten Button's inline padding and pull the
+     * hover box outward by the same amount, so the label sits flush with the body text while the
+     * fill still wraps it. Doubled class outranks Button's size padding regardless of which CSS
+     * file the bundler emits first.
+     */
+    .quill-thread-item__replies.quill-thread-item__replies {
+        gap: 0.375rem;
+        align-self: stretch;
+        min-width: 0;
+        padding-inline: 0.25rem;
+        margin-inline: -0.25rem -0.125rem;
+    }
+
+    .quill-thread-item__replies-label {
+        font-weight: 500;
+        color: var(--primary);
+        white-space: nowrap;
+    }
+
+    .quill-thread-item__replies-meta {
+        overflow: hidden;
+        color: var(--subtle-foreground, var(--muted-foreground));
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+}

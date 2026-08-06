@@ -1,5 +1,5 @@
-import { DependencyUnavailableError } from '../../../src/utils/db/error'
-import { PostgresUse, handlePostgresError, isTransientPgError } from '../../../src/utils/db/postgres'
+import { DependencyUnavailableError } from '~/common/utils/db/error'
+import { PostgresUse, handlePostgresError, isTransientPgError } from '~/common/utils/db/postgres'
 
 describe('isTransientPgError', () => {
     it.each([
@@ -11,6 +11,7 @@ describe('isTransientPgError', () => {
         ['getaddrinfo EAI_AGAIN pg'],
         ['Connection terminated unexpectedly'],
         ['connect ECONNREFUSED 127.0.0.1:5432'],
+        ['read ECONNRESET'],
         ['connect ETIMEDOUT 10.0.0.1:5432'],
         ['query_wait_timeout'],
         ['server login has been failing, try again later (server_login_retry)'],
@@ -45,6 +46,7 @@ describe('handlePostgresError', () => {
         ['getaddrinfo EAI_AGAIN pg'],
         ['Connection terminated unexpectedly'],
         ['connect ECONNREFUSED 127.0.0.1:5432'],
+        ['read ECONNRESET'],
         ['connect ETIMEDOUT 10.0.0.1:5432'],
         ['query_wait_timeout'],
         ['server login has been failing, try again later (server_login_retry)'],

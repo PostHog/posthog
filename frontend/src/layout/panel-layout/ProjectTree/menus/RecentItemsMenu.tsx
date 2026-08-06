@@ -4,9 +4,10 @@ import { useState } from 'react'
 import { IconClock } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
-import { keybindToKeyboardShortcutProps } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+import { keybindToKeyboardShortcutProps } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -19,7 +20,6 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { MenuSeparator } from 'lib/ui/Menus/Menus'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
@@ -40,7 +40,7 @@ export function RecentItemsMenu(): JSX.Element {
         setIsOpen(open)
     }
 
-    useAppShortcut({
+    useShortcut({
         name: 'recent-items-menu',
         keybind: [keyBinds.recentItems],
         intent: 'Open recent items menu',

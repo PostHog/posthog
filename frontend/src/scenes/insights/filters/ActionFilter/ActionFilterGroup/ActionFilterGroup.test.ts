@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
-import * as libUtils from 'lib/utils'
+import * as libUtils from 'lib/utils/dom'
 import {
     entityFilterLogic,
     singleFilterToGroupFilter,

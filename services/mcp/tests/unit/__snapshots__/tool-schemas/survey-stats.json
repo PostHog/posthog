@@ -16,6 +16,10 @@
         "id": {
             "description": "A UUID string identifying this survey.",
             "type": "string"
+        },
+        "include_per_question_stats": {
+            "description": "When true, also return per-question response counts and answer distributions. Adds one extra HogQL query per question, so leave off unless you need the breakdown.",
+            "type": "boolean"
         }
     },
     "required": ["id"],

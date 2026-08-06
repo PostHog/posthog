@@ -16,7 +16,7 @@ class TestPushGatewayTask:
         return CollectorRegistry()
 
     @pytest.fixture
-    def mock_push_context(self, mock_registry: CollectorRegistry) -> Generator[MagicMock, None, None]:
+    def mock_push_context(self, mock_registry: CollectorRegistry) -> Generator[MagicMock]:
         with patch("posthog.tasks.utils.pushed_metrics_registry") as mock:
             mock_context = MagicMock()
             mock_context.__enter__ = MagicMock(return_value=mock_registry)

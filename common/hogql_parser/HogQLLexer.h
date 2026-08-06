@@ -47,18 +47,18 @@ public:
     COLONEQUALS = 149, COLON = 150, COMMA = 151, CONCAT = 152, DASH = 153, 
     DOLLAR = 154, DOT = 155, EQ_DOUBLE = 156, EQ_SINGLE = 157, GT_EQ = 158, 
     GT = 159, HASH = 160, IREGEX_SINGLE = 161, IREGEX_DOUBLE = 162, LBRACE = 163, 
-    LBRACKET = 164, LPAREN = 165, LT_EQ = 166, LT = 167, LT_SLASH = 168, 
-    NOT_EQ = 169, NOT_IREGEX = 170, NOT_REGEX = 171, NULL_PROPERTY = 172, 
-    NULLISH = 173, PERCENT = 174, PLUS = 175, QUERY = 176, QUOTE_DOUBLE = 177, 
-    QUOTE_SINGLE_TEMPLATE = 178, QUOTE_SINGLE_TEMPLATE_FULL = 179, QUOTE_SINGLE = 180, 
-    REGEX_SINGLE = 181, REGEX_DOUBLE = 182, RBRACE = 183, RBRACKET = 184, 
-    RPAREN = 185, SEMICOLON = 186, SLASH = 187, SLASH_GT = 188, UNDERSCORE = 189, 
-    MULTI_LINE_COMMENT = 190, SINGLE_LINE_COMMENT = 191, WHITESPACE = 192, 
-    UNEXPECTED_CHARACTER = 193, STRING_TEXT = 194, STRING_ESCAPE_TRIGGER = 195, 
-    FULL_STRING_TEXT = 196, FULL_STRING_ESCAPE_TRIGGER = 197, TAG_MULTI_LINE_COMMENT = 198, 
-    TAG_SINGLE_LINE_COMMENT = 199, TAG_WS = 200, TAGC_MULTI_LINE_COMMENT = 201, 
-    TAGC_SINGLE_LINE_COMMENT = 202, TAGC_WS = 203, HOGQLX_TEXT_TEXT = 204, 
-    HOGQLX_TEXT_WS = 205
+    LBRACKET = 164, LPAREN = 165, NULL_SAFE_EQ = 166, LT_EQ = 167, LT = 168, 
+    LT_SLASH = 169, NOT_EQ = 170, NOT_IREGEX = 171, NOT_REGEX = 172, NULL_PROPERTY = 173, 
+    NULLISH = 174, PERCENT = 175, PLUS = 176, QUERY = 177, QUOTE_DOUBLE = 178, 
+    QUOTE_SINGLE_TEMPLATE = 179, QUOTE_SINGLE_TEMPLATE_FULL = 180, QUOTE_SINGLE = 181, 
+    REGEX_SINGLE = 182, REGEX_DOUBLE = 183, RBRACE = 184, RBRACKET = 185, 
+    RPAREN = 186, SEMICOLON = 187, SLASH = 188, SLASH_GT = 189, UNDERSCORE = 190, 
+    MULTI_LINE_COMMENT = 191, SINGLE_LINE_COMMENT = 192, HASH_COMMENT = 193, 
+    WHITESPACE = 194, UNEXPECTED_CHARACTER = 195, STRING_TEXT = 196, STRING_ESCAPE_TRIGGER = 197, 
+    FULL_STRING_TEXT = 198, FULL_STRING_ESCAPE_TRIGGER = 199, TAG_MULTI_LINE_COMMENT = 200, 
+    TAG_SINGLE_LINE_COMMENT = 201, TAG_WS = 202, TAGC_MULTI_LINE_COMMENT = 203, 
+    TAGC_SINGLE_LINE_COMMENT = 204, TAGC_WS = 205, HOGQLX_TEXT_TEXT = 206, 
+    HOGQLX_TEXT_WS = 207
   };
 
   enum {
@@ -72,11 +72,17 @@ public:
 
 
 
+  /* ctype classifiers are UB outside [0,255]+EOF; LA() returns raw UTF-32 code
+     points, so guard to ASCII before delegating (C-locale semantics). */
+  static bool isAsciiAlpha(int ch) { return ch >= 0 && ch < 128 && std::isalpha(ch); }
+  static bool isAsciiAlnum(int ch) { return ch >= 0 && ch < 128 && std::isalnum(ch); }
+  static bool isAsciiSpace(int ch) { return ch >= 0 && ch < 128 && std::isspace(ch); }
+
   /** Skip over whitespace and end-of-line comments (`// …`, `-- …`, `# …`). */
   void skipWsAndComments(std::size_t& i) {
       for (;;) {
           int ch = _input->LA(i);
-          if (std::isspace(ch)) {                       // regular whitespace
+          if (isAsciiSpace(ch)) {                       // regular whitespace
               ++i;
               continue;
           }
@@ -106,14 +112,14 @@ public:
   bool isOpeningTag() {
       /* first char after '<' */
       int la1 = _input->LA(1);
-      if (!std::isalpha(la1) && la1 != '_')
+      if (!isAsciiAlpha(la1) && la1 != '_')
           return false;
 
       /* skip the tag name ([a-zA-Z0-9_-]*) */
       std::size_t i = 2;
       while (true) {
           int ch = _input->LA(i);
-          if (std::isalnum(ch) || ch == '_' || ch == '-')
+          if (isAsciiAlnum(ch) || ch == '_' || ch == '-')
               ++i;
           else
               break;
@@ -126,11 +132,11 @@ public:
           return true;
 
       /*  If the next char is whitespace, look further  */
-      if (std::isspace(ch)) {
+      if (isAsciiSpace(ch)) {
           skipWsAndComments(++i); // step past first space
           ch = _input->LA(i);
           /* tag iff next non-ws/non-comment char is alnum/underscore */
-          return std::isalnum(ch) || ch == '_' || ch == '>' || ch == '/';
+          return isAsciiAlnum(ch) || ch == '_' || ch == '>' || ch == '/';
       }
 
       /* anything else (operator chars, ')', '+', …) → not a tag */

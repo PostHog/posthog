@@ -20,11 +20,11 @@ from posthog.schema import (
     RecordingOrderDirection,
 )
 
+from products.posthog_ai.backend.models.assistant import Conversation
 from products.replay.backend.max_tools import SessionReplayFilterOptionsGraph
 from products.replay.backend.prompts import USER_FILTER_OPTIONS_PROMPT
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.models.assistant import Conversation
 
 from ...base import MaxPublicEval
 

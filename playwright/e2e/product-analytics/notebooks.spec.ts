@@ -81,7 +81,6 @@ test.describe('Notebooks', () => {
     })
 
     test('Add a funnel insight, configure steps, and verify conversion rates', async ({ page }) => {
-        test.setTimeout(60_000)
         const notebook = new NotebookPage(page)
         const insight = new InsightPage(page)
         const notebookName = randomString('nb-funnels')
@@ -141,14 +140,8 @@ test.describe('Notebooks', () => {
 
         await test.step('type text content in the notebook', async () => {
             const savePromise = notebook.waitForSave()
-            // Click the editor container to trigger trailing paragraph creation,
-            // then wait for the editable textbox to appear
-            await page.locator('.NotebookEditor').click()
-            await expect(notebook.editor).toBeVisible()
-            await notebook.editor.click()
-            await notebook.editor.press('End')
-            await notebook.editor.press('Enter')
-            await notebook.editor.pressSequentially(textContent)
+            await notebook.focusNewParagraphAtEnd()
+            await page.keyboard.type(textContent)
             await expect(notebook.editor).toContainText(textContent)
             await savePromise
         })

@@ -1,6 +1,7 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 
 import { getPostHogClient } from '@/lib/posthog'
+import { getToolRecoveryHint } from '@/lib/tool-error-hints'
 import { sanitizeHeaderValue } from '@/lib/utils'
 
 export enum ErrorCode {
@@ -55,7 +56,7 @@ function formatMissingProjectContextMessage(organizationId: string | undefined):
         '2. If you already know the project id, call `switch-project { projectId: <id> }` directly.\n' +
         '3. (For MCP client maintainers) Pin a project at session start by sending the `x-posthog-project-id` header on the initialize request.' +
         '\n\n' +
-        'If `projects-get` returns nothing, call `organizations-list` followed by `switch-organization` to pick a different org first — then retry `projects-get`.'
+        'If `projects-get` returns nothing, call `organizations-get` followed by `switch-organization` to pick a different org first — then retry `projects-get`.'
     )
 }
 
@@ -78,7 +79,7 @@ function formatMissingOrganizationContextMessage(): string {
         'No PostHog organization is selected for this MCP session, and a default could not be derived from your API key.' +
         '\n\n' +
         'To pick one (in order of preference):\n' +
-        '1. Call `organizations-list` to list organizations you can access, then `switch-organization` with the chosen organization id.\n' +
+        '1. Call `organizations-get` to list organizations you can access, then `switch-organization` with the chosen organization id.\n' +
         '2. (For MCP client maintainers) Pin an organization at session start by sending the `x-posthog-organization-id` header on the initialize request.'
     )
 }
@@ -116,6 +117,59 @@ export class PostHogValidationError extends Error {
         this.extra = options.extra
         this.url = options.url
         this.method = options.method
+    }
+}
+
+/**
+ * Thrown when MCP-side schema validation rejects a tool call's input before
+ * any handler runs (the exec `call` path). The message is pre-formatted by
+ * `formatInputValidationError` and already names the offending field(s), so
+ * `handleToolError` returns it verbatim — capturing it as an exception would
+ * mint a per-tool error tracking issue for every agent slip-up, the same
+ * noise problem the 4xx short-circuit exists to prevent.
+ */
+export class ToolInputValidationError extends Error {
+    /** Value-free descriptors of the rejection for telemetry: offending
+     *  field paths + issue codes, and the top-level keys the caller sent. Never
+     *  includes input VALUES — see `describeValidationError`. */
+    public readonly fields: string[]
+    public readonly inputKeys: string[]
+
+    constructor(message: string, detail?: { fields?: string[]; inputKeys?: string[] }) {
+        super(message)
+        this.name = 'ToolInputValidationError'
+        this.fields = detail?.fields ?? []
+        this.inputKeys = detail?.inputKeys ?? []
+    }
+}
+
+export type ExecCommandErrorReason =
+    | 'unknown_command'
+    | 'unknown_tool'
+    | 'deprecated_tool'
+    | 'missing_scope'
+    | 'invalid_json'
+    | 'usage'
+    | 'invalid_regex'
+    | 'unknown_learn_topic'
+    | 'needs_confirmation'
+
+/**
+ * Thrown by the `exec` dispatcher when it rejects a command before any inner
+ * tool runs. Typed so these classify as agent mistakes rather than falling
+ * through to the `internal` bucket ops alerts on.
+ *
+ * `message` goes back to the agent verbatim so it can self-correct, but is
+ * never captured into analytics — it can echo the caller's tool name or a JSON
+ * parser fragment. `$mcp_error_message` is derived from the `reason` enum.
+ */
+export class ExecCommandError extends Error {
+    public readonly reason: ExecCommandErrorReason
+
+    constructor(message: string, reason: ExecCommandErrorReason) {
+        super(message)
+        this.name = 'ExecCommandError'
+        this.reason = reason
     }
 }
 
@@ -160,6 +214,49 @@ export class PostHogApiError extends Error {
 
 function buildDefaultApiErrorMessage(options: PostHogApiErrorOptions): string {
     return `Request failed:\nURL: ${options.method} ${options.url}\nStatus Code: ${options.status} (${options.statusText})\nError Message: ${options.body}`
+}
+
+export interface PostHogRateLimitErrorOptions {
+    body: string
+    url: string
+    method: string
+    retryAfterSeconds: number | null
+}
+
+/**
+ * Thrown when the PostHog API responds with HTTP 429. Never retried inside the
+ * MCP server: sleeping here keeps the client's request open and lets pending
+ * work pile up behind it, so the rate limit is surfaced immediately with the
+ * server's Retry-After hint and the client decides when to retry.
+ */
+export class PostHogRateLimitError extends PostHogApiError {
+    public readonly retryAfterSeconds: number | null
+
+    constructor(options: PostHogRateLimitErrorOptions) {
+        const retryHint = options.retryAfterSeconds !== null ? ` Retry after ${options.retryAfterSeconds} seconds.` : ''
+        super({
+            status: 429,
+            statusText: 'Too Many Requests',
+            body: options.body,
+            url: options.url,
+            method: options.method,
+            message: `PostHog API rate limit exceeded (429) on ${options.method} ${options.url}.${retryHint}`,
+        })
+        this.name = 'PostHogRateLimitError'
+        this.retryAfterSeconds = options.retryAfterSeconds
+    }
+}
+
+/**
+ * Parses a Retry-After header into whole seconds. Returns null for missing
+ * headers, HTTP-date values, and bogus negatives.
+ */
+export function parseRetryAfterSeconds(header: string | null): number | null {
+    if (!header) {
+        return null
+    }
+    const seconds = Number.parseInt(header, 10)
+    return Number.isNaN(seconds) || seconds < 0 ? null : seconds
 }
 
 export interface PostHogPermissionErrorOptions {
@@ -337,10 +434,16 @@ export function findRecoverableApiError(error: unknown): PostHogApiError | PostH
 export function handleToolError(error: any, tool?: string, distinctId?: string, sessionUuid?: string): CallToolResult {
     const toolName = tool || 'unknown'
 
-    // Recoverable: agent can fix it via switch-project / projects-get. Skip
-    // exception capture (this is expected user state, not a bug) and return the
-    // typed error's pre-formatted multi-line message verbatim.
-    if (error instanceof MissingProjectContextError || error instanceof MissingOrganizationContextError) {
+    // Recoverable: expected agent or user state, not a bug — no project picked,
+    // input the schema rejected, a mistyped exec command. Each of these classes
+    // pre-formats a message the agent can self-correct from, so return it verbatim
+    // and skip exception capture, which would mint an issue per slip-up.
+    if (
+        error instanceof MissingProjectContextError ||
+        error instanceof MissingOrganizationContextError ||
+        error instanceof ToolInputValidationError ||
+        error instanceof ExecCommandError
+    ) {
         return {
             content: [
                 {
@@ -430,11 +533,22 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
         // Never let observability break the request.
     }
 
+    // A 5xx returns an opaque server body the agent can't act on. When the
+    // failed endpoint has a known recovery path (e.g. a logs query that scanned
+    // too much data), append a short "here's how to recover" footer so the agent
+    // narrows and retries instead of re-issuing the same failing call.
+    // `recoverableApiError` was unwrapped from any `cause` chain above; only 5xx
+    // reach here (4xx short-circuited earlier).
+    const recoveryHint =
+        recoverableApiError instanceof PostHogApiError
+            ? getToolRecoveryHint({ url: recoverableApiError.url, status: recoverableApiError.status })
+            : undefined
+
     return {
         content: [
             {
                 type: 'text',
-                text: `Error: [${mcpError.tool}]: ${mcpError.message}`,
+                text: `Error: [${mcpError.tool}]: ${mcpError.message}${recoveryHint ? `\n\n${recoveryHint}` : ''}`,
             },
         ],
         isError: true,

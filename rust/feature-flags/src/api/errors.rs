@@ -1,7 +1,9 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
 use common_cookieless::{CookielessManagerError, SaltCacheError};
-use common_database::{extract_timeout_type, is_timeout_error, CustomDatabaseError};
+use common_database::{
+    extract_timeout_type, is_timeout_error, is_transient_error, CustomDatabaseError,
+};
 use common_hypercache::HyperCacheError;
 use common_redis::CustomRedisError;
 use serde::Serialize;
@@ -125,6 +127,11 @@ pub enum FlagError {
     RayonSemaphoreTimeout(u64),
     #[error(transparent)]
     CookielessError(#[from] CookielessManagerError),
+    /// A stored remote-config payload could not be decrypted with any configured key (or no
+    /// decryptor is configured at all). Distinct from `Internal` so the response is JSON, not
+    /// plain text -- SDKs calling `remote_config` parse the body as JSON on every status code.
+    #[error("failed to decrypt remote config payload: {0}")]
+    RemoteConfigDecryptFailed(String),
 }
 
 impl FlagError {
@@ -175,6 +182,7 @@ impl FlagError {
             FlagError::BatchEvaluationPanicked => ("batch_evaluation_panicked", 500),
             FlagError::HashKeyOverrideError => ("hash_key_override_error", 500),
             FlagError::RayonSemaphoreTimeout(_) => ("rayon_semaphore_timeout", 504),
+            FlagError::RemoteConfigDecryptFailed(_) => ("remote_config_decrypt_failed", 500),
 
             // Data parsing errors (500) - internal errors, not service unavailability
             FlagError::DataParsingErrorWithContext(_) => ("flag_data_parsing_error", 500),
@@ -360,10 +368,22 @@ impl IntoResponse for FlagError {
                 (StatusCode::BAD_REQUEST, "The distinct_id field is missing from the request. Please include a valid identifier.".to_string())
             }
             FlagError::NoTokenError => {
-                (StatusCode::UNAUTHORIZED, "No API token provided. Please include a valid API token in your request.".to_string())
+                let response = AuthenticationErrorResponse {
+                    error_type: "authentication_error".to_string(),
+                    code: "not_authenticated".to_string(),
+                    detail: "No API token provided. Please include a valid API token in your request.".to_string(),
+                    attr: None,
+                };
+                return (StatusCode::UNAUTHORIZED, Json(response)).into_response();
             }
             FlagError::TokenValidationError => {
-                (StatusCode::UNAUTHORIZED, "The provided API key is invalid or has expired. Please check your API key and try again.".to_string())
+                let response = AuthenticationErrorResponse {
+                    error_type: "authentication_error".to_string(),
+                    code: "authentication_failed".to_string(),
+                    detail: "The provided API key is invalid or has expired. Please check your API key and try again.".to_string(),
+                    attr: None,
+                };
+                return (StatusCode::UNAUTHORIZED, Json(response)).into_response();
             }
             FlagError::PersonalApiKeyInvalid => {
                 let response = AuthenticationErrorResponse {
@@ -484,6 +504,17 @@ impl IntoResponse for FlagError {
                 tracing::warn!("Rayon semaphore acquisition timed out after {}ms", ms);
                 (StatusCode::GATEWAY_TIMEOUT, format!("Evaluation pool busy, timed out after {ms}ms. Please retry."))
             }
+            FlagError::RemoteConfigDecryptFailed(_) => {
+                // The failure is already logged with project_id/flag_key context at the source in
+                // resolve_decrypted_payload; don't log it a second time here.
+                let response = AuthenticationErrorResponse {
+                    error_type: "server_error".to_string(),
+                    code: "remote_config_decrypt_failed".to_string(),
+                    detail: "Failed to decrypt the remote config payload. Please contact support if the problem persists.".to_string(),
+                    attr: None,
+                };
+                return (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response();
+            }
             FlagError::CookielessError(err) => {
                 match err {
                     // 400 Bad Request errors - client-side issues
@@ -583,10 +614,25 @@ impl From<sqlx::Error> for FlagError {
         match e {
             sqlx::Error::RowNotFound => FlagError::RowNotFound,
             _ => {
-                // Check if it's a timeout-related SQL error
                 if is_timeout_error(&e) {
+                    // Timeouts get their own retryable classification (503) with a type tag.
                     FlagError::TimeoutError(extract_timeout_type(&e).map(|s| s.to_string()))
+                } else if is_transient_error(&e) {
+                    // Connection resets, serialization failures, and other transient
+                    // connection-level Postgres faults are retryable, so surface them as a
+                    // 503 rather than treating a DB blip as a hard 500 SDKs won't retry.
+                    //
+                    // DatabaseUnavailable carries no payload, so log the cause here or the
+                    // SQLSTATE is lost — that detail is what distinguishes a connection
+                    // blip (08***) from resource exhaustion (53***) during an incident.
+                    tracing::warn!(
+                        sqlstate = e.as_database_error().and_then(|db| db.code()).as_deref(),
+                        "Transient database error, returning 503: {}",
+                        e
+                    );
+                    FlagError::DatabaseUnavailable
                 } else {
+                    // Genuine internal faults (data corruption, unknown SQLSTATEs) stay 500.
                     FlagError::DatabaseError(e, None)
                 }
             }
@@ -680,6 +726,30 @@ mod tests {
     }
 
     #[test]
+    fn test_remote_config_decrypt_failed_response_is_json() {
+        // The remote_config response body must be JSON on every status code, because SDKs call
+        // res.json() on it unconditionally, so a plain-text 500 would crash them client-side.
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let err = FlagError::RemoteConfigDecryptFailed("failed to decrypt payload".to_string());
+
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            response
+                .headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok()),
+            Some("application/json")
+        );
+
+        let body_bytes = rt
+            .block_on(axum::body::to_bytes(response.into_body(), usize::MAX))
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(body["code"], "remote_config_decrypt_failed");
+    }
+
+    #[test]
     fn test_custom_database_error_conversion_timeout() {
         // Test that CustomDatabaseError::Timeout converts to FlagError::TimeoutError with client_timeout
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -731,6 +801,42 @@ mod tests {
         // Test that direct non-timeout sqlx errors are handled correctly
         let sqlx_error: FlagError = sqlx::Error::RowNotFound.into();
         assert!(matches!(sqlx_error, FlagError::RowNotFound));
+    }
+
+    #[test]
+    fn test_direct_sqlx_transient_conversion_is_503() {
+        // Transient/connection-level failures propagated via `?` must map to the retryable
+        // DatabaseUnavailable (503), not DatabaseError (500), so SDKs retry on a DB blip.
+        let pool_closed: FlagError = sqlx::Error::PoolClosed.into();
+        assert!(matches!(pool_closed, FlagError::DatabaseUnavailable));
+        assert_eq!(pool_closed.status_code(), 503);
+
+        let io_reset: FlagError = sqlx::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::ConnectionReset,
+            "connection reset by peer",
+        ))
+        .into();
+        assert!(matches!(io_reset, FlagError::DatabaseUnavailable));
+        assert_eq!(io_reset.status_code(), 503);
+
+        let tls_error: FlagError =
+            sqlx::Error::Tls(Box::new(std::io::Error::other("TLS handshake failed"))).into();
+        assert!(matches!(tls_error, FlagError::DatabaseUnavailable));
+        assert_eq!(tls_error.status_code(), 503);
+    }
+
+    #[test]
+    fn test_direct_sqlx_internal_fault_stays_500() {
+        // Genuine internal faults (schema/config problems) are not transient and must
+        // remain DatabaseError (500) so they are not masked as retryable.
+        let column_error: FlagError = sqlx::Error::ColumnNotFound("missing".to_string()).into();
+        assert!(matches!(column_error, FlagError::DatabaseError(_, _)));
+        assert_eq!(column_error.status_code(), 500);
+
+        let config_error: FlagError =
+            sqlx::Error::Configuration("invalid connection string".into()).into();
+        assert!(matches!(config_error, FlagError::DatabaseError(_, _)));
+        assert_eq!(config_error.status_code(), 500);
     }
 
     #[test]

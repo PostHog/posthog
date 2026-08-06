@@ -1,7 +1,7 @@
 import { IconClock } from '@posthog/icons'
 
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { InspectorListItemInactivity } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
 export function ItemInactivity({ item }: { item: InspectorListItemInactivity }): JSX.Element {

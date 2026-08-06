@@ -1,0 +1,26 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "base_version": {
+            "description": "Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.",
+            "minimum": 1,
+            "type": "number"
+        },
+        "new_path": {
+            "description": "New file path. Must not already exist in the skill.",
+            "maxLength": 500,
+            "type": "string"
+        },
+        "old_path": {
+            "description": "Current file path to rename.",
+            "maxLength": 500,
+            "type": "string"
+        },
+        "skill_name": {
+            "pattern": "^[^/]+$",
+            "type": "string"
+        }
+    },
+    "required": ["skill_name", "old_path", "new_path"],
+    "type": "object"
+}

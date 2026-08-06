@@ -13,9 +13,12 @@ from django.utils.safestring import SafeString
 
 import structlog
 
+from posthog.admin.inline_registry import register_admin_inline
 from posthog.cloud_utils import is_cloud, is_dev_mode
+from posthog.models.organization import Organization
 from posthog.storage import object_storage
 
+from . import logic
 from .models import LegalDocument
 from .storage import signed_pdf_storage_key
 
@@ -67,6 +70,10 @@ class LegalDocumentAdminForm(forms.ModelForm):
 
 @admin.register(LegalDocument)
 class LegalDocumentAdmin(admin.ModelAdmin):
+    # FK to posthog.Organization — without this the add view renders a <select>
+    # of every org on Cloud, which times out. Autocomplete searches lazily via
+    # OrganizationAdmin.search_fields.
+    autocomplete_fields = ("organization",)
     list_display = (
         "id",
         "document_type",
@@ -87,6 +94,7 @@ class LegalDocumentAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
     show_full_result_count = False
     list_select_related = ("organization", "created_by")
+    actions = ("resend_signing_email",)
 
     # Change view stays read-only — customer-submitted content can't be quietly
     # rewritten. The add view uses LegalDocumentAdminForm fields directly.
@@ -227,27 +235,48 @@ class LegalDocumentAdmin(admin.ModelAdmin):
                 f"This organization already has a {obj.document_type}. Delete the existing row first."
             ) from exc
 
+    @admin.action(description="Re-send PandaDoc signing email")
+    def resend_signing_email(self, request: HttpRequest, queryset: Any) -> None:
+        # Recovery path for envelopes stranded because the `document.draft`
+        # webhook that normally triggers the send was missed: the envelope was
+        # created but the signing email never went out. Re-dispatching the send
+        # (idempotent on PandaDoc's side) gets the signer their link without
+        # forcing a delete + regenerate. Signed rows and rows without an
+        # envelope have nothing to send.
+        sent = skipped = failed = 0
+        for document in queryset:
+            if document.status == LegalDocument.Status.SIGNED or not document.pandadoc_document_id:
+                skipped += 1
+            elif logic.send_pandadoc_envelope(document):
+                sent += 1
+            else:
+                failed += 1
+
+        if sent:
+            messages.success(request, f"Re-sent the signing email for {sent} document(s).")
+        if skipped:
+            messages.warning(request, f"Skipped {skipped} document(s): already signed or no PandaDoc envelope.")
+        if failed:
+            messages.error(
+                request,
+                f"Couldn't re-send {failed} document(s). PandaDoc may still be processing the template, or the "
+                "envelope is no longer sendable. Check the logs and try again shortly.",
+            )
+
     def delete_model(self, request: HttpRequest, obj: LegalDocument) -> None:
-        self._delete_signed_pdf(obj)
-        super().delete_model(request, obj)
+        # Shared helper voids the PandaDoc envelope, removes the S3 object,
+        # and deletes the row (firing the activity-log entry via
+        # ModelActivityMixin). The same helper backs the public DELETE
+        # endpoint — admin keeps the privilege of deleting signed rows by
+        # calling the helper directly rather than going through the facade.
+        logic.delete_document(obj)
 
     def delete_queryset(self, request: HttpRequest, queryset: Any) -> None:
+        # Per-row delete (rather than queryset.delete()) so each row fires its
+        # own activity-log delete and so the shared helper can run its
+        # PandaDoc + S3 cleanup against each envelope individually.
         for obj in queryset:
-            self._delete_signed_pdf(obj)
-        super().delete_queryset(request, queryset)
-
-    @staticmethod
-    def _delete_signed_pdf(obj: LegalDocument) -> None:
-        try:
-            object_storage.delete(signed_pdf_storage_key(obj))
-        except Exception as exc:
-            # Best effort — the row is going away regardless. Worst case a stale
-            # PDF lingers in S3 with no row referencing it.
-            logger.warning(
-                "legal_document_admin_pdf_delete_failed",
-                document_id=str(obj.id),
-                error=str(exc),
-            )
+            logic.delete_document(obj)
 
     def changelist_view(self, request: HttpRequest, extra_context: dict[str, Any] | None = None) -> HttpResponse:
         if not (is_cloud() or is_dev_mode()):
@@ -330,3 +359,8 @@ class LegalDocumentInline(admin.TabularInline):
             return "—"
         url = f"/api/organizations/{document.organization_id}/legal_documents/{document.id}/download"
         return format_html('<a href="{}" target="_blank" rel="noopener">Download PDF</a>', url)
+
+
+# Surface this inline on core's Organization admin page without core importing the product.
+# OrganizationAdmin pulls it in via get_inlines() — see posthog.admin.inline_registry.
+register_admin_inline(Organization, LegalDocumentInline)

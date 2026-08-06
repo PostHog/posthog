@@ -1,6 +1,17 @@
-import { expect, test } from '../utils/playwright-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../utils/workspace-test-base'
 
 test.describe('Event Definitions', () => {
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    // Keep demo data: the test reads an existing event definition row and opens its recordings.
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true })
+    })
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        await playwrightSetup.loginAndNavigateToTeam(page, workspace!)
+    })
+
     test('See recordings action', async ({ page }) => {
         await page.goToMenuItem('datamanagement')
         await page.goToMenuItem('event-definitions')

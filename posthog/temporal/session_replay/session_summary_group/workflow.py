@@ -51,6 +51,8 @@ from posthog.temporal.session_replay.session_summary_group.types import (
     WorkflowProgress,
 )
 
+from products.replay.backend.models.session_summaries import SessionGroupSummary
+
 from ee.hogai.session_summaries.constants import (
     GROUP_SUMMARY_MIN_SUCCESS_FLOOR,
     GROUP_SUMMARY_MIN_SUCCESS_RATIO,
@@ -60,7 +62,6 @@ from ee.hogai.session_summaries.constants import (
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.utils import logging_session_ids
-from ee.models.session_summaries import SessionGroupSummary
 
 logger = structlog.get_logger(__name__)
 
@@ -515,8 +516,7 @@ async def _start_session_group_summary_workflow(
     tuple[
         SessionSummaryStreamUpdate,
         tuple[EnrichedSessionGroupSummaryPatternsList, str, list[FailedSessionInfo]] | str | SessionProgressStreamData,
-    ],
-    None,
+    ]
 ]:
     """Start the workflow and yield status updates until completion."""
     client = await async_connect()
@@ -665,8 +665,7 @@ async def execute_summarize_session_group(
     tuple[
         SessionSummaryStreamUpdate,
         tuple[EnrichedSessionGroupSummaryPatternsList, str, list[FailedSessionInfo]] | str | SessionProgressStreamData,
-    ],
-    None,
+    ]
 ]:
     """
     Start the workflow and yield status updates and final summary for the group of sessions.

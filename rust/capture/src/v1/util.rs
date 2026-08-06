@@ -6,8 +6,25 @@ use bytes::{BufMut, Bytes, BytesMut};
 use futures::StreamExt;
 use tokio::io::AsyncReadExt;
 
-use crate::v1::constants::CAPTURE_V1_BODY_READ_TIMEOUT;
+use crate::v1::constants::{CAPTURE_V1_BODY_READ_TIMEOUT, CAPTURE_V1_DECOMPRESSION_ERRORS};
 use crate::v1::Error;
+
+/// Map a validated Content-Encoding value to a static metric label value.
+///
+/// Mirrors `SUPPORTED_ENCODINGS` (gzip, deflate, br, zstd). `None` means no
+/// Content-Encoding header was sent ("identity"). `Context::new` already
+/// rejects unsupported encodings, so the "other" fallback is a defensive
+/// branch that is unreachable in practice.
+pub fn encoding_tag(enc: Option<&str>) -> &'static str {
+    match enc {
+        None => "identity",
+        Some("gzip") => "gzip",
+        Some("deflate") => "deflate",
+        Some("br") => "br",
+        Some("zstd") => "zstd",
+        Some(_) => "other",
+    }
+}
 
 /// Extract body bytes from a streaming Body with a per-chunk timeout.
 ///
@@ -48,6 +65,14 @@ pub async fn extract_body_with_timeout(
                 buf.put(chunk);
             }
             Some(Err(e)) => {
+                // A body wrapped by axum's DefaultBodyLimit surfaces over-limit
+                // reads as a LengthLimitError in the stream; report those as 413
+                // rather than a generic decoding failure.
+                if error_chain_has_length_limit(&e) {
+                    return Err(Error::PayloadTooLarge(format!(
+                        "Request body exceeds limit of {payload_size_limit} bytes"
+                    )));
+                }
                 return Err(Error::RequestDecodingError(format!(
                     "Error reading request body: {e:#}"
                 )));
@@ -61,6 +86,17 @@ pub async fn extract_body_with_timeout(
         return Err(Error::EmptyBody);
     }
     Ok(bytes)
+}
+
+fn error_chain_has_length_limit(err: &axum::Error) -> bool {
+    let mut source = std::error::Error::source(err);
+    while let Some(e) = source {
+        if e.is::<http_body_util::LengthLimitError>() {
+            return true;
+        }
+        source = e.source();
+    }
+    false
 }
 
 /// Decompress a payload using the specified Content-Encoding.
@@ -79,12 +115,24 @@ pub async fn decompress_payload(
         None => return Ok(bytes),
     };
 
+    let first_byte = bytes.first().copied();
     let reader = tokio::io::BufReader::new(std::io::Cursor::new(bytes));
 
     match encoding {
         "gzip" => {
             read_decompressed(
                 bufread::GzipDecoder::new(reader),
+                payload_size_limit,
+                chunk_size_kb,
+                encoding,
+            )
+            .await
+        }
+        // RFC 9110: Content-Encoding "deflate" = zlib (RFC 1950, 0x78 prefix).
+        // Sniff first byte: zlib-wrapped → ZlibDecoder, raw → DeflateDecoder.
+        "deflate" if first_byte == Some(0x78) => {
+            read_decompressed(
+                bufread::ZlibDecoder::new(reader),
                 payload_size_limit,
                 chunk_size_kb,
                 encoding,
@@ -140,6 +188,8 @@ async fn read_decompressed(
         let to_read = std::cmp::min(remaining, chunk_size);
         buf.reserve(to_read);
         let n = reader.read_buf(&mut buf).await.map_err(|e| {
+            metrics::counter!(CAPTURE_V1_DECOMPRESSION_ERRORS, "encoding" => encoding_tag(Some(encoding)))
+                .increment(1);
             Error::RequestDecodingError(format!("{encoding} decompression failed: {e:#}"))
         })?;
         if n == 0 {
@@ -154,13 +204,27 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use bytes::Bytes;
-    use flate2::write::{DeflateEncoder, GzEncoder};
+    use flate2::write::{DeflateEncoder, GzEncoder, ZlibEncoder};
     use flate2::Compression;
     use futures::stream;
     use std::io::Write;
     use std::time::Duration;
 
     const TEST_CHUNK_SIZE_KB: usize = 256;
+
+    #[test]
+    fn encoding_tag_covers_supported_encodings_and_identity() {
+        // Keep in lockstep with SUPPORTED_ENCODINGS.
+        for enc in crate::v1::constants::SUPPORTED_ENCODINGS {
+            assert_eq!(
+                encoding_tag(Some(enc)),
+                *enc,
+                "supported encoding {enc} must map to itself"
+            );
+        }
+        assert_eq!(encoding_tag(None), "identity");
+        assert_eq!(encoding_tag(Some("lz4")), "other");
+    }
 
     #[tokio::test]
     async fn extract_body_no_timeout() {
@@ -201,6 +265,17 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn extract_body_length_limited_maps_to_payload_too_large() {
+        let inner = Body::from(vec![b'x'; 1024]);
+        let limited = http_body_util::Limited::new(inner, 128);
+        let body = Body::new(limited);
+        // Manual limit (4096) is larger than the Limited wrapper's, so only the
+        // wrapped body's LengthLimitError can trigger the failure.
+        let result = extract_body_with_timeout(body, 4096, None, TEST_CHUNK_SIZE_KB, "/test").await;
+        assert!(matches!(result, Err(Error::PayloadTooLarge(_))));
+    }
+
+    #[tokio::test]
     async fn extract_body_empty() {
         let body = Body::empty();
         let result = extract_body_with_timeout(body, 1024, None, TEST_CHUNK_SIZE_KB, "/test").await;
@@ -217,6 +292,12 @@ mod tests {
 
     fn compress_deflate(data: &[u8]) -> Vec<u8> {
         let mut encoder = DeflateEncoder::new(Vec::new(), Compression::fast());
+        encoder.write_all(data).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    fn compress_zlib(data: &[u8]) -> Vec<u8> {
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::fast());
         encoder.write_all(data).unwrap();
         encoder.finish().unwrap()
     }
@@ -250,9 +331,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn decompress_deflate_valid() {
+    async fn decompress_deflate_raw_valid() {
         let original = b"hello deflate world";
         let compressed = Bytes::from(compress_deflate(original));
+        assert_ne!(
+            compressed.first(),
+            Some(&0x78),
+            "raw deflate must not start with zlib magic"
+        );
+        let result =
+            decompress_payload(Some("deflate"), compressed, 4096, TEST_CHUNK_SIZE_KB).await;
+        assert_eq!(result.unwrap(), Bytes::from_static(original));
+    }
+
+    #[tokio::test]
+    async fn decompress_deflate_zlib_wrapped_valid() {
+        let original = b"hello zlib-wrapped deflate world";
+        let compressed = Bytes::from(compress_zlib(original));
+        assert_eq!(
+            compressed.first(),
+            Some(&0x78),
+            "zlib payload must start with 0x78 magic"
+        );
         let result =
             decompress_payload(Some("deflate"), compressed, 4096, TEST_CHUNK_SIZE_KB).await;
         assert_eq!(result.unwrap(), Bytes::from_static(original));
@@ -283,12 +383,39 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn decompress_deflate_exceeds_limit() {
+    async fn decompress_deflate_raw_exceeds_limit() {
         let big = vec![0u8; 64 * 1024];
         let compressed = Bytes::from(compress_deflate(&big));
         let result =
             decompress_payload(Some("deflate"), compressed, 1024, TEST_CHUNK_SIZE_KB).await;
         assert!(matches!(result, Err(Error::PayloadTooLarge(_))));
+    }
+
+    #[tokio::test]
+    async fn decompress_deflate_zlib_exceeds_limit() {
+        let big = vec![0u8; 64 * 1024];
+        let compressed = Bytes::from(compress_zlib(&big));
+        assert_eq!(compressed.first(), Some(&0x78));
+        let result =
+            decompress_payload(Some("deflate"), compressed, 1024, TEST_CHUNK_SIZE_KB).await;
+        assert!(matches!(result, Err(Error::PayloadTooLarge(_))));
+    }
+
+    #[tokio::test]
+    async fn decompress_deflate_raw_starting_with_0x78_treated_as_zlib() {
+        // Pin the known tradeoff: a raw deflate stream whose first byte is
+        // 0x78 gets misrouted to ZlibDecoder and fails. Same strategy as nginx.
+        let raw = compress_deflate(b"test payload");
+        let mut patched = raw.clone();
+        patched[0] = 0x78;
+        let compressed = Bytes::from(patched);
+
+        let result =
+            decompress_payload(Some("deflate"), compressed, 4096, TEST_CHUNK_SIZE_KB).await;
+        assert!(
+            result.is_err(),
+            "raw deflate starting with 0x78 is misrouted to ZlibDecoder (accepted tradeoff)"
+        );
     }
 
     #[tokio::test]

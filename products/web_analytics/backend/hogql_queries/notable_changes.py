@@ -6,6 +6,7 @@ import structlog
 from posthog.schema import (
     CachedWebNotableChangesQueryResponse,
     HogQLQueryModifiers,
+    WebAnalyticsPreComputeStrategy,
     WebNotableChangeItem,
     WebNotableChangesQuery,
     WebNotableChangesQueryResponse,
@@ -13,7 +14,6 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import wrap_with_null_if_empty
-from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from products.web_analytics.backend.hogql_queries.pre_aggregated.properties import STATS_TABLE_SUPPORTED_FILTERS
@@ -63,7 +63,7 @@ class WebNotableChangesQueryRunner(WebAnalyticsQueryRunner[WebNotableChangesQuer
         pre_agg_response = self._get_pre_aggregated_response()
         if pre_agg_response is not None:
             response = pre_agg_response
-            used_preagg = True
+            strategy = WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
         else:
             response = execute_hogql_query(
                 query_type="web_notable_changes_query",
@@ -74,14 +74,13 @@ class WebNotableChangesQueryRunner(WebAnalyticsQueryRunner[WebNotableChangesQuer
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
             )
-            used_preagg = False
+            strategy = WebAnalyticsPreComputeStrategy.LIVE
 
         if not response.results:
             return WebNotableChangesQueryResponse(
                 results=[],
-                samplingRate=self._sample_rate,
                 modifiers=self.modifiers,
-                usedPreAggregatedTables=used_preagg,
+                preComputeStrategy=strategy,
             )
 
         scored_items = self._score_results(response.results)
@@ -90,9 +89,8 @@ class WebNotableChangesQueryRunner(WebAnalyticsQueryRunner[WebNotableChangesQuer
 
         return WebNotableChangesQueryResponse(
             results=top_items,
-            samplingRate=self._sample_rate,
             modifiers=self.modifiers,
-            usedPreAggregatedTables=used_preagg,
+            preComputeStrategy=strategy,
         )
 
     def _get_pre_aggregated_response(self):
@@ -127,10 +125,7 @@ class WebNotableChangesQueryRunner(WebAnalyticsQueryRunner[WebNotableChangesQuer
             return None
 
     def _raw_events_query(self) -> Union[ast.SelectQuery, ast.SelectSetQuery]:
-        all_properties = property_to_expr(
-            [*self.query.properties, *self._test_account_filters],
-            team=self.team,
-        )
+        all_properties = self.all_properties()
         periods = self._periods_expression("timestamp")
         current_period = self._current_period_expression("start_timestamp")
         previous_period = self._previous_period_expression("start_timestamp")

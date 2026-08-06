@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+
 import { useMocks } from '~/mocks/jest'
 import { LogMessage } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -10,6 +12,10 @@ import { logsViewerConfigLogic } from './config/logsViewerConfigLogic'
 import { logsViewerDataLogic } from './data/logsViewerDataLogic'
 import { logsViewerFiltersLogic } from './Filters/logsViewerFiltersLogic'
 import { logsViewerLogic } from './logsViewerLogic'
+
+jest.mock('lib/utils/copyToClipboard', () => ({
+    copyToClipboard: jest.fn().mockResolvedValue(true),
+}))
 
 const createMockRawLog = (uuid: string): LogMessage => ({
     uuid,
@@ -577,59 +583,60 @@ describe('logsViewerLogic', () => {
         })
     })
 
-    describe('attribute columns', () => {
+    describe('attribute columns facade', () => {
         beforeEach(() => {
             ;({ logic } = mountWithLogs())
         })
 
-        describe('moveAttributeColumn', () => {
-            beforeEach(async () => {
-                // Set up initial columns: [A, B, C]
-                logic.actions.toggleAttributeColumn('A')
-                logic.actions.toggleAttributeColumn('B')
-                logic.actions.toggleAttributeColumn('C')
-                await expectLogic(logic).toFinishAllListeners()
-            })
+        it('toggling an attribute adds a custom column and toggling again removes it', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.toggleAttributeColumn('k8s.pod')
+            }).toFinishAllListeners()
 
-            it('moves column left', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.moveAttributeColumn('B', 'left')
-                }).toMatchValues({
-                    attributeColumns: ['B', 'A', 'C'],
-                })
-            })
+            const added = logic.values.columns.find((c) => c.type === 'custom' && c.name === 'k8s.pod')
+            expect(added?.expression).toContain("attributes['k8s.pod']")
+            expect(logic.values.isAttributeColumn('k8s.pod')).toBe(true)
 
-            it('moves column right', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.moveAttributeColumn('B', 'right')
-                }).toMatchValues({
-                    attributeColumns: ['A', 'C', 'B'],
-                })
-            })
+            await expectLogic(logic, () => {
+                logic.actions.toggleAttributeColumn('k8s.pod')
+            }).toFinishAllListeners()
+            expect(logic.values.isAttributeColumn('k8s.pod')).toBe(false)
+        })
+    })
 
-            it('does nothing when moving first column left', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.moveAttributeColumn('A', 'left')
-                }).toMatchValues({
-                    attributeColumns: ['A', 'B', 'C'],
-                })
-            })
+    describe('typed columns', () => {
+        beforeEach(async () => {
+            ;({ logic } = mountWithLogs())
+            logic.actions.setColumns([
+                { id: 'timestamp', type: 'timestamp' },
+                { id: 'c1', type: 'custom', expression: 'attributes.http.url' },
+                { id: 'message', type: 'message' },
+            ])
+            await expectLogic(logic).toFinishAllListeners()
+        })
 
-            it('does nothing when moving last column right', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.moveAttributeColumn('C', 'right')
-                }).toMatchValues({
-                    attributeColumns: ['A', 'B', 'C'],
-                })
-            })
+        const columnIds = (): string[] => logic.values.columns.map((c) => c.id)
 
-            it('does nothing for non-existent column', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.moveAttributeColumn('Z', 'left')
-                }).toMatchValues({
-                    attributeColumns: ['A', 'B', 'C'],
-                })
-            })
+        it.each<['left' | 'right', string, string[]]>([
+            ['left', 'c1', ['c1', 'timestamp', 'message']],
+            ['right', 'c1', ['timestamp', 'c1', 'message']], // message pinned last, so a no-op
+            ['left', 'timestamp', ['timestamp', 'c1', 'message']], // first, no-op
+            ['right', 'message', ['timestamp', 'c1', 'message']], // last, no-op
+            ['left', 'missing', ['timestamp', 'c1', 'message']], // unknown id, no-op
+        ])('moveColumn %s on %s yields %j without losing columns', (direction, id, expected) => {
+            logic.actions.moveColumn(id, direction)
+            expect(columnIds()).toEqual(expected)
+        })
+
+        it('exposes only custom expressions on the customColumns selector', () => {
+            expect(logic.values.customColumns).toEqual(['attributes.http.url'])
+            logic.actions.removeColumn('c1')
+            expect(logic.values.customColumns).toBeUndefined()
+        })
+
+        it('sets width only on the matching column', () => {
+            logic.actions.setColumnWidth('c1', 240)
+            expect(logic.values.columns.map((c) => c.width)).toEqual([undefined, 240, undefined])
         })
     })
 
@@ -719,6 +726,24 @@ describe('logsViewerLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.linkToLogId).toBeNull()
+        })
+    })
+
+    describe('copyLinkToLog', () => {
+        beforeEach(() => {
+            ;({ logic } = mountWithLogs())
+            jest.mocked(copyToClipboard).mockClear()
+        })
+
+        it('copies a link pointing at the viewer tab even when copied from another tab', async () => {
+            window.history.replaceState({}, '', '/project/1/logs?activeTab=services')
+
+            logic.actions.copyLinkToLog('log-2')
+            await expectLogic(logic).toFinishAllListeners()
+
+            const copiedUrl = new URL(jest.mocked(copyToClipboard).mock.calls[0][0])
+            expect(copiedUrl.searchParams.get('activeTab')).toEqual('viewer')
+            expect(copiedUrl.searchParams.get('linkToLogId')).toEqual('log-2')
         })
     })
 

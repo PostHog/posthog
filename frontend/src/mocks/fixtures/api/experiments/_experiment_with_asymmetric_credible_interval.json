@@ -47,10 +47,12 @@
                 "key": "test",
                 "rollout_percentage": 50
             }
-        ],
-        "recommended_sample_size": 0,
+        ]
+    },
+    "running_time_calculation": {
+        "minimum_detectable_effect": 1,
         "recommended_running_time": 0,
-        "minimum_detectable_effect": 1
+        "recommended_sample_size": 0
     },
     "secondary_metrics": [],
     "saved_metrics": [],

@@ -49,7 +49,7 @@ You can use this key directly to make requests to the gateway locally.
 It is also available as `settings.DEV_API_KEY` in Django.
 
 In local dev (`DEBUG=True`), the gateway client defaults to `http://localhost:3308` and this key,
-so `get_llm_client()` works out of the box without setting any environment variables.
+so `get_llm_client(product=..., team_id=...)` works out of the box without setting any environment variables.
 
 You can also provision the key manually:
 
@@ -200,6 +200,31 @@ To use Bedrock (either via `X-PostHog-Provider` or `X-PostHog-Use-Bedrock-Fallba
 Credentials are intentionally not loaded through `LLM_GATEWAY_*` settings in the gateway.
 Use your runtime's standard AWS authentication mechanism (e.g. IAM role, IRSA, ECS task role, or pre-existing `AWS_*` env vars provisioned by deployment).
 
+## Inference-provider routing
+
+The gateway exposes models consistently across Anthropic Messages, chat/completions, and Responses while choosing their inference provider internally in `src/llm_gateway/inference_routing.py`.
+
+- **GLM 5.2** (`@cf/zai-org/glm-5.2`) can run on Cloudflare Workers AI, Modal, or Baseten.
+- **DeepSeek V4 Flash** (`deepseek-ai/deepseek-v4-flash-0731`) runs only on Baseten and is available to ReviewHog and PostHog Code (client-gated by the `posthog-code-deepseek-model` flag).
+
+Provider configuration:
+
+- **Cloudflare Workers AI** (the incumbent) — configure `LLM_GATEWAY_CLOUDFLARE_API_KEY` and `LLM_GATEWAY_CLOUDFLARE_ACCOUNT_ID`.
+- **Modal** (an OpenAI-compatible vLLM endpoint) — configure `LLM_GATEWAY_MODAL_API_BASE`, `LLM_GATEWAY_MODAL_KEY`, and `LLM_GATEWAY_MODAL_SECRET` (a [Modal proxy-token](https://modal.com/docs/guide/endpoints) pair, sent as `Modal-Key`/`Modal-Secret` headers).
+- **Baseten** (an OpenAI-compatible endpoint) - configure `LLM_GATEWAY_BASETEN_API_BASE` and `LLM_GATEWAY_BASETEN_API_KEY`.
+
+The `tasks-glm-baseten-inference` feature flag routes matching users to Baseten when its API key is configured. The flag is evaluated server-side, and caller-forwarded flag headers cannot select Baseten. Cloudflare or Modal must remain configured as the fallback for users who do not match the flag or when evaluation is unavailable.
+
+Two knobs opt traffic into Modal (OR semantics, both default off):
+
+- The `tasks-glm-modal-inference` feature flag, evaluated server-side against PostHog (`LLM_GATEWAY_POSTHOG_PROJECT_TOKEN`/`_HOST`) with a short per-user cache and a brief global backoff when evaluation fails. Caller-forwarded flag headers are not trusted for routing.
+- `LLM_GATEWAY_GLM_MODAL_TRAFFIC_FRACTION` (0..1, default 0), bucketed deterministically by user id; `LLM_GATEWAY_GLM_MODAL_PRODUCT_TRAFFIC_FRACTIONS` (e.g. `{"posthog_code": 0.25}`) overrides it per product.
+
+If Cloudflare credentials are absent, Modal serves all GLM traffic regardless of the knobs.
+
+There are no cross-backend retries: a Modal-side failure surfaces to the caller unchanged (each backend's health stays independently visible under its `provider` metric label), and rollback is turning the flag/fraction back down.
+Smoke scripts: `scripts/glm_cf_smoke.py` (Cloudflare) and `scripts/glm_modal_smoke.py` (Modal).
+
 ## Products
 
 Every request is scoped to a **product**. The product determines which models and auth methods are allowed, and is recorded as `ai_product` on `$ai_generation` events so you can filter costs per product.
@@ -213,8 +238,10 @@ OAuth access is permitted only for products with an explicit `allowed_applicatio
 | Product              | Auth            | Models                     | Notes                           |
 | -------------------- | --------------- | -------------------------- | ------------------------------- |
 | `llm_gateway`        | API key only    | All                        | Default when no product in path |
+| `ci`                 | API key only    | All                        | CI / e2e test runs              |
 | `posthog_code`       | OAuth only      | Restricted set             | Desktop coding agent            |
 | `background_agents`  | OAuth only      | Restricted set             | Cloud background agents         |
+| `onboarding`         | OAuth only      | claude-sonnet-5            | Unbilled setup wizard cloud run |
 | `wizard`             | API key + OAuth | All                        | Max AI assistant                |
 | `django`             | API key only    | All                        | Server-side Django calls        |
 | `growth`             | API key only    | All                        | Growth team                     |
@@ -302,10 +329,19 @@ For calling from PostHog Django:
 ```python
 from posthog.llm.gateway_client import get_llm_client
 
-client = get_llm_client()
+# Pass `team_id` to attribute the captured `$ai_generation` event to a specific
+# customer team: it sets the `x-posthog-property-team_id` header on every request so
+# the usage reporter can break cost down per customer (the gateway PAK owns a single
+# internal team). Omit it to attribute to the key owner's team (the default).
+client = get_llm_client(product="my_product", team_id=team.id)
 response = client.chat.completions.create(
     model="claude-opus-4-5",  # or any supported OpenAI, Anthropic, OpenRouter, or Fireworks AI model
     messages=[...],
     user=request.user.distinct_id,  # user for analytics and rate limiting
 )
 ```
+
+`ai_product` and `$ai_billable` are derived from the product config (`products/config.py`):
+the route sets `ai_product` from the `product` arg, and `$ai_billable` from whether that
+product has a `credit_bucket`. Set `credit_bucket` on the product config to bill its
+generations into that bucket; leave it `None` to keep them unbilled.

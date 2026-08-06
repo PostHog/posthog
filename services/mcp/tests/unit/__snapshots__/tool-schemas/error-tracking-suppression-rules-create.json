@@ -25,8 +25,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     },
                                     "operator": {
                                         "anyOf": [
@@ -36,6 +35,10 @@
                                                     "is_not",
                                                     "icontains",
                                                     "not_icontains",
+                                                    "starts_with",
+                                                    "not_starts_with",
+                                                    "ends_with",
+                                                    "not_ends_with",
                                                     "regex",
                                                     "not_regex",
                                                     "gt",
@@ -111,8 +114,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     }
                                 },
                                 "required": ["key"],
@@ -131,8 +133,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     },
                                     "operator": {
                                         "enum": [
@@ -140,6 +141,10 @@
                                             "is_not",
                                             "icontains",
                                             "not_icontains",
+                                            "starts_with",
+                                            "not_starts_with",
+                                            "ends_with",
+                                            "not_ends_with",
                                             "regex",
                                             "not_regex",
                                             "gt",
@@ -209,8 +214,107 @@
                                             {
                                                 "type": "null"
                                             }
+                                        ]
+                                    }
+                                },
+                                "required": ["key", "operator"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "key": {
+                                        "type": "string"
+                                    },
+                                    "label": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
+                                    },
+                                    "operator": {
+                                        "enum": [
+                                            "exact",
+                                            "is_not",
+                                            "icontains",
+                                            "not_icontains",
+                                            "starts_with",
+                                            "not_starts_with",
+                                            "ends_with",
+                                            "not_ends_with",
+                                            "regex",
+                                            "not_regex",
+                                            "gt",
+                                            "gte",
+                                            "lt",
+                                            "lte",
+                                            "is_set",
+                                            "is_not_set",
+                                            "is_date_exact",
+                                            "is_date_before",
+                                            "is_date_after",
+                                            "between",
+                                            "not_between",
+                                            "min",
+                                            "max",
+                                            "in",
+                                            "not_in",
+                                            "is_cleaned_path_exact",
+                                            "flag_evaluates_to",
+                                            "semver_eq",
+                                            "semver_neq",
+                                            "semver_gt",
+                                            "semver_gte",
+                                            "semver_lt",
+                                            "semver_lte",
+                                            "semver_tilde",
+                                            "semver_caret",
+                                            "semver_wildcard",
+                                            "icontains_multi",
+                                            "not_icontains_multi"
                                         ],
-                                        "default": null
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "const": "person_metadata",
+                                        "default": "person_metadata",
+                                        "description": "Top-level columns on the persons table (e.g. created_at), not properties JSON",
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "anyOf": [
+                                            {
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
                                     }
                                 },
                                 "required": ["key", "operator"],
@@ -230,8 +334,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     },
                                     "operator": {
                                         "enum": [
@@ -239,6 +342,10 @@
                                             "is_not",
                                             "icontains",
                                             "not_icontains",
+                                            "starts_with",
+                                            "not_starts_with",
+                                            "ends_with",
+                                            "not_ends_with",
                                             "regex",
                                             "not_regex",
                                             "gt",
@@ -307,8 +414,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     }
                                 },
                                 "required": ["key", "operator"],
@@ -327,8 +433,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     },
                                     "operator": {
                                         "enum": [
@@ -336,6 +441,10 @@
                                             "is_not",
                                             "icontains",
                                             "not_icontains",
+                                            "starts_with",
+                                            "not_starts_with",
+                                            "ends_with",
+                                            "not_ends_with",
                                             "regex",
                                             "not_regex",
                                             "gt",
@@ -404,8 +513,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     }
                                 },
                                 "required": ["key", "operator"],
@@ -424,8 +532,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     },
                                     "operator": {
                                         "enum": [
@@ -433,6 +540,10 @@
                                             "is_not",
                                             "icontains",
                                             "not_icontains",
+                                            "starts_with",
+                                            "not_starts_with",
+                                            "ends_with",
+                                            "not_ends_with",
                                             "regex",
                                             "not_regex",
                                             "gt",
@@ -501,8 +612,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     }
                                 },
                                 "required": ["key", "operator"],
@@ -518,8 +628,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     },
                                     "key": {
                                         "const": "id",
@@ -534,8 +643,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     },
                                     "operator": {
                                         "anyOf": [
@@ -545,6 +653,10 @@
                                                     "is_not",
                                                     "icontains",
                                                     "not_icontains",
+                                                    "starts_with",
+                                                    "not_starts_with",
+                                                    "ends_with",
+                                                    "not_ends_with",
                                                     "regex",
                                                     "not_regex",
                                                     "gt",
@@ -617,8 +729,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     },
                                     "operator": {
                                         "enum": [
@@ -626,6 +737,10 @@
                                             "is_not",
                                             "icontains",
                                             "not_icontains",
+                                            "starts_with",
+                                            "not_starts_with",
+                                            "ends_with",
+                                            "not_ends_with",
                                             "regex",
                                             "not_regex",
                                             "gt",
@@ -694,8 +809,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     }
                                 },
                                 "required": ["key", "operator"],
@@ -714,8 +828,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     },
                                     "operator": {
                                         "enum": [
@@ -723,6 +836,10 @@
                                             "is_not",
                                             "icontains",
                                             "not_icontains",
+                                            "starts_with",
+                                            "not_starts_with",
+                                            "ends_with",
+                                            "not_ends_with",
                                             "regex",
                                             "not_regex",
                                             "gt",
@@ -791,8 +908,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     }
                                 },
                                 "required": ["key", "operator"],
@@ -814,8 +930,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     },
                                     "group_type_index": {
                                         "anyOf": [
@@ -825,8 +940,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     },
                                     "key": {
                                         "type": "string"
@@ -839,8 +953,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     },
                                     "operator": {
                                         "enum": [
@@ -848,6 +961,10 @@
                                             "is_not",
                                             "icontains",
                                             "not_icontains",
+                                            "starts_with",
+                                            "not_starts_with",
+                                            "ends_with",
+                                            "not_ends_with",
                                             "regex",
                                             "not_regex",
                                             "gt",
@@ -916,8 +1033,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     }
                                 },
                                 "required": ["key", "operator"],
@@ -936,8 +1052,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     },
                                     "operator": {
                                         "enum": [
@@ -945,6 +1060,10 @@
                                             "is_not",
                                             "icontains",
                                             "not_icontains",
+                                            "starts_with",
+                                            "not_starts_with",
+                                            "ends_with",
+                                            "not_ends_with",
                                             "regex",
                                             "not_regex",
                                             "gt",
@@ -1014,8 +1133,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     }
                                 },
                                 "required": ["key", "operator"],
@@ -1035,8 +1153,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     },
                                     "operator": {
                                         "const": "flag_evaluates_to",
@@ -1078,8 +1195,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     },
                                     "type": {
                                         "const": "hogql",
@@ -1116,8 +1232,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     }
                                 },
                                 "required": ["key"],
@@ -1146,8 +1261,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     },
                                     "operator": {
                                         "enum": [
@@ -1155,6 +1269,10 @@
                                             "is_not",
                                             "icontains",
                                             "not_icontains",
+                                            "starts_with",
+                                            "not_starts_with",
+                                            "ends_with",
+                                            "not_ends_with",
                                             "regex",
                                             "not_regex",
                                             "gt",
@@ -1223,8 +1341,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     }
                                 },
                                 "required": ["key", "operator"],
@@ -1243,8 +1360,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     },
                                     "operator": {
                                         "enum": [
@@ -1252,6 +1368,10 @@
                                             "is_not",
                                             "icontains",
                                             "not_icontains",
+                                            "starts_with",
+                                            "not_starts_with",
+                                            "ends_with",
+                                            "not_ends_with",
                                             "regex",
                                             "not_regex",
                                             "gt",
@@ -1320,8 +1440,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     }
                                 },
                                 "required": ["key", "operator"],
@@ -1340,8 +1459,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     },
                                     "operator": {
                                         "enum": [
@@ -1349,6 +1467,10 @@
                                             "is_not",
                                             "icontains",
                                             "not_icontains",
+                                            "starts_with",
+                                            "not_starts_with",
+                                            "ends_with",
+                                            "not_ends_with",
                                             "regex",
                                             "not_regex",
                                             "gt",
@@ -1417,8 +1539,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     }
                                 },
                                 "required": ["key", "operator"],
@@ -1437,8 +1558,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     },
                                     "operator": {
                                         "enum": [
@@ -1446,6 +1566,10 @@
                                             "is_not",
                                             "icontains",
                                             "not_icontains",
+                                            "starts_with",
+                                            "not_starts_with",
+                                            "ends_with",
+                                            "not_ends_with",
                                             "regex",
                                             "not_regex",
                                             "gt",
@@ -1513,8 +1637,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     }
                                 },
                                 "required": ["key", "operator", "type"],
@@ -1533,8 +1656,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     },
                                     "operator": {
                                         "enum": [
@@ -1542,6 +1664,109 @@
                                             "is_not",
                                             "icontains",
                                             "not_icontains",
+                                            "starts_with",
+                                            "not_starts_with",
+                                            "ends_with",
+                                            "not_ends_with",
+                                            "regex",
+                                            "not_regex",
+                                            "gt",
+                                            "gte",
+                                            "lt",
+                                            "lte",
+                                            "is_set",
+                                            "is_not_set",
+                                            "is_date_exact",
+                                            "is_date_before",
+                                            "is_date_after",
+                                            "between",
+                                            "not_between",
+                                            "min",
+                                            "max",
+                                            "in",
+                                            "not_in",
+                                            "is_cleaned_path_exact",
+                                            "flag_evaluates_to",
+                                            "semver_eq",
+                                            "semver_neq",
+                                            "semver_gt",
+                                            "semver_gte",
+                                            "semver_lt",
+                                            "semver_lte",
+                                            "semver_tilde",
+                                            "semver_caret",
+                                            "semver_wildcard",
+                                            "icontains_multi",
+                                            "not_icontains_multi"
+                                        ],
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "const": "metric_attribute",
+                                        "default": "metric_attribute",
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "anyOf": [
+                                            {
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
+                                    }
+                                },
+                                "required": ["key", "operator"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "key": {
+                                        "type": "string"
+                                    },
+                                    "label": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
+                                    },
+                                    "operator": {
+                                        "enum": [
+                                            "exact",
+                                            "is_not",
+                                            "icontains",
+                                            "not_icontains",
+                                            "starts_with",
+                                            "not_starts_with",
+                                            "ends_with",
+                                            "not_ends_with",
                                             "regex",
                                             "not_regex",
                                             "gt",
@@ -1609,8 +1834,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     }
                                 },
                                 "required": ["key", "operator", "type"],
@@ -1629,8 +1853,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     },
                                     "operator": {
                                         "enum": [
@@ -1638,6 +1861,10 @@
                                             "is_not",
                                             "icontains",
                                             "not_icontains",
+                                            "starts_with",
+                                            "not_starts_with",
+                                            "ends_with",
+                                            "not_ends_with",
                                             "regex",
                                             "not_regex",
                                             "gt",
@@ -1706,8 +1933,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     }
                                 },
                                 "required": ["key", "operator"],
@@ -1726,8 +1952,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     },
                                     "operator": {
                                         "enum": [
@@ -1735,6 +1960,110 @@
                                             "is_not",
                                             "icontains",
                                             "not_icontains",
+                                            "starts_with",
+                                            "not_starts_with",
+                                            "ends_with",
+                                            "not_ends_with",
+                                            "regex",
+                                            "not_regex",
+                                            "gt",
+                                            "gte",
+                                            "lt",
+                                            "lte",
+                                            "is_set",
+                                            "is_not_set",
+                                            "is_date_exact",
+                                            "is_date_before",
+                                            "is_date_after",
+                                            "between",
+                                            "not_between",
+                                            "min",
+                                            "max",
+                                            "in",
+                                            "not_in",
+                                            "is_cleaned_path_exact",
+                                            "flag_evaluates_to",
+                                            "semver_eq",
+                                            "semver_neq",
+                                            "semver_gt",
+                                            "semver_gte",
+                                            "semver_lt",
+                                            "semver_lte",
+                                            "semver_tilde",
+                                            "semver_caret",
+                                            "semver_wildcard",
+                                            "icontains_multi",
+                                            "not_icontains_multi"
+                                        ],
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "const": "account_custom_property",
+                                        "default": "account_custom_property",
+                                        "description": "Customer analytics account custom property — the key is the property definition id",
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "anyOf": [
+                                            {
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
+                                    }
+                                },
+                                "required": ["key", "operator"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "key": {
+                                        "type": "string"
+                                    },
+                                    "label": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
+                                    },
+                                    "operator": {
+                                        "enum": [
+                                            "exact",
+                                            "is_not",
+                                            "icontains",
+                                            "not_icontains",
+                                            "starts_with",
+                                            "not_starts_with",
+                                            "ends_with",
+                                            "not_ends_with",
                                             "regex",
                                             "not_regex",
                                             "gt",
@@ -1803,8 +2132,7 @@
                                             {
                                                 "type": "null"
                                             }
-                                        ],
-                                        "default": null
+                                        ]
                                     }
                                 },
                                 "required": ["key", "operator"],

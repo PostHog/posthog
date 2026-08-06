@@ -4,7 +4,7 @@ import { LemonTable } from '@posthog/lemon-ui'
 
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
-import { isKeyOf } from 'lib/utils'
+import { isKeyOf } from 'lib/utils/guards'
 
 import { SystemStatusRow, SystemStatusSubrows } from '~/types'
 

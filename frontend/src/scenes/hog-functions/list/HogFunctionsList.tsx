@@ -8,6 +8,7 @@ import {
     LemonButton,
     LemonCheckbox,
     LemonInput,
+    LemonSelect,
     LemonTable,
     LemonTableColumn,
     LemonTag,
@@ -30,6 +31,7 @@ import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
 import { humanizeHogFunctionType } from '../hog-function-utils'
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
+import { DELIVERY_TYPE_FILTER_OPTIONS, DeliveryTypeTag } from './DeliveryTypeTag'
 import { HogFunctionOrderModal } from './HogFunctionOrderModal'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
 import { HogFunctionListLogicProps, hogFunctionsListLogic } from './hogFunctionsListLogic'
@@ -216,7 +218,12 @@ export function HogFunctionList({
                                 forceParams={{
                                     appSource: 'hog_function',
                                     appSourceId: hogFunction.id,
-                                    metricKind: ['success', 'failure'],
+                                    // Log transformations report drops and budget skips under
+                                    // metric_kind 'other' — without it their sparkline reads as idle.
+                                    metricKind:
+                                        hogFunction.type === 'transformation_log'
+                                            ? ['success', 'failure', 'other']
+                                            : ['success', 'failure'],
                                     breakdownBy: 'metric_kind',
                                     interval: 'day',
                                     dateFrom: '-7d',
@@ -274,7 +281,19 @@ export function HogFunctionList({
             },
         ]
 
-        if (props.type === 'transformation') {
+        if (props.type === 'destination') {
+            // insert after the Name column
+            columns.splice(2, 0, {
+                title: 'Type',
+                key: 'deliveryType',
+                width: 0,
+                render: function RenderDeliveryType(_, hogFunction) {
+                    return <DeliveryTypeTag item={hogFunction} />
+                },
+            })
+        }
+
+        if (props.type === 'transformation' || props.type === 'transformation_log') {
             // insert it in the second column
             columns.splice(1, 0, {
                 title: 'Prio',
@@ -329,6 +348,14 @@ export function HogFunctionList({
                         onChange={(user) => setFilters({ createdBy: user?.uuid || null })}
                     />
                 </div>
+                {props.type === 'destination' && (
+                    <LemonSelect
+                        size="small"
+                        value={filters.deliveryType ?? null}
+                        onChange={(value) => setFilters({ deliveryType: value ?? undefined })}
+                        options={DELIVERY_TYPE_FILTER_OPTIONS}
+                    />
+                )}
                 <LemonCheckbox
                     label="Show paused"
                     bordered

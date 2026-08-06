@@ -10,6 +10,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.hogql import ast
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
@@ -37,12 +38,19 @@ def register_supported_function(name: str) -> None:
 
 register_supported_function("postHogGetTicket")
 register_supported_function("postHogUpdateTicket")
+register_supported_function("postHogGetAccount")
+register_supported_function("postHogUpdateAccount")
+register_supported_function("postHogSetAccountProperties")
 
 
 # Globals that the realtime transformer actually populates at runtime.
 # Keep in sync with HogTransformerService.createInvocationGlobals
 # (nodejs/src/cdp/hog-transformations/hog-transformer.service.ts).
 TRANSFORMATION_AVAILABLE_GLOBALS = {"project", "event", "inputs"}
+
+# Globals available to log transformations, which run per log record in the logs
+# ingestion pipeline and see a log record instead of an event.
+TRANSFORMATION_LOG_AVAILABLE_GLOBALS = {"project", "record", "inputs"}
 
 # Helper functions that the transformer exposes via getTransformationFunctions
 # (nodejs/src/cdp/hog-transformations/transformation-functions.ts). These resolve
@@ -79,9 +87,19 @@ class TransformationGlobalsValidator(TraversingVisitor):
 
     invalid_globals: set[str]
 
-    def __init__(self):
+    def __init__(
+        self,
+        available_globals: Optional[set[str]] = None,
+        runtime_functions: Optional[set[str]] = None,
+    ):
         super().__init__()
         self.invalid_globals = set()
+        self._available_globals = (
+            available_globals if available_globals is not None else TRANSFORMATION_AVAILABLE_GLOBALS
+        )
+        self._runtime_functions = (
+            runtime_functions if runtime_functions is not None else TRANSFORMATION_RUNTIME_FUNCTIONS
+        )
 
     def visit_field(self, node: ast.Field):
         super().visit_field(node)
@@ -89,8 +107,8 @@ class TransformationGlobalsValidator(TraversingVisitor):
             return
         root = str(node.chain[0])
         if (
-            root in TRANSFORMATION_AVAILABLE_GLOBALS
-            or root in TRANSFORMATION_RUNTIME_FUNCTIONS
+            root in self._available_globals
+            or root in self._runtime_functions
             or root in CORE_SUPPORTED_FUNCTIONS
             or root in PRODUCT_ASYNC_FUNCTIONS
             or root in STL
@@ -98,6 +116,39 @@ class TransformationGlobalsValidator(TraversingVisitor):
         ):
             return
         self.invalid_globals.add(root)
+
+
+class DeclaredNamesCollector(TraversingVisitor):
+    """Collect every identifier a hog program declares (variables, functions, params,
+    loop vars, lambda args) so program-level global validation can ignore them.
+    Deliberately flat rather than scope-precise: a false negative just defers the
+    error to runtime, while a false positive would reject valid code.
+    """
+
+    names: set[str]
+
+    def __init__(self):
+        super().__init__()
+        self.names = set()
+
+    def visit_variable_declaration(self, node: ast.VariableDeclaration):
+        self.names.add(node.name)
+        super().visit_variable_declaration(node)
+
+    def visit_function(self, node: ast.Function):
+        self.names.add(node.name)
+        self.names.update(node.params)
+        super().visit_function(node)
+
+    def visit_lambda(self, node: ast.Lambda):
+        self.names.update(node.args)
+        super().visit_lambda(node)
+
+    def visit_for_in_statement(self, node: ast.ForInStatement):
+        if node.keyVar:
+            self.names.add(node.keyVar)
+        self.names.add(node.valueVar)
+        super().visit_for_in_statement(node)
 
 
 class HyphenatedPropertyDetector(TraversingVisitor):
@@ -134,6 +185,18 @@ class HyphenatedPropertyDetector(TraversingVisitor):
         return True
 
 
+class RecordAliasRewriter(TraversingVisitor):
+    """Rewrite `{record.x}` template references to `{event.properties.x}` for data-warehouse-table
+    sources. The synced row is delivered under `event.properties` at runtime, so `record` is a
+    friendlier alias users can write in destination/workflow templates instead of `event.properties`.
+    """
+
+    def visit_field(self, node: ast.Field):
+        super().visit_field(node)
+        if node.chain and str(node.chain[0]) == "record":
+            node.chain = ["event", "properties", *node.chain[1:]]
+
+
 def collect_inputs(node: ast.Expr) -> set[str]:
     input_collector = InputCollector()
     input_collector.visit(node)
@@ -144,17 +207,23 @@ def generate_template_bytecode(
     obj: Any,
     input_collector: set[str],
     function_type: Optional[str] = None,
+    is_dwh_source: bool = False,
 ) -> Any:
     """
     Clones an object, compiling any string values to bytecode templates
     """
 
     if isinstance(obj, dict):
-        return {key: generate_template_bytecode(value, input_collector, function_type) for key, value in obj.items()}
+        return {
+            key: generate_template_bytecode(value, input_collector, function_type, is_dwh_source)
+            for key, value in obj.items()
+        }
     elif isinstance(obj, list):
-        return [generate_template_bytecode(item, input_collector, function_type) for item in obj]
+        return [generate_template_bytecode(item, input_collector, function_type, is_dwh_source) for item in obj]
     elif isinstance(obj, str):
         node = parse_string_template(obj)
+        if is_dwh_source:
+            RecordAliasRewriter().visit(node)
         input_collector.update(collect_inputs(node))
         detector = HyphenatedPropertyDetector()
         detector.visit(node)
@@ -169,12 +238,24 @@ def generate_template_bytecode(
                     f"Variable not available in transformations: {names}. "
                     f"Transformations only have access to project, event, and inputs."
                 )
+        elif function_type == "transformation_log":
+            log_validator = TransformationGlobalsValidator(
+                available_globals=TRANSFORMATION_LOG_AVAILABLE_GLOBALS,
+                runtime_functions=set(),
+            )
+            log_validator.visit(node)
+            if log_validator.invalid_globals:
+                names = ", ".join(sorted(log_validator.invalid_globals))
+                raise Exception(
+                    f"Variable not available in log transformations: {names}. "
+                    f"Log transformations only have access to project, record, and inputs."
+                )
         return create_bytecode(node).bytecode
     else:
         return obj
 
 
-def transpile_template_code(obj: Any, compiler: JavaScriptCompiler) -> str:
+def transpile_template_code(obj: Any, compiler: JavaScriptCompiler, is_dwh_source: bool = False) -> str:
     """
     Clones an object, compiling any string values to bytecode templates
     """
@@ -184,7 +265,7 @@ def transpile_template_code(obj: Any, compiler: JavaScriptCompiler) -> str:
             + (
                 ", ".join(
                     [
-                        f"{json.dumps(str(key))}: {transpile_template_code(value, compiler)}"
+                        f"{json.dumps(str(key))}: {transpile_template_code(value, compiler, is_dwh_source)}"
                         for key, value in obj.items()
                     ]
                 )
@@ -192,11 +273,24 @@ def transpile_template_code(obj: Any, compiler: JavaScriptCompiler) -> str:
             + "}"
         )
     elif isinstance(obj, list):
-        return "[" + (", ".join([transpile_template_code(item, compiler) for item in obj])) + "]"
+        return "[" + (", ".join([transpile_template_code(item, compiler, is_dwh_source) for item in obj])) + "]"
     elif isinstance(obj, str):
-        return compiler.visit(parse_string_template(obj))
+        node = parse_string_template(obj)
+        if is_dwh_source:
+            RecordAliasRewriter().visit(node)
+        return compiler.visit(node)
     else:
         return json.dumps(obj)
+
+
+def _contains_liquid_style_syntax(value: Any) -> bool:
+    if isinstance(value, str):
+        return "{{" in value
+    if isinstance(value, dict):
+        return any(_contains_liquid_style_syntax(v) for v in value.values())
+    if isinstance(value, list):
+        return any(_contains_liquid_style_syntax(v) for v in value)
+    return False
 
 
 @extend_schema_field({"oneOf": [{"type": "boolean"}, {"type": "string", "enum": ["hog", "liquid"]}]})
@@ -216,6 +310,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "choice",
             "json",
             "integration",
+            "integration_multi",
             "integration_field",
             "email",
             "native_email",
@@ -223,6 +318,8 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "posthog_ticket_tags",
             "posthog_business_hours",
             "non_failure_status_codes",
+            "customer_analytics_account_properties",
+            "customer_analytics_account_relationships",
         ]
     )
     key = serializers.CharField()
@@ -269,6 +366,7 @@ class InputsItemSerializer(serializers.Serializer):
     def validate(self, attrs):
         schema = self.context["schema"]
         function_type = self.context["function_type"]
+        is_dwh_source = self.context.get("is_dwh_source", False)
         value = attrs.get("value")
         item_type = schema["type"]
 
@@ -299,21 +397,30 @@ class InputsItemSerializer(serializers.Serializer):
             else:
                 if not isinstance(value, bool):
                     raise serializers.ValidationError({"input": f"Value must be a boolean."})
-        elif item_type == "dictionary":
+        elif item_type in (
+            "dictionary",
+            "customer_analytics_account_properties",
+            "customer_analytics_account_relationships",
+        ):
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be a dictionary."})
         elif item_type == "integration":
             if not isinstance(value, int):
                 raise serializers.ValidationError({"input": f"Value must be an Integration ID."})
+        elif item_type == "integration_multi":
+            if not isinstance(value, list) or not all(isinstance(v, int) and not isinstance(v, bool) for v in value):
+                raise serializers.ValidationError({"input": "Value must be a list of Integration IDs."})
         elif item_type == "email" or item_type == "native_email":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be an email object."})
-            for key_ in ["from", "to", "subject"]:
-                if not value.get(key_):
-                    raise serializers.ValidationError({"input": f"Missing value for '{key_}'."})
-
+            # Report every missing key in one error: these objects are typically authored
+            # programmatically, and a one-at-a-time raise forces a round trip per missing key.
+            missing = [f"'{key_}'" for key_ in ("from", "to", "subject") if not value.get(key_)]
             if not value.get("text") and not value.get("html"):
-                raise serializers.ValidationError({"input": f"Either 'text' or 'html' is required."})
+                missing.append("either 'text' or 'html'")
+            if missing:
+                label = "value" if len(missing) == 1 else "values"
+                raise serializers.ValidationError({"input": f"Missing {label} for {', '.join(missing)}."})
         elif item_type == "non_failure_status_codes":
             if not isinstance(value, list):
                 raise serializers.ValidationError({"input": "Value must be a list of status codes."})
@@ -344,6 +451,9 @@ class InputsItemSerializer(serializers.Serializer):
                         "json",
                         "email",
                         "native_email",
+                        "posthog_ticket_tags",
+                        "customer_analytics_account_properties",
+                        "customer_analytics_account_relationships",
                     ] or (item_type == "boolean" and isinstance(value, str))
                     if value_is_transpiled:
                         if item_type in ("email", "native_email") and isinstance(value, dict):
@@ -352,19 +462,32 @@ class InputsItemSerializer(serializers.Serializer):
 
                         if function_type in TYPES_WITH_JAVASCRIPT_SOURCE:
                             compiler = JavaScriptCompiler()
-                            code = transpile_template_code(value, compiler)
+                            code = transpile_template_code(value, compiler, is_dwh_source=is_dwh_source)
                             attrs["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
                             if "bytecode" in attrs:
                                 del attrs["bytecode"]
                         else:
                             input_collector: set[str] = set()
                             attrs["bytecode"] = generate_template_bytecode(
-                                value, input_collector, function_type=function_type
+                                value, input_collector, function_type=function_type, is_dwh_source=is_dwh_source
                             )
                             attrs["input_deps"] = list(input_collector)
                             if "transpiled" in attrs:
                                 del attrs["transpiled"]
         except Exception as e:
+            # Liquid-style {{ ... }} in a hog-templated field is the dominant authoring mistake
+            # behind transpile failures, and the compiler's own message ("Placeholders are not
+            # allowed in this context") never names it - callers bisect blind without this hint.
+            if _contains_liquid_style_syntax(value):
+                raise serializers.ValidationError(
+                    {
+                        "input": (
+                            "Invalid template: this field uses single-curly templating like "
+                            "{person.properties.email}. Liquid-style {{ ... }} syntax is not "
+                            f"supported here. ({str(e)})"
+                        )
+                    }
+                )
             raise serializers.ValidationError({"input": f"Invalid template: {str(e)}"})
 
         return attrs
@@ -476,6 +599,21 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         # Ensure data is initialized as an empty dict if it's None
         data = data or {}
 
+        if function_type == "transformation_log":
+            # Filter bytecode is compiled against event-shaped globals, which log records
+            # don't have — silently accepting filters would mis-evaluate at ingestion time.
+            # Log transformations express conditions in Hog code instead.
+            disallowed = [
+                key
+                for key in ("events", "actions", "properties", "data_warehouse", "filter_test_accounts")
+                if data.get(key)
+            ]
+            if disallowed:
+                raise serializers.ValidationError(
+                    f"Filters are not supported for log transformations (got: {', '.join(disallowed)}). "
+                    "Use conditions in the Hog code instead."
+                )
+
         if data.get("source") == "events":
             # Don't allow events or actions for person-updates
             data.pop("data_warehouse", None)
@@ -505,8 +643,10 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
                 del data["bytecode"]
         else:
             data = compile_filters_bytecode(data, team)
-            # Check if bytecode compilation resulted in an error
-            if data.get("bytecode_error"):
+            # Uncompilable filters are only fatal when the function will run (stay enabled).
+            # Callers that allow saving anyway (e.g. disabling/deleting a hog function) opt out
+            # via context; the error stays persisted on the filters for the UI to surface.
+            if data.get("bytecode_error") and self.context.get("function_will_be_enabled", True):
                 raise serializers.ValidationError(f"Invalid filter configuration: {data['bytecode_error']}")
 
         return data
@@ -559,7 +699,12 @@ def topological_sort(nodes: list[str], edges: dict[str, list[str]]) -> list[str]
     return sorted_list
 
 
-def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> list[Any]:
+def compile_hog(
+    hog: str,
+    hog_type: str,
+    in_repl: Optional[bool] = False,
+    null_safe_comparisons: bool = False,
+) -> list[Any]:
     # Attempt to compile the hog
     try:
         program = parse_program(hog)
@@ -578,8 +723,47 @@ def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> lis
             # CORE_SUPPORTED_FUNCTIONS (fetch, postHogCapture) and PRODUCT_ASYNC_FUNCTIONS.
             # Stated explicitly so a future refactor can't silently widen the surface.
             supported_functions = set()
+        elif hog_type == "transformation_log":
+            # Log transformations run synchronously per log record in the logs ingestion
+            # hot path — no async functions (fetch, postHogCapture) can ever be allowed.
+            # Stated explicitly so a future refactor can't silently widen the surface.
+            supported_functions = set()
 
-        return create_bytecode(program, supported_functions=supported_functions, in_repl=in_repl).bytecode
+            # Validate the code body's globals like input templates are: without this,
+            # code referencing `event`/`person` compiles fine and only fails per record
+            # at ingestion time. Declared locals are excluded from the check.
+            declared = DeclaredNamesCollector()
+            declared.visit(program)
+            body_validator = TransformationGlobalsValidator(
+                available_globals=TRANSFORMATION_LOG_AVAILABLE_GLOBALS | declared.names,
+                runtime_functions=set(),
+            )
+            body_validator.visit(program)
+            if body_validator.invalid_globals:
+                names = ", ".join(sorted(body_validator.invalid_globals))
+                raise serializers.ValidationError(
+                    {
+                        "hog": f"Variable not available in log transformations: {names}. "
+                        f"Log transformations only have access to project, record, and inputs."
+                    }
+                )
+
+        context = HogQLContext(team_id=None)
+        bytecode = create_bytecode(
+            program,
+            supported_functions=supported_functions,
+            in_repl=in_repl,
+            null_safe_comparisons=null_safe_comparisons,
+            context=context,
+        ).bytecode
+
+        # The compiler only records unknown-function calls as context errors; the call still
+        # compiles and fails at runtime. Log transformations run in a synchronous VM with no
+        # async functions registered, so surface the error at save time instead.
+        if hog_type == "transformation_log" and context.errors:
+            raise serializers.ValidationError({"hog": context.errors[0].message})
+
+        return bytecode
     except serializers.ValidationError:
         raise
     except Exception as e:

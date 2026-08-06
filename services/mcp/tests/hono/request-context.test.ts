@@ -2,9 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const { mockMe, mockApiClientCtor } = vi.hoisted(() => {
     const mockMe = vi.fn()
-    const mockApiClientCtor = vi.fn().mockImplementation(() => ({
-        users: () => ({ me: mockMe }),
-    }))
+    const mockApiClientCtor = vi.fn().mockImplementation(function () {
+        return {
+            users: () => ({ me: mockMe }),
+        }
+    })
     return { mockMe, mockApiClientCtor }
 })
 
@@ -102,6 +104,22 @@ describe('RequestContext', () => {
             expect(config.baseUrl).toBe('https://us.posthog.com')
             expect(config.publicBaseUrl).toBe('https://us.posthog.com')
         })
+
+        it.each([
+            { label: 'cached OAuth client name', cached: 'Claude', expected: 'Claude' },
+            { label: 'no cached OAuth client name', cached: undefined, expected: undefined },
+        ])('passes $label through as oauthClientName', async ({ cached, expected }) => {
+            const redis = fakeRedis()
+            if (cached) {
+                await redis.set('mcp:token:test-user:clientName', JSON.stringify(cached))
+            }
+            mockMe.mockResolvedValue({ success: true, data: { distinct_id: 'user-1' } })
+
+            const ctx = new RequestContext(redis, env, makeProps())
+            await ctx.getDistinctId()
+
+            expect(mockApiClientCtor.mock.calls[0]![0].oauthClientName).toBe(expected)
+        })
     })
 
     describe('getDistinctId', () => {
@@ -169,6 +187,25 @@ describe('RequestContext', () => {
 
             expect(a).not.toBe(b)
         })
+    })
+
+    describe('getEffectiveSessionUuid', () => {
+        it.each([
+            { sessionId: 'sess-1', mcpSessionId: 'mcp-1', expectedKey: 'sess-1' },
+            { sessionId: undefined, mcpSessionId: 'mcp-1', expectedKey: 'mcp-1' },
+            { sessionId: undefined, mcpSessionId: undefined, expectedKey: undefined },
+        ])(
+            'sessionId=$sessionId mcpSessionId=$mcpSessionId → resolves via expectedKey=$expectedKey',
+            async ({ sessionId, mcpSessionId, expectedKey }) => {
+                const ctx = new RequestContext(fakeRedis(), env, makeProps())
+                const effective = await ctx.getEffectiveSessionUuid({ sessionId, mcpSessionId } as any)
+
+                expect(effective).toBe(expectedKey ? await ctx.getSessionUuid(expectedKey) : undefined)
+                if (expectedKey) {
+                    expect(effective).toMatch(/^[0-9a-f-]{36}$/)
+                }
+            }
+        )
     })
 
     describe('buildClientProperties', () => {
@@ -282,20 +319,6 @@ describe('RequestContext', () => {
         it('returns the same cache instance on repeated access', () => {
             const ctx = new RequestContext(fakeRedis(), env, makeProps())
             expect(ctx.cache).toBe(ctx.cache)
-        })
-
-        it('keeps MCP session cache entries on the default 7 day TTL', async () => {
-            const redis = spyRedis()
-            const ctx = new RequestContext(redis, env, makeProps({ mcpSessionId: 'mcp-session-1' }))
-
-            await ctx.sessionCache.set('mcpClientName', 'claude-code')
-
-            expect(redis.set).toHaveBeenCalledWith(
-                expect.stringMatching(/^mcp:session:/),
-                JSON.stringify('claude-code'),
-                'EX',
-                7 * 24 * 60 * 60
-            )
         })
 
         it('keeps token cache entries on the default 7 day TTL', async () => {

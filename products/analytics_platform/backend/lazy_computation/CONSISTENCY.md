@@ -27,7 +27,14 @@ Controls whether INSERTs into a Distributed table are synchronous or asynchronou
 
 Previously named `insert_distributed_sync`.
 
-**Already enabled globally**: PostHog's ClickHouse config sets `insert_distributed_sync=1` in `docker/clickhouse/users.xml`. This means layer 1 (distributed table routing) is already solved for all queries. The `posthog/dags/sessions.py` DAG explicitly overrides this to `0` for large INSERTs to avoid OOM, confirming the global default is `1`.
+**Set per-query by the executor** (`_get_insert_settings`), under the legacy `insert_distributed_sync` name for ClickHouse-version compatibility. Do not rely on server profiles for this guarantee:
+
+- Dev's `docker/clickhouse/users.xml` sets `insert_distributed_sync=1` on the `default` profile, so dev and CI always behave synchronously — which also makes the async failure mode invisible in every test environment.
+- Production profiles are not the dev config. At least one production cluster explicitly sets `distributed_foreground_insert=0` (async) on the `default` profile used for writes, while carrying the legacy `insert_distributed_sync=1` only on the `readonly` profile — where it is inert, since readonly users cannot INSERT.
+- The dev config and the `posthog/dags/sessions.py` override comment both observe intent, not deployed behavior — do not read them as proof the setting is global. With async forwarding, an INSERT returns after merely enqueueing to the initiator's distribution queue, so a job marked READY immediately exposes rows that only become visible to readers over the following minutes — producing badly undercounted funnel results right after every window recompute.
+- To verify actual behavior, check `Settings['insert_distributed_sync']` on real INSERT rows in `system.query_log`, or per-host profile contents in `system.settings_profile_elements`. Unit tests on `_get_insert_settings` pin our side; only production telemetry pins the environment's.
+
+Large synchronous distributed inserts buffer per-shard splits on the initiator — the reason `posthog/dags/sessions.py` sets `0` for its bulk INSERTs. Lazy computation inserts are bounded by daily windows; if a very large recompute ever hits memory limits, chunk the windows instead of reverting to async.
 
 Sources:
 
@@ -240,7 +247,7 @@ Write to `sharded_preaggregation_results` directly on a specific node, run the S
 ### Approach E: Deterministic replica routing (Sentry's approach)
 
 ```text
-INSERT: (distributed_foreground_insert=1 is already global)
+INSERT: distributed_foreground_insert=1 (set per-query by the executor — see above)
 SELECT: optimize_skip_unused_shards=1, load_balancing='in_order'
 ```
 
@@ -248,7 +255,7 @@ Sentry [rejected `select_sequential_consistency`](https://blog.sentry.io/how-to-
 
 **Pros**: zero ZK overhead on reads, no per-table serialization, per-query settings only
 **Cons**: not formally guaranteed — if the preferred replica goes down between INSERT and SELECT, the fallback replica may be stale (see quorum hardening below). Concentrates lazy computation read/write load on one replica per shard — with 3 replicas, other queries using `random` load balancing distribute evenly across all 3 (including replica 1), so replica 1 gets a disproportionate share of total load. Acceptable when lazy computation is a small fraction of total query volume, but worth monitoring as it grows.
-**INSERT latency**: none extra (already global)
+**INSERT latency**: the synchronous forward to the target shard
 **SELECT latency**: none extra (may be slightly faster with shard pruning)
 
 **Optional hardening: add quorum writes.** Adding `insert_quorum='auto'` ensures the INSERT is acknowledged by a majority of replicas before returning. This covers the failover edge case: if replica 1 goes down between INSERT and SELECT, `in_order` falls back to replica 2, which has the data thanks to quorum. Importantly, since we're using `load_balancing='in_order'` instead of `select_sequential_consistency`, we do NOT need `insert_quorum_parallel=0` — parallel quorum (the default) works fine, so there's no per-table lock and no throughput limit. The cost is +20-100ms INSERT latency for the quorum wait.
@@ -273,10 +280,25 @@ The choice of sharding key depends on which consistency approach is used:
 
 **Current recommendation**: keep `sipHash64(job_id)` for now. It's even, simple, and works with all approaches. Revisit if a single job's data becomes large enough that cross-shard parallelism matters.
 
+### Breakdown-key colocation (trialed for the PATHS tile)
+
+The "revisit" trigger above has been hit. On teams with very high breakdown cardinality (hundreds of thousands of distinct paths), the PATHS tile reads `web_stats_paths_preaggregated` in several seconds, while the equivalent batch pre-agg (`web_pre_aggregated_stats`, which keys `pathname` high in its `ORDER BY`) serves the same row count in ~100ms. With `sipHash64(job_id)` sharding, a single large job's path rows land on one shard and aggregate serially.
+
+**Technique — breakdown-key colocation:** shard by `sipHash64(breakdown_value)` and lead the `ORDER BY` with `(team_id, time_window_start, breakdown_value, …)`. Two effects:
+
+- **Shard-local aggregation.** Each breakdown value lives entirely on one shard, so each shard computes complete per-path aggregates independently and the coordinator only merges the top-N candidates — no per-key cross-shard merge. This is ClickHouse's `optimize_distributed_group_by_sharding_key` pattern.
+- **Read locality.** Leading the sort key with `time_window_start` then `breakdown_value` gives the time-range read a primary-index range-skip and co-locates the `GROUP BY breakdown_value` rows (mirrors v2's layout).
+
+Both effects are query-side — the table layout only makes them _possible_. The read wiring must: (1) filter by `time_window_start` range, **not** `job_id IN (...)`, so the primary index range-skips — `job_id` is last in the sort key now, so keep `job_id IN (...)` only as a freshness post-filter; and (2) `SET optimize_distributed_group_by_sharding_key = 1`, which is what actually enables the shard-local short-circuit (it is not activated by the DDL).
+
+We're A/B-ing this in a parallel table — `web_stats_paths_preaggregated_pathkey` (migration 0278) — against the original: same columns, only the `ORDER BY` and sharding key differ. Goal is to confirm it lands near v2 before committing. Mind the empty-`breakdown_value` hotspotting caveat above (rare for `$pathname`, but worth a guard if this generalizes to other breakdowns).
+
+**Write side (wired).** The PATHS lazy read dual-writes into the pathkey table after each precompute read: `mirror_jobs_to_pathkey` copies the just-computed rows for the read's `job_id`s from the original table into the pathkey table (a row-level copy of already-aggregated states — no event re-scan), and the distributed INSERT reshards them by `sipHash64(breakdown_value)`. It is best-effort (never fails the read), runs at cache-miss frequency, is idempotent (ReplacingMergeTree), and is gated by a team-id allowlist (`WEB_STATS_PATHS_PREAGG_MIRROR_PATHKEY_TEAM_IDS`, default: Cloud project 2 only) so only the teams being compared pay the extra write. The **read** side stays on the original table — the pathkey table is queried ad-hoc to compare latency, applying the two read requirements above by hand.
+
 ## Other approaches investigated but not applicable
 
 - **`max_replica_delay_for_distributed_queries`**: rejects replicas lagging by N seconds, but the granularity is seconds — too coarse for sub-second read-after-write where replication lag is measured in milliseconds.
-- **`SYSTEM FLUSH DISTRIBUTED`**: forces async distributed sends to complete, but `distributed_foreground_insert=1` already solves this and is already enabled globally.
+- **`SYSTEM FLUSH DISTRIBUTED`**: forces async distributed sends to complete, but the executor sets `distributed_foreground_insert=1` per-query, which solves this directly. (Also, with pooled connections there is no guarantee the FLUSH would run on the node holding the queue.)
 - **`distributed_group_by_no_merge`**: performance optimization that skips coordinator-level re-aggregation for single-shard queries — not a consistency mechanism.
 - **Kafka coordination layer**: Sentry also built a `SynchronizedConsumer` that uses Kafka commit log topics as a write confirmation barrier. Not applicable to the lazy computation system's `INSERT...SELECT` workload.
 - **ClickHouse transactions**: experimental `BEGIN TRANSACTION` / `COMMIT` support exists but is limited to single-table operations on ReplicatedMergeTree, not production-ready, and doesn't directly address read-after-write consistency.
@@ -296,7 +318,7 @@ Not applicable to PostHog (fully self-hosted), but for reference:
 
 | Setting                           | Scope                         | ZK ops added | Latency          | Contention               | Impact on other queries                               |
 | --------------------------------- | ----------------------------- | ------------ | ---------------- | ------------------------ | ----------------------------------------------------- |
-| `distributed_foreground_insert=1` | Global (already set)          | None         | +1-10ms          | None                     | None                                                  |
+| `distributed_foreground_insert=1` | Per-query (set by executor)   | None         | +1-10ms          | None                     | None                                                  |
 | `insert_quorum='auto'`            | Per-query                     | 2-3 writes   | +20-100ms        | None                     | None                                                  |
 | `insert_quorum_parallel=0`        | Per-query (lock is per-table) | None extra   | None extra       | ~100ms window per INSERT | None (lock only affects quorum INSERTs to same table) |
 | `select_sequential_consistency=1` | Per-query                     | 1 read       | +1-10ms          | None                     | None                                                  |

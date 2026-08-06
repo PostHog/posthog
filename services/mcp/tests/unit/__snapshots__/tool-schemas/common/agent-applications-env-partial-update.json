@@ -1,0 +1,26 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "description": {
+            "description": "Optional free-text description shown in the management UI.",
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this agent application.",
+            "type": "string"
+        },
+        "name": {
+            "description": "Human-readable display name for the application.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "slug": {
+            "description": "Subdomain prefix for the application. Globally unique across all teams. Lowercase letters, digits, and hyphens only; must start and end with a letter or digit.",
+            "maxLength": 63,
+            "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

@@ -50,7 +50,7 @@ class DatabricksTestStep(DestinationTestStep):
         self.table_name = table_name
 
     @contextlib.asynccontextmanager
-    async def connect(self) -> AsyncGenerator[DatabricksClient, None]:
+    async def connect(self) -> AsyncGenerator[DatabricksClient]:
         assert self.server_hostname is not None
         assert self.http_path is not None
         assert self.client_id is not None
@@ -63,6 +63,8 @@ class DatabricksTestStep(DestinationTestStep):
             client_secret=self.client_secret,
             catalog=self.catalog or "",
             schema=self.schema or "",
+            # Interactive connection test, so fail fast instead of backing off for minutes.
+            connect_max_attempts=1,
         )
         async with client.connect(set_context=False) as databricks_client:
             yield databricks_client

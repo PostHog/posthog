@@ -1,6 +1,8 @@
 import { IconFilter, IconTrash, IconPencil } from '@posthog/icons'
 import { LemonButton, LemonTag, LemonSnack, Tooltip } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { IconSubArrowRight } from 'lib/lemon-ui/icons'
 
 import { EventTriggerConfig, SessionRecordingTriggerGroup } from '~/lib/components/IngestionControls/types'
@@ -107,6 +109,11 @@ function ConditionRow({
 export function TriggerGroupCard({ group, onEdit, onDelete }: TriggerGroupCardProps): JSX.Element {
     const { id, name, sampleRate, minDurationMs, conditions } = group
 
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+
     // Format display name
     const displayName = name || `Trigger group ${id.slice(0, 8)}`
 
@@ -153,7 +160,13 @@ export function TriggerGroupCard({ group, onEdit, onDelete }: TriggerGroupCardPr
                 </div>
                 <div className="flex items-center gap-4">
                     <div className="flex gap-2">
-                        <LemonButton size="small" icon={<IconPencil />} onClick={onEdit} data-attr="trigger-group-edit">
+                        <LemonButton
+                            size="small"
+                            icon={<IconPencil />}
+                            onClick={onEdit}
+                            disabledReason={restrictedReason}
+                            data-attr="trigger-group-edit"
+                        >
                             Edit
                         </LemonButton>
                         <LemonButton
@@ -161,7 +174,7 @@ export function TriggerGroupCard({ group, onEdit, onDelete }: TriggerGroupCardPr
                             icon={<IconTrash />}
                             status="danger"
                             onClick={onDelete ? () => onDelete(id) : undefined}
-                            disabledReason={!onDelete ? 'Delete not yet implemented' : undefined}
+                            disabledReason={restrictedReason ?? (!onDelete ? 'Delete not yet implemented' : undefined)}
                             data-attr="trigger-group-delete"
                         >
                             Delete

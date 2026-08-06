@@ -4,14 +4,16 @@ import { useState } from 'react'
 
 import { IconDocument, IconGear, IconHeadset, IconOpenSidebar } from '@posthog/icons'
 import { LemonBadge, LemonButton, Link } from '@posthog/lemon-ui'
+import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { WarningHog } from 'lib/components/hedgehogs'
 import { LiveRecordingsCount } from 'lib/components/LiveUserCount'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -88,7 +90,7 @@ function Header(): JSX.Element {
                     resourceType={AccessControlResourceType.SessionRecording}
                     minAccessLevel={AccessControlLevel.Editor}
                 >
-                    <AppShortcut
+                    <Shortcut
                         name="NewRecordingCollection"
                         keybind={[keyBinds.new]}
                         intent="New collection"
@@ -105,7 +107,7 @@ function Header(): JSX.Element {
                         >
                             New collection
                         </LemonButton>
-                    </AppShortcut>
+                    </Shortcut>
                 </AccessControlAction>
             )}
 
@@ -119,6 +121,36 @@ function Header(): JSX.Element {
                 Settings
             </LemonButton>
         </div>
+    )
+}
+
+const REPLAY_VISION_PROMO_DISMISS_KEY = 'replay-vision-launch-promo'
+
+function ReplayVisionPromoBanner(): JSX.Element | null {
+    const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: REPLAY_VISION_PROMO_DISMISS_KEY }))
+    const hasReplayVision = useFeatureFlag('REPLAY_VISION')
+
+    // Without the flag the CTA would land on a 404, so don't advertise the feature at all.
+    // A dismissed LemonBanner renders null but the viewed tracker would still fire, skewing impressions
+    if (!hasReplayVision || isDismissed) {
+        return null
+    }
+
+    return (
+        <PostHogCaptureOnViewed name="replay-vision-launch-banner-shown">
+            <LemonBanner
+                type="ai"
+                dismissKey={REPLAY_VISION_PROMO_DISMISS_KEY}
+                action={{
+                    children: 'Try Replay vision',
+                    to: urls.replayVision(),
+                    center: true,
+                    'data-attr': 'replay-vision-launch-banner-cta',
+                }}
+            >
+                Replay vision is here. Scanners watch your recordings for you and surface what matters.
+            </LemonBanner>
+        </PostHogCaptureOnViewed>
     )
 }
 
@@ -188,25 +220,37 @@ function Warnings(): JSX.Element {
     )
 }
 
-function MainPanel({ tabId }: { tabId: string }): JSX.Element {
+// Keeps the recordings logic mounted for the scene's lifetime so its state survives tab
+// switches. Rendered only on the Home tab so landing on Collections/Templates does not mount
+// it — which would otherwise fire a wasted loadSessionRecordings ClickHouse query on load.
+function AttachScenePlaylistLogic({
+    playlistLogicProps,
+}: {
+    playlistLogicProps: SessionRecordingPlaylistLogicProps
+}): null {
+    useAttachedLogic(sessionRecordingsPlaylistLogic(playlistLogicProps), sessionReplaySceneLogic())
+    return null
+}
+
+function MainPanel(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
     const isRedesignEnabled = useFeatureFlag('REPLAY_UI_REDESIGN_2026', 'test')
 
     const playlistLogicProps: SessionRecordingPlaylistLogicProps = {
-        logicKey: `scene-${tabId}`,
+        logicKey: 'scene',
         updateSearchParams: true,
     }
 
-    useAttachedLogic(sessionRecordingsPlaylistLogic(playlistLogicProps), sessionReplaySceneLogic({ tabId }))
-
     return (
         <div className={cn('flex flex-col gap-y-4', ReplayTabs.Home === tab && 'grow')}>
+            <ReplayVisionPromoBanner />
             <Warnings />
 
             {!tab ? (
                 <Spinner />
             ) : tab === ReplayTabs.Home ? (
                 <div className="SessionRecordingPlaylistHeightWrapper grow">
+                    <AttachScenePlaylistLogic playlistLogicProps={playlistLogicProps} />
                     {isRedesignEnabled ? (
                         <SessionRecordingsPlaylistRedesign {...playlistLogicProps} />
                     ) : (
@@ -237,7 +281,7 @@ const ReplayPageTabs: ReplayTab[] = [
         'data-attr': 'session-recordings-collections-tab',
     },
     {
-        label: 'What to watch',
+        label: 'Filter templates',
         key: ReplayTabs.Templates,
         'data-attr': 'session-recordings-templates-tab',
     },
@@ -272,16 +316,9 @@ export function SessionRecordingsPageTabs(): JSX.Element {
     )
 }
 
-export interface SessionsRecordingsProps {
-    tabId?: string
-}
-
-export function SessionsRecordings({ tabId }: SessionsRecordingsProps = {}): JSX.Element {
-    if (!tabId) {
-        throw new Error('<SessionsRecordings /> must receive a tabId prop')
-    }
+export function SessionsRecordings(): JSX.Element {
     return (
-        <BindLogic logic={sessionReplaySceneLogic} props={{ tabId }}>
+        <BindLogic logic={sessionReplaySceneLogic} props={{}}>
             <SceneContent className="h-full">
                 <SceneTitleSection
                     name={sceneConfigurations[Scene.Replay].name}
@@ -291,7 +328,7 @@ export function SessionsRecordings({ tabId }: SessionsRecordingsProps = {}): JSX
                     actions={<Header />}
                 />
                 <SessionRecordingsPageTabs />
-                <MainPanel tabId={tabId} />
+                <MainPanel />
             </SceneContent>
         </BindLogic>
     )

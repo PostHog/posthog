@@ -2,11 +2,10 @@ import './Notebook.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useLayoutEffect } from 'react'
 
-import { commandLogic } from 'lib/components/Command/commandLogic'
 import { NotFound } from 'lib/components/NotFound'
-import { EditorFocusPosition, JSONContent } from 'lib/components/RichContentEditor/types'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -15,34 +14,37 @@ import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/not
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
 
-import { AddExperimentsToNotebookModal } from '../AddExperimentsToNotebookModal/AddExperimentsToNotebookModal'
-import { AddInsightsToNotebookModal } from '../AddInsightsToNotebookModal/AddInsightsToNotebookModal'
-import { Editor } from './Editor'
-import { NotebookCollabConflictModal } from './NotebookCollabConflictModal'
+import { MarkdownNotebookV2 } from './MarkdownNotebookV2Renderer'
 import { NotebookColumnLeft } from './NotebookColumnLeft'
 import { NotebookColumnRight } from './NotebookColumnRight'
-import { NotebookConflictWarning } from './NotebookConflictWarning'
 import { NotebookHistoryWarning } from './NotebookHistory'
 import { NotebookLoadingState } from './NotebookLoadingState'
+import { NotebookMergeConflictDetails } from './NotebookMergeConflictDetails'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 
+// Counts mounted notebooks so the <body> marker class survives overlapping mounts
+// (e.g. one in the scene and one in the side panel)
+let markdownNotebookMountCount = 0
+
 export type NotebookProps = NotebookLogicProps & {
-    initialAutofocus?: EditorFocusPosition
     initialContent?: JSONContent
     editable?: boolean
     className?: string
+    markdownSourceOpen?: boolean
+    onMarkdownSourceOpenChange?: (isOpen: boolean) => void
 }
 
 export function Notebook({
     shortId,
     mode,
     editable = true,
-    initialAutofocus = 'start',
     initialContent,
     cachedNotebook,
     cachedInsightsByShortId,
     cachedInlineQueryResultsByNodeId,
     className,
+    markdownSourceOpen,
+    onMarkdownSourceOpenChange,
 }: NotebookProps): JSX.Element {
     const logicProps: NotebookLogicProps = {
         shortId,
@@ -52,11 +54,9 @@ export function Notebook({
         cachedInlineQueryResultsByNodeId,
     }
     const logic = notebookLogic(logicProps)
-    const { notebook, notebookLoading, editor, conflictWarningVisible, isEditable, isTemplate, notebookMissing } =
-        useValues(logic)
+    const { notebook, notebookLoading, isEditable, isTemplate, notebookMissing } = useValues(logic)
     const { duplicateNotebook, loadNotebook, setEditable, setLocalContent, setContainerSize } = useActions(logic)
-    const { isExpanded } = useValues(notebookSettingsLogic)
-    const { isCommandOpen } = useValues(commandLogic)
+    const { isMarkdownExpanded } = useValues(notebookSettingsLogic)
 
     useEffect(() => {
         if (initialContent && mode === 'canvas') {
@@ -75,16 +75,6 @@ export function Notebook({
         setEditable(editable)
     }, [editable]) // oxlint-disable-line exhaustive-deps
 
-    useEffect(() => {
-        editor?.setEditable(isEditable)
-    }, [isEditable]) // oxlint-disable-line exhaustive-deps
-
-    useEffect(() => {
-        if (editor && !isCommandOpen) {
-            editor.focus(initialAutofocus)
-        }
-    }, [editor]) // oxlint-disable-line exhaustive-deps
-
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
         1000: 'medium',
@@ -94,11 +84,22 @@ export function Notebook({
         setContainerSize(size as 'small' | 'medium')
     }, [size]) // oxlint-disable-line exhaustive-deps
 
+    // Marker class replacing `body:has(.Notebook--markdown-v2)` in Notebook.scss: a near-root
+    // `:has()` anchor makes every DOM class change cost a whole-document style recalc in Blink
+    useLayoutEffect(() => {
+        if (++markdownNotebookMountCount === 1) {
+            document.body.classList.add('has-markdown-v2-notebook')
+        }
+        return () => {
+            if (--markdownNotebookMountCount === 0) {
+                document.body.classList.remove('has-markdown-v2-notebook')
+            }
+        }
+    }, [])
+
     return (
         <BindLogic logic={notebookLogic} props={logicProps}>
-            {conflictWarningVisible ? (
-                <NotebookConflictWarning />
-            ) : !notebook && notebookLoading ? (
+            {!notebook && notebookLoading ? (
                 <NotebookLoadingState />
             ) : notebookMissing ? (
                 <NotFound object="notebook" />
@@ -106,10 +107,12 @@ export function Notebook({
                 <div
                     className={clsx(
                         'Notebook',
-                        !isExpanded && 'Notebook--compact',
+                        !isMarkdownExpanded && 'Notebook--compact',
+                        isMarkdownExpanded && 'Notebook--expanded',
                         mode && `Notebook--${mode}`,
                         size === 'small' && `Notebook--single-column`,
                         isEditable && 'Notebook--editable',
+                        'Notebook--markdown-v2',
                         className
                     )}
                     ref={ref}
@@ -127,7 +130,7 @@ export function Notebook({
                         </LemonBanner>
                     )}
                     <NotebookHistoryWarning />
-                    <NotebookCollabConflictModal />
+                    <NotebookMergeConflictDetails />
                     {shortId === SCRATCHPAD_NOTEBOOK.short_id ? (
                         <LemonBanner
                             type="info"
@@ -145,14 +148,15 @@ export function Notebook({
                     <div className="Notebook_content">
                         <NotebookColumnLeft />
                         <ErrorBoundary>
-                            <Editor />
+                            <MarkdownNotebookV2
+                                debugOpen={markdownSourceOpen}
+                                onDebugOpenChange={onMarkdownSourceOpenChange}
+                            />
                         </ErrorBoundary>
                         <NotebookColumnRight />
                     </div>
                 </div>
             )}
-            <AddInsightsToNotebookModal />
-            <AddExperimentsToNotebookModal />
         </BindLogic>
     )
 }

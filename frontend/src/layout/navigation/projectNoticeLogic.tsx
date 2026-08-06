@@ -1,10 +1,12 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import { IconGear, IconPlus } from '@posthog/icons'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
+import { getProductPushDisplay } from 'lib/components/NavPanelAdvertisement/navPanelProductPushDisplay'
+import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
@@ -12,7 +14,7 @@ import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsLogic } from 'scenes/activity/live/liveEventsLogic'
-import { verifyEmailLogic } from 'scenes/authentication/signup/verify-email/verifyEmailLogic'
+import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
 import { billingLogic, BillingAlertConfig } from 'scenes/billing/billingLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -24,15 +26,15 @@ import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+import { brandingForProduct } from 'scenes/welcome/productBranding'
 
 import { ProductKey } from '~/queries/schema/schema-general'
-import { OnboardingStepKey } from '~/types'
-
-import type { projectNoticeLogicType } from './projectNoticeLogicType'
+import { OnboardingStepKey, UserType } from '~/types'
 
 export type ProjectNoticeVariant =
     | 'billing_alert'
     | 'demo_project'
+    | 'provisioned_welcome'
     | 'real_project_with_no_events'
     | 'invite_teammates'
     | 'unverified_email'
@@ -49,6 +51,54 @@ export interface ProjectNoticeBlueprint {
 }
 
 const NOTICE_DISMISS_PREFIX = 'project-notice-dismissed.'
+
+// The products we want every provisioned account exploring. Keys resolve in both PRODUCT_BRANDING
+// (label + docs) and PRODUCT_PUSH_DISPLAY (hog illustration), mirroring the welcome dialog's showcase.
+const FLAGSHIP_PRODUCT_KEYS = [
+    'product_analytics',
+    'web_analytics',
+    'session_replay',
+    'error_tracking',
+    'llm_analytics',
+]
+
+/** Compact row of flagship-product hogs + labels, echoing the welcome dialog inside the banner. */
+function ProvisionedProductStrip(): JSX.Element {
+    return (
+        <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1 align-middle">
+            {FLAGSHIP_PRODUCT_KEYS.map((productKey) => {
+                const { Hoggie } = getProductPushDisplay(productKey)
+                const meta = brandingForProduct(productKey)
+                return (
+                    <Link
+                        key={productKey}
+                        to={meta.docsHref}
+                        target="_blank"
+                        subtle
+                        className="inline-flex items-center gap-1"
+                        data-attr={`provisioned-welcome-${productKey}`}
+                    >
+                        <Hoggie className="h-6 w-auto" aria-hidden="true" />
+                        <span className="text-xs font-medium">{meta.label}</span>
+                    </Link>
+                )
+            })}
+        </span>
+    )
+}
+
+/** Message body of the provisioned-welcome banner. Exported so it's reviewable in Storybook. */
+export function ProvisionedWelcomeMessage(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1">
+            <span>
+                <b>Welcome to PostHog!</b> We're setting up PostHog in your repo in the background. In the meantime,
+                here's what you can do with it:
+            </span>
+            <ProvisionedProductStrip />
+        </div>
+    )
+}
 
 function isNoticeDismissed(key: string): boolean {
     try {
@@ -69,9 +119,11 @@ function storeNoticeDismissal(key: string): void {
 /**
  * Whether the missing-reverse-proxy notice could be eligible to show (and its data should be fetched).
  * Limited to the first 7 days of each month so the nudge stays noticeable without causing fatigue.
+ * Requires an authenticated user and a loaded organization — otherwise the proxy_records GET fires
+ * without a valid session and 401s, polluting error tracking with no banner to show anyway.
  */
-function shouldFetchProxyRecords(): boolean {
-    return new Date().getDate() <= 7 && !isNoticeDismissed('missing_reverse_proxy')
+function shouldFetchProxyRecords(user: UserType | null, currentOrganizationId: string | null): boolean {
+    return !!user && !!currentOrganizationId && new Date().getDate() <= 7 && !isNoticeDismissed('missing_reverse_proxy')
 }
 
 function buildBillingAlertNotice(
@@ -112,11 +164,145 @@ function buildBillingAlertNotice(
     }
 }
 
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface projectNoticeLogicValues {
+    memberCount: number // membersLogic
+    currentOrganizationId: string // organizationLogic
+    hasReverseProxy: boolean | null // reverseProxyCheckerLogic
+    user: UserType | null // userLogic
+    effectiveBillingAlert: BillingAlertConfig | null
+    noticeDismissedThisSession: boolean
+    projectNotice: ProjectNoticeBlueprint | null
+    projectNoticeDismissKey: string | null
+    projectNoticeVariant: ProjectNoticeVariant | null
+    proxyRecords: ProxyRecord[] | null
+    proxyRecordsLoading: boolean
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface projectNoticeLogicActions {
+    reportProjectNoticeDismissed: (key: string) => {
+        key: string
+    } // eventUsageLogic
+    reportProjectNoticeShown: (variant: string) => {
+        variant: string
+    } // eventUsageLogic
+    requestVerificationLink: (uuid: string) => {
+        uuid: string
+    } // verifyEmailLogic
+    dismissProjectNotice: (dismissKey: string | null) => {
+        dismissKey: string | null
+    }
+    loadRecords: () => any
+    loadRecordsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadRecordsSuccess: (
+        proxyRecords: ProxyRecord[] | null,
+        payload?: any
+    ) => {
+        proxyRecords: ProxyRecord[] | null
+        payload?: any
+    }
+    reportNoticeShown: () => {
+        value: true
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface projectNoticeLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        effectiveBillingAlert: (
+            billingAlert: BillingAlertConfig | null,
+            fakeBillingAlert: import('lib/components/Superpowers/superpowersLogic').FakeBillingAlert
+        ) => BillingAlertConfig | null
+        projectNoticeVariant: (
+            currentOrganization: null | import('~/types').OrganizationType,
+            currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
+            preflight: null | import('~/types').PreflightStatus,
+            isCloudOrDev: boolean | undefined,
+            user: UserType | null,
+            memberCount: number,
+            internetConnectionIssue: boolean,
+            hasProjectNoticeRestriction: boolean,
+            proxyRecords: ProxyRecord[] | null,
+            effectiveBillingAlert: BillingAlertConfig | null,
+            currentLocation: {
+                hash: string
+                hashParams: Record<string, any>
+                method: string
+                pathname: string
+                search: string
+                searchParams: Record<string, any>
+            },
+            noticeDismissedThisSession: boolean,
+            activeSceneId: string | null,
+            arg: number,
+            hasReverseProxy: boolean | null,
+            isProvisionedUser: boolean
+        ) => ProjectNoticeVariant | null
+        projectNoticeDismissKey: (
+            projectNoticeVariant: ProjectNoticeVariant | null,
+            effectiveBillingAlert: BillingAlertConfig | null
+        ) => string | null
+        projectNotice: (
+            projectNoticeVariant: ProjectNoticeVariant | null,
+            effectiveBillingAlert: BillingAlertConfig | null,
+            projectNoticeDismissKey: string | null,
+            currentOrganization: null | import('~/types').OrganizationType,
+            user: UserType | null,
+            canAccessBilling: boolean,
+            currentLocation: {
+                hash: string
+                hashParams: Record<string, any>
+                method: string
+                pathname: string
+                search: string
+                searchParams: Record<string, any>
+            },
+            activeSceneProductKey: ProductKey | null
+        ) => ProjectNoticeBlueprint | null
+    }
+}
+
+export type projectNoticeLogicType = MakeLogicType<
+    projectNoticeLogicValues,
+    projectNoticeLogicActions,
+    Record<string, any>,
+    projectNoticeLogicMeta
+>
+
 export const projectNoticeLogic = kea<projectNoticeLogicType>([
     path(['layout', 'navigation', 'projectNoticeLogic']),
     connect(() => ({
-        values: [membersLogic, ['memberCount'], organizationLogic, ['currentOrganizationId']],
-        actions: [eventUsageLogic, ['reportProjectNoticeDismissed', 'reportProjectNoticeShown']],
+        logic: [verifyEmailLogic],
+        values: [
+            membersLogic,
+            ['memberCount'],
+            organizationLogic,
+            ['currentOrganizationId'],
+            userLogic,
+            ['user'],
+            // Connecting reverseProxyCheckerLogic mounts it and exposes hasReverseProxy reactively.
+            // A self-managed (DIY) reverse proxy never appears in proxy_records, but it does stamp
+            // $lib_custom_api_host on events, which the checker detects — this keeps the "set up a
+            // reverse proxy" nudge from contradicting the onboarding checklist, which marks the task
+            // complete on the same signal. The checker throttles its own detection query internally.
+            reverseProxyCheckerLogic,
+            ['hasReverseProxy'],
+        ],
+        actions: [
+            eventUsageLogic,
+            ['reportProjectNoticeDismissed', 'reportProjectNoticeShown'],
+            // Mount verifyEmailLogic so the "Send verification email" banner CTA's loader fires.
+            // The banner renders on every scene, but verifyEmailLogic is otherwise only mounted on the verify-email scene.
+            verifyEmailLogic,
+            ['requestVerificationLink'],
+        ],
     })),
     actions({
         dismissProjectNotice: (dismissKey: string | null) => ({ dismissKey }),
@@ -126,8 +312,18 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
         proxyRecords: {
             __default: null as null | ProxyRecord[],
             loadRecords: async () => {
-                const response = await api.get(`api/organizations/${values.currentOrganizationId}/proxy_records`)
-                return response.results
+                try {
+                    const response = await api.get(`api/organizations/${values.currentOrganizationId}/proxy_records`)
+                    return response.results
+                } catch (error) {
+                    // A missing or expired session makes this boot-time GET 401. A restricted org member
+                    // whose access level to the org resource is below read gets a 403 from the RBAC layer.
+                    // Either way there's no banner to show, so swallow it rather than polluting error tracking.
+                    if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+                        return null
+                    }
+                    throw error
+                }
             },
         },
     })),
@@ -138,7 +334,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
     selectors({
         effectiveBillingAlert: [
             () => [billingLogic.selectors.billingAlert, superpowersLogic.selectors.fakeBillingAlert],
-            (billingAlert, fakeBillingAlert): BillingAlertConfig | null => {
+            (
+                billingAlert: BillingAlertConfig | null,
+                fakeBillingAlert: import('lib/components/Superpowers/superpowersLogic').FakeBillingAlert
+            ): BillingAlertConfig | null => {
                 if (fakeBillingAlert !== 'none') {
                     return {
                         status: fakeBillingAlert,
@@ -165,22 +364,34 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 s.noticeDismissedThisSession,
                 sceneLogic.selectors.activeSceneId,
                 (state) => liveEventsLogic.findMounted()?.selectors.eventCount(state) ?? 0,
+                // null = not yet checked; we only nudge once detection confirms there's no proxy.
+                s.hasReverseProxy,
+                userLogic.selectors.isProvisionedUser,
             ],
             (
-                organization,
-                currentTeam,
-                preflight,
-                isCloudOrDev,
-                user,
-                memberCount,
-                internetConnectionIssue,
-                hasEventIngestionRestriction,
-                proxyRecords,
-                effectiveBillingAlert,
-                currentLocation,
-                noticeDismissedThisSession,
-                activeSceneId,
-                liveEventCount
+                organization: null | import('~/types').OrganizationType,
+                currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
+                preflight: null | import('~/types').PreflightStatus,
+                isCloudOrDev: boolean | undefined,
+                user: UserType | null,
+                memberCount: number,
+                internetConnectionIssue: boolean,
+                hasEventIngestionRestriction: boolean,
+                proxyRecords: ProxyRecord[] | null,
+                effectiveBillingAlert: BillingAlertConfig | null,
+                currentLocation: {
+                    hash: string
+                    hashParams: Record<string, any>
+                    method: string
+                    pathname: string
+                    search: string
+                    searchParams: Record<string, any>
+                },
+                noticeDismissedThisSession: boolean,
+                activeSceneId: string | null,
+                liveEventCount: number,
+                hasReverseProxy: boolean | null,
+                isProvisionedUser: boolean
             ): ProjectNoticeVariant | null => {
                 if (!organization) {
                     return null
@@ -208,6 +419,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     return 'demo_project'
                 } else if (!user?.is_email_verified && !user?.has_social_auth && preflight?.email_service_available) {
                     return 'unverified_email'
+                } else if (isProvisionedUser && !isNoticeDismissed('provisioned_welcome')) {
+                    // For partner-provisioned accounts, the welcome nudge supersedes the generic
+                    // "no events yet" banner — their events arrive via the background wizard install.
+                    return 'provisioned_welcome'
                 } else if (
                     !isNoticeDismissed('real_project_with_no_events') &&
                     currentTeam &&
@@ -224,9 +439,13 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     // Only show the reverse proxy nudge on Cloud (or dev) — self-hosted users
                     // control their own infrastructure and don't need managed proxies.
                     isCloudOrDev &&
-                    shouldFetchProxyRecords() &&
+                    shouldFetchProxyRecords(user, organization?.id ?? null) &&
                     proxyRecords !== null &&
-                    proxyRecords.length === 0
+                    proxyRecords.length === 0 &&
+                    // ...and only once the checker has confirmed there's no self-managed proxy
+                    // routing events. While it's still null (not yet checked) we hold the nudge
+                    // back to avoid flashing it at DIY-proxy users before detection resolves.
+                    hasReverseProxy === false
                 ) {
                     return 'missing_reverse_proxy'
                 } else if (!isNoticeDismissed('invite_teammates') && memberCount === 1) {
@@ -238,7 +457,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
         ],
         projectNoticeDismissKey: [
             (s) => [s.projectNoticeVariant, s.effectiveBillingAlert],
-            (variant, effectiveBillingAlert): string | null => {
+            (variant: ProjectNoticeVariant | null, effectiveBillingAlert: BillingAlertConfig | null): string | null => {
                 switch (variant) {
                     case 'billing_alert':
                         return effectiveBillingAlert?.dismissKey
@@ -247,6 +466,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     case 'real_project_with_no_events':
                     case 'missing_reverse_proxy':
                     case 'invite_teammates':
+                    case 'provisioned_welcome':
                         return variant
                     default:
                         return null
@@ -265,14 +485,21 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 sceneLogic.selectors.activeSceneProductKey,
             ],
             (
-                variant,
-                effectiveBillingAlert,
-                dismissKey,
-                currentOrganization,
-                user,
-                canAccessBilling,
-                currentLocation,
-                activeSceneProductKey
+                variant: ProjectNoticeVariant | null,
+                effectiveBillingAlert: BillingAlertConfig | null,
+                dismissKey: string | null,
+                currentOrganization: null | import('~/types').OrganizationType,
+                user: UserType | null,
+                canAccessBilling: boolean,
+                currentLocation: {
+                    hash: string
+                    hashParams: Record<string, any>
+                    method: string
+                    pathname: string
+                    search: string
+                    searchParams: Record<string, any>
+                },
+                activeSceneProductKey: ProductKey | null
             ): ProjectNoticeBlueprint | null => {
                 if (!variant) {
                     return null
@@ -344,7 +571,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                                     </Link>{' '}
                                     or grab your project API key/HTML snippet from{' '}
                                     <Link
-                                        to={urls.settings('environment-details', 'variables')}
+                                        to={urls.settings('project-details', 'variables')}
                                         data-attr="real_project_with_no_events-settings"
                                     >
                                         Project Settings
@@ -363,6 +590,12 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                             },
                             onClose: dismiss,
                             mountNoEventsBannerLogic: true,
+                        }
+                    case 'provisioned_welcome':
+                        return {
+                            message: <ProvisionedWelcomeMessage />,
+                            type: 'info',
+                            onClose: dismiss,
                         }
                     case 'invite_teammates':
                         return {
@@ -404,19 +637,15 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                         }
                     case 'missing_reverse_proxy':
                         return {
-                            message: (
-                                <>
-                                    Ad blockers can silently drop 10-25% of your events. Set up a{' '}
-                                    <Link
-                                        to={urls.settings('organization-proxy')}
-                                        data-attr="missing-reverse-proxy-settings_link"
-                                    >
-                                        reverse proxy
-                                    </Link>{' '}
-                                    to route data through your own domain and prevent this.
-                                </>
-                            ),
+                            message:
+                                'Ad blockers can silently drop 10-25% of your events. Set up a reverse proxy to route data through your own domain and prevent this.',
                             type: 'info',
+                            action: {
+                                to: urls.settings('organization-proxy'),
+                                'data-attr': 'missing-reverse-proxy-settings_link',
+                                icon: <IconGear />,
+                                children: 'Set up reverse proxy',
+                            },
                             onClose: dismiss,
                         }
                     default:
@@ -441,8 +670,8 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
-        if (shouldFetchProxyRecords()) {
+    afterMount(({ actions, values }) => {
+        if (shouldFetchProxyRecords(values.user, values.currentOrganizationId)) {
             actions.loadRecords()
         }
     }),

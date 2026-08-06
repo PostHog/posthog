@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
-import { compactNumber } from 'lib/utils'
+import { compactNumber } from 'lib/utils/numbers'
 
 import { errorTrackingInsightsLogic } from './errorTrackingInsightsLogic'
 
@@ -18,9 +18,9 @@ export function SummaryStats(): JSX.Element {
     ]
 
     return (
-        <div className="grid grid-cols-2 xl:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
             {cards.map(({ label, value }) => (
-                <div key={label} className="border rounded-lg bg-surface-primary p-4 flex flex-col gap-1">
+                <div key={label} className="flex flex-col gap-1 rounded-md border bg-surface-primary p-4">
                     <span className="text-xs text-secondary">{label}</span>
                     {summaryStatsLoading ? (
                         <LemonSkeleton className="h-8 w-20" />

@@ -5,7 +5,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { unitPickerModalLogic } from './unitPickerModalLogic'
 

@@ -8,6 +8,7 @@ class RasterizeRecordingInputs(BaseModel, frozen=True):
     """Input to the RasterizeRecordingWorkflow."""
 
     exported_asset_id: int
+    product: Literal["session_replay", "replay_vision"] = "session_replay"
 
 
 class RasterizationActivityInput(BaseModel, frozen=True):

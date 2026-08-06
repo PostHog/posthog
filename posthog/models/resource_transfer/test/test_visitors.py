@@ -7,7 +7,6 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.models import Cohort
 from posthog.models.resource_transfer.visitors import CohortVisitor, InsightVisitor
 from posthog.models.resource_transfer.visitors.experiment import ExperimentVisitor
 from posthog.models.resource_transfer.visitors.experiment_holdout import ExperimentHoldoutVisitor
@@ -24,6 +23,7 @@ from posthog.models.resource_transfer.visitors.feature_flag_filters import (
 from posthog.models.resource_transfer.visitors.survey import SurveyVisitor
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import ExperimentHoldout
 
 

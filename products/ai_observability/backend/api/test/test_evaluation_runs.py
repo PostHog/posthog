@@ -1,14 +1,36 @@
 import uuid
 from datetime import datetime
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 
+from parameterized import parameterized
 from rest_framework import status
 
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
+
+from ...api.evaluation_runs import _evaluation_workflow_prefix
 from ...models.evaluations import Evaluation
+
+
+@pytest.mark.parametrize(
+    ("evaluation_type", "expected_prefix"),
+    [
+        ("llm_judge", "llma-llm-eval"),
+        ("hog", "llma-hog-eval"),
+        ("sentiment", "llma-sentiment-eval"),
+    ],
+)
+def test_evaluation_workflow_prefix_maps_every_supported_runtime(evaluation_type: str, expected_prefix: str):
+    assert _evaluation_workflow_prefix(evaluation_type) == expected_prefix
+
+
+def test_evaluation_workflow_prefix_rejects_unknown_runtime():
+    with pytest.raises(ValueError, match="Unsupported evaluation type for workflow prefix: unknown"):
+        _evaluation_workflow_prefix("unknown")
 
 
 class TestEvaluationRunViewSet(APIBaseTest):
@@ -83,6 +105,57 @@ class TestEvaluationRunViewSet(APIBaseTest):
         assert workflow_inputs.event_data is not None
         assert workflow_inputs.event_data["uuid"] == target_event_id.replace("-", "")
 
+    @patch("products.ai_observability.backend.api.evaluation_runs.query_with_columns")
+    @patch("products.ai_observability.backend.api.evaluation_runs.sync_connect")
+    def test_create_evaluation_run_tags_clickhouse_query(self, mock_connect, mock_query):
+        """The manual eval-trigger ClickHouse lookup must run inside an LLM analytics tag context.
+
+        Mocking `query_with_columns` bypasses `sync_execute`'s tag plumbing, so assert directly
+        that the tags are set on the active context at the moment the query runs.
+        """
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock()
+        mock_connect.return_value = mock_client
+
+        target_event_id = str(uuid.uuid4())
+        timestamp = datetime.now()
+        captured: dict = {}
+
+        def capture_tags(*args, **kwargs):
+            tags = get_query_tags()
+            captured["product"] = tags.product
+            captured["feature"] = tags.feature
+            captured["team_id"] = tags.team_id
+            return [
+                {
+                    "uuid": target_event_id.replace("-", ""),
+                    "event": "$ai_generation",
+                    "properties": "{}",
+                    "timestamp": timestamp,
+                    "team_id": self.team.id,
+                    "distinct_id": "test_user",
+                    "person_id": str(uuid.uuid4()),
+                }
+            ]
+
+        mock_query.side_effect = capture_tags
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluation_runs/",
+            {
+                "evaluation_id": str(self.evaluation.id),
+                "target_event_id": target_event_id,
+                "timestamp": timestamp.isoformat(),
+                "event": "$ai_generation",
+                "distinct_id": "test_user",
+            },
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert captured["product"] == Product.LLM_ANALYTICS
+        assert captured["feature"] == Feature.QUERY
+        assert captured["team_id"] == self.team.id
+
     def test_create_evaluation_run_invalid_evaluation(self):
         """Test creating evaluation run with non-existent evaluation"""
         response = self.client.post(
@@ -97,6 +170,36 @@ class TestEvaluationRunViewSet(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @parameterized.expand(["trace", "session"])
+    def test_create_evaluation_run_refuses_aggregate_targets(self, target: str):
+        """This endpoint runs one generation through the generation workflow. Accepting an aggregate
+        target ran it as a generation and emitted a verdict with $ai_target_type 'generation_uuid'
+        under that evaluation's name, which counted towards its pass rate while being invisible on
+        the trace or session it belonged to."""
+        aggregate_evaluation = Evaluation.objects.create(
+            team=self.team,
+            name=f"{target} target",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+            output_config={},
+            target=target,
+            enabled=False,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluation_runs/",
+            {
+                "evaluation_id": str(aggregate_evaluation.id),
+                "target_event_id": str(uuid.uuid4()),
+                "timestamp": datetime.now().isoformat(),
+                "event": "$ai_generation",
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert target in response.json()["error"]
 
     def test_create_evaluation_run_missing_params(self):
         """Test creating evaluation run with missing parameters"""

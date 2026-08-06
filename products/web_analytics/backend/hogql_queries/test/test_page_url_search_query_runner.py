@@ -1,7 +1,7 @@
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
-from posthog.schema import DateRange, WebPageURLSearchQuery
+from posthog.schema import DateRange, WebAnalyticsPreComputeStrategy, WebPageURLSearchQuery
 
 from posthog.models.utils import uuid7
 
@@ -82,11 +82,13 @@ class TestPageUrlSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
             return runner.calculate()
 
     def test_no_crash_when_no_data(self):
-        results = self._run_page_url_search_query(
+        response = self._run_page_url_search_query(
             "2025-01-22",
             "2025-01-29",
-        ).results
-        assert [] == results, "Expected empty results when no data is present"
+        )
+        assert [] == response.results, "Expected empty results when no data is present"
+        # Always-live runner — never serves from a precompute path.
+        assert response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LIVE
 
     def test_search_by_term(self):
         s1 = str(uuid7("2025-01-22"))

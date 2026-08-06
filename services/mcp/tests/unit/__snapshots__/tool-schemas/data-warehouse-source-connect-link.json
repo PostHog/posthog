@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "source_type": {
+            "description": "The source type name (e.g. \"Postgres\", \"MySQL\", \"Stripe\"). Use external-data-sources-wizard to see available types and their required fields.",
+            "type": "string"
+        }
+    },
+    "required": ["source_type"],
+    "type": "object"
+}

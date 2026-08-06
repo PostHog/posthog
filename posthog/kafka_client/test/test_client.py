@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
 
+from parameterized import parameterized
+
 from posthog.kafka_client.client import _KafkaProducer
 from posthog.settings.kafka import KafkaProfileSettings
 
@@ -81,6 +83,22 @@ class KafkaClientTestCase(TestCase):
         _KafkaProducer(test=False)
         config = mock_producer_class.call_args[0][0]
         self.assertEqual(config["security.protocol"], "PLAINTEXT")
+
+    # confluent's flush() returns the count still queued (0 once acked). The
+    # wrapper must surface that int, not swallow it as None, so callers can
+    # detect a partial flush. A None timeout calls flush() with no arg.
+    @parameterized.expand([("with_timeout", 5.0, (5.0,)), ("no_timeout", None, ())])
+    @patch("posthog.kafka_client.client.ConfluentProducer")
+    def test_flush_returns_undelivered_count(
+        self, _name: str, timeout: float | None, expected_call_args: tuple, mock_producer_class: MagicMock
+    ):
+        inner = MagicMock()
+        inner.flush.return_value = 3
+        mock_producer_class.return_value = inner
+        producer = _KafkaProducer(test=False)
+
+        self.assertEqual(producer.flush(timeout=timeout), 3)
+        inner.flush.assert_called_once_with(*expected_call_args)
 
     @override_settings(
         KAFKA_PROFILES=_make_profiles(

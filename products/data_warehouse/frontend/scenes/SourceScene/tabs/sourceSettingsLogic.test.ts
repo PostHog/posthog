@@ -1,6 +1,26 @@
 import type { SourceFieldConfig } from '~/queries/schema/schema-general'
+import type { ExternalDataSourceSchema } from '~/types'
 
-import { isSensitiveCredentialField, removeEmptySensitiveValues } from './sourceSettingsLogic'
+import { clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
+
+import {
+    buildBulkEnablePayloads,
+    clonePayloadPreservingFiles,
+    isSensitiveCredentialField,
+    removeEmptySensitiveValues,
+    runBulkSchemaAction,
+    schemasEligibleForSync,
+} from './sourceSettingsLogic'
+
+function makeSchema(overrides: Partial<ExternalDataSourceSchema>): ExternalDataSourceSchema {
+    return {
+        id: 'schema-id',
+        name: 'public.table',
+        should_sync: false,
+        sync_type: null,
+        ...overrides,
+    } as ExternalDataSourceSchema
+}
 
 describe('isSensitiveCredentialField', () => {
     it('treats password-typed fields as sensitive', () => {
@@ -171,5 +191,84 @@ describe('removeEmptySensitiveValues', () => {
         }
         removeEmptySensitiveValues(fields, value)
         expect(value).toEqual({ feature: { enabled: true } })
+    })
+})
+
+describe('clonePayloadPreservingFiles', () => {
+    it('preserves File instances in nested payloads', () => {
+        const keyFile = new File(['{"project_id":"my-project"}'], 'service-account.json', {
+            type: 'application/json',
+        })
+        const payload = {
+            key_file: [keyFile],
+            config: { use_custom_region: { enabled: true, region: 'us-east1' } },
+        }
+
+        const cloned = clonePayloadPreservingFiles(payload) as Record<string, any>
+
+        expect(cloned).not.toBe(payload)
+        expect(cloned.config).not.toBe(payload.config)
+        expect(cloned.key_file[0]).toBeInstanceOf(File)
+        expect(cloned.key_file[0]).toBe(keyFile)
+    })
+})
+
+describe('schemasEligibleForSync', () => {
+    it('keeps only schemas that are enabled with a sync method', () => {
+        const schemas = [
+            makeSchema({ id: 'a', sync_type: 'incremental', should_sync: true }),
+            makeSchema({ id: 'b', sync_type: 'incremental', should_sync: false }), // disabled
+            makeSchema({ id: 'c', sync_type: null, should_sync: true }), // no method
+            makeSchema({ id: 'd', sync_type: 'cdc', should_sync: true }),
+        ]
+        expect(schemasEligibleForSync(schemas).map((s) => s.id)).toEqual(['a', 'd'])
+    })
+
+    it('returns an empty list when nothing is eligible', () => {
+        expect(schemasEligibleForSync([makeSchema({ sync_type: null, should_sync: true })])).toEqual([])
+    })
+})
+
+describe('clampSyncFrequency', () => {
+    it('floors every schema at 5 minutes, CDC included', () => {
+        expect(clampSyncFrequency('1min')).toBe('5min')
+        expect(clampSyncFrequency('5min')).toBe('5min')
+        expect(clampSyncFrequency('1hour')).toBe('1hour')
+    })
+})
+
+describe('buildBulkEnablePayloads', () => {
+    it('skips already-enabled schemas and requests sync defaults only where no sync method is set', () => {
+        const payloads = buildBulkEnablePayloads([
+            makeSchema({ id: 'enabled', should_sync: true, sync_type: 'incremental' }),
+            makeSchema({ id: 'configured', should_sync: false, sync_type: 'full_refresh' }),
+            makeSchema({ id: 'unconfigured', should_sync: false, sync_type: null }),
+        ])
+        // Sending an unconfigured schema without `apply_sync_defaults` would 400 on the backend
+        // ("Sync type must be set up first"); sending it for configured ones is a pointless probe.
+        expect(payloads).toEqual([
+            { id: 'configured', should_sync: true },
+            { id: 'unconfigured', should_sync: true, apply_sync_defaults: true },
+        ])
+    })
+})
+
+describe('runBulkSchemaAction', () => {
+    it('invokes the action for every schema and reports zero failures on success', async () => {
+        const schemas = [makeSchema({ id: 'a' }), makeSchema({ id: 'b' })]
+        const action = jest.fn().mockResolvedValue(undefined)
+        const failed = await runBulkSchemaAction(schemas, action)
+        expect(action).toHaveBeenCalledTimes(2)
+        expect(action).toHaveBeenCalledWith('a')
+        expect(action).toHaveBeenCalledWith('b')
+        expect(failed).toBe(0)
+    })
+
+    it('counts rejected actions without throwing', async () => {
+        const schemas = [makeSchema({ id: 'a' }), makeSchema({ id: 'b' }), makeSchema({ id: 'c' })]
+        const action = jest.fn((id: string) => (id === 'b' ? Promise.reject(new Error('boom')) : Promise.resolve()))
+        const failed = await runBulkSchemaAction(schemas, action)
+        expect(failed).toBe(1)
+        expect(action).toHaveBeenCalledTimes(3)
     })
 })

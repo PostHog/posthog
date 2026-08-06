@@ -100,6 +100,53 @@ func TestParseAuthClaims(t *testing.T) {
 	}
 }
 
+func TestDecodeAuthTokenWithFallbackSecrets(t *testing.T) {
+	viper.Set("jwt.secret", "current-secret")
+	t.Cleanup(func() {
+		viper.Set("jwt.secret", "test-secret")
+		viper.Set("jwt.secret_fallbacks", nil)
+	})
+
+	tests := []struct {
+		name        string
+		fallbacks   any
+		signingKey  string
+		expectError bool
+	}{
+		{name: "current secret with no fallbacks", fallbacks: nil, signingKey: "current-secret"},
+		{name: "old secret with no fallbacks", fallbacks: nil, signingKey: "old-secret-1", expectError: true},
+		{name: "current secret with fallbacks set", fallbacks: "old-secret-1,old-secret-2", signingKey: "current-secret"},
+		{name: "first fallback, env-style comma string", fallbacks: "old-secret-1,old-secret-2", signingKey: "old-secret-1"},
+		{name: "second fallback, env-style comma string", fallbacks: "old-secret-1,old-secret-2", signingKey: "old-secret-2"},
+		{name: "fallback from yaml-style list", fallbacks: []string{"old-secret-1", "old-secret-2"}, signingKey: "old-secret-2"},
+		{name: "whitespace around commas is trimmed", fallbacks: "old-secret-1, old-secret-2", signingKey: "old-secret-2"},
+		{name: "unknown secret with fallbacks set", fallbacks: "old-secret-1,old-secret-2", signingKey: "wrong-secret", expectError: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			viper.Set("jwt.secret_fallbacks", tt.fallbacks)
+
+			claims, err := decodeAuthToken("Bearer " + createTokenSignedWith(tt.signingKey))
+			if tt.expectError {
+				assert.ErrorContains(t, err, "signature is invalid")
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, ExpectedScope, claims["aud"])
+			}
+		})
+	}
+}
+
+func createTokenSignedWith(secret string) string {
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"aud": ExpectedScope,
+		"exp": time.Now().Add(time.Hour).Unix(),
+	})
+	tokenString, _ := token.SignedString([]byte(secret))
+	return tokenString
+}
+
 func createValidToken(audience string, claims jwt.MapClaims) string {
 	newClaims := jwt.MapClaims{
 		"aud": audience,

@@ -9,6 +9,9 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Create, read, update, and manage product tours and their targeting.
+ */
 export const productToursCreateBodyNameMax = 400
 
 export const productToursCreateBodyCreationContextDefault = `app`
@@ -32,6 +35,9 @@ export const ProductToursCreateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer for creating and updating ProductTour.')
 
+/**
+ * Create, read, update, and manage product tours and their targeting.
+ */
 export const productToursUpdateBodyNameMax = 400
 
 export const ProductToursUpdateBody = /* @__PURE__ */ zod
@@ -46,6 +52,9 @@ export const ProductToursUpdateBody = /* @__PURE__ */ zod
     })
     .describe('Read-only serializer for ProductTour.')
 
+/**
+ * Create, read, update, and manage product tours and their targeting.
+ */
 export const productToursPartialUpdateBodyNameMax = 400
 
 export const productToursPartialUpdateBodyCreationContextDefault = `app`
@@ -109,9 +118,9 @@ export const ProductToursGenerateCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Commit draft to live tour. Runs full validation and triggers side effects.
-
-Accepts an optional body payload. If provided, merges it into the draft
-before publishing so the caller can save + publish in a single request.
+ *
+ * Accepts an optional body payload. If provided, merges it into the draft
+ * before publishing so the caller can save + publish in a single request.
  */
 export const productToursPublishDraftCreateBodyNameMax = 400
 

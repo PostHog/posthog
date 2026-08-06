@@ -1,17 +1,28 @@
 import clsx from 'clsx'
-import React from 'react'
+import React, { Suspense } from 'react'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
 import { More, MoreProps } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { dateFilterToText } from 'lib/utils'
+import { dateFilterToText } from 'lib/utils/dateFilters'
 
 import { DashboardPlacement } from '~/types'
 
 import type { DashboardWidgetHeaderLayout, DashboardWidgetHeaderMeta } from '../../widget_types/catalog'
+import type { DashboardWidgetSlot } from '../../widgets/registry'
+
+/** Props a widget type's optional TopHeading override receives so it can compose its own
+ * CardTopHeadingRow — e.g. resolving a saved filter's name the generic header can't derive from config. */
+export type DashboardWidgetTopHeadingProps = {
+    config: Record<string, unknown>
+    widgetTypeLabel?: string
+    showWidgetType: boolean
+    dateText?: string | null
+}
 
 export type WidgetCardHeaderProps = {
     layout: DashboardWidgetHeaderLayout
@@ -23,12 +34,19 @@ export type WidgetCardHeaderProps = {
     widgetTypeLabel?: string
     config?: Record<string, unknown>
     headerMeta?: DashboardWidgetHeaderMeta
+    /** Optional per-widget-type top heading row; falls back to the type + date range when absent.
+     * A `DashboardWidgetSlot` so the registry can code-split it (rendered inside a Suspense below). */
+    TopHeading?: DashboardWidgetSlot<DashboardWidgetTopHeadingProps>
     description?: string
     showDescription?: boolean
     loading?: boolean
     showEditingControls?: boolean
+    /** When true, title is plain text so drag on the header does not compete with navigation. */
+    isDashboardEditMode?: boolean
     shouldHideMoreButton?: boolean
     moreButtonOverlay?: MoreProps['overlay']
+    /** Refresh control revealed on tile hover (dashboard_tile layout only); forwarded to CardMeta. */
+    refreshControl?: JSX.Element | null
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
 }
 
@@ -37,7 +55,7 @@ type WidgetCardHeaderTitleProps = {
     defaultTitle?: string
     titleHref?: string
     loading?: boolean
-    showEditingControls?: boolean
+    isDashboardEditMode?: boolean
     headingLevel?: 'h3' | 'h4'
     className?: string
 }
@@ -47,18 +65,17 @@ function WidgetCardHeaderTitle({
     defaultTitle,
     titleHref,
     loading,
-    showEditingControls,
+    isDashboardEditMode,
     headingLevel = 'h4',
     className,
 }: WidgetCardHeaderTitleProps): JSX.Element {
     const displayTitle = title || defaultTitle || 'Untitled'
     const Heading = headingLevel
+    const linkTitle = !!titleHref && !isDashboardEditMode
 
     const titleContent = (
         <>
-            <span className={clsx('truncate', titleHref && !showEditingControls && 'text-primary')}>
-                {displayTitle}
-            </span>
+            <span className={clsx('truncate', linkTitle && 'text-primary')}>{displayTitle}</span>
             {loading && (
                 <span className={clsx('text-sm font-medium ml-1.5', loading ? 'text-accent' : 'text-muted')}>
                     <Spinner className="mr-1.5 text-base" textColored />
@@ -68,14 +85,13 @@ function WidgetCardHeaderTitle({
         </>
     )
 
-    const titleEl =
-        titleHref && !showEditingControls ? (
-            <Link to={titleHref} className="max-w-full truncate">
-                {titleContent}
-            </Link>
-        ) : (
-            titleContent
-        )
+    const titleEl = linkTitle ? (
+        <Link to={titleHref} className="max-w-full truncate">
+            {titleContent}
+        </Link>
+    ) : (
+        titleContent
+    )
 
     return (
         <Heading
@@ -83,7 +99,7 @@ function WidgetCardHeaderTitle({
             data-attr="widget-card-title"
             data-slot="widget-card-header-title"
             className={clsx(
-                titleHref && !showEditingControls && 'inline-flex items-center overflow-visible',
+                linkTitle && 'inline-flex items-center overflow-visible',
                 headingLevel === 'h3' && 'truncate text-sm font-semibold m-0',
                 className
             )}
@@ -154,12 +170,15 @@ export function WidgetCardHeader({
     widgetTypeLabel,
     config,
     headerMeta,
+    TopHeading,
     description,
     showDescription = true,
     loading,
     showEditingControls,
+    isDashboardEditMode,
     shouldHideMoreButton,
     moreButtonOverlay,
+    refreshControl,
     onDragHandleMouseDown,
 }: WidgetCardHeaderProps): JSX.Element {
     const showWidgetType = headerMeta?.showWidgetType ?? true
@@ -170,7 +189,21 @@ export function WidgetCardHeader({
             : null
     const derivedTopHeading =
         widgetTypeLabel && (showWidgetType || dateText) ? (
-            <CardTopHeadingRow typeLabel={widgetTypeLabel} showTypeLabel={showWidgetType} dateText={dateText} />
+            // A widget type can supply its own top heading row (e.g. session replay surfaces the active
+            // saved filter name in place of the now-overridden date range); otherwise fall back to the
+            // type + date range.
+            TopHeading ? (
+                <Suspense fallback={null}>
+                    <TopHeading
+                        config={config ?? {}}
+                        widgetTypeLabel={widgetTypeLabel}
+                        showWidgetType={showWidgetType}
+                        dateText={dateText}
+                    />
+                </Suspense>
+            ) : (
+                <CardTopHeadingRow typeLabel={widgetTypeLabel} showTypeLabel={showWidgetType} dateText={dateText} />
+            )
         ) : null
     const resolvedTopHeading = topHeading !== undefined ? topHeading : derivedTopHeading
 
@@ -180,7 +213,7 @@ export function WidgetCardHeader({
             defaultTitle={defaultTitle}
             titleHref={titleHref}
             loading={loading}
-            showEditingControls={showEditingControls}
+            isDashboardEditMode={isDashboardEditMode}
             headingLevel="h4"
         />
     )
@@ -211,10 +244,12 @@ export function WidgetCardHeader({
                 topHeading={(resolvedTopHeading as JSX.Element | null) ?? null}
                 onMouseDown={showEditingControls ? onDragHandleMouseDown : undefined}
                 moreButtons={moreButtonOverlay as JSX.Element | undefined}
+                refreshControl={refreshControl}
                 content={
                     <>
                         {titleEl}
                         {descriptionEl}
+                        <LemonTableLoader loading={loading} />
                     </>
                 }
             />
@@ -236,7 +271,7 @@ export function WidgetCardHeader({
                         defaultTitle={defaultTitle}
                         titleHref={titleHref}
                         loading={loading}
-                        showEditingControls={showEditingControls}
+                        isDashboardEditMode={isDashboardEditMode}
                         headingLevel="h3"
                     />
                 </div>
@@ -246,7 +281,7 @@ export function WidgetCardHeader({
                         defaultTitle={defaultTitle}
                         titleHref={titleHref}
                         loading={loading}
-                        showEditingControls={showEditingControls}
+                        isDashboardEditMode={isDashboardEditMode}
                         headingLevel="h3"
                         className="flex-1"
                     />

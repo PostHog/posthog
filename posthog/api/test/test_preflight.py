@@ -6,9 +6,11 @@ import pytest
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache
@@ -50,9 +52,9 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             "can_create_org": False,
             "email_service_available": False,
             "slack_service": {"available": False, "client_id": None},
-            "posthog_code_slack_service": {"available": False, "client_id": None},
             "object_storage": False,
             "public_egress_ip_addresses": [],
+            "wizard_cloud_run_available": False,
             **options,
         }
 
@@ -67,9 +69,11 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             "instance_preferences": {"debug_queries": True, "disable_paid_fs": False},
             "object_storage": False,
             "buffer_conversion_seconds": 60,
+            "ai_gateway_url": settings.AI_GATEWAY_PUBLIC_URL or None,
             # we calculate this here because otherwise it is non-deterministic when running locally
             # it can be overridden in tests by passing in options
             "openai_available": bool(os.environ.get("OPENAI_API_KEY")),
+            "anthropic_available": bool(os.environ.get("ANTHROPIC_API_KEY")),
             "is_test": True,
             **options,
         }
@@ -84,9 +88,6 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
         with self.is_cloud(False):
             with self.settings(
                 OBJECT_STORAGE_ENABLED=False,
-                SLACK_POSTHOG_CODE_CLIENT_ID="",
-                SLACK_POSTHOG_CODE_CLIENT_SECRET="",
-                SLACK_POSTHOG_CODE_SIGNING_SECRET="",
             ):
                 response = self.client.get("/_preflight/")
 
@@ -98,9 +99,6 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             with self.settings(
                 INSTANCE_PREFERENCES=self.instance_preferences(debug_queries=True),
                 OBJECT_STORAGE_ENABLED=False,
-                SLACK_POSTHOG_CODE_CLIENT_ID="",
-                SLACK_POSTHOG_CODE_CLIENT_SECRET="",
-                SLACK_POSTHOG_CODE_SIGNING_SECRET="",
             ):
                 response = self.client.get("/_preflight/")
                 assert response.status_code == status.HTTP_200_OK
@@ -118,9 +116,6 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             with self.settings(
                 INSTANCE_PREFERENCES=self.instance_preferences(debug_queries=True),
                 OBJECT_STORAGE_ENABLED=True,
-                SLACK_POSTHOG_CODE_CLIENT_ID="",
-                SLACK_POSTHOG_CODE_CLIENT_SECRET="",
-                SLACK_POSTHOG_CODE_SIGNING_SECRET="",
             ):
                 response = self.client.get("/_preflight/")
                 assert response.status_code == status.HTTP_200_OK
@@ -129,6 +124,18 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
 
                 assert response == self.preflight_authenticated_dict({"object_storage": True})
                 assert {"Europe/Moscow": 3, "UTC": 0}.items() <= available_timezones.items()
+
+    def test_preflight_request_with_wizard_cloud_run_available(self):
+        self.client.logout()
+        with self.is_cloud(False):
+            with self.settings(
+                OBJECT_STORAGE_ENABLED=False,
+                WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID="wizard-client-id",
+            ):
+                response = self.client.get("/_preflight/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == self.preflight_dict({"wizard_cloud_run_available": True})
 
     @pytest.mark.ee
     def test_cloud_preflight_request_unauthenticated(self):
@@ -140,9 +147,6 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
         with self.is_cloud(True):
             with self.settings(
                 OBJECT_STORAGE_ENABLED=False,
-                SLACK_POSTHOG_CODE_CLIENT_ID="",
-                SLACK_POSTHOG_CODE_CLIENT_SECRET="",
-                SLACK_POSTHOG_CODE_SIGNING_SECRET="",
             ):
                 response = self.client.get("/_preflight/")
                 assert response.status_code == status.HTTP_200_OK
@@ -168,9 +172,6 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             with self.settings(
                 SITE_URL="https://app.posthog.com",
                 OBJECT_STORAGE_ENABLED=False,
-                SLACK_POSTHOG_CODE_CLIENT_ID="",
-                SLACK_POSTHOG_CODE_CLIENT_SECRET="",
-                SLACK_POSTHOG_CODE_SIGNING_SECRET="",
             ):
                 response = self.client.get("/_preflight/")
                 assert response.status_code == status.HTTP_200_OK
@@ -214,9 +215,6 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
                 SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET="test_secret",
                 INSTANCE_PREFERENCES=self.instance_preferences(disable_paid_fs=True),
                 OBJECT_STORAGE_ENABLED=False,
-                SLACK_POSTHOG_CODE_CLIENT_ID="",
-                SLACK_POSTHOG_CODE_CLIENT_SECRET="",
-                SLACK_POSTHOG_CODE_SIGNING_SECRET="",
             ):
                 response = self.client.get("/_preflight/")
                 assert response.status_code == status.HTTP_200_OK
@@ -252,9 +250,6 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
         with self.settings(
             DEMO=True,
             OBJECT_STORAGE_ENABLED=False,
-            SLACK_POSTHOG_CODE_CLIENT_ID="",
-            SLACK_POSTHOG_CODE_CLIENT_SECRET="",
-            SLACK_POSTHOG_CODE_SIGNING_SECRET="",
         ):
             response = self.client.get("/_preflight/")
 
@@ -330,19 +325,6 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             assert response.json()["realm"] == "hosted-clickhouse"
             assert response.json()["cloud"] is False
 
-    def test_posthog_code_slack_service_available_when_configured(self):
-        with self.settings(
-            SLACK_POSTHOG_CODE_CLIENT_ID="client-id",
-            SLACK_POSTHOG_CODE_CLIENT_SECRET="client-secret",
-            SLACK_POSTHOG_CODE_SIGNING_SECRET="signing-secret",
-        ):
-            response = self.client.get("/_preflight/")
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["posthog_code_slack_service"] == {
-            "available": True,
-            "client_id": "client-id",
-        }
-
     @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=True)
     def test_preflight_includes_allow_dev_login_when_enabled(self):
         with self.is_cloud(False):
@@ -350,6 +332,23 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["allow_dev_login"] is True
         assert is_dev_login_allowed()
+
+    @parameterized.expand([(False,), (True,)])
+    def test_preflight_kafka_reflects_probe_on_self_hosted(self, probe_result):
+        # Regression for #54702: the kafka probe was removed, hardcoding the
+        # response to False off-cloud and blocking self-hosted Live-mode setup.
+        # Patch is_kafka_connected at the view's import site so the preflight
+        # wiring is exercised directly; TEST=False also defeats the helper's own
+        # DEBUG/TEST short-circuit as belt-and-braces.
+        self.client.logout()
+        with (
+            self.is_cloud(False),
+            self.settings(TEST=False, OBJECT_STORAGE_ENABLED=False),
+            patch("posthog.views.is_kafka_connected", return_value=probe_result),
+        ):
+            response = self.client.get("/_preflight/")
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["kafka"] is probe_result
 
     @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=False)
     def test_preflight_omits_allow_dev_login_when_disabled(self):

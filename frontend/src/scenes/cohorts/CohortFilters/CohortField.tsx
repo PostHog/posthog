@@ -2,7 +2,7 @@ import './CohortField.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useId, useRef } from 'react'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
@@ -14,9 +14,11 @@ import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { formatDate } from 'lib/utils'
+import { formatDate } from 'lib/utils/datetime'
 import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import {
+    BehavioralFilterKey,
+    BehavioralFilterType,
     CohortEventFiltersFieldProps,
     CohortFieldBaseProps,
     CohortNumberFieldProps,
@@ -27,9 +29,11 @@ import {
     CohortTextFieldProps,
     FieldOptionsType,
 } from 'scenes/cohorts/CohortFilters/types'
+import { determineFilterType } from 'scenes/cohorts/cohortUtils'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
+    AnyCohortCriteriaType,
     AnyPropertyFilter,
     PropertyDefinitionType,
     PropertyFilterType,
@@ -38,13 +42,9 @@ import {
     PropertyType,
 } from '~/types'
 
-let uniqueMemoizedIndex = 0
-
 const useCohortFieldLogic = (props: CohortFieldBaseProps): { logic: ReturnType<typeof cohortFieldLogic.build> } => {
-    const cohortFilterLogicKey = useMemo(
-        () => props.cohortFilterLogicKey || `cohort-filter-${uniqueMemoizedIndex++}`,
-        [props.cohortFilterLogicKey]
-    )
+    const generatedKey = useId()
+    const cohortFilterLogicKey = props.cohortFilterLogicKey || `cohort-filter-${generatedKey}`
     return {
         logic: cohortFieldLogic({ ...props, cohortFilterLogicKey }),
     }
@@ -88,7 +88,21 @@ export function CohortSelectorField({
                                         <LemonButton
                                             key={_value}
                                             onClick={() => {
-                                                onChange({ [fieldKey]: _value })
+                                                if (fieldKey === 'value') {
+                                                    // Criterion-type picks must set `negation` explicitly: negated
+                                                    // criteria are stored as their positive counterpart plus
+                                                    // `negation: true` (see determineFilterType), so merging
+                                                    // `{ value }` alone can leave a stale flag — switching a
+                                                    // "Do not have the property" row to "Have the property"
+                                                    // would otherwise be a no-op.
+                                                    const { negation } = determineFilterType(
+                                                        criteria.type as BehavioralFilterKey,
+                                                        _value as BehavioralFilterType
+                                                    )
+                                                    onChange({ value: _value, negation } as AnyCohortCriteriaType)
+                                                } else {
+                                                    onChange({ [fieldKey]: _value })
+                                                }
                                             }}
                                             active={_value == value}
                                             fullWidth
@@ -122,7 +136,12 @@ export function CohortSelectorField({
 export function CohortMathOperatorField(props: CohortSelectorFieldProps): JSX.Element {
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
     const propertyKey = props.criteria?.key
-    const propDef = propertyKey ? getPropertyDefinition(propertyKey, PropertyDefinitionType.Person) : null
+    const propertyType = props.criteria?.type
+    const definitionType =
+        propertyType === BehavioralFilterKey.PersonMetadata
+            ? PropertyDefinitionType.PersonMetadata
+            : PropertyDefinitionType.Person
+    const propDef = propertyKey ? getPropertyDefinition(propertyKey, definitionType) : null
     const isDateTime = propDef?.property_type === PropertyType.DateTime
 
     const fieldOptionGroupTypes = isDateTime

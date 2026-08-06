@@ -5,6 +5,7 @@ import json
 import base64
 
 from django.conf import settings
+from django.core.checks import Error, register
 from django.db import models
 from django.utils.functional import cached_property
 
@@ -12,6 +13,14 @@ from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+# Fernet tokens always start with this marker (version byte 0x80 + timestamp, base64-encoded).
+FERNET_TOKEN_PREFIX = "gAAAAA"
+
+# How many nested encryption layers `decrypt_all_layers` will peel. One extra layer is what a
+# single read-then-save of an undecryptable value produces; the cap just stops a pathological
+# row from looping.
+MAX_ENCRYPTION_LAYERS = 4
 
 
 class EncryptedFieldMixin:
@@ -32,17 +41,22 @@ class EncryptedFieldMixin:
         keys = [base64.urlsafe_b64encode(x.encode("utf-8")) for x in settings.ENCRYPTION_SALT_KEYS]
 
         # TODO: Remove support for these once the migration is complete
-        # Generate keys for each salt key and secret key
-        for salt_key in settings.SALT_KEY:
-            salt = bytes(salt_key, "utf-8")
-            kdf = PBKDF2HMAC(
-                algorithm=hashes.SHA256(),
-                length=32,
-                salt=salt,
-                iterations=100000,
-                backend=default_backend(),
-            )
-            keys.append(base64.urlsafe_b64encode(kdf.derive(settings.SECRET_KEY.encode("utf-8"))))
+        # Legacy decrypt-only keys for values written before the ENCRYPTION_SALT_KEYS rework.
+        # We derive from SECRET_KEY *and* every SECRET_KEY_FALLBACKS entry so that rotating
+        # SECRET_KEY (old key moved into SECRET_KEY_FALLBACKS) keeps any legacy rows decryptable
+        # — without this, rotation permanently strands them. These are appended last, so they
+        # are never used to encrypt new values.
+        for secret_key in [settings.SECRET_KEY, *settings.SECRET_KEY_FALLBACKS]:
+            for salt_key in settings.SALT_KEY:
+                salt = bytes(salt_key, "utf-8")
+                kdf = PBKDF2HMAC(
+                    algorithm=hashes.SHA256(),
+                    length=32,
+                    salt=salt,
+                    iterations=100000,
+                    backend=default_backend(),
+                )
+                keys.append(base64.urlsafe_b64encode(kdf.derive(secret_key.encode("utf-8"))))
         return keys
 
     @cached_property
@@ -58,6 +72,26 @@ class EncryptedFieldMixin:
             if self.ignore_decrypt_errors:
                 return value
             raise
+
+    def decrypt_all_layers(self, value: str) -> str | None:
+        """Decrypt a value that may carry more than one layer of encryption.
+
+        A field with `ignore_decrypt_errors` hands back raw ciphertext when a value can't be
+        decrypted, so any code that reads such a row and saves it writes the ciphertext back
+        *encrypted again*. Reading that row then peels one layer and still yields ciphertext.
+        Peel until the result no longer looks like a Fernet token.
+
+        Returns None when a layer can't be opened by any configured key — the value was written
+        under a key we no longer hold, so no amount of peeling recovers it.
+        """
+        for _ in range(MAX_ENCRYPTION_LAYERS):
+            try:
+                value = self.f.decrypt(bytes(value, "utf-8")).decode("utf-8")
+            except (InvalidToken, UnicodeDecodeError):
+                return None
+            if not value.startswith(FERNET_TOKEN_PREFIX):
+                return value
+        return None
 
     def encrypt(self, value: str) -> str:
         return self.f.encrypt(bytes(value, "utf-8")).decode("utf-8")
@@ -203,3 +237,24 @@ class EncryptedJSONStringField(EncryptedFieldMixin, models.JSONField):
                 pass
 
         return value
+
+
+@register()
+def check_encryption_salt_keys(app_configs, **kwargs):
+    # Each ENCRYPTION_SALT_KEYS entry is used directly as a Fernet key, which must be exactly 32 bytes.
+    # A wrong-length key otherwise fails lazily with an opaque error on the first encrypt/decrypt — and
+    # during a SECRET_KEY / ENCRYPTION_SALT_KEYS rotation that surfaces as a confusing runtime crash
+    # instead of a clear config error. SECRET_KEY / SALT_KEY are exempt: they run through PBKDF2, which
+    # normalizes any input length to 32 bytes.
+    errors = []
+    for index, key in enumerate(settings.ENCRYPTION_SALT_KEYS):
+        byte_length = len(key.encode("utf-8"))
+        if byte_length != 32:
+            errors.append(
+                Error(
+                    f"ENCRYPTION_SALT_KEYS[{index}] must be exactly 32 bytes, got {byte_length}.",
+                    hint="Generate one with `openssl rand -hex 16` (produces 32 characters).",
+                    id="posthog.E004",
+                )
+            )
+    return errors

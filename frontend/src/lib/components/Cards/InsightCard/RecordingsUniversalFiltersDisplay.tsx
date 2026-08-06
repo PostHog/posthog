@@ -3,7 +3,7 @@ import React from 'react'
 import { IconClock, IconFilter, IconList, IconSort } from '@posthog/icons'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import { humanFriendlyDurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
 
 import { DurationType, RecordingUniversalFilters } from '~/types'

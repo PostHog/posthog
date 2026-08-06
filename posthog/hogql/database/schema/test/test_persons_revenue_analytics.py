@@ -128,6 +128,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
                     placeholders={"id": ast.Constant(value=self.PERSON_ID)},
                 ),
                 self.team,
+                user=self.user,
             )
 
             self.assertEqual(response.results[0], (Decimal("350.42"), Decimal("350.42")))
@@ -150,7 +151,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             ]
 
             for query in queries:
-                response = execute_hogql_query(parse_select(query), self.team, modifiers=self.MODIFIERS)
+                response = execute_hogql_query(parse_select(query), self.team, user=self.user, modifiers=self.MODIFIERS)
 
                 self.assertEqual(
                     response.results,
@@ -188,6 +189,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             response = execute_hogql_query(
                 parse_select("SELECT id, revenue_analytics.revenue, $virt_revenue FROM persons ORDER BY id ASC"),
                 self.team,
+                user=self.user,
                 modifiers=self.MODIFIERS,
             )
 
@@ -239,6 +241,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             response = execute_hogql_query(
                 parse_select("SELECT id, revenue_analytics.revenue, $virt_revenue from persons order by id asc"),
                 self.team,
+                user=self.user,
                 modifiers=self.MODIFIERS,
             )
 
@@ -272,6 +275,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             response = execute_hogql_query(
                 parse_select("SELECT id, $virt_revenue FROM persons ORDER BY $virt_revenue ASC"),
                 self.team,
+                user=self.user,
                 modifiers=self.MODIFIERS,
             )
 
@@ -286,10 +290,46 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             response = execute_hogql_query(
                 parse_select("SELECT $virt_revenue FROM persons ORDER BY $virt_revenue ASC"),
                 self.team,
+                user=self.user,
                 modifiers=self.MODIFIERS,
             )
 
             self.assertEqual(response.results, [(Decimal("283.8496260553"),), (None,)])
+
+    def test_revenue_aggregated_per_person_across_multiple_customers(self):
+        self.setup_schema_sources()
+        self.join.source_table_key = "id"
+        self.join.save()
+
+        # One person owns two distinct IDs, each matching a different Stripe customer. Without
+        # per-person aggregation this maps to two rows and fans the persons table out on join.
+        person = _create_person(team_id=self.team.pk, distinct_ids=["cus_1", "cus_2"])
+
+        expected_revenue = Decimal("766.0654934005")  # cus_1 283.8496260553 + cus_2 482.2158673452
+        expected_mrr = Decimal("63.7684363904")  # cus_1 22.9631447238 + cus_2 40.8052916666
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            table_results = execute_hogql_query(
+                parse_select(
+                    "SELECT person_id, revenue, mrr FROM persons_revenue_analytics WHERE person_id = {id}",
+                    placeholders={"id": ast.Constant(value=person.uuid)},
+                ),
+                self.team,
+                user=self.user,
+                modifiers=self.MODIFIERS,
+            )
+            self.assertEqual(table_results.results, [(person.uuid, expected_revenue, expected_mrr)])
+
+            persons_results = execute_hogql_query(
+                parse_select(
+                    "SELECT id, $virt_revenue, $virt_mrr FROM persons WHERE id = {id}",
+                    placeholders={"id": ast.Constant(value=person.uuid)},
+                ),
+                self.team,
+                user=self.user,
+                modifiers=self.MODIFIERS,
+            )
+            self.assertEqual(persons_results.results, [(person.uuid, expected_revenue, expected_mrr)])
 
     def test_query_revenue_analytics_table_sources(self):
         self.setup_schema_sources()
@@ -308,6 +348,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
                     "SELECT person_id, revenue, mrr FROM persons_revenue_analytics ORDER BY mrr DESC, revenue DESC"
                 ),
                 self.team,
+                user=self.user,
                 modifiers=self.MODIFIERS,
             )
 
@@ -343,6 +384,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             results = execute_hogql_query(
                 parse_select("SELECT person_id, revenue, mrr FROM persons_revenue_analytics ORDER BY person_id ASC"),
                 self.team,
+                user=self.user,
                 modifiers=self.MODIFIERS,
             )
 
@@ -380,7 +422,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
                 dateRange=DateRange(date_from="all", date_to=None),
                 modifiers=HogQLQueryModifiers(personsOnEventsMode=mode),
             )
-            tqr = TrendsQueryRunner(team=self.team, query=query)
+            tqr = TrendsQueryRunner(team=self.team, query=query, user=self.user)
             results = tqr.calculate().results
 
         assert results[0]["breakdown_value"] == ["350.42"]
@@ -417,7 +459,7 @@ class TestPersonsRevenueAnalyticsManagedViewsets(
                 dateRange=DateRange(date_from="all", date_to=None),
                 modifiers=HogQLQueryModifiers(personsOnEventsMode=mode),
             )
-            tqr = TrendsQueryRunner(team=self.team, query=query)
+            tqr = TrendsQueryRunner(team=self.team, query=query, user=self.user)
             results = tqr.calculate().results
 
         assert results[0]["breakdown_value"] == ["350.42"]
@@ -442,6 +484,7 @@ class TestPersonsRevenueAnalyticsManagedViewsets(
             results = execute_hogql_query(
                 parse_select("SELECT person_id, revenue, mrr FROM persons_revenue_analytics ORDER BY person_id ASC"),
                 self.team,
+                user=self.user,
                 modifiers=self.MODIFIERS,
             )
 
@@ -467,6 +510,7 @@ class TestPersonsRevenueAnalyticsManagedViewsets(
                     "SELECT person_id, revenue, mrr FROM persons_revenue_analytics ORDER BY mrr DESC, revenue DESC"
                 ),
                 self.team,
+                user=self.user,
                 modifiers=self.MODIFIERS,
             )
 
@@ -501,7 +545,7 @@ class TestPersonsRevenueAnalyticsManagedViewsets(
             ]
 
             for query in queries:
-                response = execute_hogql_query(parse_select(query), self.team, modifiers=self.MODIFIERS)
+                response = execute_hogql_query(parse_select(query), self.team, user=self.user, modifiers=self.MODIFIERS)
 
                 self.assertEqual(
                     response.results,
@@ -537,6 +581,7 @@ class TestPersonsRevenueAnalyticsManagedViewsets(
                     placeholders={"id": ast.Constant(value=self.PERSON_ID)},
                 ),
                 self.team,
+                user=self.user,
             )
 
             self.assertEqual(response.results[0], (Decimal("350.42"), Decimal("350.42")))

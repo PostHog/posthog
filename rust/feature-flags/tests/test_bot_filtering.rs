@@ -19,8 +19,11 @@ const GOOGLEBOT_UA: &str =
 /// Reproduces the customer scenario: CloudFront rewrites the UA to its own
 /// brand string before the request reaches us, so the UA matcher cannot fire.
 const CLOUDFRONT_UA: &str = "Amazon CloudFront";
-/// Inside the published Googlebot /19 (66.249.64.0/19).
-const GOOGLEBOT_FORWARDED_IP: &str = "66.249.79.123";
+/// Inside a published Googlebot /27 (`66.249.66.0/27`). The classifier is
+/// JSON-precise — 66.249.x.x is published as discrete /27s, with gaps
+/// (e.g. .79.96/27 is NOT published), so we pin a stable interior IP from a
+/// densely-covered /24.
+const GOOGLEBOT_FORWARDED_IP: &str = "66.249.66.0";
 /// Public-DNS IP, used as a benign baseline.
 const BENIGN_FORWARDED_IP: &str = "8.8.8.8";
 

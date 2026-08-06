@@ -1,0 +1,20 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "file_path": {
+            "pattern": "^.+$",
+            "type": "string"
+        },
+        "skill_name": {
+            "pattern": "^[^/]+$",
+            "type": "string"
+        },
+        "version": {
+            "description": "Specific skill version to fetch. If omitted, the latest version is returned.",
+            "minimum": 1,
+            "type": "number"
+        }
+    },
+    "required": ["file_path", "skill_name"],
+    "type": "object"
+}

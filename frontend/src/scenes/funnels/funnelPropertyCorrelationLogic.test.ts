@@ -39,30 +39,26 @@ describe('funnelPropertyCorrelationLogic', () => {
                     { name: 'another property', count: 10 },
                     { name: 'third property', count: 5 },
                 ],
-                '/api/projects/:team/groups/property_definitions': {
-                    '0': [
-                        { name: 'industry', count: 2 },
-                        { name: 'name', count: 1 },
-                    ],
-                    '1': [{ name: 'name', count: 1 }],
-                },
             },
             patch: {
-                '/api/environments/:id': (req) => [
-                    200,
-                    {
-                        ...MOCK_DEFAULT_TEAM,
-                        correlation_config: {
-                            ...correlationConfig,
-                            excluded_person_property_names: (req.body as any)?.correlation_config
-                                ?.excluded_person_property_names,
+                '/api/environments/:id': async ({ request }) => {
+                    const body = (await request.json()) as any
+                    return [
+                        200,
+                        {
+                            ...MOCK_DEFAULT_TEAM,
+                            correlation_config: {
+                                ...correlationConfig,
+                                excluded_person_property_names:
+                                    body?.correlation_config?.excluded_person_property_names,
+                            },
                         },
-                    },
-                ],
+                    ]
+                },
             },
             post: {
-                '/api/environments/:team_id/insights/funnel/correlation': (req) => {
-                    const data = req.body as any
+                '/api/environments/:team_id/insights/funnel/correlation': async ({ request }) => {
+                    const data = (await request.json()) as any
                     const excludePropertyFromProjectNames = data?.funnel_correlation_exclude_names || []
                     const includePropertyNames = data?.funnel_correlation_names || []
                     return [

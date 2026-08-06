@@ -1,7 +1,7 @@
 import { IconCursorClick } from '@posthog/icons'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 
 import { ExperimentMetric } from '~/queries/schema/schema-general'
@@ -18,18 +18,23 @@ import {
     isWinning,
 } from '../shared/utils'
 
-export const renderTooltipContent = (variantResult: ExperimentVariantResult, metric: ExperimentMetric): JSX.Element => {
+export const renderTooltipContent = (
+    variantResult: ExperimentVariantResult,
+    metric: ExperimentMetric,
+    baselineKey: string
+): JSX.Element => {
     const intervalPercent = formatIntervalPercent(variantResult)
     const intervalLabel = getIntervalLabel(variantResult)
     const significant = isSignificant(variantResult)
 
     const winning = isWinning(variantResult, metric.goal)
+    const isBaseline = variantResult.key === baselineKey
 
     return (
         <div className="flex flex-col gap-1">
             <div className="flex justify-between items-center">
                 <VariantTag variantKey={variantResult.key} />
-                {variantResult.key !== 'control' && (
+                {!isBaseline && (
                     <LemonTag type={!significant ? 'muted' : winning ? 'success' : 'danger'} size="medium">
                         {!significant ? 'Not significant' : winning ? 'Won' : 'Lost'}
                     </LemonTag>
@@ -63,7 +68,7 @@ export const renderTooltipContent = (variantResult: ExperimentVariantResult, met
             <div className="flex justify-between items-center">
                 <span className="text-muted-alt font-semibold">Delta:</span>
                 <span className="font-semibold">
-                    {variantResult.key === 'control' ? (
+                    {isBaseline ? (
                         <em className="text-muted-alt">Baseline</em>
                     ) : (
                         <span className={winning ? 'text-success' : 'text-danger'}>

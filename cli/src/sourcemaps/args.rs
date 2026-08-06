@@ -1,12 +1,29 @@
 use std::{
     fmt::Display,
     io::{self, BufRead},
+    num::NonZeroUsize,
     path::PathBuf,
 };
 
 use anyhow::{bail, Result};
 
-use crate::{api::releases::ReleaseBuilder, utils::files::FileSelection};
+use crate::{
+    api::{releases::ReleaseBuilder, symbol_sets::DEFAULT_UPLOAD_CONCURRENCY},
+    utils::files::FileSelection,
+};
+
+pub const SOURCEMAP_UPLOAD_CONCURRENCY_ENV: &str = "POSTHOG_CLI_SOURCEMAP_UPLOAD_CONCURRENCY";
+
+#[derive(clap::Args, Clone, Debug)]
+pub struct UploadConcurrencyArgs {
+    /// The number of sourcemap files to upload concurrently
+    #[arg(
+        long,
+        env = SOURCEMAP_UPLOAD_CONCURRENCY_ENV,
+        default_value_t = DEFAULT_UPLOAD_CONCURRENCY
+    )]
+    pub concurrency: NonZeroUsize,
+}
 
 #[derive(clap::Args, Clone)]
 pub struct FileSelectionArgs {
@@ -14,7 +31,7 @@ pub struct FileSelectionArgs {
     #[arg(short, long, alias = "file")]
     pub directory: Vec<PathBuf>,
 
-    /// Read additional file/directory paths from stdin (one per line)
+    /// Read additional file/directory paths from stdin (one per line) [default: false]
     #[arg(long, default_value = "false")]
     pub stdin: bool,
 
@@ -98,19 +115,19 @@ pub struct ReleaseArgs {
     pub build: Option<String>,
 
     /// If the server returns a release_id_mismatch error (symbol set already exists with a different release),
-    /// retry the upload without associating a release instead of failing.
+    /// retry the upload without associating a release instead of failing. [default: true]
     #[arg(long, default_value = "true")]
     pub skip_release_on_fail: bool,
 }
 
 #[derive(clap::Args, Clone, Default)]
 pub struct UploadConflictArgs {
-    /// Allow overwriting an existing symbol set whose content has changed.
+    /// Allow overwriting an existing symbol set whose content has changed. [default: false]
     #[arg(long, default_value_t = false, conflicts_with = "skip_on_conflict")]
     pub force: bool,
 
     /// Skip symbol sets that already exist with different content instead of failing.
-    /// Existing symbol sets are left unchanged.
+    /// Existing symbol sets are left unchanged. [default: false]
     #[arg(long, default_value_t = false, conflicts_with = "force")]
     pub skip_on_conflict: bool,
 }
@@ -141,6 +158,35 @@ impl From<ReleaseArgs> for ReleaseBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Parser;
+    use std::sync::Mutex;
+
+    static CONCURRENCY_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[derive(Debug, Parser)]
+    struct ConcurrencyCli {
+        #[command(flatten)]
+        upload: UploadConcurrencyArgs,
+    }
+
+    fn parse_concurrency(args: &[&str], env: Option<&str>) -> clap::error::Result<ConcurrencyCli> {
+        let _guard = CONCURRENCY_ENV_LOCK.lock().unwrap();
+        let original = std::env::var_os(SOURCEMAP_UPLOAD_CONCURRENCY_ENV);
+
+        match env {
+            Some(value) => std::env::set_var(SOURCEMAP_UPLOAD_CONCURRENCY_ENV, value),
+            None => std::env::remove_var(SOURCEMAP_UPLOAD_CONCURRENCY_ENV),
+        }
+
+        let parsed = ConcurrencyCli::try_parse_from(args);
+
+        match original {
+            Some(value) => std::env::set_var(SOURCEMAP_UPLOAD_CONCURRENCY_ENV, value),
+            None => std::env::remove_var(SOURCEMAP_UPLOAD_CONCURRENCY_ENV),
+        }
+
+        parsed
+    }
 
     fn make_args(name: Option<&str>, version: Option<&str>, build: Option<&str>) -> ReleaseArgs {
         ReleaseArgs {
@@ -168,6 +214,104 @@ mod tests {
                 builder.has_version(),
                 expect_version,
                 "version={version:?} build={build:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn upload_concurrency_defaults_to_ten() {
+        let parsed = parse_concurrency(&["test"], None).unwrap();
+
+        assert_eq!(parsed.upload.concurrency.get(), 10);
+    }
+
+    #[test]
+    fn upload_concurrency_accepts_cli_override() {
+        let parsed = parse_concurrency(&["test", "--concurrency", "32"], None).unwrap();
+
+        assert_eq!(parsed.upload.concurrency.get(), 32);
+    }
+
+    #[test]
+    fn upload_concurrency_accepts_environment_override() {
+        let parsed = parse_concurrency(&["test"], Some("48")).unwrap();
+
+        assert_eq!(parsed.upload.concurrency.get(), 48);
+    }
+
+    #[test]
+    fn upload_concurrency_prefers_cli_override() {
+        let parsed = parse_concurrency(&["test", "--concurrency", "32"], Some("48")).unwrap();
+
+        assert_eq!(parsed.upload.concurrency.get(), 32);
+    }
+
+    #[test]
+    fn upload_concurrency_rejects_zero_cli_value() {
+        let error = parse_concurrency(&["test", "--concurrency", "0"], None).unwrap_err();
+
+        assert!(error.to_string().contains("invalid value '0'"));
+    }
+
+    #[test]
+    fn upload_concurrency_rejects_invalid_environment_values() {
+        for value in ["0", "many"] {
+            let error = parse_concurrency(&["test"], Some(value)).unwrap_err();
+            let message = error.to_string();
+            assert!(
+                message.contains(&format!("invalid value '{value}'"))
+                    && message.contains("--concurrency"),
+                "unexpected error for {value:?}: {message}"
+            );
+        }
+    }
+
+    /// Golden vectors pinning the release `hash_id` the CLI writes: `content_hash([name, version])`
+    /// with `version = pack_version(version, build)` (see `api::releases::create_release`). Cymbal
+    /// reconstructs the same hash from a mobile event's app metadata (`mobile_release_hash_id` in
+    /// `rust/cymbal/src/core/types/frames/releases.rs`), so these literals must stay identical on
+    /// both sides or mobile releases silently stop resolving. Keep in sync with the matching golden
+    /// test in cymbal.
+    #[test]
+    fn release_hash_id_golden_vectors() {
+        use crate::utils::files::content_hash;
+
+        // (name, version, build, expected hash_id)
+        let cases: [(&str, Option<&str>, Option<&str>, &str); 4] = [
+            (
+                "com.posthog.iosraw",
+                Some("1.0"),
+                Some("1"),
+                "75605cac5268ba4bdc57b4c8336f6686802e88236ae4026418a18cabcde854d1015f18734489b8ec4c71c68773a027e5b880f7278b8ba6864a5334d76ef9eba6",
+            ),
+            (
+                "com.example.app",
+                Some("1.0"),
+                Some("42"),
+                "5a7f7b504d81759fa4e15f8b3bbc77c694a9dc222cfcd06c801fae9619076e97909edf651087106af331aea76463449f015ccc41ccacbf19148329b1c2c35aa7",
+            ),
+            (
+                "com.example.app",
+                Some("2.3"),
+                None,
+                "09aeeb69b914985562d4aa39d13033abf0f90c753ef90b0148cb06b8aeadca7dd1dd853fa24c7cc51d18cf251bb7348eae58906347a217a98d74ba7ca5673b66",
+            ),
+            (
+                "com.example.app",
+                None,
+                Some("99"),
+                "5e925a3f2e9349f64ab88eede466b641a7332dc79d6f1901d931fb659704a0475fa77a3ca25c0a60b2919547de8d94117fbcc52448e83aa72787a3fe35f725ae",
+            ),
+        ];
+
+        for (name, version, build, expected) in cases {
+            let version = version.map(String::from);
+            let build = build.map(String::from);
+            let packed = pack_version(&version, &build).expect("these cases always pack a version");
+            let hash_id = content_hash([name.as_bytes(), packed.as_bytes()]);
+            assert_eq!(
+                hash_id, expected,
+                "release hash_id drift for {name} {version:?}+{build:?}"
             );
         }
     }

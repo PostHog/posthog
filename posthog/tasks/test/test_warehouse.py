@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from posthog.tasks.warehouse import validate_data_warehouse_table_columns
 
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 class TestWarehouse(APIBaseTest):

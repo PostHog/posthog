@@ -9,17 +9,17 @@ GitHub repositories, and code execution.
 Use them when your feature needs an autonomous agent that reads PostHog data, writes code, and produces artifacts like PRs or reports.
 
 For simpler LLM calls (summarization, translation, classification),
-skip this page and use the LLM gateway (`get_llm_client()`) directly —
+skip this page and use the LLM gateway (`get_llm_client(product=..., team_id=...)`) directly —
 it's simpler and doesn't need a sandbox.
 
 ## When to use what
 
-| Example                                                                                         | Solution                           |
-| ----------------------------------------------------------------------------------------------- | ---------------------------------- |
-| Signals team building an enrichment pipeline that generates reports from PostHog analytics data | Sandboxed agent (this page)        |
-| Conversations team building a support agent that queries PostHog and customer documentation     | Sandboxed agent (this page)        |
-| AI observability summarizing a funnel, generating a natural-language insight title              | LLM gateway via `get_llm_client()` |
-| Not sure                                                                                        | Ask in `#team-posthog-ai`          |
+| Example                                                                                         | Solution                                                   |
+| ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| Signals team building an enrichment pipeline that generates reports from PostHog analytics data | Sandboxed agent (this page)                                |
+| Conversations team building a support agent that queries PostHog and customer documentation     | Sandboxed agent (this page)                                |
+| AI observability summarizing a funnel, generating a natural-language insight title              | LLM gateway via `get_llm_client(product=..., team_id=...)` |
+| Not sure                                                                                        | Ask in `#team-posthog-ai`                                  |
 
 **Rule of thumb**: if the LLM needs to _do things_ (query data, read files, create branches, open PRs), use a sandboxed agent.
 If it just needs to _answer a question_ given some context you already have, use the LLM gateway.
@@ -176,8 +176,8 @@ for example, a discovery pass followed by per-item research, then assessment and
 ### Example
 
 ```python
-from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
-from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
+from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import MultiTurnSession
+from products.tasks.backend.logic.services.custom_prompt_internals import CustomPromptSandboxContext
 
 # 1. Start: discovery turn
 session, candidates = await MultiTurnSession.start(
@@ -209,7 +209,7 @@ await session.end()
 
 ### Reference implementation
 
-See `products/tasks/backend/services/mts_example/` for a complete working example.
+See `products/tasks/backend/logic/services/mts_example/` for a complete working example.
 It runs a multi-turn agent that discovers "cursed" identifiers in a repo,
 researches each one, and produces output in the shape Signals consumes:
 
@@ -223,7 +223,7 @@ Run it locally (DEBUG only):
 DEBUG=1 python manage.py demo_mts_example --team-id <id> --user-id <id>
 ```
 
-See the [example README](https://github.com/PostHog/posthog/blob/master/products/tasks/backend/services/mts_example/README.md) for details on adapting it to your own use case.
+See the [example README](https://github.com/PostHog/posthog/blob/master/products/tasks/backend/logic/services/mts_example/README.md) for details on adapting it to your own use case.
 
 ## Code execution
 
@@ -243,11 +243,12 @@ Direct `git commit` and `git push` commands are blocked in the sandbox to ensure
 If an agent attempts to run `git commit` or `git push`, it will see:
 
 ```text
-git commit is disabled in PostHog Code: commits must be signed.
-Stage changes with 'git add', then call the git_signed_commit tool.
+git commit is disabled in PostHog Desktop: commits must be signed.
+To commit: stage changes with 'git add', then call the git_signed_commit tool.
+To force-push after a rebase/conflict fix: call the git_signed_rewrite tool.
 ```
 
-Agents should stage changes with `git add`, then use the `git_signed_commit` tool to create signed commits.
+Agents should stage changes with `git add`, then use the `git_signed_commit` tool to create signed commits. For force-pushing after a rebase or conflict resolution, use the `git_signed_rewrite` tool instead.
 
 **Debugging escape hatch**: Set `POSTHOG_ALLOW_UNSIGNED_GIT=1` in the sandbox environment to bypass this restriction. This is intended for debugging only and should not be used in production.
 
@@ -259,6 +260,80 @@ Agents should stage changes with `git add`, then use the `git_signed_commit` too
 | Network   | Configurable via `SandboxEnvironment`  | Host network via `host.docker.internal` |
 | Image     | `ghcr.io/posthog/posthog-sandbox-base` | Local Dockerfile build                  |
 | Auth      | Modal connect token                    | No token needed                         |
+
+### Runtime selection (gVisor vs Modal VM)
+
+Production sandboxes run on one of two Modal runtimes,
+chosen per run in `get_task_processing_context` (`_resolve_modal_vm_sandbox`)
+and forked in `provision_sandbox`:
+
+- **gVisor** (`SandboxTemplate.DEFAULT_BASE`) — the historical default: a gVisor kernel-sandboxed container.
+- **Modal VM** (`SandboxTemplate.VM_BASE`) — a kernel microVM that also bakes in Docker-in-Docker,
+  so the agent can run nested containers.
+  Custom base images layer on this base, and it is what image-builder runs execute on.
+
+Selection is driven by the `tasks-modal-vm-sandbox` flag's JSON payload,
+which carries two origin allowlists and an optional default image:
+
+- `origin_products` — origins allowed on the VM runtime when a custom image is resolved for the run
+  (custom images cannot run under gVisor).
+- `default_base_origin_products` — origins that default to the bare VM base image **even without a custom image**.
+  This is the knob for making the VM runtime the default for standard cloud runs;
+  we widen it origin-by-origin (and, later, the flag's release condition) as the rollout expands.
+- `default_custom_image` — a Modal image name that VM runs fall back to when no custom image was picked.
+  Because the flag's payload variants are org-targeted, this routes _which default VM image an org gets_:
+  PostHog's own org points at the prebaked dev-stack image (below), everyone else keeps the plain VM base.
+  A user- or environment-selected custom image always wins over this default,
+  and provisioning falls back to the plain VM base if the named image is missing.
+
+#### The prebaked dev-stack image
+
+`hogli start` on a fresh VM pays for multi-gigabyte docker pulls and the full Django + persons +
+ClickHouse migration history — and dead-ends anyway, because the lean VM base lacks the dev
+toolchain flox provides on dev machines (brotli, phrocs, Go, Rust). For runs on the PostHog
+monorepo we bake all of that ahead of time:
+the `bake-dev-stack-image` Temporal workflow boots a plain VM-base sandbox,
+runs `bake-posthog-dev-stack.sh` inside it (install the dev toolchain, pre-pull the dev compose
+images, bring the stack up, run the Django and Rust-driven migrations, shut down cleanly),
+snapshots the filesystem, and publishes it under the fixed
+Modal image name `posthog-dev-stack` (see `products/tasks/backend/logic/services/dev_stack_image.py`).
+It is dispatched on two cadences, both gated per region on the `tasks-dev-stack-image-bake` flag
+via a `region` person property: a nightly full rebake that keeps the heavy state (migrations,
+docker pulls) close to master, and — mirroring the custom-image refresh fanout — a ten-minute
+sweep that rebakes as soon as the VM base image digest moves (e.g. an agent-server release),
+at most once per new digest.
+`python manage.py bake_dev_stack_image` triggers a bake manually and bypasses the flag.
+Pointing an org's `default_custom_image` payload key at that name gives its VM runs warm docker
+state and already-migrated databases, so a task-time `hogli start` only applies the migrations
+that landed since the last bake. The pnpm store and Playwright's Chromium are prewarmed too:
+`pnpm install --frozen-lockfile --prefer-offline` is a fast linking pass and browser installs
+are no-ops. Build outputs (node_modules, Storybook dist, Vite/Turbo caches) are deliberately
+not baked — the bake's checkout is deleted before the snapshot — so frontend builds always run
+from the task's own source. The bake must run on the real VM runtime —
+dockerd cannot run inside Modal's gVisor image builder — which is why it is a sandbox filesystem
+snapshot rather than a spec-built image.
+
+At task time the restored image is not self-starting: the sandbox runtime rewrites `/etc/hosts`
+at boot and dockerd does not autostart. Run the baked `bootstrap-dev-stack` helper first
+(restores the compose host aliases and starts dockerd — the bake manifest at
+`/opt/posthog/dev-stack-bake.json` names it under `bootstrap`), then from the checkout run
+`uv sync`, `source .venv/bin/activate`, `hogli start -y -d`, and `hogli wait`. Detached mode is
+required — the sandbox has no TTY, and running phrocs under a pseudo-TTY makes it balloon in
+memory until it is OOM-killed — and the detached start returns while the stack is still booting,
+so `hogli wait` is what blocks until every process reports ready.
+
+Provisioning also fires that helper detached as soon as the sandbox is up (best-effort, only on
+runs that booted the PostHog-published `posthog-dev-stack` image itself — never a user-authored
+custom image, and never a filesystem-snapshot restore, whose filesystem a prior run could have
+altered; directory-snapshot resumes only mount the workspace, so they keep the warmup), so
+the dockerd warmup overlaps the repo clone and the environment is usually
+ready by the agent's first command. Running `bootstrap-dev-stack` again is still the right first
+step — it is the synchronization point, blocking until the warmup completes.
+
+Runs with a restricted-egress `SandboxEnvironment` (a custom domain allowlist) always stay on gVisor —
+Modal's outbound domain allowlist is a gVisor-only feature.
+The `use_modal_vm_sandbox` run-state key force-selects the VM runtime for trusted server-created runs
+(image builders) and is never accepted from client input.
 
 ### Network access
 
@@ -302,7 +377,35 @@ Domain restrictions are enforced at the syscall level by `agentsh` via ptrace �
 the agent cannot bypass them through proxy settings or DNS tricks.
 
 Environments can also be managed via the REST API (`SandboxEnvironmentViewSet`)
-or the PostHog Code settings UI.
+or the PostHog Desktop settings UI.
+
+### Custom base images
+
+Teams can bake their own tools and dependencies into a custom base image (`SandboxCustomImage`)
+and select it as a cloud environment's base via `SandboxEnvironment.custom_image`.
+Custom images always layer on top of the published VM sandbox base —
+agent tooling, git guard, and the VM runtime are always present —
+and the whole mechanism is gated on the Modal VM runtime being available:
+the `sandbox_custom_images` API returns 403 (and the PostHog Desktop UI hides the feature)
+unless the `tasks-modal-vm-sandbox` flag is enabled for the org
+with `user_created` in its `origin_products` payload allowlist,
+since custom-image sandboxes cannot run under gVisor.
+
+The flow, driven from the PostHog Desktop Environments → Cloud tab:
+
+1. Creating an image spawns an interactive **image-builder agent task**
+   (`custom_image_builder_id` in the run state, VM runtime forced)
+   that iterates inside the real VM base and maintains a declarative spec
+   (`SandboxImageSpec`: `apt_packages`, `run_commands`, `env`) at `/tmp/workspace/image-spec.yaml`.
+2. "Save & build" reads the spec from the builder sandbox (or accepts it inline via
+   `POST /api/projects/:id/sandbox_custom_images/:id/build/`), then the
+   `build-sandbox-image` Temporal workflow runs an LLM security scan of the spec,
+   builds it layered on the VM base, and publishes it as a Modal named image
+   (`Image.publish()` / `Image.from_name()`).
+3. Runs using an environment with a ready custom image provision their sandbox
+   from the published image (`SandboxConfig.custom_image_name`),
+   falling back to the standard base if the image can't be loaded.
+   Repo-setup snapshots are skipped for custom-image runs; resume snapshots still apply.
 
 ## Local development
 

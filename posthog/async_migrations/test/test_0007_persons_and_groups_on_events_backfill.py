@@ -8,12 +8,12 @@ from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import get_async_migration_definition, setup_async_migrations
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest
 from posthog.clickhouse.client import query_with_columns, sync_execute
-from posthog.models import Person
 from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from posthog.models.event.util import create_event
 from posthog.models.group.util import create_group
 from posthog.models.person.util import create_person, create_person_distinct_id, delete_person
 from posthog.models.utils import UUIDT
+from posthog.test.persons import create_person as create_test_person
 
 pytestmark = pytest.mark.async_migrations
 
@@ -210,8 +210,8 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
     def test_deleted_data_persons(self):
         distinct_id = "not-reused-id"  # distinct ID re-use isn't supported after person deletion
         create_event(event_uuid=uuid1, team=self.team, distinct_id=distinct_id, event="$pageview")
-        person = Person.objects.create(
-            team_id=self.team.pk,
+        person = create_test_person(
+            team=self.team,
             distinct_ids=[distinct_id],
             properties={"$some_prop": "something", "$another_prop": "something"},
         )

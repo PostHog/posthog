@@ -18,6 +18,7 @@ describe('Alerts', { concurrent: false }, () => {
     let context: Context
     let insightId: number
     let currentUserId: number
+    let currentUserUuid: string
     const createdAlertIds: string[] = []
 
     const listTool = GENERATED_TOOLS['alerts-list']!()
@@ -44,11 +45,12 @@ describe('Alerts', { concurrent: false }, () => {
         insightId = insight.id
 
         // Fetch the current user ID — required for subscribed_users
-        const user = await context.api.request<{ id: number }>({
+        const user = await context.api.request<{ id: number; uuid: string }>({
             method: 'GET',
             path: '/api/users/@me/',
         })
         currentUserId = user.id
+        currentUserUuid = user.uuid
     })
 
     afterEach(async () => {
@@ -93,7 +95,20 @@ describe('Alerts', { concurrent: false }, () => {
             expect(typeof data.count).toBe('number')
             expect(Array.isArray(data.results)).toBe(true)
             expect(typeof data._posthogUrl).toBe('string')
-            expect(data._posthogUrl).toContain('/insights')
+            expect(data._posthogUrl).toContain('/alerts')
+        })
+
+        it('should return a per-alert _posthogUrl on each result', async () => {
+            const created = await createTool.handler(context, makeAlertParams())
+            const createdAlert = parseToolResponse(created)
+            createdAlertIds.push(createdAlert.id)
+
+            const result = await listTool.handler(context, { search: createdAlert.name })
+            const data = parseToolResponse(result)
+
+            const found = data.results.find((a: { id: string }) => a.id === createdAlert.id)
+            expect(found).toBeTruthy()
+            expect(found._posthogUrl).toContain(`/alerts?alert_type=insights&alert_id=${createdAlert.id}`)
         })
 
         it('should respect the limit parameter', async () => {
@@ -102,6 +117,34 @@ describe('Alerts', { concurrent: false }, () => {
 
             expect(Array.isArray(data.results)).toBe(true)
             expect(data.results.length).toBeLessThanOrEqual(1)
+        })
+
+        it('should filter by search', async () => {
+            const name = `mcp-search-alert-${generateUniqueKey('search')}`
+            const created = await createTool.handler(context, makeAlertParams({ name }))
+            const alert = parseToolResponse(created)
+            createdAlertIds.push(alert.id)
+
+            const result = await listTool.handler(context, { search: 'mcp-search-alert' })
+            const data = parseToolResponse(result)
+
+            const found = data.results.find((a: { id: string }) => a.id === alert.id)
+            expect(found).toBeTruthy()
+            expect(found.name).toBe(name)
+        })
+
+        it('should filter by created_by uuid', async () => {
+            const name = `mcp-created-by-alert-${generateUniqueKey('creator')}`
+            const created = await createTool.handler(context, makeAlertParams({ name }))
+            const alert = parseToolResponse(created)
+            createdAlertIds.push(alert.id)
+
+            const result = await listTool.handler(context, { created_by: currentUserUuid })
+            const data = parseToolResponse(result)
+
+            const found = data.results.find((a: { id: string }) => a.id === alert.id)
+            expect(found).toBeTruthy()
+            expect(found.created_by?.uuid).toBe(currentUserUuid)
         })
     })
 
@@ -160,6 +203,7 @@ describe('Alerts', { concurrent: false }, () => {
             expect(alert.id).toBe(createdAlert.id)
             expect(alert.name).toBe(createdAlert.name)
             expect(alert.threshold).toBeTruthy()
+            expect(alert._posthogUrl).toContain(`/alerts?alert_type=insights&alert_id=${createdAlert.id}`)
         })
 
         it('should throw for a non-existent UUID', async () => {

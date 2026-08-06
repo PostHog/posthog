@@ -16,19 +16,26 @@ import type {
     ApprovalPolicyApi,
     AvailableFiltersResponseApi,
     ChangeRequestApi,
+    ChangeRequestApproveApi,
+    ChangeRequestDecisionResponseApi,
+    ChangeRequestRejectApi,
     ChangeRequestsListParams,
     CommentApi,
+    CommentSlackThreadApi,
     CommentsListParams,
     ListParams,
     MembersListParams,
+    OrganizationAIAccessRequestResponseApi,
     OrganizationApi,
     OrganizationMemberApi,
+    OrganizationMemberGithubLoginApi,
     PaginatedActivityLogListApi,
     PaginatedApprovalPolicyListApi,
     PaginatedChangeRequestListApi,
     PaginatedCommentListApi,
     PaginatedOrganizationListApi,
     PaginatedOrganizationMemberListApi,
+    PaginatedOrganizationPersonalAPIKeyListApi,
     PaginatedRoleListApi,
     PaginatedRoleMembershipListApi,
     PatchedApprovalPolicyApi,
@@ -37,12 +44,13 @@ import type {
     PatchedOrganizationMemberApi,
     PatchedPinnedSceneTabsApi,
     PatchedRoleApi,
+    PersonalApiKeysListParams,
     PinnedSceneTabsApi,
-    PromotedProductIntentApi,
     RoleApi,
     RoleMembershipApi,
     RolesListParams,
     RolesRoleMembershipsListParams,
+    SendCommentToSlackApi,
     WelcomeResponseApi,
 } from './api.schemas'
 
@@ -68,7 +76,7 @@ export const getListUrl = (params?: ListParams) => {
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -156,12 +164,29 @@ export const destroy = async (id: string, options?: RequestInit): Promise<void> 
     })
 }
 
+export const getRequestAiAccessCreateUrl = (id: string) => {
+    return `/api/organizations/${id}/request_ai_access/`
+}
+
+/**
+ * Notify organization admins that a member is requesting PostHog AI be enabled.
+ */
+export const requestAiAccessCreate = async (
+    id: string,
+    options?: RequestInit
+): Promise<OrganizationAIAccessRequestResponseApi> => {
+    return apiMutator<OrganizationAIAccessRequestResponseApi>(getRequestAiAccessCreateUrl(id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getMembersListUrl = (organizationId: string, params?: MembersListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -234,6 +259,21 @@ export const membersDestroy = async (
     })
 }
 
+export const getMembersGithubLoginRetrieveUrl = (organizationId: string, userUuid: string) => {
+    return `/api/organizations/${organizationId}/members/${userUuid}/github_login/`
+}
+
+export const membersGithubLoginRetrieve = async (
+    organizationId: string,
+    userUuid: string,
+    options?: RequestInit
+): Promise<OrganizationMemberGithubLoginApi> => {
+    return apiMutator<OrganizationMemberGithubLoginApi>(getMembersGithubLoginRetrieveUrl(organizationId, userUuid), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getMembersScopedApiKeysRetrieveUrl = (organizationId: string, userUuid: string) => {
     return `/api/organizations/${organizationId}/members/${userUuid}/scoped_api_keys/`
 }
@@ -249,12 +289,39 @@ export const membersScopedApiKeysRetrieve = async (
     })
 }
 
+export const getPersonalApiKeysListUrl = (organizationId: string, params?: PersonalApiKeysListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/personal_api_keys/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/personal_api_keys/`
+}
+
+export const personalApiKeysList = async (
+    organizationId: string,
+    params?: PersonalApiKeysListParams,
+    options?: RequestInit
+): Promise<PaginatedOrganizationPersonalAPIKeyListApi> => {
+    return apiMutator<PaginatedOrganizationPersonalAPIKeyListApi>(getPersonalApiKeysListUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getRolesListUrl = (organizationId: string, params?: RolesListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -265,6 +332,10 @@ export const getRolesListUrl = (organizationId: string, params?: RolesListParams
         : `/api/organizations/${organizationId}/roles/`
 }
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesList = async (
     organizationId: string,
     params?: RolesListParams,
@@ -280,6 +351,10 @@ export const getRolesCreateUrl = (organizationId: string) => {
     return `/api/organizations/${organizationId}/roles/`
 }
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesCreate = async (
     organizationId: string,
     roleApi: NonReadonly<RoleApi>,
@@ -297,6 +372,10 @@ export const getRolesRetrieveUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/roles/${id}/`
 }
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesRetrieve = async (organizationId: string, id: string, options?: RequestInit): Promise<RoleApi> => {
     return apiMutator<RoleApi>(getRolesRetrieveUrl(organizationId, id), {
         ...options,
@@ -308,6 +387,10 @@ export const getRolesUpdateUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/roles/${id}/`
 }
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesUpdate = async (
     organizationId: string,
     id: string,
@@ -326,6 +409,10 @@ export const getRolesPartialUpdateUrl = (organizationId: string, id: string) => 
     return `/api/organizations/${organizationId}/roles/${id}/`
 }
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesPartialUpdate = async (
     organizationId: string,
     id: string,
@@ -344,6 +431,10 @@ export const getRolesDestroyUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/roles/${id}/`
 }
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesDestroy = async (organizationId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getRolesDestroyUrl(organizationId, id), {
         ...options,
@@ -360,7 +451,7 @@ export const getRolesRoleMembershipsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -371,6 +462,10 @@ export const getRolesRoleMembershipsListUrl = (
         : `/api/organizations/${organizationId}/roles/${roleId}/role_memberships/`
 }
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesRoleMembershipsList = async (
     organizationId: string,
     roleId: string,
@@ -387,6 +482,10 @@ export const getRolesRoleMembershipsCreateUrl = (organizationId: string, roleId:
     return `/api/organizations/${organizationId}/roles/${roleId}/role_memberships/`
 }
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesRoleMembershipsCreate = async (
     organizationId: string,
     roleId: string,
@@ -405,6 +504,10 @@ export const getRolesRoleMembershipsRetrieveUrl = (organizationId: string, roleI
     return `/api/organizations/${organizationId}/roles/${roleId}/role_memberships/${id}/`
 }
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesRoleMembershipsRetrieve = async (
     organizationId: string,
     roleId: string,
@@ -421,6 +524,10 @@ export const getRolesRoleMembershipsDestroyUrl = (organizationId: string, roleId
     return `/api/organizations/${organizationId}/roles/${roleId}/role_memberships/${id}/`
 }
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesRoleMembershipsDestroy = async (
     organizationId: string,
     roleId: string,
@@ -455,7 +562,7 @@ export const getActivityLogListUrl = (projectId: string, params?: ActivityLogLis
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -482,7 +589,7 @@ export const getAdvancedActivityLogsListUrl = (projectId: string, params?: Advan
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -540,7 +647,7 @@ export const getApprovalPoliciesListUrl = (projectId: string, params?: ApprovalP
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -646,7 +753,7 @@ export const getChangeRequestsListUrl = (projectId: string, params?: ChangeReque
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -689,19 +796,19 @@ export const getChangeRequestsApproveCreateUrl = (projectId: string, id: string)
 
 /**
  * Approve a change request.
-If quorum is reached, automatically applies the change immediately.
+ * If quorum is reached, automatically applies the change immediately.
  */
 export const changeRequestsApproveCreate = async (
     projectId: string,
     id: string,
-    changeRequestApi?: NonReadonly<ChangeRequestApi>,
+    changeRequestApproveApi?: ChangeRequestApproveApi,
     options?: RequestInit
-): Promise<ChangeRequestApi> => {
-    return apiMutator<ChangeRequestApi>(getChangeRequestsApproveCreateUrl(projectId, id), {
+): Promise<ChangeRequestDecisionResponseApi> => {
+    return apiMutator<ChangeRequestDecisionResponseApi>(getChangeRequestsApproveCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(changeRequestApi),
+        body: JSON.stringify(changeRequestApproveApi),
     })
 }
 
@@ -711,7 +818,7 @@ export const getChangeRequestsCancelCreateUrl = (projectId: string, id: string) 
 
 /**
  * Cancel a change request.
-Only the requester can cancel their own pending change request.
+ * Only the requester can cancel their own pending change request.
  */
 export const changeRequestsCancelCreate = async (
     projectId: string,
@@ -737,14 +844,14 @@ export const getChangeRequestsRejectCreateUrl = (projectId: string, id: string) 
 export const changeRequestsRejectCreate = async (
     projectId: string,
     id: string,
-    changeRequestApi?: NonReadonly<ChangeRequestApi>,
+    changeRequestRejectApi: ChangeRequestRejectApi,
     options?: RequestInit
-): Promise<ChangeRequestApi> => {
-    return apiMutator<ChangeRequestApi>(getChangeRequestsRejectCreateUrl(projectId, id), {
+): Promise<ChangeRequestDecisionResponseApi> => {
+    return apiMutator<ChangeRequestDecisionResponseApi>(getChangeRequestsRejectCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(changeRequestApi),
+        body: JSON.stringify(changeRequestRejectApi),
     })
 }
 
@@ -753,7 +860,7 @@ export const getCommentsListUrl = (projectId: string, params?: CommentsListParam
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -781,7 +888,7 @@ export const getCommentsCreateUrl = (projectId: string) => {
 
 export const commentsCreate = async (
     projectId: string,
-    commentApi: NonReadonly<CommentApi>,
+    commentApi?: NonReadonly<CommentApi>,
     options?: RequestInit
 ): Promise<CommentApi> => {
     return apiMutator<CommentApi>(getCommentsCreateUrl(projectId), {
@@ -810,7 +917,7 @@ export const getCommentsUpdateUrl = (projectId: string, id: string) => {
 export const commentsUpdate = async (
     projectId: string,
     id: string,
-    commentApi: NonReadonly<CommentApi>,
+    commentApi?: NonReadonly<CommentApi>,
     options?: RequestInit
 ): Promise<CommentApi> => {
     return apiMutator<CommentApi>(getCommentsUpdateUrl(projectId, id), {
@@ -889,6 +996,27 @@ export const commentsReopenCreate = async (
     })
 }
 
+export const getCommentsSendToSlackCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/comments/${id}/send_to_slack/`
+}
+
+/**
+ * Mirror this discussion thread to a Slack channel. Posts the comment (and its existing replies) as a new Slack thread; later replies on either side sync across. A discussion mirrors to exactly one Slack thread: re-calling with the same channel returns the existing mirror; a different channel is a 400 naming the existing one. 409 while a concurrent send is in flight. 404 when the feature is not enabled for the team.
+ */
+export const commentsSendToSlackCreate = async (
+    projectId: string,
+    id: string,
+    sendCommentToSlackApi: SendCommentToSlackApi,
+    options?: RequestInit
+): Promise<CommentSlackThreadApi> => {
+    return apiMutator<CommentSlackThreadApi>(getCommentsSendToSlackCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sendCommentToSlackApi),
+    })
+}
+
 export const getCommentsThreadRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/comments/${id}/thread/`
 }
@@ -906,24 +1034,6 @@ export const getCommentsCountRetrieveUrl = (projectId: string) => {
 
 export const commentsCountRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getCommentsCountRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getEnvironmentsPromotedProductIntentRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/environments/${id}/promoted_product_intent/`
-}
-
-/**
- * Return the product key (e.g. `session_replay`, `web_analytics`) this team selected as their primary product during onboarding. Resolved from the team's most recent primary-onboarding `ProductIntent` record (the one carrying the `onboarding product selected - primary` context) — not from the `user showed product intent` event, which also fires for non-onboarding contexts. Returns `null` when no primary onboarding product intent has been captured (e.g. teams created before this signal existed, or where onboarding was skipped).
- */
-export const environmentsPromotedProductIntentRetrieve = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<PromotedProductIntentApi> => {
-    return apiMutator<PromotedProductIntentApi>(getEnvironmentsPromotedProductIntentRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

@@ -53,6 +53,17 @@ LLM_TRANSPORT_ERROR_COUNTER = Counter(
     ["error_type"],
 )
 
+# Unexpected exceptions that crash an agent run (e.g. a code bug or a stale import),
+# as opposed to the known LLM provider/client/transport errors counted above. These
+# bubble to the catch-all in the runner and return a FailureMessage to the user — an
+# agent generation that never finished. Sits at ~0 in steady state, so a sustained
+# rate signals that a recent change broke an agent path in production.
+AGENT_RUN_UNHANDLED_ERROR_COUNTER = Counter(
+    "posthog_ai_agent_run_unhandled_errors_total",
+    "Total number of agent runs that failed with an unexpected (non-LLM) exception",
+    ["error_type"],
+)
+
 
 def resolve_llm_provider(exc: Exception) -> str:
     """Extract the LLM provider name from an exception.

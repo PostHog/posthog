@@ -18,18 +18,16 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
-    UnexpectedNeverError,
-    capitalizeFirstLetter,
-    humanFriendlyDuration,
-    percentage,
-    tryDecodeURIComponent,
-} from 'lib/utils'
-import {
     COUNTRY_CODE_TO_LONG_NAME,
     LANGUAGE_CODE_TO_NAME,
     countryCodeToFlag,
     languageCodeToFlag,
-} from 'lib/utils/geography/country'
+} from 'lib/utils/country'
+import { humanFriendlyDuration } from 'lib/utils/durations'
+import { UnexpectedNeverError } from 'lib/utils/guards'
+import { percentage } from 'lib/utils/numbers'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { tryDecodeURIComponent } from 'lib/utils/url'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -184,6 +182,39 @@ const PathValueWithHoverLink = ({
     )
 }
 
+// Outbound clicks come through as a `url` column (not `breakdown_value`), so they don't get the
+// PathValueWithHoverLink affordance. The value is already a full external URL.
+const UrlValueCell: QueryContextColumnComponent = ({ value }) => {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (typeof value !== 'string' || !value) {
+        return <>{value}</>
+    }
+
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_URL]) {
+        return <>{value}</>
+    }
+
+    const url = value.startsWith('http') ? value : `https://${value}`
+
+    // The URL text itself is the click target so it stays discoverable on touch and keyboard focus,
+    // and works even when the cell's max-width clips the trailing icon. The icon is a hover-only hint.
+    return (
+        <Link
+            to={url}
+            target="_blank"
+            subtle
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+            className="inline-flex items-center gap-1"
+        >
+            {value}
+            <Tooltip title="Open URL">
+                <IconExternal className="text-base opacity-0 transition-opacity [[data-row-key]:hover_&]:opacity-100" />
+            </Tooltip>
+        </Link>
+    )
+}
+
 type VariationCellProps = { isPercentage?: boolean; reverseColors?: boolean; isDuration?: boolean }
 const VariationCell = (
     { isPercentage, reverseColors, isDuration }: VariationCellProps = {
@@ -323,6 +354,22 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>URL</>
         case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
             return <>Source / Medium / Campaign</>
+        case WebStatsBreakdown.FirstPageviewChannelType:
+            return <>Channel Type (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewReferringDomain:
+            return <>Referring Domain (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewUTMSource:
+            return <>UTM Source (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewUTMCampaign:
+            return <>UTM Campaign (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewUTMMedium:
+            return <>UTM Medium (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewUTMTerm:
+            return <>UTM Term (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewUTMContent:
+            return <>UTM Content (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewUTMSourceMediumCampaign:
+            return <>Source / Medium / Campaign (First Pageview)</>
         default:
             throw new UnexpectedNeverError(breakdownBy)
     }
@@ -447,6 +494,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
             }
             return <NotSetBreakdownLabel />
         case WebStatsBreakdown.InitialReferringDomain:
+        case WebStatsBreakdown.FirstPageviewReferringDomain:
             // NULL referrer is canonically "Direct" in PostHog (matches the channel-type
             // bucketing in sessions_v2). Keep that wording to stay consistent across tiles.
             if (value == null) {
@@ -470,6 +518,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
             }
             break
         case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
+        case WebStatsBreakdown.FirstPageviewUTMSourceMediumCampaign:
             if (typeof value === 'string') {
                 return <>{value.replace(BREAKDOWN_REFERRER_PREFIX, '')}</>
             }
@@ -479,6 +528,11 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
         case WebStatsBreakdown.InitialUTMCampaign:
         case WebStatsBreakdown.InitialUTMTerm:
         case WebStatsBreakdown.InitialUTMContent:
+        case WebStatsBreakdown.FirstPageviewUTMSource:
+        case WebStatsBreakdown.FirstPageviewUTMMedium:
+        case WebStatsBreakdown.FirstPageviewUTMCampaign:
+        case WebStatsBreakdown.FirstPageviewUTMTerm:
+        case WebStatsBreakdown.FirstPageviewUTMContent:
             return typeof value === 'string' ? <>{value}</> : <NotSetBreakdownLabel />
     }
 
@@ -526,6 +580,9 @@ const SortableCell = (
     }
 
 export const webAnalyticsDataTableQueryContext: QueryContext = {
+    // findMounted() keeps this scene-agnostic: it only acts when webAnalyticsLogic is actually mounted
+    // (i.e. inside the web analytics scene), so reusing this context in product analytics is a no-op.
+    onDisableWebAnalyticsPrecompute: () => webAnalyticsLogic.findMounted()?.actions.setUseWebAnalyticsPrecompute(false),
     columns: {
         breakdown_value: {
             renderTitle: BreakdownValueTitle,
@@ -604,6 +661,9 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             renderTitle: SortableCell('Converting Users', WebAnalyticsOrderByFields.ConvertingUsers),
             render: VariationCell(),
             align: 'right',
+        },
+        url: {
+            render: UrlValueCell,
         },
         action_name: {
             title: 'Action',
@@ -917,12 +977,15 @@ export const WebStatsTableTile = ({
     attachTo,
     headerSlot,
     uniqueKey,
+    enablePagination,
 }: QueryWithInsightProps<DataTableNode> & {
     breakdownBy: WebStatsBreakdown
     control?: JSX.Element
     tileId: TileId
     headerSlot?: React.ReactNode
     uniqueKey: string
+    /** Show the "load more" footer so long-tail breakdowns can be paginated (used by the expanded modal). */
+    enablePagination?: boolean
 }): JSX.Element => {
     const { togglePropertyFilter } = useActions(webAnalyticsLogic)
     const { productTab } = useValues(webAnalyticsLogic)
@@ -1075,8 +1138,9 @@ export const WebStatsTableTile = ({
             insightProps,
             rowProps,
             compareFilter: 'compareFilter' in query.source ? query.source.compareFilter : undefined,
+            showLoadNextButton: enablePagination,
         }
-    }, [onClick, insightProps, breakdownBy, key, type, isCompoundBreakdown, query])
+    }, [onClick, insightProps, breakdownBy, key, type, isCompoundBreakdown, query, enablePagination])
 
     const numericColumns = PAGE_LIKE_BREAKDOWNS.has(breakdownBy) ? 3 : 2
     const dataNodeLogicProps = buildDataTableTileDataNodeLogicProps({
@@ -1180,8 +1244,10 @@ export const WebGoalsTile = ({
                 productKey={ProductKey.ACTIONS}
                 thingName="action"
                 isEmpty={true}
-                description="Use actions to combine events that you want to have tracked together or to make detailed Autocapture events easier to reuse."
-                docsURL="https://posthog.com/docs/data/actions"
+                titleOverride="Track your conversions"
+                description="Goals show how many visitors complete the actions that matter to you. Sign-ups, purchases, demo requests. Create an action for a key conversion to see its visitors and conversion rate here."
+                docsURL="https://posthog.com/docs/web-analytics/conversion-goals"
+                hogLayout="responsive"
                 actionElementOverride={
                     <NewActionButton onSelectOption={() => updateHasSeenProductIntroFor(ProductKey.ACTIONS)} />
                 }
@@ -1432,12 +1498,15 @@ export const WebQuery = ({
     attachTo,
     uniqueKey,
     headerSlot,
+    enablePagination,
 }: QueryWithInsightProps<QuerySchema> & {
     showIntervalSelect?: boolean
     control?: JSX.Element
     tileId: TileId
     uniqueKey: string
     headerSlot?: React.ReactNode
+    /** Show the "load more" footer on breakdown tables (used by the expanded modal). */
+    enablePagination?: boolean
 }): JSX.Element => {
     const { productTab, shouldStripQueryParams: stripQueryParamsDashboard } = useValues(webAnalyticsLogic)
     const { stripQueryParams: stripQueryParamsPageReports } = useValues(pageReportsLogic)
@@ -1466,6 +1535,7 @@ export const WebQuery = ({
                 tileId={tileId}
                 headerSlot={headerSlot}
                 uniqueKey={uniqueKey}
+                enablePagination={enablePagination}
             />
         )
     }

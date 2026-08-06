@@ -1,4 +1,4 @@
-import { createVersionChecker, highestVersion, lowestVersion, parseVersion, versionToString } from './semver'
+import { createVersionChecker, isValidSemverValue, parseVersion } from './semver'
 
 describe('semver', () => {
     describe('parseVersion', () => {
@@ -17,41 +17,6 @@ describe('semver', () => {
         })
     })
 
-    describe('lowerVersion', () => {
-        it('should return the lower version', () => {
-            expect(lowestVersion(['1.0.0', '1.0.1', '1.0.2'])).toEqual({ major: 1, minor: 0, patch: 0 })
-            expect(lowestVersion(['1.0.0', '1.0', '1'])).toEqual({ major: 1, minor: 0, patch: 0 })
-            expect(lowestVersion(['1.10', '1.2'])).toEqual({ major: 1, minor: 2 })
-            expect(lowestVersion(['1.2.3', '1.2.3-alpha'])).toEqual({ major: 1, minor: 2, patch: 3, extra: 'alpha' })
-            expect(lowestVersion(['1.2.3-alpha1', '1.2.3-alpha2'])).toEqual({
-                major: 1,
-                minor: 2,
-                patch: 3,
-                extra: 'alpha1',
-            })
-        })
-    })
-    describe('higherVersion', () => {
-        it('should return the higher version', () => {
-            expect(highestVersion(['1.0.0', '1.0.1', '1.0.2'])).toEqual({ major: 1, minor: 0, patch: 2 })
-            expect(highestVersion(['1.0.0', '1.0', '1'])).toEqual({ major: 1 })
-            expect(highestVersion(['1.10', '1.2'])).toEqual({ major: 1, minor: 10 })
-            expect(highestVersion(['1.2.3', '1.2.3-alpha'])).toEqual({ major: 1, minor: 2, patch: 3 })
-            expect(highestVersion(['1.2.3-alpha1', '1.2.3-alpha2'])).toEqual({
-                major: 1,
-                minor: 2,
-                patch: 3,
-                extra: 'alpha2',
-            })
-        })
-    })
-    describe('versionToString', () => {
-        it('should convert version to string', () => {
-            expect(versionToString({ major: 1, minor: 2, patch: 3 })).toEqual('1.2.3')
-            expect(versionToString({ major: 1, minor: 2 })).toEqual('1.2')
-            expect(versionToString({ major: 1 })).toEqual('1')
-        })
-    })
     describe('createVersionChecker', () => {
         it('should create a version checker that checks that a version is above or equal to a specified version', () => {
             const isSupportedVersion = createVersionChecker('4.5.6')
@@ -60,6 +25,24 @@ describe('semver', () => {
             expect(isSupportedVersion('4.5.7')).toEqual(true)
             expect(isSupportedVersion('7.8.9')).toEqual(true)
             expect(isSupportedVersion('4.5.6-alpha')).toEqual(false)
+        })
+    })
+
+    describe('isValidSemverValue', () => {
+        // Mirrors the backend `parse_semver` gate: drift here re-introduces the feature flag save 400
+        // for non-semver values (or wrongly blocks a real version).
+        it.each(['1.2.3', '1.2', '1', '1.2.3-alpha.1', '1.2.3.4'])('accepts %s', (value) => {
+            expect(isValidSemverValue(value)).toBe(true)
+        })
+
+        it.each(['user@example.com', 'deadbeef', '1.', 'v1.2.3', ''])('rejects %s', (value) => {
+            expect(isValidSemverValue(value)).toBe(false)
+        })
+
+        it('accepts wildcard patterns only when allowWildcard is set', () => {
+            expect(isValidSemverValue('1.2.*', { allowWildcard: true })).toBe(true)
+            expect(isValidSemverValue('1.*', { allowWildcard: true })).toBe(true)
+            expect(isValidSemverValue('1.2.*')).toBe(false)
         })
     })
 })

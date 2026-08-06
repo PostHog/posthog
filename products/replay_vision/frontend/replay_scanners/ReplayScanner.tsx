@@ -1,54 +1,62 @@
 import { useActions, useValues } from 'kea'
-import { Field, Form } from 'kea-forms'
 
-import {
-    LemonBanner,
-    LemonButton,
-    LemonDivider,
-    LemonInput,
-    LemonSelect,
-    LemonSwitch,
-    LemonTab,
-    LemonTabs,
-    LemonTag,
-    LemonTextArea,
-} from '@posthog/lemon-ui'
+import { IconSparkles } from '@posthog/icons'
+import { LemonBanner, LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { appLogic } from 'scenes/appLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
+import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
+import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
+import { formatCreditsRange } from '../utils/credits'
+import { quotaBannerState } from '../utils/quotaProjection'
+import { ScannerCalibrationTab } from './components/ScannerCalibrationTab'
+import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
+import { ScannerDigestCard } from './components/ScannerDigestCard'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
-import { ScannerTriggers } from './components/ScannerTriggers'
-import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
-import { SummarizerMaxChat } from './components/SummarizerMaxChat'
+import { ScannerOverview } from './components/ScannerOverview'
+import { ScannerRunTab } from './components/ScannerRunTab'
+import { VisionActionsTab } from './components/VisionActionsTab'
 import { replayScannerLogic } from './replayScannerLogic'
-import { ReplayScannerSceneLogicProps, replayScannerSceneLogic } from './replayScannerSceneLogic'
-import { EditorTab, SCANNER_TYPE_OPTIONS, MODEL_OPTIONS } from './types'
+import { ReplayScannerTab, replayScannerSceneLogic } from './replayScannerSceneLogic'
 
-export const scene: SceneExport<ReplayScannerSceneLogicProps> = {
+export const scene: SceneExport = {
     component: ReplayScannerSceneComponent,
     logic: replayScannerSceneLogic,
     productKey: ProductKey.REPLAY_VISION,
 }
 
-export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.Element {
+export function ReplayScannerSceneComponent(): JSX.Element {
     const { scannerId, activeTab } = useValues(replayScannerSceneLogic)
     const { setActiveTab } = useActions(replayScannerSceneLogic)
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
+    const { featureFlagsTimedOut } = useValues(appLogic)
+    const actionsTabEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_ACTIONS]
 
-    const scannerLogic = replayScannerLogic({ id: scannerId, tabId })
+    const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
 
-    const { scanner, originalScanner, scannerLoading, isScannerSubmitting, hasUnsavedChanges, isNew } =
-        useValues(scannerLogic)
-    const { setScannerType, submitScanner, resetScanner, deleteScanner } = useActions(scannerLogic)
+    const { scanner, scannerLoading } = useValues(scannerLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION]) {
+        // Flags load asynchronously, so wait for them before deciding the page doesn't exist.
+        if (!receivedFeatureFlags && !featureFlagsTimedOut) {
+            return <SpinnerOverlay sceneLevel />
+        }
+        return <NotFound object="page" />
+    }
 
     if (scannerLoading || !scanner) {
         return (
@@ -58,162 +66,114 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
         )
     }
 
-    const tabs: (LemonTab<EditorTab> | false)[] = [
-        !isNew && {
-            key: 'observations' as EditorTab,
-            label: 'Observations',
-            content: (
-                <div className="space-y-4">
-                    <SummarizerMaxChat scannerId={scannerId} tabId={tabId} />
-                    <ScannerObservationsTable scannerId={scannerId} tabId={tabId} />
-                </div>
-            ),
-        },
-        {
-            key: 'configuration',
-            label: 'Configuration',
-            content: (
-                <div className="space-y-6 max-w-3xl">
-                    <div>
-                        <h3 className="text-base font-semibold mb-1">Details</h3>
-                        <p className="text-sm text-muted m-0">
-                            What this scanner looks for and how it analyzes recordings.
-                        </p>
-                    </div>
-
-                    <Field name="name" label="Name">
-                        <LemonInput placeholder="e.g. Confused checkout flow" />
-                    </Field>
-
-                    <Field name="description" label="Description (optional)">
-                        <LemonTextArea placeholder="What this scanner looks for and why." minRows={2} />
-                    </Field>
-
-                    {isNew ? (
-                        <Field name="scanner_type" label="Scanner type">
-                            <LemonSelect
-                                value={scanner.scanner_type}
-                                onChange={(v) => setScannerType(v)}
-                                options={SCANNER_TYPE_OPTIONS.map((opt) => ({
-                                    value: opt.value,
-                                    label: opt.label,
-                                    labelInMenu: (
-                                        <div className="flex flex-col">
-                                            <span className="font-medium">{opt.label}</span>
-                                            <span className="text-xs text-muted">{opt.description}</span>
-                                        </div>
-                                    ),
-                                }))}
-                            />
-                        </Field>
-                    ) : (
-                        <div className="space-y-1">
-                            <label className="block text-sm font-medium">Scanner type</label>
-                            <LemonTag type="option">
-                                {SCANNER_TYPE_OPTIONS.find((o) => o.value === scanner.scanner_type)?.label ??
-                                    scanner.scanner_type}
-                            </LemonTag>
-                            <div className="text-xs text-muted">Scanner type is fixed after creation.</div>
-                        </div>
-                    )}
-
-                    <ScannerTypeConfigEditor scannerId={scannerId} tabId={tabId} />
-
-                    <Field name="model" label="Model">
-                        <LemonSelect value={scanner.model} options={MODEL_OPTIONS} />
-                    </Field>
-
-                    <Field name="emits_signals">
-                        {({ value, onChange }) => (
-                            <div className="flex items-center gap-3">
-                                <LemonSwitch checked={!!value} onChange={onChange} />
-                                <div>
-                                    <div className="text-sm font-medium">Emit PostHog Signals</div>
-                                    <div className="text-xs text-muted">Also flags actionable issues as Signals.</div>
-                                </div>
-                            </div>
-                        )}
-                    </Field>
-
-                    <LemonDivider />
-
-                    <div>
-                        <h3 className="text-base font-semibold mb-1">Triggers</h3>
-                        <p className="text-sm text-muted m-0">Which completed recordings this scanner runs against.</p>
-                    </div>
-                    <ScannerTriggers scannerId={scannerId} tabId={tabId} />
-                </div>
-            ),
-        },
-    ]
-
     return (
         <SceneContent>
             <SceneTitleSection
-                name={scanner.name || (isNew ? 'New scanner' : 'Scanner')}
+                name={scanner.name || 'Untitled scanner'}
                 description={scanner.description}
                 resourceType={{ type: 'replay_vision' }}
                 actions={
                     <>
-                        {!isNew && (
-                            <More
-                                size="small"
-                                overlay={
-                                    <LemonButton
-                                        status="danger"
-                                        fullWidth
-                                        onClick={() =>
-                                            LemonDialog.open({
-                                                title: `Delete "${scanner.name || 'Untitled scanner'}"?`,
-                                                description: 'This cannot be undone.',
-                                                primaryButton: {
-                                                    children: 'Delete',
-                                                    status: 'danger',
-                                                    onClick: () => deleteScanner(),
-                                                },
-                                                secondaryButton: { children: 'Cancel' },
-                                            })
-                                        }
-                                    >
-                                        Delete
-                                    </LemonButton>
-                                }
-                            />
-                        )}
-                        {hasUnsavedChanges && originalScanner && (
-                            <LemonButton type="secondary" size="small" onClick={() => resetScanner(originalScanner)}>
-                                Discard changes
-                            </LemonButton>
-                        )}
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.SessionRecording}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
+                        {activeTab !== ReplayScannerTab.Calibration && (
                             <LemonButton
-                                type="primary"
+                                type="secondary"
                                 size="small"
-                                disabledReason={!isNew && !hasUnsavedChanges ? 'No changes to save' : undefined}
-                                loading={isScannerSubmitting}
-                                onClick={() => submitScanner()}
-                                data-attr="save-replay-scanner"
+                                icon={<IconSparkles />}
+                                tooltip="Rate scanner results and apply PostHog AI config recommendations in the Calibration tab"
+                                onClick={() => setActiveTab(ReplayScannerTab.Calibration)}
+                                data-attr="replay-vision-open-calibration-tab"
                             >
-                                {isNew ? 'Create' : 'Save'}
+                                Improve scanner
                             </LemonButton>
-                        </AccessControlAction>
+                        )}
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            to={urls.replayVisionScannerConfigure(scannerId)}
+                            disabledReason={getReplayVisionEditDisabledReason(scanner.user_access_level)}
+                            data-attr="vision-scanner-edit"
+                            data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                        >
+                            Edit scanner
+                        </LemonButton>
+                        <ReplayVisionFeedbackButton />
                     </>
                 }
             />
 
-            {hasUnsavedChanges && !isNew && <LemonBanner type="info">You have unsaved changes.</LemonBanner>}
+            <IngestionLimitBanner />
+            <QuotaBanner />
 
-            <Form logic={replayScannerLogic} props={{ id: scannerId, tabId }} formKey="scanner" enableFormOnSubmit>
-                <LemonTabs
-                    activeKey={activeTab}
-                    onChange={(key) => setActiveTab(key as EditorTab)}
-                    tabs={tabs.filter((t): t is LemonTab<EditorTab> => Boolean(t))}
-                />
-            </Form>
+            <LemonTabs
+                activeKey={activeTab}
+                onChange={setActiveTab}
+                data-attr="vision-scanner-tabs"
+                tabs={[
+                    {
+                        key: ReplayScannerTab.Overview,
+                        label: 'Overview',
+                        content: (
+                            <div className="flex flex-col gap-6">
+                                {actionsTabEnabled && (
+                                    <ScannerDigestCard scannerId={scannerId} scannerName={scanner.name || ''} />
+                                )}
+                                <ScannerOverview scannerId={scannerId} />
+                            </div>
+                        ),
+                    },
+                    {
+                        key: ReplayScannerTab.Observations,
+                        label: 'Observations',
+                        content: <ScannerObservationsTable scannerId={scannerId} />,
+                    },
+                    {
+                        key: ReplayScannerTab.OnDemand,
+                        label: 'On-demand',
+                        content: <ScannerRunTab scannerId={scannerId} />,
+                    },
+                    {
+                        key: ReplayScannerTab.Configuration,
+                        label: 'Configuration',
+                        content: <ScannerConfigReadonly scanner={scanner} />,
+                    },
+                    {
+                        key: ReplayScannerTab.Calibration,
+                        label: 'Calibration',
+                        content: <ScannerCalibrationTab scannerId={scannerId} />,
+                    },
+                    actionsTabEnabled && {
+                        key: ReplayScannerTab.Actions,
+                        label: 'Digests and alerts',
+                        content: (
+                            <VisionActionsTab
+                                scannerId={scannerId}
+                                scannerUserAccessLevel={scanner.user_access_level}
+                            />
+                        ),
+                    },
+                ]}
+            />
         </SceneContent>
+    )
+}
+
+// Assumes block-only overage policy; revisit when `usage_based` ships so we don't scare metered orgs.
+function QuotaBanner(): JSX.Element | null {
+    const { quota, onFreePlan } = useValues(visionQuotaLogic)
+    const state = quotaBannerState(quota)
+    if (!state.kind) {
+        return null
+    }
+    return (
+        <LemonBanner type="warning">
+            {state.kind === 'exhausted'
+                ? `${
+                      onFreePlan ? 'Free credits used up' : 'Monthly spend limit reached'
+                  }: ${formatCreditsRange(state.quota.credits_used, state.quota.credit_limit ?? 0)}. New observations are paused until ${state.resetsOn}.`
+                : onFreePlan
+                  ? `You've used ${Math.round(state.quota.credits_used).toLocaleString('en-US')} of your ${Math.round(state.quota.credit_limit ?? 0).toLocaleString('en-US')} free credits this month. New observations will pause once they run out. Resets ${state.resetsOn}.`
+                  : `You've used ${formatCreditsRange(state.quota.credits_used, state.quota.credit_limit ?? 0)} this month. New observations will pause once you hit the limit. Resets ${state.resetsOn}.`}
+        </LemonBanner>
     )
 }
 

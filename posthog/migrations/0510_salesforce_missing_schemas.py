@@ -2,7 +2,24 @@
 
 from django.db import connection, migrations
 
-from posthog.temporal.data_imports.sources.salesforce.settings import INCREMENTAL_ENDPOINTS
+# Inlined from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.settings
+# to keep this applied migration hermetic (no live-code import). Frozen at the value that shipped here.
+INCREMENTAL_ENDPOINTS = (
+    "Account",
+    "Event",
+    "User",
+    "UserRole",
+    "Lead",
+    "Contact",
+    "Campaign",
+    "Product2",
+    "Pricebook2",
+    "PricebookEntry",
+    "Order",
+    "Opportunity",
+    "OpportunityHistory",
+    "Task",
+)
 
 
 def salesforce_schemas(apps, schema_editor):

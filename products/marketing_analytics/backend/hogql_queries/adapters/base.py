@@ -3,7 +3,7 @@
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Generic, Optional, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, cast
 
 import structlog
 
@@ -20,12 +20,15 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY, Team
 
+if TYPE_CHECKING:
+    from posthog.hogql.database.database import Database
+
 from products.marketing_analytics.backend.hogql_queries.constants import (
     DRILL_DOWN_LEVEL_CONFIG,
     MATCH_KEY_FIELD,
     UNSYNCED_HIERARCHY_LABEL,
 )
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
 
@@ -141,6 +144,9 @@ class QueryContext:
     base_currency: str = DEFAULT_CURRENCY
     # AD_GROUP / AD pull from ad-group / ad-level tables; CAMPAIGN and below stay at campaign stats.
     drill_down_level: MarketingAnalyticsDrillDownLevel = MarketingAnalyticsDrillDownLevel.CAMPAIGN
+    # Prebuilt HogQL database shared across factories in one request — the factory only needs it for
+    # warehouse table names, and Database.create_for is ~550ms. None → factory builds its own.
+    database: Optional["Database"] = None
 
 
 class MarketingSourceAdapter(ABC, Generic[ConfigType]):
@@ -573,6 +579,12 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
             MarketingAnalyticsDrillDownLevel.AD,
         )
 
+        # Entity and report/stats tables can store the same id with different types
+        # (e.g. Reddit's ad_groups.id vs ad_group_report.ad_group_id), so cast both
+        # join keys to String — otherwise the LEFT JOIN silently matches zero rows.
+        def join_key(table: str, column: str) -> ast.Call:
+            return ast.Call(name="toString", args=[ast.Field(chain=[table, column])])
+
         # entity LEFT JOIN stats ON entity.<pk> = stats.<fk> — skipped in unified mode
         # because entity_table === stats_table (a single performance report).
         stats_join: ast.JoinExpr | None = None
@@ -582,9 +594,9 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
                 join_type="LEFT JOIN",
                 constraint=ast.JoinConstraint(
                     expr=ast.CompareOperation(
-                        left=ast.Field(chain=[entity_table_name, tables.entity_id_column]),
+                        left=join_key(entity_table_name, tables.entity_id_column),
                         op=ast.CompareOperationOp.Eq,
-                        right=ast.Field(chain=[stats_table_name, tables.stats_entity_id_column]),
+                        right=join_key(stats_table_name, tables.stats_entity_id_column),
                     ),
                     constraint_type="ON",
                 ),
@@ -608,9 +620,9 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
                     join_type="LEFT JOIN",
                     constraint=ast.JoinConstraint(
                         expr=ast.CompareOperation(
-                            left=ast.Field(chain=[entity_table_name, self._ad_adset_fk_column]),
+                            left=join_key(entity_table_name, self._ad_adset_fk_column),
                             op=ast.CompareOperationOp.Eq,
-                            right=ast.Field(chain=[config.adset_table.name, self._adset_pk_column]),
+                            right=join_key(config.adset_table.name, self._adset_pk_column),
                         ),
                         constraint_type="ON",
                     ),
@@ -636,9 +648,9 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
                     join_type="LEFT JOIN",
                     constraint=ast.JoinConstraint(
                         expr=ast.CompareOperation(
-                            left=ast.Field(chain=[campaign_join_table, campaign_fk]),
+                            left=join_key(campaign_join_table, campaign_fk),
                             op=ast.CompareOperationOp.Eq,
-                            right=ast.Field(chain=[config.campaign_table.name, self._campaign_pk_column]),
+                            right=join_key(config.campaign_table.name, self._campaign_pk_column),
                         ),
                         constraint_type="ON",
                     ),
@@ -833,4 +845,81 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
             error_msg = f"Query generation error: {str(e)}"
             self.logger.error("Query generation failed", error=error_msg, exc_info=True)
             self._log_query_generation(False, error_msg)
+            return None
+
+    def _cost_date_expr(self) -> ast.Expr:
+        """Per-day cost date (`toDate` of the source's stats date column) for the materialized table."""
+        stats_table_name = self._level_tables().stats_table.name
+        return ast.Call(name="toDate", args=[ast.Field(chain=[stats_table_name, self._stats_date_column])])
+
+    def _materialization_date_where(self) -> ast.Expr:
+        """Date filter using `time_window_min`/`time_window_max` placeholders so the lazy framework
+        resolves the per-job window (unlike the read-time WHERE, which bakes in the request's range).
+        The window is half-open `[min, max)` to match the framework convention — using `<=` on the
+        upper bound double-counts boundary days that fall in two adjacent job windows."""
+        stats_table_name = self._level_tables().stats_table.name
+        date_field = ast.Call(name="toDateTime", args=[ast.Field(chain=[stats_table_name, self._stats_date_column])])
+        return ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    left=date_field,
+                    op=ast.CompareOperationOp.GtEq,
+                    right=ast.Placeholder(expr=ast.Field(chain=["time_window_min"])),
+                ),
+                ast.CompareOperation(
+                    left=date_field,
+                    op=ast.CompareOperationOp.Lt,
+                    right=ast.Placeholder(expr=ast.Field(chain=["time_window_max"])),
+                ),
+            ]
+        )
+
+    def build_materialization_query(self, source_id: str) -> Optional[ast.SelectQuery]:
+        """Fine-grain (per-day) SELECT for materializing this source's cost rows into
+        `marketing_costs_preaggregated`. Reuses the normalized metric/dimension exprs (currency,
+        micros, JSON conversions) but re-aliases to the table schema, adds `source_id` + per-day
+        `cost_date`, and filters by `time_window` placeholders so the lazy framework runs it per job.
+
+        The caller sets `context.drill_down_level` to the source's finest supported level
+        (AD > AD_GROUP > CAMPAIGN); levels the source doesn't reach emit '-' for ad_group/ad so the
+        table schema stays stable. `match_key` is always the campaign match field (not the read-time
+        `_get_match_key_expr`, which blanks at AD levels) so the read-side conversion-goal join works
+        after aggregating back up to campaign level.
+        """
+        try:
+            level = self.context.drill_down_level
+            at_ad_group = level in (MarketingAnalyticsDrillDownLevel.AD_GROUP, MarketingAnalyticsDrillDownLevel.AD)
+            at_ad = level == MarketingAnalyticsDrillDownLevel.AD
+            empty = ast.Constant(value="-")
+
+            select_columns: list[ast.Expr] = [
+                ast.Alias(alias="source_id", expr=ast.Constant(value=source_id)),
+                ast.Alias(alias="source_name", expr=self._get_source_name_field()),
+                # grain = the level this row was materialized at (campaign/ad_group/ad); the read-side
+                # picks the matching grain per drill-down so each level keeps the platform's own stats
+                # (a campaign-stats row is NOT the roll-up of its ads).
+                ast.Alias(alias="grain", expr=ast.Constant(value=str(level.value))),
+                ast.Alias(alias="match_key", expr=self.get_campaign_match_field()),
+                ast.Alias(alias="campaign_id", expr=self._get_campaign_id_field()),
+                ast.Alias(alias="campaign_name", expr=self._get_campaign_name_field()),
+                ast.Alias(alias="ad_group_id", expr=self._get_ad_group_id_field() if at_ad_group else empty),
+                ast.Alias(alias="ad_group_name", expr=self._get_ad_group_name_field() if at_ad_group else empty),
+                ast.Alias(alias="ad_id", expr=self._get_ad_id_field() if at_ad else empty),
+                ast.Alias(alias="ad_name", expr=self._get_ad_name_field() if at_ad else empty),
+                ast.Alias(alias="cost_date", expr=self._cost_date_expr()),
+                ast.Alias(alias="cost", expr=self._get_cost_field()),
+                ast.Alias(alias="clicks", expr=self._get_clicks_field()),
+                ast.Alias(alias="impressions", expr=self._get_impressions_field()),
+                ast.Alias(alias="reported_conversions", expr=self._get_reported_conversion_field()),
+                ast.Alias(alias="reported_conversion_value", expr=self._get_reported_conversion_value_field()),
+            ]
+            group_by = [*self._get_group_by(), self._cost_date_expr()]
+            return ast.SelectQuery(
+                select=select_columns,
+                select_from=self._get_from(),
+                where=self._materialization_date_where(),
+                group_by=group_by,
+            )
+        except Exception as e:
+            self.logger.error("Materialization query generation failed", error=str(e), exc_info=True)
             return None
