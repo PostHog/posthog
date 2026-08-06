@@ -14,7 +14,7 @@ import { Params } from 'scenes/sceneTypes'
 
 import { BillingPeriod, BillingProductV2AddonType, BillingProductV2Type, BillingTierType, BillingType } from '~/types'
 
-import { USAGE_TYPES } from './constants'
+import { SPEND_TYPES, USAGE_TYPES } from './constants'
 import type { BillingFilters, BillingSeriesForCsv, BillingUsageInteractionProps, BuildBillingCsvOptions } from './types'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
@@ -509,6 +509,11 @@ export function buildTrackingProperties(
 // The Replay vision entry stays hidden until the replay-vision flag rolls out with the pricing launch
 export const getUsageTypeOptions = (featureFlags: FeatureFlagsSet): { key: string; label: string }[] =>
     USAGE_TYPES.filter(
+        (opt) => opt.value !== 'replay_vision_credits_used_in_period' || featureFlags[FEATURE_FLAGS.REPLAY_VISION]
+    ).map((opt) => ({ key: opt.value, label: opt.label }))
+
+export const getSpendTypeOptions = (featureFlags: FeatureFlagsSet): { key: string; label: string }[] =>
+    SPEND_TYPES.filter(
         (opt) => opt.value !== 'replay_vision_credits_used_in_period' || featureFlags[FEATURE_FLAGS.REPLAY_VISION]
     ).map((opt) => ({ key: opt.value, label: opt.label }))
 
