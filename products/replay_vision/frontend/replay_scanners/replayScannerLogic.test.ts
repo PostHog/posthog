@@ -447,6 +447,12 @@ describe('replayScannerLogic', () => {
             expect(buildObservationListParams({ ...emptyValues })).toEqual({})
         })
 
+        it('passes the backfill filter as backfill_id', () => {
+            expect(buildObservationListParams({ ...emptyValues, observationBackfillFilter: 'bf-1' })).toEqual({
+                backfill_id: 'bf-1',
+            })
+        })
+
         it('passes limit and offset only when offset is positive', () => {
             expect(buildObservationListParams({ ...emptyValues }, 50, 0)).toEqual({ limit: 50 })
             expect(buildObservationListParams({ ...emptyValues }, 50, 100)).toEqual({ limit: 50, offset: 100 })

@@ -218,7 +218,7 @@ class ReplayScannerBackfillViewSet(
         window_start, window_end = self._clamped_window(scanner, window.validated_data)
         total = self._enumerate(scanner, window_start, window_end)
         price = observation_credits_for_model(scanner.model)
-        quota = compute_quota_snapshot(self.organization_id)
+        quota = compute_quota_snapshot(scanner.team.organization_id)
         response = BackfillEstimateResponseSerializer(
             {
                 "total_sessions": total,
