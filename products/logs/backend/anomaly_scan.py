@@ -486,6 +486,14 @@ def _replay(
         if not accumulator.ever_opened or accumulator.opened_at is None or accumulator.last_kind is None:
             continue
         snapshot = accumulator.snapshot
+        # A resolved issue's evidence ends at its resolution: sub-threshold blips
+        # inside the reopen window that never cleared the bar are not part of it,
+        # so they must not push last_anomalous_at past resolved_at. A reopen
+        # clears resolved_at, so an active issue keeps its full evidence.
+        resolved_at = accumulator.resolved_at
+        anomalous_times = accumulator.anomalous_times
+        if resolved_at is not None:
+            anomalous_times = [t for t in anomalous_times if t <= resolved_at]
         issues.append(
             ScanIssue(
                 direction=accumulator.fingerprint.direction,
@@ -494,9 +502,9 @@ def _replay(
                 # A None snapshot after an open means a post-resolution blip fizzled.
                 state=snapshot.state if snapshot is not None else IssueState.RESOLVED,
                 opened_at=accumulator.opened_at,
-                last_anomalous_at=accumulator.anomalous_times[-1],
-                resolved_at=accumulator.resolved_at,
-                anomalous_bucket_times=accumulator.anomalous_times,
+                last_anomalous_at=anomalous_times[-1],
+                resolved_at=resolved_at,
+                anomalous_bucket_times=anomalous_times,
             )
         )
     issues.sort(key=lambda issue: issue.opened_at)

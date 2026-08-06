@@ -8,6 +8,7 @@ from typing import Any, NoReturn, Optional
 from django.db import InterfaceError, OperationalError
 from django.db.models import Prefetch
 
+from requests.exceptions import HTTPError
 from structlog.contextvars import bind_contextvars
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
@@ -387,6 +388,16 @@ async def _handle_import_error(
     # contract by type so every REST-based source stops immediately, rather than depending on each
     # source listing the message in get_non_retryable_errors.
     if isinstance(error, RESTClientNonRetryableError):
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
+
+    # A 404 from the shared REST engine's fallback `raise_for_status()` path means the configured
+    # endpoint/resource doesn't exist — every retry replays the identical request against the same
+    # dead URL. Unlike 401 (a token needing refresh, which the REST engine's own retry re-mints) or
+    # 429/5xx (already RESTClientRetryableError), there's no self-recovering path for a 404, so
+    # classify it here rather than depending on each REST-based source listing it.
+    if isinstance(error, HTTPError) and error.response is not None and error.response.status_code == 404:
         await handle_non_retryable_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
