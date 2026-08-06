@@ -132,9 +132,19 @@ class TestUsageEndpoint:
         assert data["billing_period_end"] is not None
         assert data["billing_period_end"].startswith("2026-05-31")
 
-    def test_org_usage_billing_period_wins_without_a_seat(self, authenticated_usage_client: TestClient) -> None:
+    def test_org_usage_billing_period_wins_over_seat_period(self, authenticated_usage_client: TestClient) -> None:
         app = authenticated_usage_client.app
-        app.state.plan_resolver.get_plan = AsyncMock(return_value=PlanInfo(plan_key=None, seat_created_at=None))
+        app.state.plan_resolver.get_plan = AsyncMock(
+            return_value=PlanInfo(
+                plan_key="posthog-code-200-20260301",
+                seat_created_at="2026-01-01T00:00:00+00:00",
+                billing_period=BillingPeriod(
+                    current_period_start="2026-07-16T00:00:00Z",
+                    current_period_end="2026-08-16T00:00:00Z",
+                    interval="month",
+                ),
+            )
+        )
         app.state.billing_period_resolver.get_period = AsyncMock(
             return_value=OrganizationBillingPeriod(
                 current_period_start="2026-07-09T00:00:00Z",

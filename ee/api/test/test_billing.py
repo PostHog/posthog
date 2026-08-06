@@ -19,7 +19,9 @@ from rest_framework import status
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache, get_cached_instance_license
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from ee.api.billing import BillingUsageRequestSerializer
 from ee.api.test.base import APILicensedTest
@@ -1245,6 +1247,29 @@ class TestBillingPeriodAPI(APILicensedTest):
                 "current_period_end": "2026-08-09T00:00:00Z",
             },
         )
+
+    def test_gateway_scoped_personal_api_key_can_read_team_period(self):
+        self.organization.usage = {
+            "period": ["2026-07-09T00:00:00Z", "2026-08-09T00:00:00Z"],
+        }
+        self.organization.save()
+        self.client.logout()
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="billing-period-test",
+            user=self.user,
+            secure_value=hash_key_value(raw_key),
+            scopes=["llm_gateway:read"],
+            scoped_teams=[self.team.pk],
+        )
+
+        response = self.client.get(
+            f"/api/billing/period/?team_id={self.team.pk}",
+            headers={"authorization": f"Bearer {raw_key}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["current_period_end"], "2026-08-09T00:00:00Z")
 
 
 class TestBillingPermissionDeniedForMembers(APILicensedTest):
