@@ -11,7 +11,7 @@ use dashmap::DashMap;
 
 use common::{
     create_leader_client, create_test_kafka, seed_person, test_cached_person, test_recovery,
-    CHANGELOG_TOPIC, NUM_PARTITIONS,
+    unique_team_id, CHANGELOG_TOPIC, NUM_PARTITIONS,
 };
 use personhog_common::partitioning::partition_for_person;
 use personhog_leader::cache::{CachedPerson, DirtyIndex, PartitionedCache};
@@ -36,8 +36,6 @@ use tonic::transport::Server;
 use tonic::{Code, Request};
 use uuid::Uuid;
 
-const TEAM_ID: i64 = 1;
-
 fn with_partition<T>(req: T, partition: u32) -> Request<T> {
     let mut request = Request::new(req);
     request
@@ -46,18 +44,18 @@ fn with_partition<T>(req: T, partition: u32) -> Request<T> {
     request
 }
 
-fn fence_request(person_id: i64, op_id: &Uuid) -> FencePersonRequest {
+fn fence_request(team_id: i64, person_id: i64, op_id: &Uuid) -> FencePersonRequest {
     FencePersonRequest {
-        team_id: TEAM_ID,
+        team_id,
         person_id,
         op_id: op_id.to_string(),
         op_type: LifecycleOpType::Delete.into(),
     }
 }
 
-fn update_request(person_id: i64) -> UpdatePersonPropertiesRequest {
+fn update_request(team_id: i64, person_id: i64) -> UpdatePersonPropertiesRequest {
     UpdatePersonPropertiesRequest {
-        team_id: TEAM_ID,
+        team_id,
         person_id,
         event_name: "$set".to_string(),
         set_properties: serde_json::to_vec(&serde_json::json!({"name": "after-fence"})).unwrap(),
@@ -71,6 +69,7 @@ fn update_request(person_id: i64) -> UpdatePersonPropertiesRequest {
 /// id, and the consumer-facing bootstrap for changelog assertions.
 struct FenceHarness {
     client: PersonHogLeaderClient<Channel>,
+    team_id: i64,
     partition: u32,
     person_id: i64,
     bootstrap: String,
@@ -81,12 +80,17 @@ struct FenceHarness {
         rdkafka::mocking::MockCluster<'static, rdkafka::producer::DefaultProducerContext>,
 }
 
-async fn start_fence_harness(seed: CachedPerson, fallback: Option<PgFallback>) -> FenceHarness {
+async fn start_fence_harness(mut seed: CachedPerson, fallback: Option<PgFallback>) -> FenceHarness {
     let (mock_cluster, kafka_producer) = create_test_kafka().await;
     let bootstrap = mock_cluster.bootstrap_servers();
 
+    // Every harness gets its own team, so concurrent tests — and leftover
+    // rows from a failed earlier run — can never stomp on each other's
+    // lifecycle marks.
+    let team_id = unique_team_id();
+    seed.team_id = team_id;
     let person_id = seed.id;
-    let partition = partition_for_person(TEAM_ID, person_id, NUM_PARTITIONS);
+    let partition = partition_for_person(team_id, person_id, NUM_PARTITIONS);
 
     let cache = Arc::new(PartitionedCache::new(100));
     let inflight = Arc::new(InflightTracker::new());
@@ -131,6 +135,7 @@ async fn start_fence_harness(seed: CachedPerson, fallback: Option<PgFallback>) -
 
     FenceHarness {
         client: create_leader_client(addr).await,
+        team_id,
         partition,
         person_id,
         bootstrap,
@@ -179,6 +184,7 @@ fn changelog_records(harness: &FenceHarness) -> Vec<Person> {
 #[tokio::test]
 async fn fencing_seals_and_blocks_writes_until_an_aborted_release() {
     let mut harness = start_fence_harness(test_cached_person(), None).await;
+    let team_id = harness.team_id;
     let partition = harness.partition;
     let person_id = harness.person_id;
     let op = Uuid::now_v7();
@@ -187,7 +193,10 @@ async fn fencing_seals_and_blocks_writes_until_an_aborted_release() {
     // state — fencing produces nothing and does not advance the version.
     let sealed = harness
         .client
-        .fence_person(with_partition(fence_request(person_id, &op), partition))
+        .fence_person(with_partition(
+            fence_request(team_id, person_id, &op),
+            partition,
+        ))
         .await
         .expect("fence succeeds")
         .into_inner()
@@ -201,7 +210,10 @@ async fn fencing_seals_and_blocks_writes_until_an_aborted_release() {
     // Writes are rejected with the typed error while the fence holds.
     let status = harness
         .client
-        .update_person_properties(with_partition(update_request(person_id), partition))
+        .update_person_properties(with_partition(
+            update_request(team_id, person_id),
+            partition,
+        ))
         .await
         .expect_err("fenced person rejects writes");
     assert_eq!(status.code(), Code::FailedPrecondition);
@@ -219,7 +231,7 @@ async fn fencing_seals_and_blocks_writes_until_an_aborted_release() {
         .client
         .get_person(with_partition(
             GetPersonRequest {
-                team_id: TEAM_ID,
+                team_id,
                 person_id,
                 read_options: None,
             },
@@ -233,7 +245,10 @@ async fn fencing_seals_and_blocks_writes_until_an_aborted_release() {
     // seal step is safe to repeat); a different op is rejected.
     let resealed = harness
         .client
-        .fence_person(with_partition(fence_request(person_id, &op), partition))
+        .fence_person(with_partition(
+            fence_request(team_id, person_id, &op),
+            partition,
+        ))
         .await
         .expect("same-op re-fence succeeds")
         .into_inner()
@@ -248,7 +263,7 @@ async fn fencing_seals_and_blocks_writes_until_an_aborted_release() {
     let status = harness
         .client
         .fence_person(with_partition(
-            fence_request(person_id, &other_op),
+            fence_request(team_id, person_id, &other_op),
             partition,
         ))
         .await
@@ -261,7 +276,7 @@ async fn fencing_seals_and_blocks_writes_until_an_aborted_release() {
         .client
         .release_fence(with_partition(
             ReleaseFenceRequest {
-                team_id: TEAM_ID,
+                team_id,
                 person_id,
                 person_uuid: String::new(),
                 op_id: op.to_string(),
@@ -276,7 +291,10 @@ async fn fencing_seals_and_blocks_writes_until_an_aborted_release() {
 
     let updated = harness
         .client
-        .update_person_properties(with_partition(update_request(person_id), partition))
+        .update_person_properties(with_partition(
+            update_request(team_id, person_id),
+            partition,
+        ))
         .await
         .expect("writes resume after the aborted release")
         .into_inner();
@@ -299,6 +317,7 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
         }),
     )
     .await;
+    let team_id = harness.team_id;
     let partition = harness.partition;
     let person_id = harness.person_id;
     let person_uuid = test_cached_person().uuid;
@@ -311,7 +330,7 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
          VALUES ($1, 'delete', $2, 'sealed', '{}'::jsonb)",
     )
     .bind(op)
-    .bind(TEAM_ID as i32)
+    .bind(team_id as i32)
     .execute(&pool)
     .await
     .expect("insert op");
@@ -320,7 +339,7 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
          VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed')",
     )
     .bind(op)
-    .bind(TEAM_ID as i32)
+    .bind(team_id as i32)
     .bind(person_id)
     .execute(&pool)
     .await
@@ -328,7 +347,10 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
 
     let sealed = harness
         .client
-        .fence_person(with_partition(fence_request(person_id, &op), partition))
+        .fence_person(with_partition(
+            fence_request(team_id, person_id, &op),
+            partition,
+        ))
         .await
         .expect("fence succeeds")
         .into_inner()
@@ -343,6 +365,7 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
         &harness.cache,
         partition,
         CachedPerson {
+            team_id,
             version: sealed_version + 3,
             ..test_cached_person()
         },
@@ -352,7 +375,7 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
         .client
         .release_fence(with_partition(
             ReleaseFenceRequest {
-                team_id: TEAM_ID,
+                team_id,
                 person_id,
                 person_uuid: person_uuid.clone(),
                 op_id: op.to_string(),
@@ -388,10 +411,7 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
     // not-found from memory — no changelog recovery, no PG fallback.
     match harness.cache.get(
         partition,
-        &personhog_leader::cache::PersonCacheKey {
-            team_id: TEAM_ID,
-            person_id,
-        },
+        &personhog_leader::cache::PersonCacheKey { team_id, person_id },
     ) {
         personhog_leader::cache::CacheLookup::Found(entry) => {
             assert!(entry.is_deleted, "the cached entry is the death document")
@@ -402,7 +422,7 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
         .client
         .get_person(with_partition(
             GetPersonRequest {
-                team_id: TEAM_ID,
+                team_id,
                 person_id,
                 read_options: None,
             },
@@ -419,7 +439,7 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
         .client
         .release_fence(with_partition(
             ReleaseFenceRequest {
-                team_id: TEAM_ID,
+                team_id,
                 person_id,
                 person_uuid,
                 op_id: op.to_string(),
@@ -446,10 +466,7 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
 #[tokio::test]
 async fn a_stub_sealed_at_version_zero_can_be_released() {
     let pool = common::create_persons_pool().await;
-    // A distinct person id: live marks are unique per (team, person), so
-    // sharing 42 with the sibling committed-release test would collide.
     let stub = CachedPerson {
-        id: 4200,
         version: 0,
         ..test_cached_person()
     };
@@ -461,28 +478,17 @@ async fn a_stub_sealed_at_version_zero_can_be_released() {
         }),
     )
     .await;
+    let team_id = harness.team_id;
     let partition = harness.partition;
     let person_id = harness.person_id;
     let op = Uuid::now_v7();
-
-    // A failed earlier run leaves its live mark behind (cleanup runs only
-    // on success), and the live-mark unique index would refuse a second.
-    sqlx::query(
-        "DELETE FROM lifecycle_op WHERE op_id IN \
-         (SELECT op_id FROM lifecycle_op_person WHERE team_id = $1 AND person_id = $2)",
-    )
-    .bind(TEAM_ID as i32)
-    .bind(person_id)
-    .execute(&pool)
-    .await
-    .expect("clear stale marks");
 
     sqlx::query(
         "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request) \
          VALUES ($1, 'delete', $2, 'sealed', '{}'::jsonb)",
     )
     .bind(op)
-    .bind(TEAM_ID as i32)
+    .bind(team_id as i32)
     .execute(&pool)
     .await
     .expect("insert op");
@@ -491,7 +497,7 @@ async fn a_stub_sealed_at_version_zero_can_be_released() {
          VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed')",
     )
     .bind(op)
-    .bind(TEAM_ID as i32)
+    .bind(team_id as i32)
     .bind(person_id)
     .execute(&pool)
     .await
@@ -499,7 +505,10 @@ async fn a_stub_sealed_at_version_zero_can_be_released() {
 
     let sealed = harness
         .client
-        .fence_person(with_partition(fence_request(person_id, &op), partition))
+        .fence_person(with_partition(
+            fence_request(team_id, person_id, &op),
+            partition,
+        ))
         .await
         .expect("fence succeeds")
         .into_inner()
@@ -511,7 +520,7 @@ async fn a_stub_sealed_at_version_zero_can_be_released() {
         .client
         .release_fence(with_partition(
             ReleaseFenceRequest {
-                team_id: TEAM_ID,
+                team_id,
                 person_id,
                 person_uuid: sealed.uuid.clone(),
                 op_id: op.to_string(),
@@ -543,18 +552,15 @@ async fn a_stub_sealed_at_version_zero_can_be_released() {
 #[tokio::test]
 async fn a_ghost_fence_heals_after_a_rejected_write() {
     let pool = common::create_persons_pool().await;
-    let seed = CachedPerson {
-        id: 4300,
-        ..test_cached_person()
-    };
     let mut harness = start_fence_harness(
-        seed,
+        test_cached_person(),
         Some(PgFallback {
             pool: pool.clone(),
             table: "posthog_person".to_string(),
         }),
     )
     .await;
+    let team_id = harness.team_id;
     let partition = harness.partition;
     let person_id = harness.person_id;
     let op = Uuid::now_v7();
@@ -564,7 +570,7 @@ async fn a_ghost_fence_heals_after_a_rejected_write() {
          VALUES ($1, 'delete', $2, 'sealed', '{}'::jsonb)",
     )
     .bind(op)
-    .bind(TEAM_ID as i32)
+    .bind(team_id as i32)
     .execute(&pool)
     .await
     .expect("insert op");
@@ -573,7 +579,7 @@ async fn a_ghost_fence_heals_after_a_rejected_write() {
          VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed')",
     )
     .bind(op)
-    .bind(TEAM_ID as i32)
+    .bind(team_id as i32)
     .bind(person_id)
     .execute(&pool)
     .await
@@ -581,7 +587,10 @@ async fn a_ghost_fence_heals_after_a_rejected_write() {
 
     harness
         .client
-        .fence_person(with_partition(fence_request(person_id, &op), partition))
+        .fence_person(with_partition(
+            fence_request(team_id, person_id, &op),
+            partition,
+        ))
         .await
         .expect("fence succeeds");
 
@@ -597,7 +606,10 @@ async fn a_ghost_fence_heals_after_a_rejected_write() {
     // retry then goes through once the background check drops the fence.
     let status = harness
         .client
-        .update_person_properties(with_partition(update_request(person_id), partition))
+        .update_person_properties(with_partition(
+            update_request(team_id, person_id),
+            partition,
+        ))
         .await
         .expect_err("the first write still bounces on the ghost");
     assert_eq!(status.code(), Code::FailedPrecondition);
@@ -606,7 +618,10 @@ async fn a_ghost_fence_heals_after_a_rejected_write() {
     loop {
         match harness
             .client
-            .update_person_properties(with_partition(update_request(person_id), partition))
+            .update_person_properties(with_partition(
+                update_request(team_id, person_id),
+                partition,
+            ))
             .await
         {
             Ok(_) => break,
@@ -637,6 +652,7 @@ async fn a_committed_release_without_a_live_mark_is_refused() {
         }),
     )
     .await;
+    let team_id = harness.team_id;
     let partition = harness.partition;
     let person_id = harness.person_id;
     let op = Uuid::now_v7();
@@ -644,7 +660,10 @@ async fn a_committed_release_without_a_live_mark_is_refused() {
     // Fencing succeeds — the fence RPC does not verify the op…
     let sealed = harness
         .client
-        .fence_person(with_partition(fence_request(person_id, &op), partition))
+        .fence_person(with_partition(
+            fence_request(team_id, person_id, &op),
+            partition,
+        ))
         .await
         .expect("fence succeeds")
         .into_inner()
@@ -657,7 +676,7 @@ async fn a_committed_release_without_a_live_mark_is_refused() {
         .client
         .release_fence(with_partition(
             ReleaseFenceRequest {
-                team_id: TEAM_ID,
+                team_id,
                 person_id,
                 person_uuid: test_cached_person().uuid,
                 op_id: op.to_string(),
@@ -677,7 +696,7 @@ async fn a_committed_release_without_a_live_mark_is_refused() {
         .client
         .get_person(with_partition(
             GetPersonRequest {
-                team_id: TEAM_ID,
+                team_id,
                 person_id,
                 read_options: None,
             },
@@ -695,18 +714,19 @@ async fn a_committed_release_without_a_live_mark_is_refused() {
 #[tokio::test]
 async fn the_fence_rpcs_refuse_a_partition_this_pod_does_not_serve() {
     let mut harness = start_fence_harness(test_cached_person(), None).await;
+    let team_id = harness.team_id;
     // A person on a partition the harness never created.
     let mut foreign_id: i64 = harness.person_id + 1;
-    while partition_for_person(TEAM_ID, foreign_id, NUM_PARTITIONS) == harness.partition {
+    while partition_for_person(team_id, foreign_id, NUM_PARTITIONS) == harness.partition {
         foreign_id += 1;
     }
-    let foreign_partition = partition_for_person(TEAM_ID, foreign_id, NUM_PARTITIONS);
+    let foreign_partition = partition_for_person(team_id, foreign_id, NUM_PARTITIONS);
     let op = Uuid::now_v7();
 
     let status = harness
         .client
         .fence_person(with_partition(
-            fence_request(foreign_id, &op),
+            fence_request(team_id, foreign_id, &op),
             foreign_partition,
         ))
         .await
@@ -717,7 +737,7 @@ async fn the_fence_rpcs_refuse_a_partition_this_pod_does_not_serve() {
         .client
         .release_fence(with_partition(
             ReleaseFenceRequest {
-                team_id: TEAM_ID,
+                team_id,
                 person_id: foreign_id,
                 person_uuid: String::new(),
                 op_id: op.to_string(),
@@ -740,6 +760,7 @@ async fn the_fence_rpcs_refuse_a_partition_this_pod_does_not_serve() {
 #[tokio::test]
 async fn fencing_is_refused_while_the_partition_is_handoff_fenced() {
     let mut harness = start_fence_harness(test_cached_person(), None).await;
+    let team_id = harness.team_id;
     let partition = harness.partition;
     let person_id = harness.person_id;
     let op = Uuid::now_v7();
@@ -747,7 +768,10 @@ async fn fencing_is_refused_while_the_partition_is_handoff_fenced() {
     harness.inflight.fence(partition);
     let status = harness
         .client
-        .fence_person(with_partition(fence_request(person_id, &op), partition))
+        .fence_person(with_partition(
+            fence_request(team_id, person_id, &op),
+            partition,
+        ))
         .await
         .expect_err("a handoff-fenced partition refuses FencePerson");
     assert_eq!(status.code(), Code::FailedPrecondition);
@@ -760,7 +784,10 @@ async fn fencing_is_refused_while_the_partition_is_handoff_fenced() {
     harness.inflight.unfence(partition);
     harness
         .client
-        .fence_person(with_partition(fence_request(person_id, &op), partition))
+        .fence_person(with_partition(
+            fence_request(team_id, person_id, &op),
+            partition,
+        ))
         .await
         .expect("fencing resumes once the partition is re-admitted");
 }
@@ -776,11 +803,12 @@ async fn a_destroyed_person_rejects_fencing_and_writes_with_not_found() {
     )
     .await;
     let mut client = harness.client.clone();
+    let team_id = harness.team_id;
     let op = Uuid::now_v7();
 
     let status = client
         .fence_person(with_partition(
-            fence_request(harness.person_id, &op),
+            fence_request(team_id, harness.person_id, &op),
             harness.partition,
         ))
         .await
@@ -789,7 +817,7 @@ async fn a_destroyed_person_rejects_fencing_and_writes_with_not_found() {
 
     let status = client
         .update_person_properties(with_partition(
-            update_request(harness.person_id),
+            update_request(team_id, harness.person_id),
             harness.partition,
         ))
         .await
@@ -799,7 +827,7 @@ async fn a_destroyed_person_rejects_fencing_and_writes_with_not_found() {
     let status = client
         .get_person(with_partition(
             GetPersonRequest {
-                team_id: TEAM_ID,
+                team_id,
                 person_id: harness.person_id,
                 read_options: None,
             },
@@ -819,8 +847,7 @@ async fn the_takeover_scan_rebuilds_exactly_the_partitions_live_fences() {
     use personhog_leader::fence::{drop_partition_fences, rebuild_partition_fences, FenceMap};
 
     let pool = common::create_persons_pool().await;
-    // A team id unlikely to collide with other tests' lifecycle rows.
-    let team_id: i64 = 910_000_000 + (std::process::id() as i64 % 1_000_000);
+    let team_id = unique_team_id();
     let op_id = Uuid::now_v7();
 
     sqlx::query(
@@ -939,6 +966,7 @@ async fn the_takeover_scan_rebuilds_exactly_the_partitions_live_fences() {
 async fn at_capacity_new_fences_shed_but_reseals_succeed() {
     use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeader;
 
+    let team_id = unique_team_id();
     let cache = Arc::new(PartitionedCache::new(100));
     let (_mock_cluster, kafka_producer) = create_test_kafka().await;
     let service = PersonHogLeaderService::new(
@@ -962,13 +990,14 @@ async fn at_capacity_new_fences_shed_but_reseals_succeed() {
 
     let (first_id, second_id) = (5000, 5001);
     for id in [first_id, second_id] {
-        let partition = partition_for_person(TEAM_ID, id, NUM_PARTITIONS);
+        let partition = partition_for_person(team_id, id, NUM_PARTITIONS);
         cache.create_partition(partition);
         seed_person(
             &cache,
             partition,
             CachedPerson {
                 id,
+                team_id,
                 ..test_cached_person()
             },
         );
@@ -976,8 +1005,8 @@ async fn at_capacity_new_fences_shed_but_reseals_succeed() {
     let (first_op, second_op) = (Uuid::now_v7(), Uuid::now_v7());
 
     let fence = |person_id: i64, op: Uuid| {
-        let partition = partition_for_person(TEAM_ID, person_id, NUM_PARTITIONS);
-        with_partition(fence_request(person_id, &op), partition)
+        let partition = partition_for_person(team_id, person_id, NUM_PARTITIONS);
+        with_partition(fence_request(team_id, person_id, &op), partition)
     };
 
     service

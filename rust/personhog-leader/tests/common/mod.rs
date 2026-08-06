@@ -538,6 +538,27 @@ pub async fn create_leader_client(addr: SocketAddr) -> PersonHogLeaderClient<Cha
     PersonHogLeaderClient::connect(url).await.unwrap()
 }
 
+/// A team id no other test shares — not within this run (a counter) and
+/// not with leftover rows from a failed earlier run (seconds-since-epoch
+/// salt). Tests that write shared Postgres state (lifecycle marks, person
+/// rows) key it by team, so a unique team makes them collision-free and
+/// self-contained with no cleanup ordering to get right. Stays inside the
+/// team_id column's integer range.
+#[allow(dead_code)]
+pub fn unique_team_id() -> i64 {
+    use std::sync::atomic::{AtomicI64, Ordering};
+    static NEXT: AtomicI64 = AtomicI64::new(0);
+    static BASE: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
+    let base = *BASE.get_or_init(|| {
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock before epoch")
+            .as_secs() as i64;
+        (secs % 1_000_000) * 1_000
+    });
+    base + NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
 pub fn seed_person(cache: &PartitionedCache, partition: u32, person: CachedPerson) {
     let key = PersonCacheKey {
         team_id: person.team_id,
