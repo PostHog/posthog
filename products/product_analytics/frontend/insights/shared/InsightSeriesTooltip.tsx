@@ -131,7 +131,7 @@ export function SeriesLabel({
     const seriesLetter =
         seriesIdentification === 'letter-and-name' ? (
             <SeriesGlyph
-                className="mr-1 shrink-0"
+                className="mr-1 shrink-0 size-3.5 border text-[0.5rem]"
                 // The tooltip surface sets its own text color and stays light even in dark
                 // mode, so theme vars like --text-3000 can end up invisible on it — inherit
                 // the surface's ink instead.
