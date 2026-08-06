@@ -1208,6 +1208,7 @@ class ExternalDataSourceType(StrEnum):
     POLAR = "Polar"
     GOOGLE_ADS = "GoogleAds"
     GOOGLE_SEARCH_CONSOLE = "GoogleSearchConsole"
+    GOOGLE_TAG_MANAGER = "GoogleTagManager"
     META_ADS = "MetaAds"
     KLAVIYO = "Klaviyo"
     MAILCHIMP = "Mailchimp"

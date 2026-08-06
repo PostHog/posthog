@@ -7420,6 +7420,7 @@ export const externalDataSources = [
     'Polar',
     'GoogleAds',
     'GoogleSearchConsole',
+    'GoogleTagManager',
     'MetaAds',
     'Klaviyo',
     'Mailchimp',

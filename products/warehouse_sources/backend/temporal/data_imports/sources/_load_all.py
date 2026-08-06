@@ -521,6 +521,7 @@ from .google_pagespeed_insights.source import GooglePageSpeedInsightsSource
 from .google_play_console.source import GooglePlayConsoleSource
 from .google_search_console.source import GoogleSearchConsoleSource
 from .google_sheets.source import GoogleSheetsSource
+from .google_tag_manager.source import GoogleTagManagerSource
 from .google_tasks.source import GoogleTasksSource
 from .google_webfonts.source import GoogleWebfontsSource
 from .google_workspace_admin_reports.source import GoogleWorkspaceAdminReportsSource

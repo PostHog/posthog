@@ -61,6 +61,7 @@ class ExternalDataSourceType(models.TextChoices):
     CLERK = "Clerk", "Clerk"
     GOOGLEADS = "GoogleAds", "GoogleAds"
     GOOGLESEARCHCONSOLE = "GoogleSearchConsole", "GoogleSearchConsole"
+    GOOGLETAGMANAGER = "GoogleTagManager", "GoogleTagManager"
     TEMPORALIO = "TemporalIO", "TemporalIO"
     DOIT = "DoIt", "DoIt"
     GOOGLESHEETS = "GoogleSheets", "GoogleSheets"
