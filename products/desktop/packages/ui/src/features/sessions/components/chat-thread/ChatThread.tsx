@@ -1143,6 +1143,7 @@ interface SharedChatThreadProps {
   task?: Task;
   taskId?: string;
   footerState?: Omit<BuildResult, "items">;
+  hasPendingPermission?: boolean;
 }
 
 export interface ChatThreadProps extends SharedChatThreadProps {
@@ -1216,6 +1217,7 @@ function ChatThreadRenderer({
   task,
   taskId,
   footerState,
+  hasPendingPermission,
   promptRecallRef,
 }: ChatThreadRendererProps) {
   const diffWorkerFactory = useService<DiffWorkerFactory>(DIFF_WORKER_FACTORY);
@@ -1342,6 +1344,7 @@ function ChatThreadRenderer({
         task={task}
         taskId={taskId}
         footerState={footerState}
+        hasPendingPermission={hasPendingPermission}
       />
     </>
   );
