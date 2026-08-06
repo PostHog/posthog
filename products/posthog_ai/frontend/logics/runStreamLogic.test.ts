@@ -860,6 +860,34 @@ describe('runStreamLogic', () => {
                 expect.objectContaining({ status: 'failed', output: 'b1b2' })
             )
         })
+
+        it('keeps the thread items reference stable across an update that adds no item', async () => {
+            // The incremental fold's contract: a `tool_call_update` mutates only the invocation map,
+            // so `threadItems` must keep its identity. A long-running tool call emits thousands of
+            // these — if the projection re-materialized the array each time (the old per-frame
+            // re-fold), the whole virtualized thread would re-render on every one.
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 't1', rawInput: {}, status: 'in_progress' })
+                )
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 't1', rawOutput: 'partial' })
+                )
+            }).toFinishAllListeners()
+
+            const itemsBefore = logic.values.threadItems
+            const invocationsBefore = logic.values.toolInvocations
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 't1', rawOutput: 'partial-more' })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems).toBe(itemsBefore)
+            expect(logic.values.toolInvocations).not.toBe(invocationsBefore)
+            expect(logic.values.toolInvocations.get('t1')?.output).toEqual('partial-more')
+        })
     })
 
     describe('pushHumanMessage', () => {

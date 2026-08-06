@@ -998,27 +998,100 @@ export interface FoldedThread {
 }
 
 /**
- * Pure projection: fold the ordered log into the rendered thread (and the tool-invocation map the
- * renderer looks up). The fold rules (chunk buffering with the tail rule, tool-update merge,
- * human-turn hoisting) are computed deterministically from the ordered log so item ids are stable
- * across re-folds. `isResumeRun` drives the §6 resume-context filter; per-entry `source` decides
- * whether a wire user turn renders (replay) or is left to the live echo (live).
+ * Incremental fold state — the running thread projection (`items` + `invocations`, what the renderer
+ * consumes) plus the per-turn bookkeeping the fold needs to keep going: the sequence counters that
+ * mint stable item ids and `rememberedHumanTexts` (see the counter below). `isResumeRun` drives the
+ * §6 resume-context filter. This is the accumulator `foldEntriesInto` folds newly appended frames
+ * onto, so the projection is derived incrementally instead of by replaying the whole log per frame.
  */
-export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: boolean }): FoldedThread {
-    let items: ThreadItem[] = []
-    const invocations = new Map<string, ToolInvocation>()
+export interface FoldState {
+    items: ThreadItem[]
+    invocations: Map<string, ToolInvocation>
     // Texts already rendered by a `_posthog/user_message`, so a later identical `user_message_chunk`
     // (resume chains persist the same turn in both forms) is consumed once rather than doubled.
-    const rememberedHumanTexts = new Map<string, number>()
-    let humanCount = 0
-    let bubbleSeq = 0
-    let separatorSeq = 0
-    let errorSeq = 0
-    let statusSeq = 0
-    let compactSeq = 0
-    let taskSeq = 0
-    let consoleSeq = 0
-    let contextSeq = 0
+    rememberedHumanTexts: Map<string, number>
+    humanCount: number
+    bubbleSeq: number
+    separatorSeq: number
+    errorSeq: number
+    statusSeq: number
+    compactSeq: number
+    taskSeq: number
+    consoleSeq: number
+    contextSeq: number
+    isResumeRun: boolean
+}
+
+export function createFoldState(isResumeRun: boolean): FoldState {
+    return {
+        items: [],
+        invocations: new Map(),
+        rememberedHumanTexts: new Map(),
+        humanCount: 0,
+        bubbleSeq: 0,
+        separatorSeq: 0,
+        errorSeq: 0,
+        statusSeq: 0,
+        compactSeq: 0,
+        taskSeq: 0,
+        consoleSeq: 0,
+        contextSeq: 0,
+        isResumeRun,
+    }
+}
+
+/**
+ * Fold newly appended frames onto a prior `FoldState`, returning the next state — the incremental
+ * heart of the projection. Copy-on-write: the previous state's arrays/maps are never mutated (a
+ * render already holds them), and a fresh copy is taken only the first time a batch actually mutates
+ * one. A batch that adds no thread item returns the *same* `items` reference, so the selectors below
+ * skip re-filtering and the virtualized thread doesn't re-render — this is what keeps a long-running
+ * tool call's thousands of `tool_call_update` frames from re-rendering the whole thread each time.
+ * Folding the raw per-frame updates in sequence yields the same invocation as folding the log-level
+ * merged entry (`mergeToolCallUpdateEntries`), so driving off the raw ingest stream matches folding
+ * the collapsed log. Item ids stay stable across appends, exactly as a full re-fold produced them.
+ */
+export function foldEntriesInto(prev: FoldState, entries: StoredEntry[]): FoldState {
+    let items = prev.items
+    let itemsOwned = false
+    // Copy-on-write handles: clone the shared collection the first time this batch mutates it, so a
+    // no-op batch keeps `prev`'s references (stable identity for the selectors) and a mutating batch
+    // never writes through to the previous state.
+    const mutItems = (): ThreadItem[] => {
+        if (!itemsOwned) {
+            items = items.slice()
+            itemsOwned = true
+        }
+        return items
+    }
+    let invocations = prev.invocations
+    let invocationsOwned = false
+    const mutInvocations = (): Map<string, ToolInvocation> => {
+        if (!invocationsOwned) {
+            invocations = new Map(invocations)
+            invocationsOwned = true
+        }
+        return invocations
+    }
+    let rememberedHumanTexts = prev.rememberedHumanTexts
+    let rememberedOwned = false
+    const mutRemembered = (): Map<string, number> => {
+        if (!rememberedOwned) {
+            rememberedHumanTexts = new Map(rememberedHumanTexts)
+            rememberedOwned = true
+        }
+        return rememberedHumanTexts
+    }
+    let humanCount = prev.humanCount
+    let bubbleSeq = prev.bubbleSeq
+    let separatorSeq = prev.separatorSeq
+    let errorSeq = prev.errorSeq
+    let statusSeq = prev.statusSeq
+    let compactSeq = prev.compactSeq
+    let taskSeq = prev.taskSeq
+    let consoleSeq = prev.consoleSeq
+    let contextSeq = prev.contextSeq
+    const isResumeRun = prev.isResumeRun
 
     const pushHuman = (text: string): void => {
         items = insertHumanMessageAtTurnStart(items, {
@@ -1027,6 +1100,7 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             text,
             complete: true,
         })
+        itemsOwned = true
     }
 
     // Surface the context blocks a send was wrapped with as copyable debug rows (gated downstream by
@@ -1037,7 +1111,7 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             if (currentTurnHasContextBlock(items, block)) {
                 continue
             }
-            items.push({ id: `context-${contextSeq++}`, type: 'debug', text: block, debugLevel: 'context' })
+            mutItems().push({ id: `context-${contextSeq++}`, type: 'debug', text: block, debugLevel: 'context' })
         }
     }
 
@@ -1050,10 +1124,10 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
         // does, since the backend drops chunks), so the bare fallback id would collide as a React key
         // across messages. The continuation lookup matches the `${id}@` prefix, so it still works.
         if (idx === -1 || items[idx].complete || idx !== items.length - 1) {
-            items.push({ id: `${id}@${bubbleSeq++}`, type, text: delta, complete: false })
+            mutItems().push({ id: `${id}@${bubbleSeq++}`, type, text: delta, complete: false })
             return
         }
-        items[idx] = { ...items[idx], text: (items[idx].text ?? '') + delta }
+        mutItems()[idx] = { ...items[idx], text: (items[idx].text ?? '') + delta }
     }
 
     const finalizeMessage = (id: string, text: string): void => {
@@ -1079,15 +1153,15 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             // No buffer to close (the common replay case: S3 drops chunks, so a finalized message
             // arrives alone). Push a fresh bubble with a unique id — a bare fallback id would collide
             // as a React key with every other no-`messageId` message in the thread.
-            items.push({ id: `${id}@${bubbleSeq++}`, type: 'assistant_message', text, complete: true })
+            mutItems().push({ id: `${id}@${bubbleSeq++}`, type: 'assistant_message', text, complete: true })
             return
         }
-        items[idx] = { ...items[idx], text, complete: true }
+        mutItems()[idx] = { ...items[idx], text, complete: true }
     }
 
     const upsertInvocationItem = (toolCallId: string): void => {
         if (!items.some((item) => item.type === 'tool_invocation' && item.toolCallId === toolCallId)) {
-            items.push({ id: toolCallId, type: 'tool_invocation', toolCallId })
+            mutItems().push({ id: toolCallId, type: 'tool_invocation', toolCallId })
         }
     }
 
@@ -1096,20 +1170,20 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
         if (!text) {
             return
         }
-        if (options.isResumeRun && isResumeContextPrompt(text)) {
+        if (isResumeRun && isResumeContextPrompt(text)) {
             return
         }
         if (!remember) {
             const seen = rememberedHumanTexts.get(text) ?? 0
             if (seen > 0) {
-                rememberedHumanTexts.set(text, seen - 1)
+                mutRemembered().set(text, seen - 1)
                 return
             }
         }
         pushHuman(text)
         pushContextBlocks(contextBlocks)
         if (remember) {
-            rememberedHumanTexts.set(text, (rememberedHumanTexts.get(text) ?? 0) + 1)
+            mutRemembered().set(text, (rememberedHumanTexts.get(text) ?? 0) + 1)
         }
     }
 
@@ -1140,7 +1214,7 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
         if (!next) {
             return
         }
-        invocations.set(next.toolCallId, next)
+        mutInvocations().set(next.toolCallId, next)
         if (!existing && !subagentParentToolCallId(update._meta)) {
             upsertInvocationItem(next.toolCallId)
         }
@@ -1156,7 +1230,7 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             continue
         }
         if (method === '_client/error') {
-            items.push({
+            mutItems().push({
                 id: `error-${errorSeq++}`,
                 type: 'error',
                 errorMessage: String(params.message ?? ''),
@@ -1165,7 +1239,7 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             continue
         }
         if (method === '_posthog/error') {
-            items.push({
+            mutItems().push({
                 id: `error-${errorSeq++}`,
                 type: 'error',
                 errorMessage: String(params.message ?? notification.error?.message ?? 'Agent error'),
@@ -1174,7 +1248,7 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             continue
         }
         if (method === '_posthog/turn_complete') {
-            items.push({ id: `turn-${separatorSeq++}`, type: 'turn_separator' })
+            mutItems().push({ id: `turn-${separatorSeq++}`, type: 'turn_separator' })
             continue
         }
         if (method === '_posthog/progress') {
@@ -1191,7 +1265,7 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
                 }
                 const idx = items.findIndex((item) => item.type === 'progress' && item.progressGroup === group)
                 if (idx === -1) {
-                    items.push({
+                    mutItems().push({
                         id: `progress-${group}`,
                         type: 'progress',
                         progressGroup: group,
@@ -1200,7 +1274,7 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
                 } else {
                     const existingSteps = items[idx].progressSteps ?? []
                     const stepIdx = existingSteps.findIndex((s) => s.key === step)
-                    items[idx] = {
+                    mutItems()[idx] = {
                         ...items[idx],
                         progressSteps:
                             stepIdx === -1
@@ -1216,14 +1290,16 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             const isComplete = params.isComplete === true
             if (status === 'compacting' && isComplete) {
                 items = items.filter((item) => !isPendingCompactingStatus(item))
+                itemsOwned = true
             } else {
-                items.push({ id: `status-${statusSeq++}`, type: 'status', status, isComplete })
+                mutItems().push({ id: `status-${statusSeq++}`, type: 'status', status, isComplete })
             }
             continue
         }
         if (method === '_posthog/compact_boundary') {
             items = items.filter((item) => !isPendingCompactingStatus(item))
-            items.push({
+            itemsOwned = true
+            mutItems().push({
                 id: `compact-${compactSeq++}`,
                 type: 'compact_boundary',
                 trigger: stringifyOptional(params.trigger),
@@ -1233,7 +1309,7 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             continue
         }
         if (method === '_posthog/task_notification') {
-            items.push({
+            mutItems().push({
                 id: `task-${taskSeq++}`,
                 type: 'task_notification',
                 status: stringifyOptional(params.status),
@@ -1254,7 +1330,7 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             const message = typeof params.message === 'string' ? params.message : ''
             const level = typeof params.level === 'string' ? params.level : 'info'
             if (message) {
-                items.push({
+                mutItems().push({
                     id: `console-${consoleSeq++}`,
                     type: 'debug',
                     text: message,
@@ -1310,7 +1386,7 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
                 if (!invocation) {
                     break
                 }
-                invocations.set(invocation.toolCallId, invocation)
+                mutInvocations().set(invocation.toolCallId, invocation)
                 // A subagent's inner tool calls carry the parent Task's id; they belong inside that
                 // card, not as top-level siblings, so keep them out of the thread.
                 if (!subagentParentToolCallId(update._meta)) {
@@ -1324,7 +1400,35 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
         }
     }
 
-    return { threadItems: items, toolInvocations: invocations }
+    return {
+        items,
+        invocations,
+        rememberedHumanTexts,
+        humanCount,
+        bubbleSeq,
+        separatorSeq,
+        errorSeq,
+        statusSeq,
+        compactSeq,
+        taskSeq,
+        consoleSeq,
+        contextSeq,
+        isResumeRun,
+    }
+}
+
+/**
+ * Pure projection: fold an ordered log into the rendered thread (and the tool-invocation map the
+ * renderer looks up). A thin wrapper over `foldEntriesInto` that folds every entry onto a fresh
+ * state — the one-shot form used where the whole log is on hand at once (a read-only replay, tests).
+ * The live surface folds incrementally via the `foldState` reducer instead. The fold rules (chunk
+ * buffering with the tail rule, tool-update merge, human-turn hoisting) are deterministic, so item
+ * ids are stable across re-folds. `isResumeRun` drives the §6 resume-context filter; per-entry
+ * `source` decides whether a wire user turn renders (replay) or is left to the live echo (live).
+ */
+export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: boolean }): FoldedThread {
+    const state = foldEntriesInto(createFoldState(options.isResumeRun), entries)
+    return { threadItems: state.items, toolInvocations: state.invocations }
 }
 
 /**
@@ -1364,6 +1468,8 @@ export interface runStreamLogicValues {
     currentProgress: string | null
     currentRunStatus: RunStatus | null
     currentStage: string | null
+    foldState: FoldState
+    foldedThreadItems: ThreadItem[]
     foldedThread: FoldedThread
     hasGitArtifacts: boolean
     isBootstrapResumeRun: boolean
@@ -1580,9 +1686,10 @@ export interface runStreamLogicActions {
 export interface runStreamLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        foldedThread: (log: RunLog, isBootstrapResumeRun: boolean) => FoldedThread
-        threadItems: (foldedThread: FoldedThread, showDebugLogs: boolean) => ThreadItem[]
-        toolInvocations: (foldedThread: FoldedThread) => Map<string, ToolInvocation>
+        foldedThreadItems: (foldState: FoldState) => ThreadItem[]
+        toolInvocations: (foldState: FoldState) => Map<string, ToolInvocation>
+        foldedThread: (foldedThreadItems: ThreadItem[], toolInvocations: Map<string, ToolInvocation>) => FoldedThread
+        threadItems: (foldedThreadItems: ThreadItem[], showDebugLogs: boolean) => ThreadItem[]
         isThinking: (
             runStarted: boolean,
             turnComplete: boolean,
@@ -1886,6 +1993,21 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 reset: () => emptyRunLog(),
             },
         ],
+        // The rendered thread, folded incrementally as frames are ingested — the projection `log`
+        // used to drive through a per-frame full re-fold. Each `appendEntries` folds only the new
+        // frames onto the prior state (`foldEntriesInto`), so a long run with thousands of streamed
+        // frames stays linear instead of quadratic. `markBootstrapResumeRun` seeds the resume-context
+        // filter before any history frame folds (bootstrap dispatches it first). `threadItems` /
+        // `toolInvocations` / `foldedThread` are stable-reference projections of this (see selectors).
+        foldState: [
+            createFoldState(false),
+            {
+                appendEntries: (state, { entries }) => foldEntriesInto(state, entries),
+                markBootstrapResumeRun: (state, { value }) =>
+                    state.isResumeRun === value ? state : { ...state, isResumeRun: value },
+                reset: () => createFoldState(false),
+            },
+        ],
         // True while a bootstrap is in flight before the thread has anything to show. Cleared once the
         // live stream opens, the read-only replay snapshot finishes, or an error surfaces. Drives the
         // read-only viewer's initial spinner.
@@ -2102,29 +2224,35 @@ export const runStreamLogic = kea<runStreamLogicType>([
         ],
     }),
     selectors({
-        /**
-         * Pure projection of the ordered log into the rendered thread plus the tool-invocation map.
-         * Memoized on `log` identity, so it recomputes only when a frame is actually appended.
-         */
+        // The incremental fold's projection slices, selected as stable references: each recomputes
+        // every append (its `foldState` input changes) but returns the underlying array/map, which is
+        // the same reference when that append didn't touch it. Downstream selectors keyed on these
+        // therefore skip re-running on an append that changed neither — so a `tool_call_update` storm
+        // updates only the tool card, not the whole thread.
+        foldedThreadItems: [(s) => [s.foldState], (foldState: FoldState): ThreadItem[] => foldState.items],
+        toolInvocations: [
+            (s) => [s.foldState],
+            (foldState: FoldState): Map<string, ToolInvocation> => foldState.invocations,
+        ],
+        /** Pure projection of the ordered log into the rendered thread plus the tool-invocation map. */
         foldedThread: [
-            (s) => [s.log, s.isBootstrapResumeRun],
-            (log: RunLog, isResumeRun: boolean): FoldedThread => foldLogToThread(log.entries, { isResumeRun }),
+            (s) => [s.foldedThreadItems, s.toolInvocations],
+            (threadItems: ThreadItem[], toolInvocations: Map<string, ToolInvocation>): FoldedThread => ({
+                threadItems,
+                toolInvocations,
+            }),
         ],
         threadItems: [
-            (s) => [s.foldedThread, s.showDebugLogs],
-            (foldedThread: FoldedThread, showDebugLogs: boolean): ThreadItem[] =>
+            (s) => [s.foldedThreadItems, s.showDebugLogs],
+            (items: ThreadItem[], showDebugLogs: boolean): ThreadItem[] =>
                 // Filtering lives here, not in the renderer: a row the renderer would return `null` for
                 // (a content-less item, or a debug row a non-privileged user can't see) still reserves an
                 // empty, gap-padded slot in the virtualized thread. Drop them before they become rows.
                 // Debug rows are gated by `debugLogsLogic.showDebugLogs` (staff/dev toggle, force-on when
                 // impersonating).
-                foldedThread.threadItems.filter(
+                items.filter(
                     (item: ThreadItem) => (item.type !== 'debug' || showDebugLogs) && rendersThreadItemContent(item)
                 ),
-        ],
-        toolInvocations: [
-            (s) => [s.foldedThread],
-            (foldedThread: FoldedThread): Map<string, ToolInvocation> => foldedThread.toolInvocations,
         ],
         /**
          * Whether the agent is actively working a turn — drives the thread's thinking indicator.
