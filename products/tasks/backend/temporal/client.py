@@ -429,6 +429,48 @@ def execute_wizard_repository_detection_workflow(task_id: str, run_id: str, team
         )
 
 
+def _redispatch_wizard_repository_detection_run(task_run: TaskRun, run_id: str) -> str:
+    """Detection arm of ``redispatch_orphaned_task_run``, sharing its outcome contract
+    (``recovered`` / ``already_running`` / ``error``). Split out so the generic process-task
+    recovery path, which must never dispatch a detection run, stays untouched by it."""
+    from temporalio.exceptions import WorkflowAlreadyStartedError  # noqa: PLC0415 — keep temporalio off the import path
+
+    from products.tasks.backend.temporal.wizard_repository_detection import (  # noqa: PLC0415 — avoid an import cycle via temporal/__init__
+        WizardRepositoryDetectionInput,
+    )
+
+    task_id = str(task_run.task_id)
+    workflow_id = _wizard_repository_detection_workflow_id(task_id, run_id)
+    _record_prefixed_workflow_id(run_id, workflow_id)
+    observe_task_run_workflow_start(task_run, outcome="attempted", reason="reconcile")
+    try:
+        client = sync_connect()
+        asyncio.run(
+            client.start_workflow(
+                "wizard-repository-detection",
+                WizardRepositoryDetectionInput(run_id=run_id),
+                id=workflow_id,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                task_queue=settings.TASKS_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        )
+    except WorkflowAlreadyStartedError:
+        observe_task_run_workflow_start(task_run, outcome="blocked", reason="reconcile_already_running")
+        return "already_running"
+    except Exception as e:
+        observe_task_run_workflow_start(task_run, outcome="failed", reason="reconcile_error")
+        logger.warning(
+            "task_run_reconcile_dispatch_failed",
+            extra={"run_id": run_id, "task_id": task_id, "error": str(e)},
+        )
+        return "error"
+
+    observe_task_run_workflow_start(task_run, outcome="started", reason="reconcile")
+    logger.info("task_run_reconcile_dispatch_started", extra={"run_id": run_id, "task_id": task_id})
+    return "recovered"
+
+
 def _resolve_mcp_scopes(task_run: TaskRun) -> PosthogMcpScopes:
     """Best-effort scope posture for the reconciler when ``pending_dispatch`` didn't carry
     ``posthog_mcp_scopes`` (pre-reconciler rows, or the bootstrap/start path). Mirrors
@@ -476,10 +518,6 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
     """
     from temporalio.exceptions import WorkflowAlreadyStartedError  # noqa: PLC0415 — keep temporalio off the import path
 
-    from products.tasks.backend.temporal.wizard_repository_detection import (  # noqa: PLC0415 — avoid an import cycle via temporal/__init__
-        WizardRepositoryDetectionInput,
-    )
-
     task_run = (
         TaskRun.objects.select_related("task")  # nosemgrep: celery-task-team-scope-audit
         .filter(id=run_id, status=TaskRun.Status.QUEUED)
@@ -502,34 +540,29 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
         return "skipped_prewarmed"
 
     task = task_run.task
-    task_id = str(task.id)
-    workflow_input: ProcessTaskInput | WizardRepositoryDetectionInput
+    # Detection runs are driven by their own workflow; the generic path below would recover
+    # one as a full process-task agent run.
     if task.origin_product == Task.OriginProduct.WIZARD_REPOSITORY_DETECTION:
-        # Detection runs are driven by their own workflow, which derives everything it needs
-        # from the row, so no pending_dispatch is required to recover one.
-        workflow_name = "wizard-repository-detection"
-        workflow_id = _wizard_repository_detection_workflow_id(task_id, run_id)
+        return _redispatch_wizard_repository_detection_run(task_run, run_id)
+
+    task_id = str(task.id)
+    # create_and_run persists these on the row; the bootstrap/start path does not, so fall back to
+    # deriving mcp scopes from run_source exactly as _trigger_task_processing_workflow does.
+    pending = task_run.state.get("pending_dispatch") if isinstance(task_run.state, dict) else None
+    dispatch_params = pending if isinstance(pending, dict) else {}
+    workflow_id_prefix = dispatch_params.get("workflow_id_prefix")
+    workflow_id = TaskRun.get_workflow_id(task_id, run_id, workflow_id_prefix)
+    if workflow_id_prefix:
         _record_prefixed_workflow_id(run_id, workflow_id)
-        workflow_input = WizardRepositoryDetectionInput(run_id=run_id)
-    else:
-        workflow_name = "process-task"
-        # create_and_run persists these on the row; the bootstrap/start path does not, so fall back to
-        # deriving mcp scopes from run_source exactly as _trigger_task_processing_workflow does.
-        pending = task_run.state.get("pending_dispatch") if isinstance(task_run.state, dict) else None
-        dispatch_params = pending if isinstance(pending, dict) else {}
-        workflow_id_prefix = dispatch_params.get("workflow_id_prefix")
-        workflow_id = TaskRun.get_workflow_id(task_id, run_id, workflow_id_prefix)
-        if workflow_id_prefix:
-            _record_prefixed_workflow_id(run_id, workflow_id)
-        # Loop-fired runs are report-only unless their pending_dispatch says otherwise; every
-        # other run keeps the historical True default.
-        default_create_pr = task.origin_product != Task.OriginProduct.LOOP
-        workflow_input = ProcessTaskInput(
-            run_id=run_id,
-            create_pr=dispatch_params.get("create_pr", default_create_pr),
-            slack_thread_context=dispatch_params.get("slack_thread_context"),
-            posthog_mcp_scopes=dispatch_params.get("posthog_mcp_scopes") or _resolve_mcp_scopes(task_run),
-        )
+    # Loop-fired runs are report-only unless their pending_dispatch says otherwise; every
+    # other run keeps the historical True default.
+    default_create_pr = task.origin_product != Task.OriginProduct.LOOP
+    workflow_input = ProcessTaskInput(
+        run_id=run_id,
+        create_pr=dispatch_params.get("create_pr", default_create_pr),
+        slack_thread_context=dispatch_params.get("slack_thread_context"),
+        posthog_mcp_scopes=dispatch_params.get("posthog_mcp_scopes") or _resolve_mcp_scopes(task_run),
+    )
 
     # A loop run's skill bundles are seeded by the same on_commit callback whose loss
     # this sweep recovers from, so dispatching without re-seeding would silently start
@@ -549,7 +582,7 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
         client = sync_connect()
         asyncio.run(
             client.start_workflow(
-                workflow_name,
+                "process-task",
                 workflow_input,
                 id=workflow_id,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
