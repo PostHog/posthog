@@ -86,7 +86,7 @@ class TestActivityLogOCSF(APIBaseTest):
         assert event["metadata"]["version"] == "1.5.0"
         assert event["category_uid"] == 3
 
-    @parameterized.expand([("save_rejected_conflict", 2), ("updated", 1)])
+    @parameterized.expand([("save_rejected_conflict", 2), ("share_login_failed", 2), ("updated", 1)])
     def test_rejected_writes_are_reported_as_failures(self, activity: str, status_id: int):
         assert ActivityLogOCSFSerializer(self._log(activity=activity)).data["status_id"] == status_id
 

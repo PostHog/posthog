@@ -59,11 +59,6 @@
             "description": "Reserved for future HogQL-based filtering.",
             "type": "string"
         },
-        "include_values": {
-            "default": false,
-            "description": "Include the previous and new values of changed fields. Only applies when schema is ocsf. Values can contain the content of the changed object, which makes responses larger and sends that content to your security tool.",
-            "type": "boolean"
-        },
         "ip_addresses": {
             "default": [],
             "description": "Filter by client IP addresses. Accepts exact IPv4/IPv6 values or wildcard patterns using `*` (e.g. `203.0.113.*`). Multiple entries are OR-combined.",
@@ -108,11 +103,6 @@
             "maximum": 1000,
             "minimum": 1,
             "type": "number"
-        },
-        "schema": {
-            "description": "Response format. Set to ocsf to return Open Cybersecurity Schema Framework events for ingestion into a security tool. Omit for the default PostHog format.\n\n* `ocsf` - ocsf",
-            "enum": ["ocsf"],
-            "type": "string"
         },
         "scopes": {
             "default": [],

@@ -600,26 +600,34 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
         return queryset.order_by(*activity_log_ordering(self.request))
 
+    def _validated_query_params(self) -> dict[str, Any]:
+        # Validate once so serializer selection and context read the same coerced values the
+        # filters serializer produces, instead of re-parsing the raw query string.
+        validated = getattr(self, "_validated_query_params_cache", None)
+        if validated is None:
+            serializer = AdvancedActivityLogFiltersSerializer(data=self.request.query_params)
+            serializer.is_valid(raise_exception=True)
+            validated = self._validated_query_params_cache = serializer.validated_data
+        return validated
+
     def get_serializer_class(self):
         # This query param is set by the CSV exporter to indicate that the response should be serialized in a flat format
         if self.request.query_params.get("is_csv_export") == "1":
             return ActivityLogFlatExportSerializer
 
-        if self.request.query_params.get("schema") == ACTIVITY_LOG_SCHEMA_OCSF:
+        if self._validated_query_params().get("schema") == ACTIVITY_LOG_SCHEMA_OCSF:
             return ActivityLogOCSFSerializer
 
         return super().get_serializer_class()
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
-        context["include_values"] = self.request.query_params.get("include_values") == "true"
+        context["include_values"] = bool(self._validated_query_params().get("include_values"))
         return context
 
     @extend_schema(parameters=[AdvancedActivityLogFiltersSerializer])
     def list(self, request, *args, **kwargs):
-        filters_serializer = AdvancedActivityLogFiltersSerializer(data=request.query_params)
-        filters_serializer.is_valid(raise_exception=True)
-        filters = filters_serializer.validated_data
+        filters = self._validated_query_params()
 
         queryset = self.get_queryset()
         queryset = self.filter_manager.apply_filters(queryset, filters)

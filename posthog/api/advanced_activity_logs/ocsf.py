@@ -58,8 +58,8 @@ _ENTITY_MANAGEMENT_ACTIVITIES = {
     "materialization_disabled": 9,
 }
 
-# Rejected writes and failed exports are attempts, not completed changes.
-_FAILURE_ACTIVITIES = {"save_rejected_conflict", "save_rejected_stale", "export_fail"}
+# Rejected writes, failed exports, and failed share logins are attempts, not completed changes.
+_FAILURE_ACTIVITIES = {"share_login_failed", "save_rejected_conflict", "save_rejected_stale", "export_fail"}
 
 
 def _classify(activity: str) -> tuple[int, int]:
