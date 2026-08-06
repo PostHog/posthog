@@ -35,16 +35,14 @@ fn truncate_with_ellipsis(value: &mut String, max_bytes: usize) {
     if value.len() <= max_bytes {
         return;
     }
-    // Reserve room for the "..." suffix so the result never exceeds max_bytes.
-    let limit = max_bytes.saturating_sub(3);
-    let truncate_at = value
-        .char_indices()
-        .take_while(|(index, _)| *index < limit)
-        .last()
-        .map(|(index, character)| index + character.len_utf8())
-        .unwrap_or(0);
+    // Reserve room for the ellipsis suffix so the result never exceeds max_bytes.
+    let ellipsis = &"..."[..max_bytes.min(3)];
+    let mut truncate_at = max_bytes - ellipsis.len();
+    while !value.is_char_boundary(truncate_at) {
+        truncate_at -= 1;
+    }
     value.truncate(truncate_at);
-    value.push_str("...");
+    value.push_str(ellipsis);
 }
 
 pub type PipelineItem<S> = Result<ExceptionEvent<S>, EventError>;

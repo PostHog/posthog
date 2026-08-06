@@ -151,6 +151,19 @@ mod test {
     }
 
     #[test]
+    fn test_exception_type_truncation_respects_utf8_byte_limit() {
+        let long_type = "🦔".repeat(MAX_EXCEPTION_TYPE_LENGTH);
+        let event = make_exception_event_with_type(&long_type, "boom");
+        let any_event = AnyEvent::try_from(event).unwrap();
+        let exc_props = ExceptionEvent::<Parsed>::try_from(any_event).unwrap();
+
+        let ty = &exc_props.exception_list()[0].exception_type;
+        assert!(ty.ends_with("..."));
+        assert!(ty.len() <= MAX_EXCEPTION_TYPE_LENGTH);
+        assert!(ty.is_char_boundary(ty.len()));
+    }
+
+    #[test]
     fn test_proposed_issue_name_truncation() {
         // $issue_name is sender-controlled and reaches the notification Kafka payload untruncated,
         // so an oversized name must be bounded at parse time.
