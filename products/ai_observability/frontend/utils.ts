@@ -296,10 +296,11 @@ export function isTraceLevel(item: LLMTrace | LLMTraceEvent): item is LLMTrace {
  * Date window for summarization requests that reference a trace or event by ID.
  *
  * The backend refetches the entity itself, and scans a default 30 days when given no range.
- * Anchoring the window on the entity's own timestamp keeps that lookup cheap. The buffers
- * mirror `TraceQueryDateRange`: a day back for clock skew, a week forward because a trace
- * can stay open across days. An unusable timestamp yields an empty range, which leaves the
- * backend default in place.
+ * Anchoring the window on the entity's own timestamp keeps that lookup cheap. Ten minutes
+ * either side covers clock skew and nothing else: `TraceQueryDateRange` widens what it scans
+ * by a week forward for traces that stay open across days, so buffering for that here would
+ * double it. An unusable timestamp yields an empty range, which leaves the backend default
+ * in place.
  */
 export function getSummarizationLookupDateRange(createdAt: string | undefined): {
     date_from?: string
@@ -310,8 +311,8 @@ export function getSummarizationLookupDateRange(createdAt: string | undefined): 
         return {}
     }
     return {
-        date_from: timestamp.subtract(1, 'day').toISOString(),
-        date_to: timestamp.add(7, 'day').toISOString(),
+        date_from: timestamp.subtract(10, 'minute').toISOString(),
+        date_to: timestamp.add(10, 'minute').toISOString(),
     }
 }
 
