@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { FieldNamePath, capitalizeFirstLetter, forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { lazyLoaders } from 'kea-loaders'
@@ -1563,9 +1563,12 @@ export const billingLogic = kea<billingLogicType>([
             })
         },
     })),
-    urlToAction(({ actions, values }) => ({
-        // IMPORTANT: This needs to be above the "*" so it takes precedence
-        '/*/billing': (_params, _search, hash) => {
+    urlToAction(({ actions, values }) => {
+        const handleBillingRoute = (
+            _params: Record<string, string>,
+            _search: Record<string, string>,
+            hash: Record<string, string>
+        ): void => {
             if (hash.license) {
                 actions.setShowLicenseDirectInput(true)
                 actions.setActivateLicenseValues({ license: hash.license })
@@ -1594,8 +1597,52 @@ export const billingLogic = kea<billingLogicType>([
             if (values.isOnboarding !== isOnboarding) {
                 actions.setIsOnboarding(isOnboarding)
             }
-        },
-        '*': () => {
+        }
+
+        return {
+            // IMPORTANT: These need to be above the "*" so they take precedence
+            '/*/billing': handleBillingRoute,
+            '/*/billing/overview': handleBillingRoute,
+            '*': () => {
+                const redirectPath = window.location.pathname.includes('/onboarding')
+                    ? window.location.pathname + window.location.search
+                    : ''
+                if (values.redirectPath !== redirectPath) {
+                    actions.setRedirectPath(redirectPath)
+                }
+                const isOnboarding = window.location.pathname.includes('/onboarding')
+                if (values.isOnboarding !== isOnboarding) {
+                    actions.setIsOnboarding(isOnboarding)
+                }
+            },
+        }
+    }),
+    events(({ actions, values }) => ({
+        afterMount: () => {
+            const { location, searchParams, hashParams } = router.values
+            const isBillingOverviewRoute =
+                location.pathname.endsWith('/billing') || location.pathname.endsWith('/billing/overview')
+
+            if (isBillingOverviewRoute) {
+                if (hashParams.license) {
+                    actions.setShowLicenseDirectInput(true)
+                    actions.setActivateLicenseValues({ license: hashParams.license })
+                    actions.submitActivateLicense()
+                }
+                if (searchParams.products) {
+                    const products = searchParams.products.split(',')
+                    actions.setScrollToProductKey(products[0])
+                }
+                if (searchParams.billing_error) {
+                    actions.setBillingAlert({
+                        status: 'error',
+                        title: 'Error',
+                        message: searchParams.billing_error,
+                        contactSupport: true,
+                    })
+                }
+            }
+
             const redirectPath = window.location.pathname.includes('/onboarding')
                 ? window.location.pathname + window.location.search
                 : ''
