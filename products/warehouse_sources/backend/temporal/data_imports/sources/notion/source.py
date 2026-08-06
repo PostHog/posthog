@@ -51,10 +51,11 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig]):
         }
 
     def get_retryable_errors(self) -> set[str]:
-        # A 5xx is already retried internally with backoff (see notion.py's tenacity-wrapped
-        # _request); if those retries still exhaust, the failure is transient and self-recovering,
-        # so let Temporal retry the activity without surfacing it as tracked exception noise.
-        return {"Notion API error (retryable)"}
+        # A 5xx or a 429 is already retried internally with backoff (see notion.py's
+        # tenacity-wrapped _request, which honors Notion's Retry-After on 429s); if those retries
+        # still exhaust, the failure is transient and self-recovering, so let Temporal retry the
+        # activity without surfacing it as tracked exception noise.
+        return {"Notion API error (retryable)", "Notion rate limited"}
 
     @property
     def get_source_config(self) -> SourceConfig:

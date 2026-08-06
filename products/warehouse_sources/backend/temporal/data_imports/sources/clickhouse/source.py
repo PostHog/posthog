@@ -339,6 +339,13 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # `_get_client`'s in-process retry never sees it; Temporal's activity retry
             # reopens a fresh tunnel + client and resumes from the last committed cursor.
             "Connection broken: IncompleteRead",
+            # requests/urllib3 raises this when the server accepts the connection but never
+            # answers within our timeout — typically ClickHouse Cloud still cold-resuming an
+            # idle service past our `METADATA_QUERY_TIMEOUT_SECONDS` allowance. Not in
+            # `_TRANSIENT_CONNECT_DROP_SUBSTRINGS`, so `_get_client` doesn't retry it in-process
+            # (a slow-to-wake service needs real wall-clock time, not an immediate re-dial);
+            # Temporal's activity retry provides that backoff and reopens a fresh connection.
+            "Read timed out",
         }
 
     @contextmanager
