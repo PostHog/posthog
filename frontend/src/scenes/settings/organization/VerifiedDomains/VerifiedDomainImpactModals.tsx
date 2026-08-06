@@ -101,7 +101,12 @@ export function RemoveDomainModal(): JSX.Element {
                     <LemonButton type="secondary" onClick={closeRemoveDomainPrompt}>
                         Cancel
                     </LemonButton>
-                    <LemonButton status="danger" type="primary" onClick={confirmRemoveDomain}>
+                    <LemonButton
+                        status="danger"
+                        type="primary"
+                        onClick={confirmRemoveDomain}
+                        loading={domainImpactLoading}
+                    >
                         Remove domain
                     </LemonButton>
                 </>
