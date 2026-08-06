@@ -167,6 +167,7 @@ POSTHOG_EXEC_DESTRUCTIVE_SUB_TOOLS: tuple[str, ...] = (
     "opt-outs-add",
     "organization-enforce-2fa",
     "organization-enforce-2fa-execute",
+    "posthog-connection-forward-execute",
     "scout-scratchpad-forget",
     "signals-scout-scratchpad-forget",
     "skill-archive",

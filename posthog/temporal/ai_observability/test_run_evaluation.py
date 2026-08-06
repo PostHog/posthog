@@ -28,6 +28,7 @@ from products.ai_observability.backend.llm.errors import (
     StructuredOutputParseError,
 )
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
+from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
@@ -1097,6 +1098,12 @@ class TestRunEvaluationWorkflow:
 
         evaluation = setup_data["evaluation"]
         team = setup_data["team"]
+
+        directory = await sync_to_async(
+            lambda: EvaluationDirectory.objects.for_team(team.id).create(team=team, name="Quality")
+        )()
+        await sync_to_async(lambda: Evaluation.objects.filter(id=evaluation.id).update(directory=directory))()
+        await sync_to_async(evaluation.refresh_from_db)()
 
         assert evaluation.enabled
 

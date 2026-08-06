@@ -62,10 +62,9 @@ class TestWarmTaskSandbox(APIBaseTest):
         kwargs.update(overrides)
         return facade.warm_task_sandbox(**kwargs)
 
-    @patch("products.tasks.backend.presentation.views.api.code_access_required_response", return_value=None)
     @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
     @patch("products.tasks.backend.facade.api.warm_task_sandbox")
-    def test_warm_endpoint_forwards_sandbox_selection(self, mock_warm, _mock_warm_enabled, _mock_code_access):
+    def test_warm_endpoint_forwards_sandbox_selection(self, mock_warm, _mock_warm_enabled):
         sandbox_environment = SandboxEnvironment.objects.create(
             team=self.team,
             created_by=self.user,

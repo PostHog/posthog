@@ -1,12 +1,9 @@
-import { SupportTicketTargetArea, TARGET_AREA_OPTIONS } from 'lib/components/Support/supportLogic'
-
 import { ThreadMessage } from './maxLogic'
 
 export interface TicketSummaryData {
     summary?: string
     discarded?: boolean
     messageIndex: number
-    targetArea?: SupportTicketTargetArea | null
 }
 
 export interface TicketPromptData {
@@ -25,31 +22,6 @@ export function formatTicketConfirmationMessage(ticketId: string, responseTime: 
         ? `Our support team aims to get back to you within ${responseTime}.`
         : 'Our support team will get back to you soon!'
     return `${TICKET_CONFIRMATION_LEAD}.\nYour ticket ID is #${ticketId}.\n${closingLine}`
-}
-
-/**
- * Parses the "Topic: <area>" line the /ticket summarizer appends, returning the
- * target area only if it matches a known support target area.
- */
-export function parseTicketTargetArea(content: string): SupportTicketTargetArea | null {
-    for (const rawLine of content.split('\n')) {
-        const line = rawLine.replace(/\*/g, '').trim()
-        const match = line.match(/^topic:\s*(.+)$/i)
-        if (match) {
-            // Keys are single whitespace-free tokens, so take the first token and strip trailing
-            // punctuation — the model sometimes appends a period or parenthetical
-            const area = match[1]
-                .trim()
-                .split(/\s+/)[0]
-                .replace(/[.,;:!?)\]]+$/, '')
-                .toLowerCase()
-            if (TARGET_AREA_OPTIONS.some((option) => option.value === area)) {
-                return area as SupportTicketTargetArea
-            }
-            return null
-        }
-    }
-    return null
 }
 
 /**
@@ -166,7 +138,6 @@ export function getTicketSummaryData(
             return {
                 summary,
                 messageIndex: ticketCommandIndex + 1,
-                targetArea: parseTicketTargetArea(responseMessage.content),
             }
         }
     }

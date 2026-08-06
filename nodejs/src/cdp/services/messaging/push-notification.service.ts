@@ -164,8 +164,8 @@ export class PushNotificationService {
         private encryptedFields: EncryptedFields,
         private fetchUtils: PushNotificationFetchUtils,
         private redis: RedisV2 | null,
-        private messageAssetsService?: MessageAssetsService,
-        private redisMirror: RedisV2 | null = null
+        private redisMirror: RedisV2,
+        private messageAssetsService?: MessageAssetsService
     ) {}
 
     @instrumented('push-notification.executeSendPushNotification')
@@ -569,7 +569,7 @@ export class PushNotificationService {
             ? await mirrorCompare(
                   'push-notification.apns-jwt-read',
                   () => read(this.redis!),
-                  () => (this.redisMirror ? read(this.redisMirror) : undefined)
+                  () => read(this.redisMirror)
               )
             : null
         if (cached) {
@@ -591,9 +591,7 @@ export class PushNotificationService {
             )
         await Promise.all([
             this.redis ? write(this.redis) : undefined,
-            mirrorCall('push-notification.apns-jwt-write', () =>
-                this.redisMirror ? write(this.redisMirror) : undefined
-            ),
+            mirrorCall('push-notification.apns-jwt-write', () => write(this.redisMirror)),
         ])
         return jwt
     }
