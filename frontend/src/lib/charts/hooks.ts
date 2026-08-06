@@ -16,6 +16,7 @@ const CHART_CONFIG_DEFAULTS = {
     showCrosshair: true,
     showGrid: true,
     barCornerRadius: 4,
+    tooltip: { placement: 'cursor' },
 } as const
 
 function chartThemeDefaults(isDarkModeOn: boolean): Partial<ChartTheme> {
@@ -72,7 +73,8 @@ export function useDateRangeZoom(
 }
 
 /** Builds a chart's config object, memoized on `deps`, applying `CHART_CONFIG_DEFAULTS` for any
- *  key the factory leaves undefined. Keys the factory sets explicitly always win over the defaults. */
+ *  key the factory leaves undefined. Keys the factory sets explicitly always win over the defaults.
+ *  `tooltip` merges key by key instead of being replaced wholesale. */
 export function useChartConfig<T extends object>(factory: () => T, deps: DependencyList): T
 export function useChartConfig<T extends object>(factory: () => T | undefined, deps: DependencyList): T | undefined
 export function useChartConfig<T extends object>(factory: () => T | undefined, deps: DependencyList): T | undefined {
@@ -83,6 +85,8 @@ export function useChartConfig<T extends object>(factory: () => T | undefined, d
             return config
         }
         const defined = Object.fromEntries(Object.entries(config).filter(([, value]) => value !== undefined))
-        return { ...CHART_CONFIG_DEFAULTS, ...defined } as T
+        // Nested, so a chart that sets any tooltip field would otherwise replace the whole default.
+        const tooltip = { ...CHART_CONFIG_DEFAULTS.tooltip, ...defined.tooltip }
+        return { ...CHART_CONFIG_DEFAULTS, ...defined, tooltip } as T
     }, deps)
 }

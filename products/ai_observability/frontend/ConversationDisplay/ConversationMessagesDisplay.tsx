@@ -12,7 +12,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { isObject } from 'lib/utils/guards'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { resolveAiBlobUrl, resolveDataUri } from '../aiBlob'
+import { aiBlobRenderHandlers, resolveAiBlobUrl, resolveDataUri } from '../aiBlob'
 import { getJsonContainerForDisplay, JSONValueDisplay } from '../components/JSONValueDisplay'
 import { MessageSentimentBar } from '../components/SentimentTag'
 import { LLMInputOutput } from '../LLMInputOutput'
@@ -386,12 +386,9 @@ export const ImageMessageDisplay = ({ message }: { message: ImageDisplayMessage 
     if (typeof content === 'string') {
         return <span>{content}</span>
     } else if (content?.image) {
+        const src = resolveAiBlobUrl(content.image, currentTeamId)
         return (
-            <img
-                src={resolveAiBlobUrl(content.image, currentTeamId)}
-                alt="User sent image"
-                data-attr="ai-message-image"
-            />
+            <img src={src} alt="User sent image" data-attr="ai-message-image" {...aiBlobRenderHandlers(src, 'image')} />
         )
     }
 
@@ -436,12 +433,14 @@ function renderContentItem(
     }
 
     if (isOpenAIImageURLMessage(item)) {
+        const src = resolveAiBlobUrl(item.image_url.url, currentTeamId)
         return (
             <img
-                src={resolveAiBlobUrl(item.image_url.url, currentTeamId)}
+                src={src}
                 alt="Message content"
                 className="max-w-full max-h-[400px] rounded"
                 data-attr="ai-message-image"
+                {...aiBlobRenderHandlers(src, 'image')}
             />
         )
     }
@@ -454,6 +453,7 @@ function renderContentItem(
                 alt="Message content"
                 className="max-w-full max-h-[400px] rounded"
                 data-attr="ai-message-image"
+                {...aiBlobRenderHandlers(src, 'image')}
             />
         )
     }
@@ -470,6 +470,7 @@ function renderContentItem(
                 alt="Message content"
                 className="max-w-full max-h-[400px] rounded"
                 data-attr="ai-message-image"
+                {...aiBlobRenderHandlers(src, 'image')}
             />
         )
     }
@@ -520,7 +521,7 @@ function renderContentItem(
 
         return (
             <div className="space-y-2">
-                <audio controls className="w-[500px]" src={src} />
+                <audio controls className="w-[500px]" src={src} {...aiBlobRenderHandlers(src, 'audio')} />
                 {transcript && typeof transcript === 'string' && (
                     <div className="text-xs text-muted p-2 bg-bg-light rounded border">
                         <div className="font-semibold mb-1">Transcript:</div>
