@@ -55,7 +55,13 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig]):
         # tenacity-wrapped _request, which honors Notion's Retry-After on 429s); if those retries
         # still exhaust, the failure is transient and self-recovering, so let Temporal retry the
         # activity without surfacing it as tracked exception noise.
-        return {"Notion API error (retryable)", "Notion rate limited"}
+        #
+        # A dropped/reset connection (SSL handshake failure, connection reset, proxy error) is
+        # retried by that same tenacity decorator via requests.ConnectionError. urllib3 wraps all of
+        # these in a MaxRetryError before requests re-raises them as the specific subclass, so they
+        # share this message regardless of the underlying reason. Same self-recovering reasoning
+        # applies once that budget exhausts.
+        return {"Notion API error (retryable)", "Notion rate limited", "Max retries exceeded with url"}
 
     @property
     def get_source_config(self) -> SourceConfig:
