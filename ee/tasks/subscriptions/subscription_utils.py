@@ -38,7 +38,7 @@ _OOM_MESSAGE_MARKER = "ran out of memory"
 
 
 def _is_oom_exception_text(exception_text: str | None) -> bool:
-    return bool(exception_text) and _OOM_MESSAGE_MARKER in exception_text.lower()
+    return exception_text is not None and _OOM_MESSAGE_MARKER in exception_text.lower()
 
 
 def subscription_asset_error_message(asset: ExportedAsset) -> str:
