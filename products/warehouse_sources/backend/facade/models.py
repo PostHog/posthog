@@ -50,6 +50,8 @@ from products.warehouse_sources.backend.models.table import (
 from products.warehouse_sources.backend.models.util import (
     clickhouse_column_to_dwh_column,
     clickhouse_columns_to_dwh_columns,
+    motherduck_column_to_dwh_column,
+    motherduck_columns_to_dwh_columns,
     mysql_column_to_dwh_column,
     mysql_columns_to_dwh_columns,
     postgres_column_to_dwh_column,
@@ -85,6 +87,8 @@ __all__ = [
     "get_or_create_datawarehouse_credential",
     "clickhouse_column_to_dwh_column",
     "clickhouse_columns_to_dwh_columns",
+    "motherduck_column_to_dwh_column",
+    "motherduck_columns_to_dwh_columns",
     "mysql_column_to_dwh_column",
     "mysql_columns_to_dwh_columns",
     "postgres_column_to_dwh_column",

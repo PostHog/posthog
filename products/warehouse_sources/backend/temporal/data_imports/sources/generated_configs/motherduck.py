@@ -6,4 +6,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class MotherduckSourceConfig(config.Config):
-    pass
+    motherduck_token: str
+    database: str | None = None

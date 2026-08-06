@@ -57,6 +57,8 @@ _LAZY = {
     "CustomSourceConfig": "sources.generated_configs.custom",
     "GithubSource": "sources.github.source",
     "GithubSourceConfig": "sources.generated_configs.github",
+    "MotherduckSource": "sources.motherduck.source",
+    "MotherduckSourceConfig": "sources.generated_configs.motherduck",
     "MySQLSourceConfig": "sources.generated_configs.mysql",
     "PostgresSourceConfig": "sources.generated_configs.postgres",
     "SnowflakeSourceConfig": "sources.generated_configs.snowflake",
