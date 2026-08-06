@@ -34,6 +34,8 @@ tools:
         title: Create feature flag
         description: |
             Create a feature flag in the current project.
+            For group-targeted flags (workspaces/companies/etc.), set filters.aggregation_group_type_index
+            and use property type "group" with group_type_index on each property. Omitting type defaults to person.
         include_params:
             - key
             - name
@@ -46,6 +48,12 @@ tools:
             - evaluation_runtime
             - bucketing_identifier
         param_overrides:
+            filters:
+                description: >
+                    Release conditions. Each property supports type ("person" | "group" | "cohort"), operator, value,
+                    and for groups: group_type_index. Set filters.aggregation_group_type_index to target a group type
+                    (UI "Target by"). Example group property: { "key": "plan", "type": "group", "group_type_index": 0,
+                    "operator": "exact", "value": "enterprise" }.
             is_remote_configuration:
                 description:
                     Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the
@@ -475,6 +483,9 @@ tools:
         title: Update feature flag
         description: |
             Update a feature flag by ID in the current project.
+            When updating filters on group-targeted flags, include type "group", group_type_index, and
+            filters.aggregation_group_type_index. If those fields are omitted, the tool merges them from the
+            existing flag so group targeting is not silently converted to person targeting.
         include_params:
             - key
             - name
@@ -490,6 +501,12 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+            filters:
+                description: >
+                    Full release-condition object (replaces filters at the API). For group flags set
+                    aggregation_group_type_index and property type "group" + group_type_index. Omitted type /
+                    group_type_index / aggregation_group_type_index are filled from the existing flag to prevent
+                    silent person demotion (see #46501).
             is_remote_configuration:
                 description:
                     Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the

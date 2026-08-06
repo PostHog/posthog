@@ -8,8 +8,9 @@ import debugMcpUiApps from './debug/debugMcpUiApps'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
 import getExperimentResults from './experiments/getResults'
 import experimentListDeprecated from './experiments/listDeprecated'
-// Feature flags (get-definition-by-key is hand-written; get-definition-by-id is codegen)
+// Feature flags (get-definition-by-key + update override are hand-written; other CRUD is codegen)
 import featureFlagGetDefinitionByKey from './featureFlags/getDefinitionByKey'
+import updateFeatureFlagPreservingGroups from './featureFlags/updateFeatureFlag'
 // Feedback
 import submitFeedback from './feedback/submit'
 // Generated tools (from definitions/*.yaml)
@@ -80,6 +81,8 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Feature flags (get-definition-by-key is hand-written; get-definition by numeric id is codegen)
     'feature-flag-get-definition-by-key': featureFlagGetDefinitionByKey,
+    // Overrides generated update-feature-flag to preserve group targeting (#46501)
+    'update-feature-flag': updateFeatureFlagPreservingGroups,
 
     'path-cleaning-rules-update': updatePathCleaning,
 
@@ -146,7 +149,9 @@ export const getToolsFromContext = async (
     // Check org AI consent to gate tools that use LLMs internally (cached in StateManager)
     const aiConsentGiven = await context.stateManager.getAiConsentGiven()
     const effectiveOptions = aiConsentGiven !== undefined ? { ...options, aiConsentGiven } : options
-    const effectiveMap = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
+    // Hand-written TOOL_MAP entries win over GENERATED_TOOL_MAP so we can
+    // override codegen tools (e.g. update-feature-flag group-targeting merge).
+    const effectiveMap = { ...GENERATED_TOOL_MAP, ...TOOL_MAP }
     const excludeTools = options?.excludeTools ?? []
     const allowedToolNames = getFilteredToolNames(effectiveOptions).filter((name) => !excludeTools.includes(name))
     const toolBases: ToolBase<ZodObjectAny>[] = []
