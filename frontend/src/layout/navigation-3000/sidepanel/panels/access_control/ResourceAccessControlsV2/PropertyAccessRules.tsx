@@ -79,8 +79,8 @@ export function PropertyAccessRules({
                         render: (_, p: AccessPropertyRule) => <span className="font-medium">{p.property}</span>,
                     },
                     {
-                        title: 'Scope',
-                        key: 'scope',
+                        title: 'Type',
+                        key: 'type',
                         render: (_, p: AccessPropertyRule) => (
                             <span className="text-secondary">
                                 {p.property_type === 'person' ? 'Person property' : 'Event property'}
@@ -184,7 +184,7 @@ function AddPropertyRuleModal({
         >
             <div className="space-y-3 min-w-[24rem]">
                 <div>
-                    <LemonLabel>Scope</LemonLabel>
+                    <LemonLabel>Type</LemonLabel>
                     <LemonSelect
                         value={propertyType}
                         onChange={setPropertyType}
