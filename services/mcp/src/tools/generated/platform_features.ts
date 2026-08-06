@@ -63,33 +63,33 @@ const advancedActivityLogsFilters = (): ToolBase<
     },
 })
 
-const AdvancedActivityLogsListSchema = AdvancedActivityLogsListQueryParams.extend({
-    page_size: AdvancedActivityLogsListQueryParams.shape['page_size'].default(10).optional(),
-}).extend({
-    fields: z
-        .array(
-            z.enum([
-                'id',
-                'user.id',
-                'user.first_name',
-                'user.last_name',
-                'user.email',
-                'activity',
-                'scope',
-                'item_id',
-                'detail.name',
-                'detail.short_id',
-                'detail.type',
-                'detail.changes',
-                'created_at',
-            ])
-        )
-        .min(1)
-        .optional()
-        .describe(
-            'Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.'
-        ),
-})
+const AdvancedActivityLogsListSchema = AdvancedActivityLogsListQueryParams.omit({ include_values: true, schema: true })
+    .extend({ page_size: AdvancedActivityLogsListQueryParams.shape['page_size'].default(10).optional() })
+    .extend({
+        fields: z
+            .array(
+                z.enum([
+                    'id',
+                    'user.id',
+                    'user.first_name',
+                    'user.last_name',
+                    'user.email',
+                    'activity',
+                    'scope',
+                    'item_id',
+                    'detail.name',
+                    'detail.short_id',
+                    'detail.type',
+                    'detail.changes',
+                    'created_at',
+                ])
+            )
+            .min(1)
+            .optional()
+            .describe(
+                'Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.'
+            ),
+    })
 
 const advancedActivityLogsList = (): ToolBase<
     typeof AdvancedActivityLogsListSchema,
@@ -107,10 +107,12 @@ const advancedActivityLogsList = (): ToolBase<
                 clients: params.clients,
                 detail_filters: params.detail_filters,
                 end_date: params.end_date,
+                follow: params.follow,
                 hogql_filter: params.hogql_filter,
                 ip_addresses: params.ip_addresses,
                 is_system: params.is_system,
                 item_ids: params.item_ids,
+                ordering: params.ordering,
                 page: params.page,
                 page_size: params.page_size,
                 scopes: params.scopes,
@@ -237,6 +239,7 @@ const changeRequestsApprovePrepare = (): ToolBase<
             messageTemplate:
                 "About to APPROVE change request {id}. If this reaches the required quorum, the underlying change is applied immediately. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },
         })
     },
@@ -256,6 +259,7 @@ const changeRequestsApproveExecute = (): ToolBase<
             purpose: 'change-requests-approve',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
@@ -370,6 +374,7 @@ const changeRequestsRejectPrepare = (): ToolBase<typeof ChangeRequestsRejectSche
             messageTemplate:
                 "About to REJECT change request {id}. This blocks the proposed change and notifies the requester. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },
         })
     },
@@ -389,6 +394,7 @@ const changeRequestsRejectExecute = (): ToolBase<
             purpose: 'change-requests-reject',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
@@ -484,6 +490,7 @@ const commentsList = (): ToolBase<typeof CommentsListSchema, Schemas.PaginatedCo
                 scope: params.scope,
                 search: params.search,
                 source_comment: params.source_comment,
+                task_id: params.task_id,
             },
         })
         return result
@@ -537,6 +544,7 @@ const OrganizationEnforce2faSchema = PartialUpdateParams.extend(
     PartialUpdateBody.omit({
         name: true,
         logo_media_id: true,
+        enforce_verified_domains: true,
         members_can_invite: true,
         members_can_create_projects: true,
         members_can_use_personal_api_keys: true,
@@ -585,6 +593,7 @@ const organizationEnforce2faPrepare = (): ToolBase<
             messageTemplate:
                 "About to set organization-wide two-factor-authentication enforcement to {enforce_2fa}. This immediately affects every member of the organization — when enabled, all members must set up 2FA before they can continue using PostHog. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            stash: __runtime.stash,
         })
     },
 })
@@ -602,6 +611,7 @@ const organizationEnforce2faExecute = (): ToolBase<
             purpose: 'organization-enforce-2fa',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            stash: __runtime.stash,
         })
         if (!__guard.ok) {
             return __guard.result as never

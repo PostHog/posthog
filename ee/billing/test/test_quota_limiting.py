@@ -20,6 +20,7 @@ from posthog.models.team.team import Team
 from posthog.redis import get_client
 
 from ee.billing.quota_limiting import (
+    INFORMATIONAL_USAGE_RESOURCES,
     QUOTA_LIMIT_DATA_RETENTION_FLAG,
     OrganizationUsageInfo,
     QuotaLimitingCaches,
@@ -31,6 +32,7 @@ from ee.billing.quota_limiting import (
     get_team_attribute_by_quota_resource,
     list_limited_team_attributes,
     org_quota_limited_until,
+    refresh_org_self_driving_quota,
     replace_limited_team_tokens,
     set_org_usage_summary,
     update_all_orgs_billing_quotas,
@@ -1809,8 +1811,12 @@ class TestQuotaLimiting(BaseTest):
         quota_resource_keys = {resource.value for resource in QuotaResource}
         usage_counter_keys = set(UsageCounters.__annotations__.keys())
 
-        # Check QuotaResource matches OrganizationUsageInfo
-        missing_from_quota = org_usage_keys - quota_resource_keys
+        # Check QuotaResource matches OrganizationUsageInfo, except the informational
+        # component fields, which are deliberately never quota-enforced
+        informational_keys = set(INFORMATIONAL_USAGE_RESOURCES)
+        assert informational_keys <= org_usage_keys
+        assert not informational_keys & quota_resource_keys, "informational resources must not be QuotaResources"
+        missing_from_quota = org_usage_keys - quota_resource_keys - informational_keys
         extra_in_quota = quota_resource_keys - org_usage_keys
         assert not missing_from_quota, f"QuotaResource is missing keys from OrganizationUsageInfo: {missing_from_quota}"
         assert not extra_in_quota, f"QuotaResource has extra keys not in OrganizationUsageInfo: {extra_in_quota}"
@@ -2340,6 +2346,10 @@ def _full_usage_counters(**overrides: int) -> UsageCounters:
         ai_credits=0,
         signals_credits=0,
         posthog_code_credits=0,
+        posthog_code_token_credits=0,
+        sandbox_compute_credits=0,
+        sandbox_compute_cpu_millicore_seconds=0,
+        sandbox_compute_memory_mib_seconds=0,
         cdp_trigger_events=0,
         rows_exported=0,
         workflow_emails=0,
@@ -2591,6 +2601,100 @@ class TestPatchTodaysUsage(BaseTest):
         changed = _patch_todays_usage(self.organization, _full_usage_counters(events=42))
 
         assert changed is False
+
+    def test_patches_desktop_components_without_changing_units_or_double_counting(self) -> None:
+        self.organization.usage = {
+            "posthog_code_credits": {"usage": 100, "limit": 2_000, "todays_usage": 0},
+            "posthog_code_token_credits": {"usage": 80, "limit": None, "todays_usage": 0},
+            "sandbox_compute_credits": {"usage": 20, "limit": None, "todays_usage": 0},
+            "sandbox_compute_cpu_millicore_seconds": {
+                "usage": 1_500,
+                "limit": None,
+                "todays_usage": 0,
+            },
+            "sandbox_compute_memory_mib_seconds": {
+                "usage": 4_608,
+                "limit": None,
+                "todays_usage": 0,
+            },
+            "period": _PERIOD,
+        }
+        self.organization.save()
+        todays_usage = _full_usage_counters(
+            posthog_code_credits=15,
+            posthog_code_token_credits=12,
+            sandbox_compute_credits=3,
+            sandbox_compute_cpu_millicore_seconds=9_876_543_210,
+            sandbox_compute_memory_mib_seconds=7_654_321_098,
+        )
+
+        assert _patch_todays_usage(self.organization, todays_usage) is True
+        assert _patch_todays_usage(self.organization, todays_usage) is False
+
+        self.organization.refresh_from_db()
+        assert self.organization.usage["posthog_code_credits"]["todays_usage"] == 15
+        assert self.organization.usage["posthog_code_token_credits"]["todays_usage"] == 12
+        assert self.organization.usage["sandbox_compute_credits"]["todays_usage"] == 3
+        assert self.organization.usage["sandbox_compute_cpu_millicore_seconds"]["todays_usage"] == 9_876_543_210
+        assert self.organization.usage["sandbox_compute_memory_mib_seconds"]["todays_usage"] == 7_654_321_098
+
+    def test_missing_billing_components_preserve_the_last_known_breakdown(self) -> None:
+        existing_component = {"usage": 10, "limit": None, "todays_usage": 3}
+        self.organization.usage = {
+            "events": {"usage": 100, "limit": 1_000, "todays_usage": 7},
+            "sandbox_compute_credits": existing_component,
+            "posthog_code_token_credits": {
+                "usage": 20,
+                "limit": None,
+                "todays_usage": 4,
+                "quota_limited_until": 123,
+            },
+            "period": _PERIOD,
+        }
+
+        new_usage = cast(
+            OrganizationUsageInfo,
+            {
+                "events": {"usage": 101, "limit": 1_000},
+                "sandbox_compute_credits": {},
+                "posthog_code_token_credits": {"usage": 21, "limit": None},
+                "period": _PERIOD,
+            },
+        )
+
+        assert set_org_usage_summary(self.organization, new_usage=new_usage) is True
+        assert self.organization.usage["sandbox_compute_credits"] == existing_component
+        assert self.organization.usage["posthog_code_token_credits"] == {
+            "usage": 21,
+            "limit": None,
+            "todays_usage": 0,
+        }
+
+    def test_omitted_components_without_prior_data_leave_no_empty_placeholders(self) -> None:
+        # A billing payload that predates component reporting arrives at an org that has
+        # never had component data (today's prod state until billing ships components).
+        # The OrganizationUsageInfo construction defaults each component to {}; those
+        # placeholders must not be written into the org's usage dict.
+        self.organization.usage = {
+            "events": {"usage": 100, "limit": 1_000, "todays_usage": 7},
+            "period": _PERIOD,
+        }
+
+        new_usage = cast(
+            OrganizationUsageInfo,
+            {
+                "events": {"usage": 101, "limit": 1_000},
+                "posthog_code_token_credits": {},
+                "sandbox_compute_credits": {},
+                "sandbox_compute_cpu_millicore_seconds": {},
+                "sandbox_compute_memory_mib_seconds": {},
+                "period": _PERIOD,
+            },
+        )
+
+        assert set_org_usage_summary(self.organization, new_usage=new_usage) is True
+        for field in INFORMATIONAL_USAGE_RESOURCES:
+            assert field not in self.organization.usage, field
 
     def test_returns_false_when_no_resources_to_patch(self) -> None:
         # Org has only `period` — no per-resource dicts to patch.
@@ -2875,3 +2979,99 @@ class TestSignalsRefundQuotaOffset(BaseTest):
         with patch("ee.billing.quota_limiting.get_signals_credited_refund_credits_for_org") as mock_offset:
             org_quota_limited_until(self.organization, QuotaResource.EVENTS, [], [])
         mock_offset.assert_not_called()
+
+
+class TestRefreshOrgSelfDrivingQuota(BaseTest):
+    def _set_self_driving_usage(self, usage: int, *, todays_usage: int = 0, limit: int = 4500) -> None:
+        self.organization.usage = {
+            "signals_credits": {"usage": usage, "todays_usage": todays_usage, "limit": limit},
+            "period": ["2026-06-01T00:00:00Z", "2026-07-01T00:00:00Z"],
+        }
+        self.organization.customer_trust_scores = {}
+        self.organization.save()
+
+    @patch("posthoganalytics.capture")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    @freeze_time("2026-06-15T12:00:00Z")
+    def test_refresh_patches_todays_usage_and_flips_the_limiter(self, _feature_enabled, _capture) -> None:
+        # The event-driven path exists because the cron-patched todays_usage predates the PR that
+        # just landed: a stale value here means the flag doesn't flip until the next cron tick.
+        self._set_self_driving_usage(3000, todays_usage=0)
+        with patch(
+            "ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org", return_value=1500
+        ) as live_mock:
+            refresh_org_self_driving_quota(str(self.organization.id))
+
+        assert live_mock.call_args.args[0] == self.organization.id
+        self.organization.refresh_from_db()
+        assert self.organization.usage is not None
+        assert self.organization.usage["signals_credits"]["todays_usage"] == 1500
+        # 3000 recorded + 1500 live == the 4500 limit: the team must now be in the limited zset.
+        assert self.team.api_token in list_limited_team_attributes(
+            QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+
+    @patch("posthoganalytics.capture")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    @freeze_time("2026-06-15T12:00:00Z")
+    def test_stale_concurrent_refresh_cannot_lower_usage_or_unpause(self, _feature_enabled, _capture) -> None:
+        # Two refreshes can overlap when two PRs land close together; the one that counted usage
+        # before the newer PR can finish last. Its stale, lower count must not overwrite the
+        # fresher value and momentarily reopen the gates for an over-limit org.
+        self._set_self_driving_usage(3000, todays_usage=1500)
+        replace_limited_team_tokens(
+            QuotaResource.SIGNALS_CREDITS,
+            {self.team.api_token: 1750323600},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+        with patch("ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org", return_value=100):
+            refresh_org_self_driving_quota(str(self.organization.id))
+
+        self.organization.refresh_from_db()
+        assert self.organization.usage is not None
+        assert self.organization.usage["signals_credits"]["todays_usage"] == 1500
+        assert self.team.api_token in list_limited_team_attributes(
+            QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+
+    @patch("posthoganalytics.capture")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    @freeze_time("2026-06-15T12:00:00Z")
+    def test_quota_cron_recounts_live_instead_of_writing_its_stale_snapshot(self, _feature_enabled, _capture) -> None:
+        # The cron snapshots fleet usage before its org loop, so a push-refresh that fires while
+        # the loop runs (a PR landing) writes a fresher, higher todays_usage than the snapshot.
+        # Writing the snapshot back would unpause the over-limit org until the next tick; the
+        # cron must recount candidates live at decision time instead.
+        self._set_self_driving_usage(3000, todays_usage=1500)
+        # Score must be in the frozen clock's future: candidate selection reads the zset
+        # through `list_limited_team_attributes`, which drops expired entries.
+        replace_limited_team_tokens(
+            QuotaResource.SIGNALS_CREDITS,
+            {self.team.api_token: 1798761600},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+        with (
+            patch(
+                "ee.billing.quota_limiting.get_teams_with_signals_credits_used_in_period",
+                return_value=[(self.team.id, 100)],
+            ),
+            patch(
+                "ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org", return_value=1500
+            ) as live_mock,
+        ):
+            update_all_orgs_billing_quotas()
+
+        assert live_mock.call_args.args[0] == str(self.organization.id)
+        self.organization.refresh_from_db()
+        assert self.organization.usage is not None
+        assert self.organization.usage["signals_credits"]["todays_usage"] == 1500
+        assert self.team.api_token in list_limited_team_attributes(
+            QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+
+    def test_refresh_is_a_noop_without_self_driving_usage(self) -> None:
+        self.organization.usage = {"events": {"usage": 1, "todays_usage": 0, "limit": None}}
+        self.organization.save()
+        with patch("ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org") as live_mock:
+            refresh_org_self_driving_quota(str(self.organization.id))
+        live_mock.assert_not_called()

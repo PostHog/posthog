@@ -1,6 +1,6 @@
 import json
 import dataclasses
-from typing import TYPE_CHECKING, Any, Literal, Optional, Required, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Required, TypedDict, Union, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -80,6 +80,7 @@ ActivityScope = Literal[
     "ExternalDataSource",
     "ExternalDataSchema",
     "Evaluation",
+    "EvaluationDirectory",
     "LLMPrompt",
     "LLMPromptLabel",
     "LLMTrace",
@@ -260,7 +261,14 @@ common_field_exclusions = [
 
 field_with_masked_contents: dict[AuditableScope, list[str]] = {
     "HogFunction": [
+        # Encrypted secret inputs (Fernet ciphertext) — a diff would be noise at best and
+        # leak-adjacent at worst; record that they changed, never the values.
         "encrypted_inputs",
+        "draft_encrypted_inputs",
+        # Full config snapshot including input values (auth headers, API keys on rows written before
+        # secret inputs were encrypted) — record that a draft was staged/published/discarded, never
+        # its contents. The per-version config audit lives in the revisions endpoints instead.
+        "draft",
     ],
     "Integration": [
         "config",
@@ -305,6 +313,14 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
         "temporary_token",
         "pending_email",
     ],
+    # Support-ticket comment bodies are gated on ticket access and must not be readable via
+    # activity_log:read. Both ticket comment scopes mask `content`: internal ticket discussions
+    # ("Ticket") and customer-facing ticket messages ("conversations_ticket" — the literal scope
+    # the conversations product writes, not an ActivityScope member, hence the cast). Comment rows
+    # never go through changes_between; the Comment post_save signal consults these entries
+    # directly, keyed by the comment's own scope.
+    "Ticket": ["content"],
+    cast(AuditableScope, "conversations_ticket"): ["content"],
 }
 
 field_name_overrides: dict[AuditableScope, dict[str, str]] = {
@@ -336,6 +352,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "run_interval_minutes": "run interval (minutes)",
         "emit": "emit findings",
         "pause_reason": "pause reason",
+        "auto_pause_exempt": "never pause for inactivity",
     },
     "OAuthApplication": {
         "_provisioning_config": "provisioning config",
@@ -396,11 +413,13 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     "Subscription": [
         "next_delivery_date",
     ],
-    # `last_run_at` is written by the scout coordinator on every tick (~every 15 min per scout).
-    # When that is the only change, suppress the activity signal entirely so run bookkeeping
-    # never spams the audit log.
+    # `last_run_at` is written by the scout coordinator on every tick (~every 15 min per scout),
+    # and the failure streak by the runner on every run outcome. When those are the only
+    # change, suppress the activity signal entirely so run bookkeeping never spams the audit
+    # log. A breaker trip is NOT suppressed: it moves `status`, which logs like any pause.
     "SignalScoutConfig": [
         "last_run_at",
+        "consecutive_failure_count",
     ],
 }
 
@@ -452,6 +471,25 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         # and wallet balance out of the org-scoped activity log endpoints.
         "scope": "AIGatewayCredit",
         "activities": ["credit_added"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
+    {
+        # Support-ticket comment rows: bodies are gated on ticket access, and rows written before
+        # write-time masking (see field_with_masked_contents) still hold plaintext content readable
+        # with only activity_log:read. People with ticket access read the discussion on the ticket
+        # itself, so nothing needs these rows in the feeds. Ticket lifecycle activities
+        # (created/updated) stay visible — only comment rows are hidden.
+        "scope": "Ticket",
+        "activities": ["commented", "created task"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
+    {
+        # As above, for customer-facing ticket messages (the literal scope the conversations
+        # product writes).
+        "scope": "conversations_ticket",
+        "activities": ["commented", "created task"],
         "exclude_when": {},
         "allow_staff": True,
     },
@@ -516,6 +554,11 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "HogFunction": [
         "bytecode",
         "icon_url",
+        # Bookkeeping for the draft/revision cycle: `draft` already records that config was staged,
+        # and the per-version audit lives in the revisions endpoints.
+        "version",
+        "draft_updated_at",
+        "revisions",
     ],
     "Notebook": [
         "text_content",
@@ -534,6 +577,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "holdout",
         "saved_metrics",
         "experimenttosavedmetric_set",
+        # Optimistic-concurrency counter, not a user-meaningful change.
+        "version",
     ],
     "ExperimentSavedMetric": [
         "experiments",
@@ -751,8 +796,15 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "sync_type_config",
         "latest_error",
         "last_synced_at",
+        # Pipeline-assigned, not user intent. Diffing it resolves the FK through
+        # DataWarehouseTable.objects, whose manager adds two joins and a prefetch on every
+        # schema save (even ones that don't touch this field) — the extra queries have
+        # deadlocked with concurrent DDL in production.
+        "table",
     ],
     "Evaluation": [
+        # The fail-closed relation cannot be resolved outside a team scope; the handler diffs IDs instead.
+        "directory",
         # Reverse relations — auto-managed by FK creates, not user intent.
         "reports",
     ],
@@ -760,6 +812,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Run bookkeeping, not user intent — keep it out of change detection even when it
         # rides along with a real change (belt-and-suspenders with signal_exclusions above).
         "last_run_at",
+        "consecutive_failure_count",
         # Companion bookkeeping that rides along with every logged `status` change; the
         # activity log entry itself already carries who and when.
         "status_changed_at",
