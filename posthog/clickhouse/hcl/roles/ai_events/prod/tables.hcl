@@ -1,11 +1,4 @@
 database "posthog" {
-  table "ai_events" {
-    extend = "_ai_events_data"
-    engine "replicated_merge_tree" {
-      zoo_path     = "/clickhouse/ai_events/tables/{shard}/posthog.ai_events"
-      replica_name = "{replica}"
-    }
-  }
   table "kafka_ai_events_json_ws" {
     column "uuid" {
       type = "UUID"

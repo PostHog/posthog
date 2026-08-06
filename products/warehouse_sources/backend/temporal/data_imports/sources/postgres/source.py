@@ -41,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     drop_slot_and_publication,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    _CONNECTION_LIMIT_ERROR_SUBSTRINGS,
     _SSH_HANDSHAKE_EOF_ERROR,
     XMIN_AS_INCREMENTAL_FIELD_ERROR,
     PostgresImplementation,
@@ -786,7 +787,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         # offset-chunking reconnect also retries in-process (`_SERVER_STARTING_UP_ERROR_SUBSTRINGS`
         # in postgres.py) — this is the same whole-activity-retry fallback for when that budget is
         # exhausted (e.g. a longer maintenance window).
-        return {"terminating connection due to", "the database system is shutting down"}
+        #
+        # `_CONNECTION_LIMIT_ERROR_SUBSTRINGS` (e.g. "remaining connection slots are reserved") is a
+        # connect-time capacity refusal already retried in-process by `_connect_with_dropped_retry` /
+        # `_is_dropped_or_connection_limit`. A slot frees the moment another connection closes, so a
+        # sustained shortage that outlasts that budget is still transient — the same
+        # reaches-here-only-after-internal-retries-exhaust case as the two entries above.
+        return {
+            "terminating connection due to",
+            "the database system is shutting down",
+            *_CONNECTION_LIMIT_ERROR_SUBSTRINGS,
+        }
 
     def reconcile_schema_metadata(
         self,

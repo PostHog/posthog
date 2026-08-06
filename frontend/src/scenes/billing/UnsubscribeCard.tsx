@@ -30,7 +30,7 @@ export const UnsubscribeCard = ({ product }: { product: BillingProductV2Type }):
                         reduce your bill
                     </Link>{' '}
                     or{' '}
-                    <Link to="" onClick={() => openSupportForm({ target_area: 'billing', isEmailFormOpen: true })}>
+                    <Link to="" onClick={() => openSupportForm({ billing_issue: true, isEmailFormOpen: true })}>
                         chat with support.
                     </Link>{' '}
                     Check out more about our pricing on our{' '}

@@ -9637,6 +9637,58 @@ export namespace Schemas {
     }
 
     /**
+     * * `approved` - Approved
+     * * `needs_approval` - Needs approval
+     * * `do_not_use` - Do not use
+     */
+    export type MCPToolApprovalStateEnum = typeof MCPToolApprovalStateEnum[keyof typeof MCPToolApprovalStateEnum];
+
+
+    export const MCPToolApprovalStateEnum = {
+      Approved: 'approved',
+      NeedsApproval: 'needs_approval',
+      DoNotUse: 'do_not_use',
+    } as const;
+
+    /**
+     * JSON Schema for the tool's arguments.
+     */
+    export type AvailableToolInputSchema = { [key: string]: unknown };
+
+    /**
+     * MCP tool annotations the upstream server declared (destructiveHint, readOnlyHint, ...). Advisory only — policy may escalate them, never loosen them.
+     */
+    export type AvailableToolAnnotations = { [key: string]: unknown };
+
+    export interface AvailableTool {
+      /** Tool name as the upstream server reports it. */
+      name: string;
+      /** Upstream tool description. */
+      description: string;
+      /** JSON Schema for the tool's arguments. */
+      input_schema: AvailableToolInputSchema;
+      /** MCP tool annotations the upstream server declared (destructiveHint, readOnlyHint, ...). Advisory only — policy may escalate them, never loosen them. */
+      annotations: AvailableToolAnnotations;
+      /** Effective gateway state. `needs_approval` tools are listed so callers can explain why a call would fail rather than pretending the capability is missing.
+       *
+       * * `approved` - Approved
+       * * `needs_approval` - Needs approval
+       * * `do_not_use` - Do not use */
+      approval_state: MCPToolApprovalStateEnum;
+    }
+
+    export interface AvailableServer {
+      /** Installation to send `call_tool` requests to. */
+      installation_id: string;
+      /** Human-readable server name. */
+      name: string;
+      /** Stable lowercase identifier used to namespace tool names. */
+      slug: string;
+      /** Callable tools on this server. */
+      tools: AvailableTool[];
+    }
+
+    /**
      * * `ingest_first_event` - ingest_first_event
      * * `set_up_reverse_proxy` - set_up_reverse_proxy
      * * `create_first_insight` - create_first_insight
@@ -9776,6 +9828,11 @@ export namespace Schemas {
       UsePosthogInSlack: 'use_posthog_in_slack',
     } as const;
 
+    export interface AvailableToolsResponse {
+      /** Connected servers the caller can reach. */
+      servers: AvailableServer[];
+    }
+
     export type AwsS3DestinationConfigType = typeof AwsS3DestinationConfigType[keyof typeof AwsS3DestinationConfigType];
 
 
@@ -9869,8 +9926,8 @@ export namespace Schemas {
      */
     export interface AwsS3DestinationRequest {
       type: AwsS3DestinationRequestType;
-      /** ID of an aws-s3-kind Integration providing AWS credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
-      integration_id?: number;
+      /** ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+      integration_id: number;
       config: AwsS3DestinationConfig;
     }
 
@@ -10722,7 +10779,7 @@ export namespace Schemas {
          */
       integration?: number | null;
       /**
-         * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, and BigQuery destinations; optional for AwsS3, S3Compatible and Snowflake (inline credentials remain supported); unused for other types.
+         * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake (inline credentials remain supported); unused for other types.
          * @nullable
          */
       integration_id?: number | null;
@@ -11686,8 +11743,8 @@ export namespace Schemas {
      */
     export interface S3CompatibleDestinationRequest {
       type: S3CompatibleDestinationRequestType;
-      /** ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
-      integration_id?: number;
+      /** ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+      integration_id: number;
       config: S3CompatibleDestinationConfig;
     }
 
@@ -13176,6 +13233,69 @@ export namespace Schemas {
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+    }
+
+    /**
+     * * `needs_approval` - needs_approval
+     * * `disabled` - disabled
+     * * `removed` - removed
+     * * `upstream_error` - upstream_error
+     */
+    export type CallToolBlockedReasonEnum = typeof CallToolBlockedReasonEnum[keyof typeof CallToolBlockedReasonEnum];
+
+
+    export const CallToolBlockedReasonEnum = {
+      NeedsApproval: 'needs_approval',
+      Disabled: 'disabled',
+      Removed: 'removed',
+      UpstreamError: 'upstream_error',
+    } as const;
+
+    export interface CallToolBlocked {
+      /** Why the call was refused, phrased for the calling agent. */
+      detail: string;
+      /** Machine-readable refusal cause, so callers can prompt for approval instead of retrying.
+       *
+       * * `needs_approval` - needs_approval
+       * * `disabled` - disabled
+       * * `removed` - removed
+       * * `upstream_error` - upstream_error */
+      reason: CallToolBlockedReasonEnum;
+    }
+
+    /**
+     * Arguments object passed straight to the tool, matching its input schema.
+     */
+    export type CallToolRequestArguments = { [key: string]: unknown };
+
+    export interface CallToolRequest {
+      /**
+         * Name of the tool to invoke, exactly as the upstream server reports it.
+         * @maxLength 200
+         */
+      tool_name: string;
+      /** Arguments object passed straight to the tool, matching its input schema. */
+      arguments?: CallToolRequestArguments;
+    }
+
+    export type CallToolResponseContentItem = { [key: string]: unknown };
+
+    /**
+     * Structured result the tool returned alongside `content`, when it provides one.
+     * @nullable
+     */
+    export type CallToolResponseStructuredContent = { [key: string]: unknown } | null;
+
+    export interface CallToolResponse {
+      /** MCP content blocks the tool returned, in upstream order. */
+      content: CallToolResponseContentItem[];
+      /** True when the tool itself reported failure (for example bad arguments). The call reached the server; read `content` for the reason. */
+      is_error: boolean;
+      /**
+         * Structured result the tool returned alongside `content`, when it provides one.
+         * @nullable
+         */
+      structured_content?: CallToolResponseStructuredContent;
     }
 
     /**
@@ -19545,6 +19665,7 @@ export namespace Schemas {
      * * `WindsorAi` - WindsorAi
      * * `Wix` - Wix
      * * `Sevalla` - Sevalla
+     * * `Motion` - Motion
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -20831,6 +20952,7 @@ export namespace Schemas {
       WindsorAi: 'WindsorAi',
       Wix: 'Wix',
       Sevalla: 'Sevalla',
+      Motion: 'Motion',
     } as const;
 
     /**
@@ -22130,7 +22252,8 @@ export namespace Schemas {
        * * `Raisely` - Raisely
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
-       * * `Sevalla` - Sevalla */
+       * * `Sevalla` - Sevalla
+       * * `Motion` - Motion */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -24118,7 +24241,8 @@ export namespace Schemas {
        * * `Raisely` - Raisely
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
-       * * `Sevalla` - Sevalla */
+       * * `Sevalla` - Sevalla
+       * * `Motion` - Motion */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -31662,7 +31786,8 @@ export namespace Schemas {
        * * `Raisely` - Raisely
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
-       * * `Sevalla` - Sevalla */
+       * * `Sevalla` - Sevalla
+       * * `Motion` - Motion */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -32980,7 +33105,8 @@ export namespace Schemas {
        * * `Raisely` - Raisely
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
-       * * `Sevalla` - Sevalla */
+       * * `Sevalla` - Sevalla
+       * * `Motion` - Motion */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -34178,15 +34304,6 @@ export namespace Schemas {
       Team: 'team',
       Member: 'member',
       Agent: 'agent',
-    } as const;
-
-    export type MCPToolApprovalStateEnum = typeof MCPToolApprovalStateEnum[keyof typeof MCPToolApprovalStateEnum];
-
-
-    export const MCPToolApprovalStateEnum = {
-      Approved: 'approved',
-      NeedsApproval: 'needs_approval',
-      DoNotUse: 'do_not_use',
     } as const;
 
     export interface ToolPolicyEntry {
@@ -45045,12 +45162,12 @@ export namespace Schemas {
     }
 
     export interface PaginatedActivityLogList {
-      count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
       results: ActivityLog[];
+      count?: number;
     }
 
     export interface PaginatedAlertList {
@@ -68698,7 +68815,8 @@ export namespace Schemas {
        * * `Raisely` - Raisely
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
-       * * `Sevalla` - Sevalla */
+       * * `Sevalla` - Sevalla
+       * * `Motion` - Motion */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -70024,7 +70142,8 @@ export namespace Schemas {
        * * `Raisely` - Raisely
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
-       * * `Sevalla` - Sevalla */
+       * * `Sevalla` - Sevalla
+       * * `Motion` - Motion */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -71342,7 +71461,8 @@ export namespace Schemas {
        * * `Raisely` - Raisely
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
-       * * `Sevalla` - Sevalla */
+       * * `Sevalla` - Sevalla
+       * * `Motion` - Motion */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -77626,9 +77746,17 @@ export namespace Schemas {
      */
     end_date?: string;
     /**
+     * Keep the next link valid after the last entry, so the same cursor can be re-polled as new entries arrive. Only applies with oldest-first ordering. When following, stop on an empty results list rather than on a null next link.
+     */
+    follow?: boolean;
+    /**
      * Reserved for future HogQL-based filtering.
      */
     hogql_filter?: string;
+    /**
+     * Include the previous and new values of changed fields. Only applies when schema is ocsf. Values can contain the content of the changed object, which makes responses larger and sends that content to your security tool.
+     */
+    include_values?: boolean;
     /**
      * Filter by client IP addresses. Accepts exact IPv4/IPv6 values or wildcard patterns using `*` (e.g. `203.0.113.*`). Multiple entries are OR-combined.
      */
@@ -77643,16 +77771,31 @@ export namespace Schemas {
      */
     item_ids?: string[];
     /**
+     * Sort by when the entry was created. Defaults to newest first. Use created_at for oldest first when polling for new entries, so a saved cursor picks up where the last request stopped.
+     *
+     * * `-created_at` - -created_at
+     * * `created_at` - created_at
+     * @minLength 1
+     */
+    ordering?: string;
+    /**
      * Page number for pagination. When provided, uses page-based pagination ordered by most recent first.
      * @minimum 1
      */
     page?: number;
     /**
-     * Number of results per page (default: 100, max: 1000). Only used with page-based pagination.
+     * Number of results per page (default: 100, max: 1000).
      * @minimum 1
      * @maximum 1000
      */
     page_size?: number;
+    /**
+     * Response format. Set to ocsf to return Open Cybersecurity Schema Framework events for ingestion into a security tool. Omit for the default PostHog format.
+     *
+     * * `ocsf` - ocsf
+     * @minLength 1
+     */
+    schema?: OrgOrganizationsAdvancedActivityLogsListSchema;
     /**
      * Filter by activity scopes (e.g. "FeatureFlag", "Insight").
      */
@@ -77679,6 +77822,13 @@ export namespace Schemas {
      */
     was_impersonated?: boolean | null;
     };
+
+    export type OrgOrganizationsAdvancedActivityLogsListSchema = typeof OrgOrganizationsAdvancedActivityLogsListSchema[keyof typeof OrgOrganizationsAdvancedActivityLogsListSchema];
+
+
+    export const OrgOrganizationsAdvancedActivityLogsListSchema = {
+      Ocsf: 'ocsf',
+    } as const;
 
     export type OrgOrganizationsBatchExportsListParams = {
     /**
@@ -78163,12 +78313,20 @@ export namespace Schemas {
      */
     item_id?: string;
     /**
+     * Sort by when the entry was created. Defaults to newest first. Use created_at for oldest first when polling for new entries, so a saved cursor picks up where the last request stopped.
+     *
+     * * `-created_at` - -created_at
+     * * `created_at` - created_at
+     * @minLength 1
+     */
+    ordering?: string;
+    /**
      * Page number for pagination. When provided, uses page-based pagination ordered by most recent first.
      * @minimum 1
      */
     page?: number;
     /**
-     * Number of results per page (default: 100, max: 1000). Only used with page-based pagination.
+     * Number of results per page (default: 100, max: 1000).
      * @minimum 1
      * @maximum 1000
      */
@@ -78525,9 +78683,17 @@ export namespace Schemas {
      */
     end_date?: string;
     /**
+     * Keep the next link valid after the last entry, so the same cursor can be re-polled as new entries arrive. Only applies with oldest-first ordering. When following, stop on an empty results list rather than on a null next link.
+     */
+    follow?: boolean;
+    /**
      * Reserved for future HogQL-based filtering.
      */
     hogql_filter?: string;
+    /**
+     * Include the previous and new values of changed fields. Only applies when schema is ocsf. Values can contain the content of the changed object, which makes responses larger and sends that content to your security tool.
+     */
+    include_values?: boolean;
     /**
      * Filter by client IP addresses. Accepts exact IPv4/IPv6 values or wildcard patterns using `*` (e.g. `203.0.113.*`). Multiple entries are OR-combined.
      */
@@ -78542,16 +78708,31 @@ export namespace Schemas {
      */
     item_ids?: string[];
     /**
+     * Sort by when the entry was created. Defaults to newest first. Use created_at for oldest first when polling for new entries, so a saved cursor picks up where the last request stopped.
+     *
+     * * `-created_at` - -created_at
+     * * `created_at` - created_at
+     * @minLength 1
+     */
+    ordering?: string;
+    /**
      * Page number for pagination. When provided, uses page-based pagination ordered by most recent first.
      * @minimum 1
      */
     page?: number;
     /**
-     * Number of results per page (default: 100, max: 1000). Only used with page-based pagination.
+     * Number of results per page (default: 100, max: 1000).
      * @minimum 1
      * @maximum 1000
      */
     page_size?: number;
+    /**
+     * Response format. Set to ocsf to return Open Cybersecurity Schema Framework events for ingestion into a security tool. Omit for the default PostHog format.
+     *
+     * * `ocsf` - ocsf
+     * @minLength 1
+     */
+    schema?: AdvancedActivityLogsListSchema;
     /**
      * Filter by activity scopes (e.g. "FeatureFlag", "Insight").
      */
@@ -78578,6 +78759,13 @@ export namespace Schemas {
      */
     was_impersonated?: boolean | null;
     };
+
+    export type AdvancedActivityLogsListSchema = typeof AdvancedActivityLogsListSchema[keyof typeof AdvancedActivityLogsListSchema];
+
+
+    export const AdvancedActivityLogsListSchema = {
+      Ocsf: 'ocsf',
+    } as const;
 
     export type AlertsListParams = {
     /**
