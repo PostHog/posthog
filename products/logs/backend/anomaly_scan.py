@@ -20,6 +20,7 @@ fetch cannot supply. The rollup-backed path keeps it.
 import os
 import datetime as dt
 from dataclasses import dataclass, field, replace
+from enum import StrEnum
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -41,8 +42,10 @@ from products.apm.backend.facade.api import (
     BUCKET_MINUTES,
     BUCKETS_PER_DAY,
     BUCKETS_PER_WEEK,
+    BaselineStage,
     BucketVerdict,
     DetectionConfig,
+    Direction,
     IssueAction,
     IssueFingerprint,
     IssueSnapshot,
@@ -51,6 +54,7 @@ from products.apm.backend.facade.api import (
     SeriesHistory,
     SeriesKey,
     TimeGrid,
+    TrafficTier,
     VerdictType,
     candidate_slice_pad_buckets,
     evaluate_issue_transition,
@@ -77,6 +81,24 @@ class ScanBudgetExceeded(Exception):
     """Every degradation rung blew the byte budget."""
 
 
+class BindingConstraint(StrEnum):
+    """What limited the scan's baseline, scan-wide."""
+
+    TEAM_RETENTION = "team_retention"
+    BYTE_BUDGET = "byte_budget"
+
+
+class SeriesLimit(StrEnum):
+    """What limited one series' baseline maturity."""
+
+    # First data appears well inside the lookback: the series is younger than
+    # the lookback, or older rows were dropped by a per-stream retention rule.
+    # ClickHouse cannot distinguish the two.
+    SERIES_HISTORY = "series_history"
+    BYTE_BUDGET = "byte_budget"
+    TEAM_RETENTION = "team_retention"
+
+
 @dataclass(frozen=True, kw_only=True)
 class TimeRange:
     """Half-open [start, end) range, both ends aligned to the 5-minute grid."""
@@ -100,25 +122,26 @@ class ScanBucket:
     expected: float | None
     lower: float | None
     upper: float | None
-    stage: str | None
-    verdict: str | None
+    stage: BaselineStage | None
+    verdict: VerdictType | None
 
 
 @dataclass(frozen=True, kw_only=True)
 class ScanSeries:
     severity: str
-    stage: str | None
-    tier: str | None
+    stage: BaselineStage | None
+    tier: TrafficTier | None
     history_start: dt.datetime | None
+    limited_by: SeriesLimit | None
     buckets: list[ScanBucket]
 
 
 @dataclass(frozen=True, kw_only=True)
 class ScanIssue:
-    direction: str
+    direction: Direction
     severity: str | None
-    kind: str
-    state: str
+    kind: VerdictType
+    state: IssueState
     opened_at: dt.datetime
     last_anomalous_at: dt.datetime
     resolved_at: dt.datetime | None
@@ -133,9 +156,13 @@ class ScanResult:
     lookback_buckets: int
     eval_clipped: bool
     degraded: bool
-    binding_constraint: str  # "none" | "team_retention" | "byte_budget"
+    binding_constraints: list[BindingConstraint]
     series: list[ScanSeries]
     issues: list[ScanIssue]
+
+    @property
+    def lookback_days(self) -> float:
+        return self.lookback_buckets / BUCKETS_PER_DAY
 
 
 def floor_to_bucket(value: dt.datetime) -> dt.datetime:
@@ -212,7 +239,7 @@ def degradation_ladder(eval_start: dt.datetime, eval_end: dt.datetime, full_look
         )
 
     min_lookback = min(seen)
-    for clip in (dt.timedelta(hours=24), dt.timedelta(hours=6)):
+    for clip in (dt.timedelta(hours=24), dt.timedelta(hours=6), dt.timedelta(hours=1)):
         clipped_start = max(eval_start, eval_end - clip)
         if clipped_start > eval_start:
             attempts.append(
@@ -322,6 +349,21 @@ class _IssueAccumulator:
     resolved_at: dt.datetime | None = None
     anomalous_times: list[dt.datetime] = field(default_factory=list)
     ever_opened: bool = False
+    last_kind: VerdictType | None = None
+
+
+def _series_limit(
+    history_start: dt.datetime | None,
+    grid_start: dt.datetime,
+    scan_constraints: list[BindingConstraint],
+) -> SeriesLimit | None:
+    if history_start is not None and history_start > grid_start + dt.timedelta(days=1):
+        return SeriesLimit.SERIES_HISTORY
+    if BindingConstraint.BYTE_BUDGET in scan_constraints:
+        return SeriesLimit.BYTE_BUDGET
+    if BindingConstraint.TEAM_RETENTION in scan_constraints:
+        return SeriesLimit.TEAM_RETENTION
+    return None
 
 
 def _replay(
@@ -330,6 +372,7 @@ def _replay(
     service_name: str,
     config: DetectionConfig,
     tz: ZoneInfo,
+    scan_constraints: list[BindingConstraint],
 ) -> tuple[list[ScanSeries], list[ScanIssue]]:
     grid_start = attempt.eval_start - attempt.lookback_buckets * BUCKET
     n_buckets = int((attempt.eval_end - grid_start) / BUCKET)
@@ -351,8 +394,8 @@ def _replay(
         for severity in histories
     }
     series_buckets: dict[str, list[ScanBucket]] = {severity: [] for severity in histories}
-    last_stage: dict[str, str | None] = dict.fromkeys(histories)
-    last_tier: dict[str, str | None] = dict.fromkeys(histories)
+    last_stage: dict[str, BaselineStage | None] = dict.fromkeys(histories)
+    last_tier: dict[str, TrafficTier | None] = dict.fromkeys(histories)
     accumulators: dict[IssueFingerprint, _IssueAccumulator] = {}
 
     for index in range(eval_start_index, n_buckets):
@@ -377,14 +420,14 @@ def _replay(
                     expected=evaluation.band.expected if evaluation.band else None,
                     lower=evaluation.band.lower if evaluation.band else None,
                     upper=evaluation.band.upper if evaluation.band else None,
-                    stage=evaluation.stage.value if evaluation.stage else None,
-                    verdict=verdict.verdict_type.value if verdict else None,
+                    stage=evaluation.stage,
+                    verdict=verdict.verdict_type if verdict else None,
                 )
             )
             if evaluation.stage is not None:
-                last_stage[severity] = evaluation.stage.value
+                last_stage[severity] = evaluation.stage
             if evaluation.tier is not None:
-                last_tier[severity] = evaluation.tier.value
+                last_tier[severity] = evaluation.tier
 
         open_fingerprints = {fp for fp, acc in accumulators.items() if acc.snapshot is not None}
         for fingerprint in open_fingerprints | set(tick_verdicts):
@@ -404,6 +447,8 @@ def _replay(
                 accumulator.snapshot = outcome.snapshot
             if verdict_here is not None:
                 accumulator.anomalous_times.append(bucket_time)
+            if outcome.snapshot is not None:
+                accumulator.last_kind = outcome.snapshot.kind
             if outcome.action in (IssueAction.OPEN, IssueAction.REOPEN):
                 accumulator.ever_opened = True
                 if accumulator.opened_at is None:
@@ -412,33 +457,33 @@ def _replay(
             elif outcome.action is IssueAction.RESOLVE:
                 accumulator.resolved_at = bucket_time
 
-    series = [
-        ScanSeries(
-            severity=severity,
-            stage=last_stage[severity],
-            tier=last_tier[severity],
-            history_start=(
-                histories[severity].bucket_time(first)
-                if (first := histories[severity].first_active_index) is not None
-                else None
-            ),
-            buckets=series_buckets[severity],
+    series = []
+    for severity in sorted(histories):
+        first = histories[severity].first_active_index
+        history_start = histories[severity].bucket_time(first) if first is not None else None
+        series.append(
+            ScanSeries(
+                severity=severity,
+                stage=last_stage[severity],
+                tier=last_tier[severity],
+                history_start=history_start,
+                limited_by=_series_limit(history_start, grid_start, scan_constraints),
+                buckets=series_buckets[severity],
+            )
         )
-        for severity in sorted(histories)
-    ]
 
     issues = []
     for accumulator in accumulators.values():
-        if not accumulator.ever_opened or accumulator.opened_at is None:
+        if not accumulator.ever_opened or accumulator.opened_at is None or accumulator.last_kind is None:
             continue
         snapshot = accumulator.snapshot
-        state = snapshot.state.value if snapshot is not None else IssueState.RESOLVED.value
         issues.append(
             ScanIssue(
-                direction=accumulator.fingerprint.direction.value,
+                direction=accumulator.fingerprint.direction,
                 severity=accumulator.fingerprint.severity,
-                kind=snapshot.kind.value if snapshot is not None else "unknown",
-                state=state,
+                kind=snapshot.kind if snapshot is not None else accumulator.last_kind,
+                # A None snapshot after an open means a post-resolution blip fizzled.
+                state=snapshot.state if snapshot is not None else IssueState.RESOLVED,
                 opened_at=accumulator.opened_at,
                 last_anomalous_at=accumulator.anomalous_times[-1],
                 resolved_at=accumulator.resolved_at,
@@ -482,15 +527,15 @@ def run_scan(
             last_error = err
             continue
 
-        config = _jit_config(attempt.lookback_buckets)
-        series, issues = _replay(counts, attempt, service_name, config, ZoneInfo(team.timezone))
         degraded = attempt.lookback_buckets < max(full_lookback, 1) or attempt.eval_clipped
+        constraints: list[BindingConstraint] = []
         if degraded:
-            constraint = "byte_budget"
-        elif retention_limited:
-            constraint = "team_retention"
-        else:
-            constraint = "none"
+            constraints.append(BindingConstraint.BYTE_BUDGET)
+        if retention_limited:
+            constraints.append(BindingConstraint.TEAM_RETENTION)
+
+        config = _jit_config(attempt.lookback_buckets)
+        series, issues = _replay(counts, attempt, service_name, config, ZoneInfo(team.timezone), constraints)
         return ScanResult(
             service_name=service_name,
             eval_start=attempt.eval_start,
@@ -498,7 +543,7 @@ def run_scan(
             lookback_buckets=attempt.lookback_buckets,
             eval_clipped=attempt.eval_clipped,
             degraded=degraded,
-            binding_constraint=constraint,
+            binding_constraints=constraints,
             series=series,
             issues=issues,
         )

@@ -1,4 +1,5 @@
 import datetime as dt
+from typing import cast
 from zoneinfo import ZoneInfo
 
 from unittest.mock import patch
@@ -9,6 +10,7 @@ import numpy as np
 from parameterized import parameterized
 
 from posthog.errors import CHQueryErrorTooManyBytes
+from posthog.models import Team
 
 from products.apm.backend.facade.api import (
     BUCKET_MINUTES,
@@ -22,6 +24,7 @@ from products.apm.backend.facade.api import (
     evaluate_series_bucket_detail,
 )
 from products.logs.backend.anomaly_scan import (
+    BindingConstraint,
     ScanBudgetExceeded,
     TimeRange,
     baseline_slice_ranges,
@@ -45,6 +48,10 @@ def _ranges_to_index_mask(ranges: list[TimeRange], grid_start: dt.datetime, n_bu
         hi = min(int((r.end - grid_start) / BUCKET), n_buckets)
         mask[lo:hi] = True
     return mask
+
+
+def _team(retention_days: int | None = 90) -> Team:
+    return cast(Team, _FakeTeam(retention_days))
 
 
 class _FakeTeam:
@@ -140,9 +147,9 @@ class TestAnomalyScanPure(SimpleTestCase):
         assert lookbacks == sorted(lookbacks, reverse=True)
         assert lookbacks[0] == 6 * BUCKETS_PER_WEEK
         clipped = [a for a in ladder if a.eval_clipped]
-        assert len(clipped) == 2
+        assert len(clipped) == 3
         assert all(a.lookback_buckets == min(lookbacks) for a in clipped)
-        assert clipped[-1].eval_end - clipped[-1].eval_start == dt.timedelta(hours=6)
+        assert clipped[-1].eval_end - clipped[-1].eval_start == dt.timedelta(hours=1)
 
     def test_degradation_ladder_dedups_when_retention_already_clamps(self) -> None:
         ladder = degradation_ladder(T0, T0 + BUCKETS_PER_DAY * BUCKET, 2 * BUCKETS_PER_WEEK)
@@ -168,19 +175,19 @@ class TestRunScan(SimpleTestCase):
             return {"info": {T0: 100}}
 
         with patch("products.logs.backend.anomaly_scan.fetch_bucket_counts", side_effect=fake_fetch):
-            result = run_scan(_FakeTeam(), "svc", T0, T0 + 12 * BUCKET, now=self._now())
+            result = run_scan(_team(), "svc", T0, T0 + 12 * BUCKET, now=self._now())
 
         assert len(calls) == 2
         assert result.degraded
-        assert result.binding_constraint == "byte_budget"
+        assert BindingConstraint.BYTE_BUDGET in result.binding_constraints
         assert result.lookback_buckets < 6 * BUCKETS_PER_WEEK
 
     def test_retention_clamps_lookback_and_reports_constraint(self) -> None:
         with patch("products.logs.backend.anomaly_scan.fetch_bucket_counts", return_value={}) as fetch:
-            result = run_scan(_FakeTeam(retention_days=14), "svc", T0, T0 + 12 * BUCKET, now=self._now())
+            result = run_scan(_team(retention_days=14), "svc", T0, T0 + 12 * BUCKET, now=self._now())
 
         assert not result.degraded
-        assert result.binding_constraint == "team_retention"
+        assert result.binding_constraints == [BindingConstraint.TEAM_RETENTION]
         assert result.lookback_buckets <= 13 * BUCKETS_PER_DAY
         # No fetched range may predate the retention floor.
         ranges = fetch.call_args.args[2]
@@ -193,7 +200,7 @@ class TestRunScan(SimpleTestCase):
             side_effect=CHQueryErrorTooManyBytes("too many bytes", code=307),
         ):
             with self.assertRaises(ScanBudgetExceeded):
-                run_scan(_FakeTeam(), "svc", T0 - 2 * BUCKETS_PER_DAY * BUCKET, T0, now=self._now())
+                run_scan(_team(), "svc", T0 - 2 * BUCKETS_PER_DAY * BUCKET, T0, now=self._now())
 
     def test_spike_produces_issue_and_bucket_evidence(self) -> None:
         lookback = 2 * BUCKETS_PER_WEEK
@@ -211,9 +218,9 @@ class TestRunScan(SimpleTestCase):
             return {"info": {grid_start + i * BUCKET: int(counts[i]) for i in range(n_buckets) if counts[i]}}
 
         with patch("products.logs.backend.anomaly_scan.fetch_bucket_counts", side_effect=fake_fetch):
-            result = run_scan(_FakeTeam(retention_days=90), "svc", eval_start, eval_end, now=eval_end)
+            result = run_scan(_team(retention_days=90), "svc", eval_start, eval_end, now=eval_end)
 
-        assert result.binding_constraint in ("none", "team_retention")
+        assert BindingConstraint.BYTE_BUDGET not in result.binding_constraints
         assert len(result.series) == 1
         series = result.series[0]
         assert series.severity == "info"

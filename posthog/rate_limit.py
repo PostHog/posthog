@@ -546,6 +546,16 @@ class HeatmapPreflightSustainedRateThrottle(_TeamBucketRateThrottle):
 # load, filter change — debounced client-side — or recording open), and repeats hit the
 # server-side cache, so these rates clear a whole project's worth of concurrent viewers while
 # capping a scripted loop of cold batches.
+class SessionContextsBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "session_contexts_burst"
+    rate = "60/minute"
+
+
+class SessionContextsSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "session_contexts_sustained"
+    rate = "600/hour"
+
+
 # The logs anomaly scan aggregates weeks of baseline slices from ClickHouse in one synchronous
 # request — the heaviest single query the logs product exposes, budgeted at gigabytes of reads
 # per call. A team-wide bucket caps the project's total spend regardless of how many users or
@@ -559,16 +569,6 @@ class LogsAnomalyScanBurstRateThrottle(_TeamBucketRateThrottle):
 class LogsAnomalyScanSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "logs_anomaly_scan_sustained"
     rate = "60/hour"
-
-
-class SessionContextsBurstRateThrottle(_TeamBucketRateThrottle):
-    scope = "session_contexts_burst"
-    rate = "60/minute"
-
-
-class SessionContextsSustainedRateThrottle(_TeamBucketRateThrottle):
-    scope = "session_contexts_sustained"
-    rate = "600/hour"
 
 
 # The experiment session-bucket endpoint scans every session in an experiment's recent run

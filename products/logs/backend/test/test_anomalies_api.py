@@ -8,6 +8,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from products.apm.backend.facade.api import BaselineStage, Direction, IssueState, TrafficTier, VerdictType
 from products.logs.backend.anomaly_scan import ScanBucket, ScanBudgetExceeded, ScanIssue, ScanResult, ScanSeries
 from products.logs.backend.presentation.views.anomalies_api import LogsAnomalyScanRequestSerializer
 
@@ -23,13 +24,14 @@ def _scan_result(**overrides) -> ScanResult:
         "lookback_buckets": 6 * 7 * 288,
         "eval_clipped": False,
         "degraded": False,
-        "binding_constraint": "none",
+        "binding_constraints": [],
         "series": [
             ScanSeries(
                 severity="info",
-                stage="mature",
-                tier="b",
+                stage=BaselineStage.MATURE,
+                tier=TrafficTier.B,
                 history_start=T0 - dt.timedelta(days=42),
+                limited_by=None,
                 buckets=[
                     ScanBucket(
                         time=T0,
@@ -37,7 +39,7 @@ def _scan_result(**overrides) -> ScanResult:
                         expected=100.0,
                         lower=60.0,
                         upper=150.0,
-                        stage="mature",
+                        stage=BaselineStage.MATURE,
                         verdict=None,
                     )
                 ],
@@ -45,10 +47,10 @@ def _scan_result(**overrides) -> ScanResult:
         ],
         "issues": [
             ScanIssue(
-                direction="up",
+                direction=Direction.UP,
                 severity="info",
-                kind="spike",
-                state="active",
+                kind=VerdictType.SPIKE,
+                state=IssueState.ACTIVE,
                 opened_at=T0 + dt.timedelta(minutes=10),
                 last_anomalous_at=T0 + dt.timedelta(minutes=30),
                 resolved_at=None,
@@ -63,15 +65,24 @@ def _scan_result(**overrides) -> ScanResult:
 class TestScanRequestValidation(SimpleTestCase):
     @parameterized.expand(
         [
-            ("missing_service", {"dateFrom": "2026-06-01T00:00:00Z", "dateTo": "2026-06-02T00:00:00Z"}),
+            (
+                "missing_service",
+                {"dateRange": {"date_from": "2026-06-01T00:00:00Z", "date_to": "2026-06-02T00:00:00Z"}},
+            ),
             ("missing_window", {"serviceName": "svc"}),
             (
                 "inverted_window",
-                {"serviceName": "svc", "dateFrom": "2026-06-02T00:00:00Z", "dateTo": "2026-06-01T00:00:00Z"},
+                {
+                    "serviceName": "svc",
+                    "dateRange": {"date_from": "2026-06-02T00:00:00Z", "date_to": "2026-06-01T00:00:00Z"},
+                },
             ),
             (
                 "window_over_seven_days",
-                {"serviceName": "svc", "dateFrom": "2026-06-01T00:00:00Z", "dateTo": "2026-06-09T00:00:00Z"},
+                {
+                    "serviceName": "svc",
+                    "dateRange": {"date_from": "2026-06-01T00:00:00Z", "date_to": "2026-06-09T00:00:00Z"},
+                },
             ),
         ]
     )
@@ -81,7 +92,10 @@ class TestScanRequestValidation(SimpleTestCase):
 
     def test_valid_payload(self) -> None:
         serializer = LogsAnomalyScanRequestSerializer(
-            data={"serviceName": "svc", "dateFrom": "2026-06-01T00:00:00Z", "dateTo": "2026-06-02T00:00:00Z"}
+            data={
+                "serviceName": "svc",
+                "dateRange": {"date_from": "2026-06-01T00:00:00Z", "date_to": "2026-06-02T00:00:00Z"},
+            }
         )
         assert serializer.is_valid(), serializer.errors
 
@@ -97,8 +111,7 @@ class TestLogsAnomalyScanAPI(APIBaseTest):
     def _payload(self) -> dict:
         return {
             "serviceName": "svc",
-            "dateFrom": "2026-06-01T12:00:00Z",
-            "dateTo": "2026-06-01T13:00:00Z",
+            "dateRange": {"date_from": "2026-06-01T12:00:00Z", "date_to": "2026-06-01T13:00:00Z"},
         }
 
     def test_flag_off_is_forbidden(self):
@@ -123,9 +136,9 @@ class TestLogsAnomalyScanAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         run.assert_called_once()
         data = response.json()
-        assert data["serviceName"] == "svc"
-        assert data["bindingConstraint"] == "none"
-        assert data["lookbackDays"] == 42.0
+        assert data["service_name"] == "svc"
+        assert data["binding_constraints"] == []
+        assert data["lookback_days"] == 42.0
         series = data["series"][0]
         assert series["severity"] == "info"
         assert series["buckets"][0]["observed"] == 120.0
@@ -133,7 +146,7 @@ class TestLogsAnomalyScanAPI(APIBaseTest):
         issue = data["issues"][0]
         assert issue["direction"] == "up"
         assert issue["state"] == "active"
-        assert issue["resolvedAt"] is None
+        assert issue["resolved_at"] is None
 
     def test_repeat_scan_is_served_from_cache(self):
         with patch(

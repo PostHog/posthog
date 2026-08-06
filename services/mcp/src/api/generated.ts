@@ -12185,15 +12185,13 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `none` - none
      * * `team_retention` - team_retention
      * * `byte_budget` - byte_budget
      */
-    export type BindingConstraintEnum = typeof BindingConstraintEnum[keyof typeof BindingConstraintEnum];
+    export type BindingConstraintsEnum = typeof BindingConstraintsEnum[keyof typeof BindingConstraintsEnum];
 
 
-    export const BindingConstraintEnum = {
-      None: 'none',
+    export const BindingConstraintsEnum = {
       TeamRetention: 'team_retention',
       ByteBudget: 'byte_budget',
     } as const;
@@ -40374,6 +40372,20 @@ export namespace Schemas {
       Sustained: 'sustained',
     } as const;
 
+    /**
+     * * `series_history` - series_history
+     * * `team_retention` - team_retention
+     * * `byte_budget` - byte_budget
+     */
+    export type LimitedByEnum = typeof LimitedByEnum[keyof typeof LimitedByEnum];
+
+
+    export const LimitedByEnum = {
+      SeriesHistory: 'series_history',
+      TeamRetention: 'team_retention',
+      ByteBudget: 'byte_budget',
+    } as const;
+
     export interface LinearIssueSignalExtra {
       url: string;
       identifier: string;
@@ -40879,6 +40891,11 @@ export namespace Schemas {
       verdict: LogsAnomalyVerdictEnum | null;
     }
 
+    export interface LogsAnomalyScanError {
+      /** Human readable description of why the scan could not run. */
+      error: string;
+    }
+
     /**
      * * `up` - up
      * * `down` - down
@@ -40929,25 +40946,30 @@ export namespace Schemas {
        * * `resolved` - resolved */
       state: LogsAnomalyScanIssueStateEnum;
       /** Bucket where the issue first opened. */
-      openedAt: string;
+      opened_at: string;
       /** Most recent anomalous bucket attributed to this issue. */
-      lastAnomalousAt: string;
+      last_anomalous_at: string;
       /**
          * Bucket where the issue resolved, or null if it was still open at the end of the window.
          * @nullable
          */
-      resolvedAt: string | null;
+      resolved_at: string | null;
       /** Every anomalous bucket attributed to this issue, oldest first. */
-      anomalousBucketTimes: string[];
+      anomalous_bucket_times: string[];
+    }
+
+    export interface _ScanDateRange {
+      /** Start of the evaluation window (ISO 8601). Buckets before this are only used as baseline history. */
+      date_from: string;
+      /** End of the evaluation window (ISO 8601), clamped to now. */
+      date_to: string;
     }
 
     export interface LogsAnomalyScanRequest {
       /** Service to scan (the log record's service_name). Required: the scan aggregates weeks of baseline history from raw logs, so it is scoped to one service per call. */
       serviceName: string;
-      /** Start of the evaluation window (ISO 8601). Buckets before this are only used as baseline history. */
-      dateFrom: string;
-      /** End of the evaluation window (ISO 8601), clamped to now. The window may span at most 7 days. */
-      dateTo: string;
+      /** Evaluation window to scan for anomalies. May span at most 7 days. */
+      dateRange: _ScanDateRange;
     }
 
     /**
@@ -40984,33 +41006,35 @@ export namespace Schemas {
        * * `d` - d */
       tier: LogsAnomalyScanSeriesTierEnum | null;
       /**
-         * Earliest bucket with data inside the fetched lookback. When this is later than the lookback start, the series is younger than the lookback or older data has been dropped by a retention rule.
+         * Earliest bucket with data inside the fetched lookback.
          * @nullable
          */
-      historyStart: string | null;
+      history_start: string | null;
+      /** What limited this series' baseline maturity, or null for a full baseline. series_history: data starts inside the lookback, because the series is young or a per-stream retention rule trimmed it (indistinguishable from the data). byte_budget and team_retention mirror the scan level constraints.
+       *
+       * * `series_history` - series_history
+       * * `team_retention` - team_retention
+       * * `byte_budget` - byte_budget */
+      limited_by: LimitedByEnum | null;
       /** Per bucket observed counts and expected bands across the evaluation window, for evidence charts. */
       buckets: LogsAnomalyScanBucket[];
     }
 
     export interface LogsAnomalyScanResponse {
       /** Service that was scanned. */
-      serviceName: string;
+      service_name: string;
       /** Actual start of the evaluated window after any clipping. */
-      evalStart: string;
+      eval_start: string;
       /** Actual end of the evaluated window after clamping to now. */
-      evalEnd: string;
+      eval_end: string;
       /** Days of baseline history the scan used. */
-      lookbackDays: number;
+      lookback_days: number;
       /** True when the evaluation window was clipped to fit the read budget. The response covers only the clipped window. */
-      evalClipped: boolean;
+      eval_clipped: boolean;
       /** True when the scan could not afford the full lookback and fell back to a cheaper configuration. */
       degraded: boolean;
-      /** What limited the baseline. team_retention: the project's log retention is shorter than the full lookback. byte_budget: the scan degraded to stay inside its ClickHouse read budget.
-       *
-       * * `none` - none
-       * * `team_retention` - team_retention
-       * * `byte_budget` - byte_budget */
-      bindingConstraint: BindingConstraintEnum;
+      /** Everything that limited the baseline, empty for an unconstrained scan. team_retention: the project's log retention is shorter than the full lookback. byte_budget: the scan degraded to stay inside its ClickHouse read budget. */
+      binding_constraints: BindingConstraintsEnum[];
       /** One entry per severity level observed for the service, with per bucket evidence. */
       series: LogsAnomalyScanSeries[];
       /** Anomaly issues that opened during the evaluation window, oldest first. */
