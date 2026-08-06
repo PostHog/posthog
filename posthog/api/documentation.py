@@ -22,6 +22,7 @@ from rest_framework.exceptions import PermissionDenied
 from posthog.models.entity import MathType
 from posthog.models.property import OperatorType, PropertyType
 from posthog.permissions import APIScopePermission
+from posthog.products import is_product_module
 
 from products.feature_flags.backend.types import PropertyFilterType
 
@@ -699,7 +700,7 @@ _PROJECT_ENVS_FINAL_RE = re.compile(r"^/api/projects/[^/]+/environments/")
 
 def _get_product_from_module(module: str) -> str | None:
     """Extract product folder name from module path like 'products.batch_exports.backend.api'."""
-    if module.startswith("products."):
+    if is_product_module(module):
         parts = module.split(".")
         if len(parts) >= 2:
             return parts[1]

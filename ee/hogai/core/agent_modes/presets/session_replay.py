@@ -101,12 +101,24 @@ class SessionReplayAgentToolkit(AgentToolkit):
     @property
     def tools(self) -> list[type["MaxTool"]]:
         # Lazy import keeps the product dependency off this module's import path (see test_toolkit_imports).
-        from products.replay_vision.backend.max_tools import SearchReplayVisionObservationsTool
+        from products.replay_vision.backend.max_tools import (
+            CreateReplayVisionActionTool,
+            CreateReplayVisionScannerTool,
+            GetReplayVisionQuotaTool,
+            RetryReplayVisionObservationTool,
+            ScanReplayVisionSessionsTool,
+            SearchReplayVisionObservationsTool,
+        )
 
         tools: list[type[MaxTool]] = [
             FilterSessionRecordingsTool,
             SummarizeSessionsTool,
             SearchReplayVisionObservationsTool,
+            ScanReplayVisionSessionsTool,
+            RetryReplayVisionObservationTool,
+            GetReplayVisionQuotaTool,
+            CreateReplayVisionScannerTool,
+            CreateReplayVisionActionTool,
         ]
         return tools
 
