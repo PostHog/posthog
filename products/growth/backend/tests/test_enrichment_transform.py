@@ -1,6 +1,6 @@
 from parameterized import parameterized
 
-from products.growth.backend.enrichment.transform import MAX_INVESTORS, transform_harmonic_company
+from products.growth.backend.enrichment.transform import MAX_INVESTORS, MAX_TECHNOLOGY_TAGS, transform_harmonic_company
 
 
 def _company(**overrides):
@@ -19,6 +19,7 @@ def _company(**overrides):
         "tractionMetrics": {
             "headcount": {"latestMetricValue": 130},
             "headcountEngineering": {"latestMetricValue": 45},
+            "webTraffic": {"latestMetricValue": 551400},
         },
         "tags": [{"type": "INDUSTRY", "displayValue": "Developer Tools", "isPrimaryTag": True}],
         "tagsV2": [],
@@ -34,6 +35,7 @@ def test_transform_maps_all_registry_fields():
         "company_type": "STARTUP",
         "headcount": 130,  # tractionMetrics wins over the top-level headcount
         "headcount_engineering": 45,
+        "web_traffic": 551400,
         "industry": "Developer Tools",
         "country": "US",  # ISO alpha-2, matching the icp_country format
         "founded_year": 2019,
@@ -116,6 +118,61 @@ def test_unmapped_country_name_is_dropped_not_written_raw():
     fields = transform_harmonic_company(_company(location={"country": "Kingdom of Freedonia"}))
     assert fields is not None
     assert fields.country is None
+
+
+@parameterized.expand(
+    [
+        (
+            "filters_to_technology_type_only",
+            [
+                {"type": "TECHNOLOGY", "displayValue": "AWS"},
+                {"type": "TECHNOLOGY", "displayValue": "React"},
+                {"type": "INDUSTRY", "displayValue": "Enterprise Software", "isPrimaryTag": True},
+            ],
+            ["AWS", "React"],
+        ),
+        ("no_technology_tags_present", [{"type": "INDUSTRY", "displayValue": "Fintech", "isPrimaryTag": True}], None),
+        ("empty_tags", [], None),
+    ]
+)
+def test_technology_tags_filters_by_type(_name, tags, expected):
+    fields = transform_harmonic_company(_company(tags=tags))
+    assert fields is not None
+    assert fields.technology_tags == expected
+
+
+def test_technology_tags_skips_malformed_entries():
+    tags = [
+        {"type": "TECHNOLOGY", "displayValue": "AWS"},
+        {"type": "TECHNOLOGY"},  # no displayValue
+        {"type": "TECHNOLOGY", "displayValue": 123},  # non-string displayValue
+        "not-a-dict",
+    ]
+    fields = transform_harmonic_company(_company(tags=tags))
+    assert fields is not None
+    assert fields.technology_tags == ["AWS"]
+
+
+def test_technology_tags_capped_to_bound():
+    tags = [{"type": "TECHNOLOGY", "displayValue": f"Tech {i}"} for i in range(40)]
+    fields = transform_harmonic_company(_company(tags=tags))
+    assert fields is not None
+    assert fields.technology_tags is not None
+    assert len(fields.technology_tags) == MAX_TECHNOLOGY_TAGS
+    assert fields.technology_tags[0] == "Tech 0"
+
+
+def test_web_traffic_maps_from_traction_metrics():
+    fields = transform_harmonic_company(_company(tractionMetrics={"webTraffic": {"latestMetricValue": 12345}}))
+    assert fields is not None
+    assert fields.web_traffic == 12345
+
+
+def test_web_traffic_unset_when_traction_metrics_missing_key():
+    fields = transform_harmonic_company(_company(tractionMetrics={"headcount": {"latestMetricValue": 130}}))
+    assert fields is not None
+    assert fields.web_traffic is None
+    assert "web_traffic" not in fields.to_dict()
 
 
 def test_none_and_empty_payloads_return_none():

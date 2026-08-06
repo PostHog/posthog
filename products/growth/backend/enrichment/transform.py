@@ -54,6 +54,23 @@ def _investor_names(investors: Any) -> Optional[list[str]]:
     return names[:MAX_INVESTORS] or None
 
 
+# Bound the passthrough so the group property can't grow unboundedly for a company with a long
+# tracked technology stack.
+MAX_TECHNOLOGY_TAGS = 25
+
+
+def _technology_tags(tags: list[Any]) -> Optional[list[str]]:
+    # `tags` carries several tag types (INDUSTRY, CATEGORY, ...); TECHNOLOGY is the tech-stack one.
+    names = [
+        display
+        for tag in tags
+        if isinstance(tag, dict)
+        and tag.get("type") == "TECHNOLOGY"
+        and isinstance(display := tag.get("displayValue"), str)
+    ]
+    return names[:MAX_TECHNOLOGY_TAGS] or None
+
+
 # Harmonic's own tagsV2 taxonomy spells these out; match conservatively on the phrases
 # rather than bare "AI"/"ML" tokens that collide with unrelated words.
 AI_NATIVE_TAG_MARKERS = ("artificial intelligence", "machine learning")
@@ -87,13 +104,16 @@ def transform_harmonic_company(company: Optional[dict[str, Any]]) -> Optional[En
     if headcount is None and isinstance(company.get("headcount"), (int, float)):
         headcount = int(company["headcount"])
 
+    tags = _safe_list(company.get("tags"))
     tags_v2 = _safe_list(company.get("tagsV2"))
 
     return EnrichmentFields(
         company_type=company.get("companyType"),
         headcount=headcount,
         headcount_engineering=_latest_metric(traction, "headcountEngineering"),
-        industry=_extract_primary_tag(_safe_list(company.get("tags")), tags_v2),
+        web_traffic=_latest_metric(traction, "webTraffic"),
+        industry=_extract_primary_tag(tags, tags_v2),
+        technology_tags=_technology_tags(tags),
         # ISO alpha-2 to match the format the icp_country group property already holds.
         country=country_name_to_iso_code(location.get("country")),
         founded_year=_founded_year(founding),

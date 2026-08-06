@@ -32,7 +32,9 @@ class EnrichmentFields:
     company_type: Optional[str] = None
     headcount: Optional[int] = None
     headcount_engineering: Optional[int] = None
+    web_traffic: Optional[int] = None
     industry: Optional[str] = None
+    technology_tags: Optional[list[str]] = None
     country: Optional[str] = None
     founded_year: Optional[int] = None
     funding_stage: Optional[str] = None
