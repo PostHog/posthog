@@ -182,8 +182,10 @@ async def test_schema_deleted_mid_sync_routes_through_handler():
     source = mock.MagicMock(spec=SimpleSource)
     source.get_non_retryable_errors.return_value = {}
 
-    with _patched_activity(source) as handle_mock:
-        module._get_external_data_schema.side_effect = error
+    with (
+        _patched_activity(source) as handle_mock,
+        mock.patch.object(module, "_get_external_data_schema", new=mock.AsyncMock(side_effect=error)),
+    ):
         handle_mock.side_effect = NonRetryableException()
         with pytest.raises(NonRetryableException):
             await import_data_activity_sync(_inputs())
