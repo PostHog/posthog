@@ -212,6 +212,17 @@ export function renderQueryOutline(
     node.style.height = `${maxBottom - minTop + padY * 2}px`
 }
 
+// Monaco disposes the editor when the SQL/BI view toggle tears it down, but this logic keeps a
+// cached reference to it. A disposed editor drops its model and DOM node, and writing decorations
+// or overlay widgets to it throws deep in Monaco's render loop (`getWidgets`/`domNode` on undefined),
+// which then blanks the results pane until a page reload. Treat "no model or no DOM node" as dead
+// and skip any write.
+export function isEditorAlive(
+    editorInstance: editor.IStandaloneCodeEditor | null | undefined
+): editorInstance is editor.IStandaloneCodeEditor {
+    return !!editorInstance && !!editorInstance.getModel() && !!editorInstance.getDomNode()
+}
+
 function clearQueryOutlineOverlay(
     cache: sqlEditorLogicType['cache'],
     fallbackEditor?: editor.IStandaloneCodeEditor | null
@@ -1402,47 +1413,58 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             // Set up the active-query outline overlay. We render a single `div` parented
             // to Monaco's overlay layer (viewport-fixed) and reposition it on scroll/layout.
             const editorInstance = props.editor
-            const outlineNode = document.createElement('div')
-            outlineNode.className = 'active-query-outline'
-            outlineNode.style.position = 'absolute'
-            outlineNode.style.display = 'none'
             clearQueryOutlineOverlay(cache, editorInstance)
-            const outlineWidget: editor.IOverlayWidget = {
-                getId: () => `sql-editor.active-query-outline.${props.tabId || 'default'}`,
-                getDomNode: () => outlineNode,
-                // Returning `null` keeps the widget unanchored — we drive its position
-                // manually via inline `top`/`left` styles set in `renderQueryOutline`.
-                getPosition: () => null,
-            }
-            editorInstance.removeOverlayWidget(outlineWidget)
-            editorInstance.addOverlayWidget(outlineWidget)
-            cache.queryOutlineWidget = outlineWidget
-            cache.queryOutlineEditor = editorInstance
-            cache.queryOutlineNode = outlineNode
 
-            cache.updateQueryOutline = (range: IRange | null): void => {
-                cache.queryOutlineRange = range
-                if (!range) {
-                    outlineNode.style.display = 'none'
-                    return
-                }
-                renderQueryOutline(editorInstance, outlineNode, range)
-            }
+            // Drop the cached editor and its decorations the moment Monaco disposes it, so no
+            // later decoration or overlay write lands on a dead instance.
+            cache.editorDisposeDisposable?.dispose()
+            cache.editorDisposeDisposable = editorInstance.onDidDispose(() => {
+                clearQueryOutlineOverlay(cache)
+                cache.activeQueryDecorationIds = null
+            })
 
-            // Reposition the overlay on scroll and layout/resize. These don't change the
-            // range, only its pixel coordinates, so we skip the SQL parsing path entirely.
-            cache.scrollDisposable?.dispose()
-            cache.scrollDisposable = editorInstance.onDidScrollChange(() => {
-                if (cache.queryOutlineRange) {
-                    renderQueryOutline(editorInstance, outlineNode, cache.queryOutlineRange)
+            if (isEditorAlive(editorInstance)) {
+                const outlineNode = document.createElement('div')
+                outlineNode.className = 'active-query-outline'
+                outlineNode.style.position = 'absolute'
+                outlineNode.style.display = 'none'
+                const outlineWidget: editor.IOverlayWidget = {
+                    getId: () => `sql-editor.active-query-outline.${props.tabId || 'default'}`,
+                    getDomNode: () => outlineNode,
+                    // Returning `null` keeps the widget unanchored — we drive its position
+                    // manually via inline `top`/`left` styles set in `renderQueryOutline`.
+                    getPosition: () => null,
                 }
-            })
-            cache.layoutDisposable?.dispose()
-            cache.layoutDisposable = editorInstance.onDidLayoutChange(() => {
-                if (cache.queryOutlineRange) {
-                    renderQueryOutline(editorInstance, outlineNode, cache.queryOutlineRange)
+                editorInstance.removeOverlayWidget(outlineWidget)
+                editorInstance.addOverlayWidget(outlineWidget)
+                cache.queryOutlineWidget = outlineWidget
+                cache.queryOutlineEditor = editorInstance
+                cache.queryOutlineNode = outlineNode
+
+                cache.updateQueryOutline = (range: IRange | null): void => {
+                    cache.queryOutlineRange = range
+                    if (!range) {
+                        outlineNode.style.display = 'none'
+                        return
+                    }
+                    renderQueryOutline(editorInstance, outlineNode, range)
                 }
-            })
+
+                // Reposition the overlay on scroll and layout/resize. These don't change the
+                // range, only its pixel coordinates, so we skip the SQL parsing path entirely.
+                cache.scrollDisposable?.dispose()
+                cache.scrollDisposable = editorInstance.onDidScrollChange(() => {
+                    if (cache.queryOutlineRange) {
+                        renderQueryOutline(editorInstance, outlineNode, cache.queryOutlineRange)
+                    }
+                })
+                cache.layoutDisposable?.dispose()
+                cache.layoutDisposable = editorInstance.onDidLayoutChange(() => {
+                    if (cache.queryOutlineRange) {
+                        renderQueryOutline(editorInstance, outlineNode, cache.queryOutlineRange)
+                    }
+                })
+            }
         }
     }),
     loaders(() => ({
@@ -1934,6 +1956,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const subquery = await findInnermostSelectAtOffset(activeQuery.query, cursorOffset, activeQuery.start)
 
                 const rangeToRun = subquery ?? activeQuery
+
+                // A view toggle can dispose the editor during the await above; don't flash a dead one.
+                if (!isEditorAlive(props.editor)) {
+                    cache.activeQueryDecorationIds = null
+                    actions.runQuery()
+                    return
+                }
 
                 // Flash highlight on the subquery/query about to run
                 const startPos = model.getPositionAt(rangeToRun.start)
@@ -3754,6 +3783,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
 
             const applyResult = (range: IRange | null, decorations: editor.IModelDeltaDecoration[]): void => {
+                // The editor can be disposed by a view toggle while this async decoration pass is
+                // in flight. Writing to a dead editor throws inside Monaco's render loop, so bail.
+                if (!isEditorAlive(editorInstance)) {
+                    cache.activeQueryDecorationIds = null
+                    return
+                }
                 cache.updateQueryOutline?.(range)
                 cache.activeQueryDecorationIds = editorInstance.deltaDecorations(
                     cache.activeQueryDecorationIds ?? [],
@@ -3854,6 +3889,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
         cache.cursorDisposable?.dispose()
         cache.cursorDisposable = null
+        cache.editorDisposeDisposable?.dispose()
+        cache.editorDisposeDisposable = null
         clearQueryOutlineOverlay(cache, props.editor)
         cache.umountDataNode?.()
         cache.umountDataNode = null
