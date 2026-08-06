@@ -6605,6 +6605,30 @@ class TestExperimentService(APIBaseTest):
         assert updated.metrics_secondary is not None and len(updated.metrics_secondary) == 1
         assert updated.metrics_secondary[0]["source"]["event"] == "not_yet_deployed"
 
+    def test_update_rejects_new_unknown_event_alongside_resent_stale_one(self):
+        service = self._service()
+        stale = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "not_yet_deployed"},
+        }
+        experiment = service.create_experiment(
+            name="Add Unknown Alongside Stale",
+            feature_flag_key="add-unknown-alongside-stale-flag",
+            allow_unknown_events=True,
+            metrics=[stale],
+        )
+        fresh = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "also_not_deployed"},
+        }
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(experiment, {"metrics": [stale, fresh]})
+
+        assert "also_not_deployed" in str(ctx.exception.detail)
+
     def test_update_experiment_with_unknown_event_raises(self):
         EventDefinition.objects.create(team=self.team, name="$pageview")
         service = self._service()
