@@ -356,6 +356,98 @@ def classify_insight(insight: Insight) -> tuple[str, str]:
     return ("compare", "")
 
 
+_ENTITY_IDENTITY_KEYS = ("id", "type", "table_name", "timestamp_field", "properties")
+
+
+def _entity_identity(entity: Any) -> tuple[Any, ...]:
+    """Order-stable identity of a retention entity, mirroring the runner's same-entity check.
+
+    Display-only keys (uuid, name, order, custom_name) are excluded, and None-valued keys inside
+    property dicts are dropped — the runner compares pydantic dumps where an explicit null and an
+    absent key are the same thing, so a raw-dict comparison must not tell them apart either.
+    """
+    if not isinstance(entity, dict):
+        entity = {"id": "$pageview", "type": "events"}  # the runner's DEFAULT_ENTITY
+    normalized: list[Any] = []
+    for key in _ENTITY_IDENTITY_KEYS:
+        value = entity.get(key)
+        if key == "properties":
+            props = value if isinstance(value, list) else []
+            value = json.dumps(
+                [{k: v for k, v in p.items() if v is not None} if isinstance(p, dict) else p for p in props],
+                sort_keys=True,
+                default=str,
+            )
+        normalized.append(value)
+    return tuple(normalized)
+
+
+def shape_fingerprint(source: dict[str, Any]) -> str:
+    """One-line query-shape tag for a RetentionQuery source, for triaging mismatches.
+
+    Deliberately total over raw insight JSON (no schema parse, nothing raises) and free of
+    customer values: only structural facts — retention type, entity sameness/types, breakdown
+    kinds, aggregation, thresholds, flags — so the tag is safe to print and paste anywhere.
+    """
+    retention_filter = source.get("retentionFilter") if isinstance(source.get("retentionFilter"), dict) else {}
+
+    retention_type = {
+        "retention_first_time": "first_time",
+        "retention_first_ever_occurrence": "first_ever",
+    }.get(retention_filter.get("retentionType"), "recurring")
+
+    target = retention_filter.get("targetEntity")
+    returning = retention_filter.get("returningEntity")
+    sameness = "same" if _entity_identity(target) == _entity_identity(returning) else "diff"
+    entity_types = sorted({(e.get("type") if isinstance(e, dict) else None) or "events" for e in (target, returning)})
+
+    parts = [
+        retention_type,
+        f"entities={sameness}({'/'.join(entity_types)})",
+        f"period={retention_filter.get('period') or 'Day'}",
+        f"intervals={retention_filter.get('totalIntervals') or 7}",
+    ]
+
+    date_range = source.get("dateRange") if isinstance(source.get("dateRange"), dict) else {}
+    if date_range.get("date_from") or date_range.get("date_to"):
+        parts.append(f"range={date_range.get('date_from') or 'default'}..{date_range.get('date_to') or 'now'}")
+
+    breakdown_filter = source.get("breakdownFilter") if isinstance(source.get("breakdownFilter"), dict) else {}
+    breakdowns = breakdown_filter.get("breakdowns")
+    if isinstance(breakdowns, list) and breakdowns:
+        kinds = [(b.get("type") if isinstance(b, dict) else None) or "event" for b in breakdowns]
+        counted = [f"{kind}×{n}" if (n := kinds.count(kind)) > 1 else kind for kind in dict.fromkeys(kinds)]
+        parts.append(f"bd={'+'.join(counted)}")
+    elif breakdown_filter.get("breakdown") is not None:
+        parts.append(f"bd={breakdown_filter.get('breakdown_type') or 'event'}")
+
+    if retention_filter.get("aggregationType") in ("sum", "avg") and retention_filter.get("aggregationProperty"):
+        parts.append(
+            f"agg={retention_filter['aggregationType']}({retention_filter.get('aggregationPropertyType') or 'event'})"
+        )
+    try:
+        minimum_occurrences = int(retention_filter.get("minimumOccurrences") or 1)
+    except (TypeError, ValueError):
+        minimum_occurrences = 1
+    if minimum_occurrences > 1:
+        parts.append(f"minocc={minimum_occurrences}")
+    if retention_filter.get("cumulative"):
+        parts.append("cumulative")
+    if retention_filter.get("retentionCustomBrackets"):
+        parts.append(f"brackets={len(retention_filter['retentionCustomBrackets'])}")
+    if source.get("samplingFactor") is not None:
+        parts.append(f"sampling={source['samplingFactor']}")
+    if source.get("aggregation_group_type_index") is not None:
+        parts.append(f"groups={source['aggregation_group_type_index']}")
+    properties = source.get("properties")
+    if properties.get("values") if isinstance(properties, dict) else properties:
+        parts.append("filters")
+    if source.get("filterTestAccounts"):
+        parts.append("test_accounts")
+
+    return " ".join(parts)
+
+
 def _clickhouse_seconds(timings: Optional[Sequence[Any]]) -> float:
     """Sum the seconds of every timing entry whose leaf key is ``clickhouse_execute``.
 

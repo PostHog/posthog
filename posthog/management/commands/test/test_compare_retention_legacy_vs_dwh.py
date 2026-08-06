@@ -34,6 +34,7 @@ from posthog.management.commands.compare_retention_legacy_vs_dwh import (
     parse_query_log_rows,
     referenced_ids,
     save_progress_findings,
+    shape_fingerprint,
     summarize_samples,
 )
 
@@ -109,6 +110,111 @@ class TestClassifyInsight(TestCase):
     def test_error_classification(self, _name, query):
         action, _reason = classify_insight(_insight(query))
         self.assertEqual(action, "error")
+
+
+class TestShapeFingerprint(TestCase):
+    # The tag drives mismatch triage on prod pods; a misread source silently files a finding under
+    # the wrong query family. The risky reads: display-only entity keys (uuid/name) and explicit
+    # nulls must not flip entities to "diff", and the legacy single-breakdown shape must register.
+    @parameterized.expand(
+        [
+            (
+                "defaults",
+                {"kind": "RetentionQuery", "retentionFilter": {}},
+                "recurring entities=same(events) period=Day intervals=7",
+            ),
+            (
+                "display_only_entity_noise_is_same",
+                {
+                    "kind": "RetentionQuery",
+                    "dateRange": {"date_from": "-7d", "date_to": None},
+                    "retentionFilter": {
+                        "retentionType": "retention_first_time",
+                        "cumulative": True,
+                        "totalIntervals": 11,
+                        "targetEntity": {
+                            "id": None,
+                            "type": "events",
+                            "uuid": "aaaa",
+                            "name": "$pageview",
+                            "properties": [{"key": "$host", "value": ["a"], "operator": "exact", "label": None}],
+                        },
+                        "returningEntity": {
+                            "id": None,
+                            "type": "events",
+                            "uuid": "bbbb",
+                            "order": 0,
+                            "properties": [{"key": "$host", "value": ["a"], "operator": "exact"}],
+                        },
+                    },
+                    "filterTestAccounts": True,
+                },
+                "first_time entities=same(events) period=Day intervals=11 range=-7d..now cumulative test_accounts",
+            ),
+            (
+                "differing_entities_and_types",
+                {
+                    "kind": "RetentionQuery",
+                    "retentionFilter": {
+                        "retentionType": "retention_first_ever_occurrence",
+                        "targetEntity": {"id": 12, "type": "actions"},
+                        "returningEntity": {"id": "$pageview", "type": "events"},
+                    },
+                },
+                "first_ever entities=diff(actions/events) period=Day intervals=7",
+            ),
+            (
+                "legacy_single_breakdown",
+                {
+                    "kind": "RetentionQuery",
+                    "retentionFilter": {},
+                    "breakdownFilter": {"breakdown": "plan", "breakdown_type": "person"},
+                },
+                "recurring entities=same(events) period=Day intervals=7 bd=person",
+            ),
+            (
+                "multi_cohort_breakdown",
+                {
+                    "kind": "RetentionQuery",
+                    "retentionFilter": {},
+                    "breakdownFilter": {
+                        "breakdowns": [{"type": "cohort", "property": 1}, {"type": "cohort", "property": 2}]
+                    },
+                },
+                "recurring entities=same(events) period=Day intervals=7 bd=cohort×2",
+            ),
+            (
+                "all_modifier_flags",
+                {
+                    "kind": "RetentionQuery",
+                    "retentionFilter": {
+                        "period": "Week",
+                        "totalIntervals": 4,
+                        "aggregationType": "avg",
+                        "aggregationProperty": "revenue",
+                        "aggregationPropertyType": "person",
+                        "minimumOccurrences": 3,
+                        "retentionCustomBrackets": [1, 2],
+                    },
+                    "samplingFactor": 0.1,
+                    "aggregation_group_type_index": 2,
+                    "properties": {"type": "AND", "values": [{"key": "x"}]},
+                },
+                "recurring entities=same(events) period=Week intervals=4 agg=avg(person) minocc=3 brackets=2 sampling=0.1 groups=2 filters",
+            ),
+            (
+                "empty_property_group_and_bad_minocc",
+                {
+                    "kind": "RetentionQuery",
+                    "retentionFilter": {"minimumOccurrences": "nope"},
+                    "properties": {"type": "AND", "values": []},
+                },
+                "recurring entities=same(events) period=Day intervals=7",
+            ),
+        ]
+    )
+    def test_fingerprint(self, _name, source, expected):
+        self.assertEqual(shape_fingerprint(source), expected)
 
 
 class TestAttributeVariantErrors(TestCase):

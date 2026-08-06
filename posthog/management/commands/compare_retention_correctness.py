@@ -127,6 +127,7 @@ from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
+from posthog.git import get_git_commit_short
 from posthog.hogql_queries.query_runner import get_query_runner
 
 # The patch path comes from the sibling command (which defines it locally, not via import) so this
@@ -148,6 +149,7 @@ from posthog.management.commands.compare_retention_legacy_vs_dwh import (
     is_object_storage_path,
     object_storage_key,
     read_state_text,
+    shape_fingerprint,
     write_state_text,
 )
 
@@ -459,8 +461,12 @@ def _check_one(insight: Insight, url: str, freeze: bool, recheck: bool) -> Row:
         detail = ""
         if diff.status == "MISMATCH":
             stable = "stable " if rechecked else ""
+            agg_diffs = sum(1 for c in diff.cell_diffs if c.field == "aggregation_value")
+            field_split = (
+                f" ({len(diff.cell_diffs) - agg_diffs} count, {agg_diffs} aggregation_value)" if agg_diffs else ""
+            )
             detail = (
-                f"{len(diff.cell_diffs)} {stable}cell diff(s), "
+                f"{len(diff.cell_diffs)} {stable}cell diff(s){field_split}, "
                 f"rows legacy={diff.row_count_legacy} dwh={diff.row_count_dwh}"
             )
             if rechecked and diff.cell_diffs:
@@ -473,6 +479,12 @@ def _check_one(insight: Insight, url: str, freeze: bool, recheck: bool) -> Row:
                     detail += ", all values moved between passes (churn, not deterministic)"
             if recheck and not rechecked:
                 detail += " (recheck errored — stability unverified)"
+            # The shape tag turns the mismatch list into a classification: which query families
+            # still diverge. Only three have structurally different SQL between the variants
+            # (first_time / first_ever anchoring, property aggregation); a mismatch outside them
+            # points at execution-level causes (replica state, code vintage), not query semantics.
+            assert insight.query is not None
+            detail += f"; shape: {shape_fingerprint(insight.query['source'])}"
         return Row(insight.id, insight.short_id, insight.team_id, url, diff.status, detail)
     except Exception as exc:
         return Row(insight.id, insight.short_id, insight.team_id, url, "ERROR", f"{type(exc).__name__}: {exc}")
@@ -559,6 +571,10 @@ class Command(BaseCommand):
     def handle(self, *args: Any, **options: Any) -> None:
         if options["limit"] < 1:
             raise CommandError("--limit must be at least 1")
+
+        # Mismatch verdicts are only comparable across runs at a known code version: a finding that
+        # reproduces on an old image may already be fixed on master.
+        self.stdout.write(f"Code version: {get_git_commit_short() or 'unknown'}")
 
         state_file: Optional[str] = options["state_file"]
         after_id: Optional[int] = options["after_id"]
