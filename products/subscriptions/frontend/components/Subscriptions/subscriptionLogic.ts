@@ -495,7 +495,10 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     // Rows created before a window was chosen carry ai_prompt_config: {} — normalise
                     // so the analysis window select renders the effective default instead of empty.
                     let byweekday = subscription.byweekday
-                    if (!byweekday?.length && subscription.frequency === 'daily') {
+                    if (
+                        subscription.frequency === 'daily' &&
+                        ((subscription.interval ?? 1) > 1 || !subscription.byweekday?.length)
+                    ) {
                         byweekday = [...ALL_DAYS]
                     } else if (!byweekday?.length && subscription.frequency === 'weekly') {
                         byweekday = [dayjs.utc(subscription.start_date).format('dddd').toLowerCase() as WeekdayType]
@@ -708,6 +711,10 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                         byweekday: null,
                     })
                 }
+            }
+
+            if (key === 'interval' && values.subscription.frequency === 'daily' && value > 1) {
+                actions.setSubscriptionValue('byweekday', [...ALL_DAYS])
             }
 
             if (key === 'target_type') {
