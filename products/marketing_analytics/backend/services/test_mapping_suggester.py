@@ -26,7 +26,6 @@ def _proposal(raw: str, clean: str, *, events: int = 100, confidence: float = 0.
         event_count=events,
         campaign_spend=1000.0,
         score=95.0,
-        margin=20.0,
         confidence=confidence,
         safe_to_batch=False,
         method="fuzzy_exact_scope",

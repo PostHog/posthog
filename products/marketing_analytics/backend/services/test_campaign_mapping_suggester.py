@@ -254,7 +254,6 @@ class TestRefusals:
         result = suggest_campaign_name_mappings(campaigns, utm_events, mappings)
 
         assert result.proposals == []
-        assert result.total_orphans == 0
 
     def test_exact_match_of_another_integrations_campaign_is_a_collision_not_a_typo(self):
         campaigns = [_campaign("brand_global", "1", source="google"), _campaign("brand_globa", "2", source="meta")]
@@ -414,4 +413,7 @@ class TestScale:
         elapsed = time.perf_counter() - started
 
         assert elapsed < 2.0, f"took {elapsed:.2f}s"
-        assert result.orphans_considered == 100
+        # Or the timing would also pass for a suggester that bailed out early and did no work. Every
+        # orphan lands in `ambiguous` here — 500 campaigns one digit apart is a wall of near-ties,
+        # which is the slowest path and so the right one to time.
+        assert len(result.proposals) + len(result.ambiguous) + len(result.unresolved) == 100

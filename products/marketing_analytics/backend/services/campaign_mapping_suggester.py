@@ -97,7 +97,6 @@ class CampaignMappingProposal:
     # Spend sitting on the platform campaign that currently has no events linked.
     campaign_spend: float
     score: float
-    margin: float
     confidence: float
     safe_to_batch: bool
     method: SuggestionMethod
@@ -126,8 +125,6 @@ class CampaignMappingSuggestions:
     ambiguous: list[AmbiguousCampaign] = field(default_factory=list)
     # Matched nothing above the cutoff. The AI layer's input: renames edit distance can't reach.
     unresolved: list[AmbiguousCampaign] = field(default_factory=list)
-    total_orphans: int = 0
-    orphans_considered: int = 0
     notes: list[str] = field(default_factory=list)
 
 
@@ -170,11 +167,7 @@ def suggest_campaign_name_mappings(
             f"{min_event_count} events or beyond the top {max_unmatched_values} by volume."
         )
 
-    result = CampaignMappingSuggestions(
-        total_orphans=len(orphans),
-        orphans_considered=len(considered),
-        notes=notes,
-    )
+    result = CampaignMappingSuggestions(notes=notes)
     # clean_name -> the utm_source already proposed for it, so two platforms' orphans can't merge.
     claimed_clean_names: dict[str, str] = {}
 
@@ -409,7 +402,6 @@ def _classify(
             event_count=orphan.event_count,
             campaign_spend=campaign.spend,
             score=round(top_score, 1),
-            margin=round(margin, 1),
             confidence=_confidence(top_score),
             safe_to_batch=(method == "fuzzy_exact_scope" and top_score >= BATCH_SCORE and margin >= BATCH_MARGIN),
             method=method,  # type: ignore[arg-type]
