@@ -8,7 +8,7 @@ import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const DOWNLOAD_BASE = "https://github.com/PostHog/code/releases/download";
+const DOWNLOAD_BASE = "https://github.com/PostHog/posthog/releases/download";
 
 const ASSET_KINDS = [
   { pattern: /-mac\.dmg$/, os: "macos", pkg: "DMG", pkgOrder: 0 },
@@ -70,7 +70,8 @@ function detectArch(name) {
 }
 
 export function buildDownloadTables(version, checksums) {
-  const base = `${DOWNLOAD_BASE}/v${version.replace(/^v/, "")}`;
+  const normalizedVersion = version.replace(/^(?:desktop-)?v/, "");
+  const base = `${DOWNLOAD_BASE}/desktop-v${normalizedVersion}`;
   const rows = { macos: [], windows: [], linux: [] };
 
   for (const [name, sha] of checksums) {
