@@ -11,7 +11,7 @@ from posthog.models.organization import Organization
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 
-from products.tasks.backend.logic.services.sandbox import SandboxConfig
+from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig
 from products.tasks.backend.logic.services.sandbox_pricing import ComputeRateCard, ComputeRateCardConfigurationError
 from products.tasks.backend.logic.services.sandbox_usage import (
     close_sandbox_session,
@@ -44,8 +44,15 @@ class SandboxUsageBase(APIBaseTest):
 class TestSandboxSessionWrites(SandboxUsageBase):
     def test_open_attributes_cold_runs_immediately(self):
         run = self._run()
+        measured_at = datetime(2026, 1, 2, 10, tzinfo=UTC)
 
-        open_sandbox_session(run_id=run.id, sandbox_id="sb-cold", config=_config())
+        open_sandbox_session(
+            run_id=run.id,
+            sandbox_id="sb-cold",
+            config=_config(vm_runtime=True),
+            cpu_usage_attribution_usec=1_234_567,
+            cpu_usage_attribution_measured_at=measured_at,
+        )
 
         session = SandboxSession.objects.unscoped().get(sandbox_id="sb-cold")
         assert session.team_id == self.team.id
@@ -53,10 +60,13 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         assert session.origin_product == Task.OriginProduct.USER_CREATED
         assert session.user_attributed_at is not None
         assert session.prewarmed is False
-        assert session.vm_runtime is False
+        assert session.vm_runtime is True
         assert (session.cpu_cores, session.memory_gb, session.ttl_seconds) == (4.0, 16.0, 21600)
         assert session.burstable is False
         assert session.cpu_request_cores is None
+        assert session.user_attributed_at == measured_at
+        assert session.provider_cpu_usage_attribution_usec == 1_234_567
+        assert session.provider_cpu_usage_attribution_measured_at == measured_at
 
     def test_open_leaves_warm_runs_unattributed(self):
         run = self._run(
@@ -73,28 +83,35 @@ class TestSandboxSessionWrites(SandboxUsageBase):
 
     def test_warm_claim_snapshots_provenance_set_after_provisioning(self):
         run = self._run(state={"await_user_message": True, "prewarmed": True})
-        open_sandbox_session(run_id=run.id, sandbox_id="sb-warm-claim", config=_config())
+        open_sandbox_session(run_id=run.id, sandbox_id="sb-warm-claim", config=_config(vm_runtime=True))
         Task.objects.filter(id=run.task_id).update(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
 
-        record_task_run_user_activity(run.id, self.team.id)
+        sandbox = patch.object(Sandbox, "get_by_id")
+        with sandbox as get_by_id:
+            get_by_id.return_value.read_cpu_usage_usec.return_value = 2_345_678
+            record_task_run_user_activity(run.id, self.team.id)
 
         session = SandboxSession.objects.unscoped().get(sandbox_id="sb-warm-claim")
         assert session.user_attributed_at is not None
         assert session.client_provenance == TaskClientProvenance.POSTHOG_DESKTOP
+        assert session.provider_cpu_usage_attribution_usec == 2_345_678
+        assert session.provider_cpu_usage_attribution_measured_at == session.user_attributed_at
 
     def test_warm_claim_keeps_provenance_snapshotted_at_provisioning(self):
         run = self._run(
             state={"await_user_message": True, "prewarmed": True},
             client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
         )
-        open_sandbox_session(run_id=run.id, sandbox_id="sb-warm-snapshot", config=_config())
+        open_sandbox_session(run_id=run.id, sandbox_id="sb-warm-snapshot", config=_config(vm_runtime=True))
         Task.objects.filter(id=run.task_id).update(client_provenance=None)
 
-        record_task_run_user_activity(run.id, self.team.id)
+        with patch.object(Sandbox, "get_by_id", side_effect=RuntimeError("unavailable")):
+            record_task_run_user_activity(run.id, self.team.id)
 
         session = SandboxSession.objects.unscoped().get(sandbox_id="sb-warm-snapshot")
         assert session.user_attributed_at is not None
         assert session.client_provenance == TaskClientProvenance.POSTHOG_DESKTOP
+        assert session.provider_cpu_usage_attribution_usec is None
 
     def test_reprovisioned_session_keeps_task_provenance_snapshot(self):
         run = self._run(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
@@ -189,16 +206,18 @@ class TestSandboxSessionWrites(SandboxUsageBase):
     def test_close_records_provider_cpu_usage(self):
         run = self._run()
         open_sandbox_session(run_id=run.id, sandbox_id="sb-usage", config=_config(vm_runtime=True))
+        measured_at = datetime(2026, 1, 2, 11, tzinfo=UTC)
 
         close_sandbox_session(
             "sb-usage",
             reason=SandboxSession.EndedReason.CLEANUP,
             cpu_usage_usec=12_345_678,
+            cpu_usage_measured_at=measured_at,
         )
 
         session = SandboxSession.objects.unscoped().get(sandbox_id="sb-usage")
         assert session.provider_cpu_usage_usec == 12_345_678
-        assert session.provider_usage_measured_at is not None
+        assert session.provider_usage_measured_at == measured_at
 
     def test_user_activity_stamps_open_sessions_only(self):
         run = self._run(state={"await_user_message": True})

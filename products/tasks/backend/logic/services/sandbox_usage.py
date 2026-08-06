@@ -25,7 +25,7 @@ from django.utils import timezone
 
 import structlog
 
-from products.tasks.backend.logic.services.sandbox import SandboxConfig
+from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxBase, SandboxConfig
 from products.tasks.backend.logic.services.sandbox_pricing import (
     COMPUTE_RATE_CARDS,
     ComputeRateCard,
@@ -39,6 +39,17 @@ logger = structlog.get_logger(__name__)
 
 P = ParamSpec("P")
 R = TypeVar("R")
+
+
+def measure_sandbox_cpu_usage(sandbox: SandboxBase) -> tuple[int | None, datetime | None]:
+    try:
+        value = sandbox.read_cpu_usage_usec()
+    except Exception:
+        logger.exception("sandbox_usage.cpu_usage_read_failed", sandbox_id=sandbox.id)
+        return None, None
+    if not isinstance(value, int):
+        return None, None
+    return value, timezone.now()
 
 
 def _best_effort(fn: Callable[P, R]) -> Callable[P, R | None]:
@@ -59,6 +70,8 @@ def open_sandbox_session(
     sandbox_id: str,
     config: SandboxConfig,
     sandbox_created_at: datetime | None = None,
+    cpu_usage_attribution_usec: int | None = None,
+    cpu_usage_attribution_measured_at: datetime | None = None,
     required: bool = False,
 ) -> None:
     """Record a freshly provisioned sandbox against its run."""
@@ -93,7 +106,15 @@ def open_sandbox_session(
                 create_defaults={
                     **shape,
                     "client_provenance": run.task.client_provenance,
-                    "user_attributed_at": None if state.get("await_user_message") else timezone.now(),
+                    "user_attributed_at": (
+                        None if state.get("await_user_message") else cpu_usage_attribution_measured_at or timezone.now()
+                    ),
+                    "provider_cpu_usage_attribution_usec": (
+                        None if state.get("await_user_message") else cpu_usage_attribution_usec
+                    ),
+                    "provider_cpu_usage_attribution_measured_at": (
+                        None if state.get("await_user_message") else cpu_usage_attribution_measured_at
+                    ),
                 },
             )
     except Exception:
@@ -103,7 +124,13 @@ def open_sandbox_session(
 
 
 @_best_effort
-def close_sandbox_session(sandbox_id: str, *, reason: str, cpu_usage_usec: int | None = None) -> None:
+def close_sandbox_session(
+    sandbox_id: str,
+    *,
+    reason: str,
+    cpu_usage_usec: int | None = None,
+    cpu_usage_measured_at: datetime | None = None,
+) -> None:
     """Stamp the sandbox's end. Idempotent — the first stamp wins."""
     # Unscoped: cleanup/reap activities only carry the globally-unique provider
     # sandbox id, not team context.
@@ -115,7 +142,7 @@ def close_sandbox_session(sandbox_id: str, *, reason: str, cpu_usage_usec: int |
         updates: dict[str, object] = {"ended_at": timezone.now(), "ended_reason": reason}
         if cpu_usage_usec is not None:
             updates["provider_cpu_usage_usec"] = cpu_usage_usec
-            updates["provider_usage_measured_at"] = timezone.now()
+            updates["provider_usage_measured_at"] = cpu_usage_measured_at or timezone.now()
         SandboxSession.objects.unscoped().filter(
             id=sandbox_session.id,
             ended_at__isnull=True,
@@ -138,6 +165,30 @@ def record_task_run_user_activity(run_id: str | UUID, team_id: int) -> None:
     client_provenance = (
         TaskRun.objects.filter(id=run_uuid, team_id=team_id).values_list("task__client_provenance", flat=True).first()
     )
+    unattributed_sessions = list(open_sessions.filter(user_attributed_at__isnull=True, vm_runtime=True))
+    for session in unattributed_sessions:
+        cpu_usage_usec: int | None = None
+        cpu_usage_measured_at: datetime | None = None
+        try:
+            sandbox = Sandbox.get_by_id(session.sandbox_id)
+        except Exception:
+            logger.exception("sandbox_usage.sandbox_get_failed", sandbox_id=session.sandbox_id)
+        else:
+            cpu_usage_usec, cpu_usage_measured_at = measure_sandbox_cpu_usage(sandbox)
+
+        attribution_time = cpu_usage_measured_at or now
+        updates: dict[str, object] = {
+            "user_attributed_at": attribution_time,
+            "client_provenance": Case(
+                When(client_provenance__isnull=True, then=Value(client_provenance)),
+                default=F("client_provenance"),
+            ),
+        }
+        if cpu_usage_usec is not None:
+            updates["provider_cpu_usage_attribution_usec"] = cpu_usage_usec
+            updates["provider_cpu_usage_attribution_measured_at"] = cpu_usage_measured_at
+        open_sessions.filter(id=session.id, user_attributed_at__isnull=True).update(**updates)
+
     open_sessions.filter(user_attributed_at__isnull=True).update(
         user_attributed_at=now,
         client_provenance=Case(
