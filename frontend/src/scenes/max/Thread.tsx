@@ -47,6 +47,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { copyToClipboard } from '~/lib/utils/copyToClipboard'
 import { stripMarkdown } from '~/lib/utils/markdown'
 import { Query } from '~/queries/Query/Query'
@@ -306,13 +307,17 @@ function LegacyThread({ showTrailers }: { showTrailers: boolean }): JSX.Element 
                     return (
                         <React.Fragment key={`${conversationId}-${index}`}>
                             <TraceIdProvider value={messageTraceId}>
-                                <Message
-                                    message={message}
-                                    nextMessage={nextMessage}
-                                    isLastInGroup={isLastInGroup}
-                                    isFinal={index === threadGrouped.length - 1}
-                                    isSlashCommandResponse={isSlashCommandResponse || isTicketConfirmation}
-                                />
+                                {/* Isolate each message so one malformed streamed message renders an
+                                    inline error instead of blanking the whole conversation. */}
+                                <ErrorBoundary exceptionProps={{ max_message_type: message.type }}>
+                                    <Message
+                                        message={message}
+                                        nextMessage={nextMessage}
+                                        isLastInGroup={isLastInGroup}
+                                        isFinal={index === threadGrouped.length - 1}
+                                        isSlashCommandResponse={isSlashCommandResponse || isTicketConfirmation}
+                                    />
+                                </ErrorBoundary>
                             </TraceIdProvider>
                             {sandboxModeEnabled &&
                                 sandboxEntries.length > 0 &&
@@ -611,7 +616,7 @@ const Message = React.memo(function Message({
                     } else if (isAssistantMessage(message)) {
                         // Render thinking/reasoning if present
                         const hasContent = !!(
-                            message.content.length > 0 ||
+                            (message.content?.length ?? 0) > 0 ||
                             (message.tool_calls && message.tool_calls.length > 0)
                         )
 
@@ -727,7 +732,7 @@ const Message = React.memo(function Message({
                             if (message.status !== 'completed') {
                                 return null
                             }
-                            if (message.content.length === 0) {
+                            if (!message.content?.length) {
                                 return null
                             }
 

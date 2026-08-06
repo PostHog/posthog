@@ -139,6 +139,36 @@ describe('maxThreadLogic', () => {
         })
     })
 
+    it('drops a half-streamed assistant message with undefined content without throwing', async () => {
+        // A streamed assistant message can arrive before `content` is populated. Reading
+        // `.length` on it used to throw and blank the whole conversation.
+        await expectLogic(logic, () => {
+            logic.actions.setThread([
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'human-1',
+                },
+                {
+                    type: AssistantMessageType.Assistant,
+                    content: undefined as unknown as string,
+                    status: 'in_progress',
+                    id: 'assistant-streaming',
+                },
+            ])
+        }).toMatchValues({
+            threadGrouped: [
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'human-1',
+                },
+            ],
+        })
+    })
+
     it('groups assistant messages with thinking correctly', async () => {
         await expectLogic(logic, () => {
             logic.actions.setThread([

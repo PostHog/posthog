@@ -2559,7 +2559,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     // Skip empty assistant messages with no content, tool calls, or thinking
                     if (
                         currentMessage.type === AssistantMessageType.Assistant &&
-                        currentMessage.content.length === 0 &&
+                        (currentMessage.content?.length ?? 0) === 0 &&
                         (!currentMessage.tool_calls || currentMessage.tool_calls.length === 0) &&
                         (!currentMessage.meta ||
                             !currentMessage.meta.thinking ||
