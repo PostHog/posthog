@@ -12,6 +12,14 @@ import { DashboardTemplateProps, dashboardTemplatesLogic } from './dashboardTemp
 
 export type DashboardTemplateChooserLogicProps = DashboardTemplateProps
 
+/** Surface a template was picked from, reported as `tile_location` on the template-clicked event. */
+export type DashboardTemplateTileLocation =
+    | 'featured_row'
+    | 'main_grid'
+    | 'team_section'
+    | 'onboarding'
+    | 'activity_live'
+
 function availabilityContextsKey(contexts: DashboardTemplateProps['availabilityContexts']): string {
     if (!contexts?.length) {
         return 'any'
@@ -97,10 +105,10 @@ export interface dashboardTemplateChooserLogicActions {
     }
     templateTileClicked: (
         template: DashboardTemplateType,
-        tileLocation: 'featured_row' | 'main_grid' | 'team_section'
+        tileLocation: DashboardTemplateTileLocation
     ) => {
         template: DashboardTemplateType
-        tileLocation: 'featured_row' | 'main_grid' | 'team_section'
+        tileLocation: DashboardTemplateTileLocation
     }
 }
 
@@ -154,10 +162,7 @@ export const dashboardTemplateChooserLogic = kea<dashboardTemplateChooserLogicTy
         ],
     })),
     actions({
-        templateTileClicked: (
-            template: DashboardTemplateType,
-            tileLocation: 'main_grid' | 'featured_row' | 'team_section'
-        ) => ({
+        templateTileClicked: (template: DashboardTemplateType, tileLocation: DashboardTemplateTileLocation) => ({
             template,
             tileLocation,
         }),

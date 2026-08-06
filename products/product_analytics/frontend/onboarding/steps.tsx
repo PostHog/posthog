@@ -1,6 +1,10 @@
 import { useValues } from 'kea'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
+import {
+    SuggestedTemplateBanner,
+    USER_INTERACTIONS_TEMPLATE_NAME,
+} from 'scenes/dashboard/dashboards/templates/SuggestedTemplateBanner'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { OnboardingProductConfiguration } from 'scenes/onboarding/legacy/OnboardingProductConfiguration'
 import { type ProductConfigOption } from 'scenes/onboarding/legacy/onboardingProductConfigurationLogic'
@@ -37,10 +41,30 @@ const sessionReplayOnboardingToggle = (
     }
 }
 
-const ProductAnalyticsConfigStep = ({ options }: { options: ProductConfigOption[] }): JSX.Element => {
+const ProductAnalyticsConfigStep = ({
+    options,
+    autocaptureEnabled,
+}: {
+    options: ProductConfigOption[]
+    autocaptureEnabled: boolean
+}): JSX.Element => {
     // mount newDashboardLogic for the entire onboarding flow — same intent as the legacy view
     useValues(newDashboardLogic)
-    return <OnboardingProductConfiguration options={options} />
+    return (
+        <>
+            <OnboardingProductConfiguration options={options} />
+            {autocaptureEnabled ? (
+                <SuggestedTemplateBanner
+                    templateName={USER_INTERACTIONS_TEMPLATE_NAME}
+                    tileLocation="onboarding"
+                    className="mt-4"
+                >
+                    With autocapture on, you collect clicks and form interactions without writing tracking code. The
+                    user interactions dashboard charts them for you.
+                </SuggestedTemplateBanner>
+            ) : null}
+        </>
+    )
 }
 
 export const productAnalyticsOnboarding: ProductOnboardingProvider = {
@@ -139,7 +163,12 @@ export const productAnalyticsOnboarding: ProductOnboardingProvider = {
                 productKey: ProductKey.PRODUCT_ANALYTICS,
                 stepKey: OnboardingStepKey.PRODUCT_CONFIGURATION,
                 role: ctx.role,
-                render: () => <ProductAnalyticsConfigStep options={filteredOptions} />,
+                render: () => (
+                    <ProductAnalyticsConfigStep
+                        options={filteredOptions}
+                        autocaptureEnabled={!ctx.currentTeam?.autocapture_opt_out}
+                    />
+                ),
             },
             {
                 id: `${OnboardingStepKey.SESSION_REPLAY}:${ProductKey.PRODUCT_ANALYTICS}`,

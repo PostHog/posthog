@@ -12,6 +12,10 @@ import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
+import {
+    SuggestedTemplateBanner,
+    USER_INTERACTIONS_TEMPLATE_NAME,
+} from 'scenes/dashboard/dashboards/templates/SuggestedTemplateBanner'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 
@@ -58,6 +62,15 @@ export function LiveEventsTable(): JSX.Element {
                     Learn more
                 </Link>
             </LemonBanner>
+            <SuggestedTemplateBanner
+                templateName={USER_INTERACTIONS_TEMPLATE_NAME}
+                tileLocation="activity_live"
+                dismissKey="user-interactions-template-activity"
+                className="mb-4"
+            >
+                Clicks, form submissions, and input changes are already in this stream. The user interactions dashboard
+                charts them, including the clicks that do nothing.
+            </SuggestedTemplateBanner>
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Activity].name}
                 description={sceneConfigurations[Scene.Activity].description}
