@@ -269,6 +269,7 @@ services:
         logging: *default-logging
         environment:
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+            ERROR_TRACKING_CYMBAL_BASE_URL: 'http://cymbal:3302'
         depends_on:
             - db
             - redis7
