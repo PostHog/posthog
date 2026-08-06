@@ -39155,6 +39155,13 @@ export namespace Schemas {
       readonly code_name: string | null;
       /** Allowed values for List variables. Null for other variable types. */
       values?: unknown;
+      /** Whether a List variable accepts multiple selected values. */
+      is_multi?: boolean;
+      /**
+         * HogQL query whose first result column supplies the allowed values for a List variable.
+         * @nullable
+         */
+      values_query?: string | null;
     }
 
     export interface InsightViewedRequest {
@@ -54133,6 +54140,13 @@ export namespace Schemas {
       readonly code_name?: string | null;
       /** Allowed values for List variables. Null for other variable types. */
       values?: unknown;
+      /** Whether a List variable accepts multiple selected values. */
+      is_multi?: boolean;
+      /**
+         * HogQL query whose first result column supplies the allowed values for a List variable.
+         * @nullable
+         */
+      values_query?: string | null;
     }
 
     /**

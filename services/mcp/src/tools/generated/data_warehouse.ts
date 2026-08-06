@@ -107,6 +107,12 @@ const sqlVariablesCreate = (): ToolBase<typeof SqlVariablesCreateSchema, Schemas
         if (params.values !== undefined) {
             body['values'] = params.values
         }
+        if (params.is_multi !== undefined) {
+            body['is_multi'] = params.is_multi
+        }
+        if (params.values_query !== undefined) {
+            body['values_query'] = params.values_query
+        }
         const result = await context.api.request<Schemas.InsightVariable>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/insight_variables/`,
@@ -152,6 +158,12 @@ const sqlVariablesUpdate = (): ToolBase<typeof SqlVariablesUpdateSchema, Schemas
         }
         if (params.values !== undefined) {
             body['values'] = params.values
+        }
+        if (params.is_multi !== undefined) {
+            body['is_multi'] = params.is_multi
+        }
+        if (params.values_query !== undefined) {
+            body['values_query'] = params.values_query
         }
         const result = await context.api.request<Schemas.InsightVariable>({
             method: 'PATCH',

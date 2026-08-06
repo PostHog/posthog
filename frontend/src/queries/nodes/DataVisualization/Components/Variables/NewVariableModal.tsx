@@ -53,22 +53,20 @@ export const NewVariableModal = (): JSX.Element => {
             onClose={closeModal}
             maxWidth={modalType === 'existing' && insightsUsingVariable.length > 0 ? '60rem' : '30rem'}
             footer={
-                variable.type !== 'Date' && (
-                    <div className="flex flex-1 justify-end gap-2">
-                        {modalType === 'existing' && (
-                            <LemonButton type="secondary" status="danger" onClick={handleDelete} disabled={isSaving}>
-                                Delete variable
-                            </LemonButton>
-                        )}
-                        <div className="flex-1" />
-                        <LemonButton type="secondary" onClick={closeModal} disabled={isSaving}>
-                            Close
+                <div className="flex flex-1 justify-end gap-2">
+                    {modalType === 'existing' && (
+                        <LemonButton type="secondary" status="danger" onClick={handleDelete} disabled={isSaving}>
+                            Delete variable
                         </LemonButton>
-                        <LemonButton type="primary" onClick={() => save()} loading={isSaving}>
-                            Save
-                        </LemonButton>
-                    </div>
-                )
+                    )}
+                    <div className="flex-1" />
+                    <LemonButton type="secondary" onClick={closeModal} disabled={isSaving}>
+                        Close
+                    </LemonButton>
+                    <LemonButton type="primary" onClick={() => save()} loading={isSaving}>
+                        Save
+                    </LemonButton>
+                </div>
             }
         >
             <VariableForm

@@ -47,7 +47,18 @@ class InsightVariableSerializer(serializers.ModelSerializer):
     class Meta:
         model = InsightVariable
 
-        fields = ["id", "name", "type", "default_value", "created_by", "created_at", "code_name", "values"]
+        fields = [
+            "id",
+            "name",
+            "type",
+            "default_value",
+            "created_by",
+            "created_at",
+            "code_name",
+            "values",
+            "is_multi",
+            "values_query",
+        ]
 
         read_only_fields = ["id", "code_name", "created_by", "created_at"]
         extra_kwargs = {
@@ -61,20 +72,39 @@ class InsightVariableSerializer(serializers.ModelSerializer):
                 "help_text": "Generated code-safe name used in HogQL as {variables.code_name}. Derived from name."
             },
             "values": {"help_text": "Allowed values for List variables. Null for other variable types."},
+            "is_multi": {"help_text": "Whether a List variable accepts multiple selected values."},
+            "values_query": {
+                "help_text": "HogQL query whose first result column supplies the allowed values for a List variable."
+            },
         }
 
     def validate(self, attrs):
         variable_type = attrs.get("type", getattr(self.instance, "type", None))
         if variable_type == InsightVariable.Type.LIST:
+            is_multi = attrs.get("is_multi", getattr(self.instance, "is_multi", False))
+            if "is_multi" in attrs and "default_value" not in attrs and self.instance is not None:
+                attrs["default_value"] = self.instance.default_value
             # Only validate `values` when the payload provides it — instance data may hold
             # legacy shapes that shouldn't block unrelated updates (reads normalize them).
             if "values" in attrs:
                 values = attrs["values"]
                 attrs["values"] = self._coerce_list_values(values) if isinstance(values, list) else []
-            # `default_value` is a single option; coerce leniently so a legacy shape or a
-            # round-tripped read can't be stored as non-string (the UI treats it as text).
             if "default_value" in attrs:
-                attrs["default_value"] = _coerce_list_value_lenient(attrs["default_value"]) or ""
+                default_value = attrs["default_value"]
+                if is_multi:
+                    raw_default_values = default_value if isinstance(default_value, list) else [default_value]
+                    attrs["default_value"] = [
+                        value
+                        for raw_value in raw_default_values
+                        if (value := _coerce_list_value_lenient(raw_value)) is not None
+                    ]
+                elif isinstance(default_value, list):
+                    attrs["default_value"] = _coerce_list_value_lenient(default_value[0]) if default_value else ""
+                else:
+                    attrs["default_value"] = _coerce_list_value_lenient(default_value) or ""
+        else:
+            attrs["is_multi"] = False
+            attrs["values_query"] = None
 
         return attrs
 
@@ -107,7 +137,16 @@ class InsightVariableSerializer(serializers.ModelSerializer):
                 if isinstance(raw_values, list)
                 else []
             )
-            data["default_value"] = _coerce_list_value_lenient(data.get("default_value"))
+            raw_default_value = data.get("default_value")
+            if instance.is_multi:
+                raw_default_values = raw_default_value if isinstance(raw_default_value, list) else [raw_default_value]
+                data["default_value"] = [
+                    value
+                    for raw_value in raw_default_values
+                    if (value := _coerce_list_value_lenient(raw_value)) is not None
+                ]
+            else:
+                data["default_value"] = _coerce_list_value_lenient(raw_default_value)
         return data
 
     def create(self, validated_data):

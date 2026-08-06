@@ -1,3 +1,4 @@
+import re
 from difflib import get_close_matches
 from typing import TypeVar
 
@@ -8,6 +9,7 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.visitor import CloningVisitor
 
 from posthog.models.team.team import Team
+from posthog.utils import relative_date_parse
 
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -57,6 +59,19 @@ class ReplaceVariables(CloningVisitor):
                 else matching_insight_variable[0].default_value
             )
 
+            variable_definition = matching_insight_variable[0]
+            if variable_definition.type == InsightVariable.Type.LIST and isinstance(value, list):
+                if variable_definition.is_multi:
+                    return ast.Array(exprs=[ast.Constant(value=item) for item in value])
+                value = value[0] if value else None
+
+            if (
+                variable_definition.type == InsightVariable.Type.DATE
+                and isinstance(value, str)
+                and is_relative_date_value(value)
+            ):
+                value = relative_date_parse(value, self.team.timezone_info)
+
             return ast.Constant(value=value)
 
         return super().visit_placeholder(node)
@@ -73,3 +88,7 @@ class ReplaceVariables(CloningVisitor):
         if not available_variables:
             return []
         return get_close_matches(variable_code_name, available_variables, n=3, cutoff=0.6)
+
+
+def is_relative_date_value(value: str) -> bool:
+    return re.fullmatch(r"-?\d*[hdwmqysHDWMQY](?:Start|End)?", value) is not None

@@ -10,8 +10,7 @@ import {
     BooleanField,
     DateField,
     DirectFieldProps,
-    ListDefaultField,
-    ListValuesField,
+    ListVariableFields,
     NumberField,
     StringField,
     VARIABLE_TYPE_OPTIONS,
@@ -33,11 +32,15 @@ function renderField<T extends Variable>(
     )
 }
 
-const renderVariableSpecificFields = (
-    variable: Variable,
-    updateVariable: (variable: Variable) => void,
+export const VariableSpecificFields = ({
+    variable,
+    updateVariable,
+    onSave,
+}: {
+    variable: Variable
+    updateVariable: (variable: Variable) => void
     onSave: () => void
-): JSX.Element => {
+}): JSX.Element => {
     switch (variable.type) {
         case 'String':
             return renderField(StringField, variable, updateVariable, onSave, 'Default value')
@@ -46,12 +49,7 @@ const renderVariableSpecificFields = (
         case 'Boolean':
             return renderField(BooleanField, variable, updateVariable, onSave, 'Default value')
         case 'List':
-            return (
-                <>
-                    {renderField(ListValuesField, variable, updateVariable, onSave, 'Values')}
-                    {renderField(ListDefaultField, variable, updateVariable, onSave, 'Default value')}
-                </>
-            )
+            return <ListVariableFields variable={variable} updateVariable={updateVariable} onSave={onSave} />
         case 'Date':
             return renderField(DateField, variable, updateVariable, onSave, 'Default value')
     }
@@ -112,7 +110,7 @@ export const VariableForm = ({ variable, updateVariable, onSave, onTypeChange }:
                     options={VARIABLE_TYPE_OPTIONS}
                 />
             </LemonField.Pure>
-            {renderVariableSpecificFields(variable, updateVariable, onSave)}
+            <VariableSpecificFields variable={variable} updateVariable={updateVariable} onSave={onSave} />
         </div>
     )
 }

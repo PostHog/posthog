@@ -30,6 +30,11 @@ export const InsightVariablesCreateBody = /* @__PURE__ */ zod.object({
         ),
     default_value: zod.unknown().optional().describe('Default value used when a query references this variable.'),
     values: zod.unknown().optional().describe('Allowed values for List variables. Null for other variable types.'),
+    is_multi: zod.boolean().optional().describe('Whether a List variable accepts multiple selected values.'),
+    values_query: zod
+        .string()
+        .nullish()
+        .describe('HogQL query whose first result column supplies the allowed values for a List variable.'),
 })
 
 export const InsightVariablesPartialUpdateParams = /* @__PURE__ */ zod.object({
@@ -60,6 +65,11 @@ export const InsightVariablesPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
     default_value: zod.unknown().optional().describe('Default value used when a query references this variable.'),
     values: zod.unknown().optional().describe('Allowed values for List variables. Null for other variable types.'),
+    is_multi: zod.boolean().optional().describe('Whether a List variable accepts multiple selected values.'),
+    values_query: zod
+        .string()
+        .nullish()
+        .describe('HogQL query whose first result column supplies the allowed values for a List variable.'),
 })
 
 export const InsightVariablesDestroyParams = /* @__PURE__ */ zod.object({

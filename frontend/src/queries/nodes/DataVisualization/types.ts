@@ -82,6 +82,8 @@ interface VariableBase {
     type: VariableType
     value?: any
     isNull?: boolean
+    is_multi?: boolean
+    values_query?: string | null
 }
 
 export interface StringVariable extends VariableBase {
@@ -102,8 +104,8 @@ export interface BooleanVariable extends VariableBase {
 export interface ListVariable extends VariableBase {
     type: 'List'
     values: string[]
-    default_value: string
-    value?: string
+    default_value: string | string[]
+    value?: string | string[]
 }
 
 export interface DateVariable extends VariableBase {

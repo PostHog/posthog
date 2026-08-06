@@ -1,1 +1,1 @@
-0004_delete_revenue_analytics_insights
+0005_insightvariable_is_multi_and_more

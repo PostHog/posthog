@@ -13,6 +13,8 @@ Column | Type | Description
 `type` | varchar(128) | `String`, `Number`, `Boolean`, `List`, or `Date`
 `default_value` | jsonb | Default value
 `values` | jsonb | Available values (List type only)
+`is_multi` | boolean | Whether a List variable accepts multiple selected values
+`values_query` | text | HogQL query whose first result column supplies List options
 
 ### Types
 
@@ -20,8 +22,8 @@ Type | Example `default_value`
 `String` | `"example"`
 `Number` | `42`
 `Boolean` | `true`
-`List` | `["$pageview", "$autocapture"]`
-`Date` | `"2024-01-01"`
+`List` | `"$pageview"` or `["$pageview", "$autocapture"]` when `is_multi` is enabled
+`Date` | `"2024-01-01"` or a rolling value such as `"-7d"`
 
 ### Usage
 
@@ -34,7 +36,14 @@ WHERE (coalesce({variables.org}, '') = '' OR properties.org = {variables.org})
 
 -- Optional nullable (null check)
 WHERE ({variables.browser} IS NULL OR properties.$browser = {variables.browser})
+
+-- Multiselect List variable
+WHERE event IN {variables.event_names}
 ```
+
+List options can be entered manually or loaded from a HogQL query. For query-backed options, the first result column becomes the option list. Add a `LIMIT` to keep the list manageable.
+
+Relative Date defaults resolve each time a query runs. For example, `-7d` means seven days before the current time.
 
 ### code_name Generation
 

@@ -9,7 +9,6 @@ import {
     LemonDivider,
     LemonInput,
     LemonSegmentedButton,
-    LemonSelect,
     LemonSwitch,
     Popover,
     lemonToast,
@@ -23,12 +22,27 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
-import { Variable } from '../../types'
+import { DateVariable, ListVariable, Variable } from '../../types'
 import { NewVariableModal } from './NewVariableModal'
-import { VariableCalendar } from './VariableCalendar'
-import { coerceListVariableValue, getListVariableValues } from './VariableFields'
+import { DateField, ListVariableSelect } from './VariableFields'
 import { variableModalLogic } from './variableModalLogic'
 import { variablesLogic } from './variablesLogic'
+import { formatRelativeDateValue, getListVariableSelectedValues, isRelativeDateValue } from './variableUtils'
+
+const getVariableDisplayValue = (variable: Variable): string => {
+    const value = variable.value ?? variable.default_value
+    if (variable.type === 'List') {
+        const selectedValues = getListVariableSelectedValues(variable)
+        if (variable.is_multi && selectedValues.length > 1) {
+            return `${selectedValues.length} selected`
+        }
+        return selectedValues[0] ?? ''
+    }
+    if (variable.type === 'Date' && typeof value === 'string' && isRelativeDateValue(value)) {
+        return formatRelativeDateValue(value)
+    }
+    return String(value ?? '')
+}
 
 export const VariablesForDashboard = (): JSX.Element => {
     const { effectiveVariablesAndAssociatedInsights } = useValues(dashboardLogic)
@@ -106,7 +120,7 @@ export const VariableInput = ({
     variableSettingsOnClick,
     onInsertAtCursor,
 }: VariableInputProps): JSX.Element => {
-    const [localInputValue, setLocalInputValue] = useState<string>(() => {
+    const [localInputValue, setLocalInputValue] = useState<string | string[]>(() => {
         const val = variable.value ?? variable.default_value
 
         if (variable.type === 'Number' && !val) {
@@ -122,7 +136,7 @@ export const VariableInput = ({
         }
 
         if (variable.type === 'List') {
-            return coerceListVariableValue(val) ?? ''
+            return getListVariableSelectedValues(variable)
         }
 
         return String(val ?? '')
@@ -146,7 +160,7 @@ export const VariableInput = ({
                         inputRef={inputRef}
                         placeholder="Value..."
                         className="flex flex-1"
-                        value={localInputValue}
+                        value={String(localInputValue)}
                         onChange={(value) => setLocalInputValue(value)}
                         onPressEnter={() => {
                             onChange(variable.id, localInputValue, isNull)
@@ -171,7 +185,7 @@ export const VariableInput = ({
                 {variable.type === 'Boolean' && (
                     <LemonSegmentedButton
                         className="grow"
-                        value={localInputValue}
+                        value={String(localInputValue)}
                         onChange={(value) => setLocalInputValue(value)}
                         options={[
                             {
@@ -186,38 +200,33 @@ export const VariableInput = ({
                     />
                 )}
                 {variable.type === 'List' && (
-                    <LemonSelect
-                        className="grow"
-                        value={localInputValue}
-                        onChange={(value) => setLocalInputValue(String(value))}
-                        options={getListVariableValues(variable).map((n) => ({ label: n, value: n }))}
+                    <ListVariableSelect
+                        variable={variable}
+                        logicKey={`variable-input-${variable.id}`}
+                        selectedValues={Array.isArray(localInputValue) ? localInputValue : [localInputValue]}
+                        onChange={setLocalInputValue}
                     />
                 )}
                 {variable.type === 'Date' && (
-                    <VariableCalendar
-                        value={dayjs(localInputValue)}
-                        rawValue={localInputValue}
-                        updateVariable={(date) => {
-                            onChange(variable.id, date, isNull)
-                            closePopover()
-                        }}
+                    <DateField
+                        variable={{ ...variable, default_value: String(localInputValue) } as DateVariable}
+                        updateVariable={(updatedVariable) => setLocalInputValue(updatedVariable.default_value)}
+                        onSave={() => {}}
                     />
                 )}
-                {variable.type !== 'Date' && (
-                    <LemonButton
-                        type="primary"
-                        onClick={() => {
-                            onChange(
-                                variable.id,
-                                variable.type === 'Number' ? Number(localInputValue) : localInputValue,
-                                isNull
-                            )
-                            closePopover()
-                        }}
-                    >
-                        {showEditingUI ? 'Save' : 'Update'}
-                    </LemonButton>
-                )}
+                <LemonButton
+                    type="primary"
+                    onClick={() => {
+                        onChange(
+                            variable.id,
+                            variable.type === 'Number' ? Number(localInputValue) : localInputValue,
+                            isNull
+                        )
+                        closePopover()
+                    }}
+                >
+                    {showEditingUI ? 'Save' : 'Update'}
+                </LemonButton>
             </div>
             {showEditingUI ? (
                 <>
@@ -348,13 +357,15 @@ export const VariableComponent = ({
     if (!showEditingUI && variable.type === 'List') {
         return (
             <LemonField.Pure label={variable.name} className="gap-0" info={tooltip}>
-                <LemonSelect
+                <ListVariableSelect
+                    variable={variable as ListVariable}
+                    logicKey={`variable-inline-${variable.id}`}
                     disabledReason={variableOverridesAreSet && 'Discard dashboard variables to change'}
-                    value={variable.isNull ? null : coerceListVariableValue(variable.value ?? variable.default_value)}
-                    onChange={(value) => onChange(variable.id, value, !value)}
-                    options={getListVariableValues(variable).map((n) => ({ label: n, value: n }))}
+                    selectedValues={variable.isNull ? [] : getListVariableSelectedValues(variable)}
+                    onChange={(value) =>
+                        onChange(variable.id, value, Array.isArray(value) ? value.length === 0 : value === '')
+                    }
                     size={size}
-                    allowClear
                 />
             </LemonField.Pure>
         )
@@ -394,11 +405,7 @@ export const VariableComponent = ({
                             disabledReason={variableOverridesAreSet && 'Discard dashboard variables to change'}
                             size={size}
                         >
-                            {variable.isNull
-                                ? 'Set to null'
-                                : (variable.value?.toString() || variable.default_value?.toString() || '') === ''
-                                  ? emptyState
-                                  : (variable.value?.toString() ?? variable.default_value?.toString())}
+                            {variable.isNull ? 'Set to null' : getVariableDisplayValue(variable) || emptyState}
                         </LemonButton>
                         {showEditingUI && (
                             <LemonButton

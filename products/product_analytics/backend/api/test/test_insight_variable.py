@@ -61,6 +61,51 @@ class TestInsightVariable(APIBaseTest):
         assert response.status_code == 201
         assert response.json()["values"] == []
 
+    def test_create_query_backed_multiselect_list_variable(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/insight_variables/",
+            data={
+                "name": "Event names",
+                "type": "List",
+                "values": [],
+                "default_value": ["pageview", "signup"],
+                "is_multi": True,
+                "values_query": "SELECT DISTINCT event FROM events LIMIT 100",
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 201
+        assert response.json()["default_value"] == ["pageview", "signup"]
+        assert response.json()["is_multi"] is True
+        assert response.json()["values_query"] == "SELECT DISTINCT event FROM events LIMIT 100"
+
+        variable = InsightVariable.objects.get(team_id=self.team.pk)
+        assert variable.default_value == ["pageview", "signup"]
+        assert variable.is_multi is True
+        assert variable.values_query == "SELECT DISTINCT event FROM events LIMIT 100"
+
+    def test_enabling_multiselect_normalizes_existing_default(self):
+        variable = InsightVariable.objects.create(
+            team=self.team,
+            name="Event name",
+            type="List",
+            code_name="event_name",
+            values=["pageview", "signup"],
+            default_value="pageview",
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/insight_variables/{variable.id}/",
+            data={"is_multi": True},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        assert response.json()["default_value"] == ["pageview"]
+        variable.refresh_from_db()
+        assert variable.default_value == ["pageview"]
+
     def test_insight_variable_limit(self):
         # default list call should return up to 500 variables
         response = self.client.get(f"/api/environments/{self.team.pk}/insight_variables/")
