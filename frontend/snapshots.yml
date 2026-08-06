@@ -2764,6 +2764,18 @@ snapshots:
         hash: v1.k794b7964.51c09169b5a57e217572bc35c0882b15252b4af936921569bf8d2a1d3a330f2f.red8aW6nElMIxDUdAHhilR3Ls2NgRChoEmFzfpGcgbU
     insights-funneltrendstable--default--light:
         hash: v1.k794b7964.f4486460f4481d343ecf8e0890d94f8d4c3da70164008d53bc762b6900623bc1.MRfTllR3ODYt6mNxjI-nTmfYZk0V2cXLMRmUwbKFC1Q
+    insights-insightseriestooltip--multiple-formulas-with-breakdown--dark:
+        hash: v1.k794b7964.22f2cf6ee12533e9fdfd0baba36d6666f0150b38634851779d9a97f4b09694d8.Tv1jXUYahN-tvUG5OBD6KOCEoTwDLuaTAU9HDW-Iw-Q
+    insights-insightseriestooltip--multiple-formulas-with-breakdown--light:
+        hash: v1.k794b7964.d8f1d85a326c2fa64b2474d747f6c2fc55a04837d4047e51f7be8081f01a728a.Q9OOrfePNmj_B2IgRrjI3EQqdrLjhktX66EcbKWtUjQ
+    insights-insightseriestooltip--multiple-series-with-breakdown--dark:
+        hash: v1.k794b7964.031f10c603c56dbd8364ae1f6fa94b18e55ce719014e24709384fd6bf6c88688.GpRquOpsHiTezIUsbDSGLmIBniVxY82G2dkiitKXJFU
+    insights-insightseriestooltip--multiple-series-with-breakdown--light:
+        hash: v1.k794b7964.aab48f4950e5ed1da0ef48e75ad65d754aaecd0527b1779980ae997958dd56f2.7ogPLJVbfRr0y0iw4HkXOZMv2jeP2rDLkWxp7aU_HX4
+    insights-insightseriestooltip--same-event-series-with-breakdown--dark:
+        hash: v1.k794b7964.a7c95d36156152f07dd33f571dd0a9c67fe96f510036b4ffde9627d6b274992d.fqieVhz4-p-dy9eKlmOpM_4N4wcVXeIEjShMEha1ccc
+    insights-insightseriestooltip--same-event-series-with-breakdown--light:
+        hash: v1.k794b7964.7fbc4c70dcfb77807cd72d37140eff2468055091f79f04e7ea8bf201aee2dd25.oNUrG_LVzG8BURRQZdldu7oMzL9dyPcIPMUMx2f6f9k
     insights-insightstable--aggregation--dark:
         hash: v1.k794b7964.531d5fdec5bc837da5dd1f334b850e6321fde25a7fb70834856ae88338214e28.RVObUcwlwFdjIrk0GTbySMzPeAWR7zUyPLsUtdIu57w
     insights-insightstable--aggregation--light:
