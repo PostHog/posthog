@@ -129,7 +129,7 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
                         <Tooltip
                             title={<div className="whitespace-pre-line">{relatedOpenTooltip(ticket.related_open)}</div>}
                         >
-                            <LemonTag type="highlight" size="small" className="cursor-default">
+                            <LemonTag type="muted" size="small" className="cursor-default">
                                 {`+${ticket.related_open.count}`}
                             </LemonTag>
                         </Tooltip>
