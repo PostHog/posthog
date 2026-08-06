@@ -13,6 +13,7 @@ import type { RequestProperties } from '@/lib/request-properties'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
 import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from '@/tools/toolDefinitions'
+import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
 import type { Context, Tool, Env, ZodObjectAny } from '@/tools/types'
 
 import type { RedisLike } from './cache/RedisCache'
@@ -73,6 +74,10 @@ export function resolveMode(args: { mode: McpMode | undefined; clientProfile: MC
     // x-posthog-mcp-mode header always wins over auto-detection.
     const resolved: McpMode = mode ?? (clientProfile.isToolsModeClient() ? 'tools' : 'cli')
     return { mode: resolved, useSingleExec: resolved === 'cli' }
+}
+
+export function tasksContextToolsToExclude(clientProfile: MCPClientProfile, taskId: string | undefined): string[] {
+    return clientProfile.isPostHogCodeConsumer() && taskId ? [] : [...TASKS_CONTEXT_TOOL_NAMES]
 }
 
 /**
@@ -193,7 +198,10 @@ export class RequestStateResolver {
         const availableFeatures = await context.stateManager.getAvailableFeatures()
         const isCloud = isCloudApi()
 
-        const excludeTools = switchToolsToExclude({ organizationId })
+        const excludeTools = [
+            ...switchToolsToExclude({ organizationId }),
+            ...tasksContextToolsToExclude(clientProfile, props.taskId),
+        ]
 
         const filterOptions = {
             features,

@@ -68,8 +68,13 @@ import {
   completedTurnTimestamp,
   countFlatRows,
   type FlatThreadRow,
+  FOLLOWING_END,
   flattenTurnRows,
+  nextThreadFollowState,
   SCROLL_PREVIOUS_ITEM_PEEK,
+  SCROLL_UP_KEYS,
+  sampleThreadScroll,
+  type ThreadFollowState,
   type ThreadItem,
   type ThreadScrollResume,
   type TurnRow,
@@ -740,7 +745,7 @@ const ThreadRow = memo(function ThreadRow({
 });
 
 /**
- * Keeps the view pinned to the bottom from prompt submit until the user scrolls away.
+ * Keeps the view pinned to the bottom until the user scrolls away, re-arming on each prompt submit.
  *
  * The engine's own follow mode isn't enough on its own:
  * - It only re-engages within `scrollEdgeThreshold` of the exact bottom, so a submit from anywhere
@@ -751,10 +756,20 @@ const ThreadRow = memo(function ThreadRow({
  *   autoscrolling" and silently demote itself to `free-scrolling` mid-reply. While armed, any
  *   commit that leaves content below the fold re-issues `scrollToEnd` to recapture follow.
  *
- * User scroll intent (wheel, touch, pointer, keys — same signals the engine listens to) disarms
- * the pin; the next submit or the scroll-to-bottom button re-engages following.
+ * It arms on mount so a thread the reader is only watching — a cloud task streaming into a command
+ * center panel, with no prompt sent from here — still follows. Scrolling upward disarms it, which
+ * is the half the engine gets wrong: the engine re-derives follow from scroll position and so
+ * overrules the gesture. Scrolling back down to the end re-arms it, a submit or the
+ * scroll-to-bottom button re-arms it from anywhere.
  */
-function ThreadAutoFollow({ items }: { items: ConversationItem[] }) {
+function ThreadAutoFollow({
+  items,
+  followRef,
+}: {
+  items: ConversationItem[];
+  /** Owned by the body so the scroll-to-bottom button can re-arm the pin too. */
+  followRef: RefObject<ThreadFollowState>;
+}) {
   const { scrollToEnd } = useChatMessageScroller();
   const { end } = useChatMessageScrollerScrollable();
   const lastItem = items.at(-1);
@@ -764,7 +779,6 @@ function ThreadAutoFollow({ items }: { items: ConversationItem[] }) {
     [items],
   );
   const prevCountRef = useRef(userMessageCount);
-  const armedRef = useRef(false);
   const probeRef = useRef<HTMLSpanElement>(null);
 
   useLayoutEffect(() => {
@@ -772,35 +786,55 @@ function ThreadAutoFollow({ items }: { items: ConversationItem[] }) {
     prevCountRef.current = userMessageCount;
     if (previous === 0 || userMessageCount <= previous) return;
     if (lastItem?.type !== "user_message") return;
-    armedRef.current = true;
+    followRef.current = FOLLOWING_END;
     scrollToEnd({ behavior: "auto" });
-  }, [userMessageCount, lastItem, scrollToEnd]);
+  }, [userMessageCount, lastItem, scrollToEnd, followRef]);
 
   useEffect(() => {
     const viewport = probeRef.current
       ?.closest('[data-slot="chat-message-scroller"]')
       ?.querySelector('[data-slot="chat-message-scroller-viewport"]');
-    if (!viewport) return;
-    const disarm = () => {
-      armedRef.current = false;
+    if (!(viewport instanceof HTMLElement)) return;
+
+    // An upward gesture too small to register as a direction change below still means the reader
+    // is reading, not following.
+    const leaveEnd = () => {
+      if (followRef.current.leftEnd || viewport.scrollTop <= 0) return;
+      followRef.current = { following: false, leftEnd: true };
     };
-    const events = ["wheel", "touchmove", "pointerdown", "keydown"] as const;
-    for (const event of events) {
-      viewport.addEventListener(event, disarm, { passive: true });
-    }
+    const onWheel = (event: Event) => {
+      if ((event as WheelEvent).deltaY < 0) leaveEnd();
+    };
+    const onKeyDown = (event: Event) => {
+      if (SCROLL_UP_KEYS.has((event as KeyboardEvent).key)) leaveEnd();
+    };
+    // Direction, not position: the reader who scrolls back to the bottom while the agent keeps
+    // appending never lands on the exact end, so following has to resume from the gesture.
+    let lastScrollTop = viewport.scrollTop;
+    const onScroll = () => {
+      const sample = sampleThreadScroll(viewport, lastScrollTop);
+      lastScrollTop = viewport.scrollTop;
+      followRef.current = nextThreadFollowState(followRef.current, sample);
+    };
+
+    viewport.addEventListener("wheel", onWheel, { passive: true });
+    viewport.addEventListener("touchmove", leaveEnd, { passive: true });
+    viewport.addEventListener("keydown", onKeyDown, { passive: true });
+    viewport.addEventListener("scroll", onScroll, { passive: true });
     return () => {
-      for (const event of events) {
-        viewport.removeEventListener(event, disarm);
-      }
+      viewport.removeEventListener("wheel", onWheel);
+      viewport.removeEventListener("touchmove", leaveEnd);
+      viewport.removeEventListener("keydown", onKeyDown);
+      viewport.removeEventListener("scroll", onScroll);
     };
-  }, []);
+  }, [followRef]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-check on every streamed change — `end` alone doesn't re-notify while it stays true across commits.
   useEffect(() => {
-    if (armedRef.current && end) {
+    if (followRef.current.following && end) {
       scrollToEnd({ behavior: "auto" });
     }
-  }, [items, end, scrollToEnd]);
+  }, [items, end, scrollToEnd, followRef]);
 
   return <span ref={probeRef} className="hidden" aria-hidden="true" />;
 }
@@ -973,6 +1007,8 @@ function ThreadScrollBody({
     }));
   }, [rows]);
 
+  const autoFollowRef = useRef<ThreadFollowState>(FOLLOWING_END);
+
   // `group/thread` so the footer's hover-reveal (opacity-50 → 100 on group-hover) tracks the thread,
   // mirroring the legacy ConversationView container. `@container/thread` makes the thread's own
   // width the query basis for everything inside it — the panel is resizable and splittable, so the
@@ -983,7 +1019,7 @@ function ThreadScrollBody({
       onPointerDownCapture={onUserInteract}
     >
       <MessageMinimap items={items} />
-      <ThreadAutoFollow items={items} />
+      <ThreadAutoFollow items={items} followRef={autoFollowRef} />
       <ThreadScrollStateRecorder stateRef={resumeStateRef} />
       <ChatMessageScrollerViewport>
         <ChatMessageScrollerContent
@@ -1009,7 +1045,12 @@ function ThreadScrollBody({
           )}
         </ChatMessageScrollerContent>
       </ChatMessageScrollerViewport>
-      <ChatMessageScrollerButton />
+      {/* Re-arms the pin as well as scrolling: the button is the reader saying "follow again". */}
+      <ChatMessageScrollerButton
+        onClick={() => {
+          autoFollowRef.current = FOLLOWING_END;
+        }}
+      />
     </ChatMessageScroller>
   );
 }
@@ -1102,6 +1143,7 @@ interface SharedChatThreadProps {
   task?: Task;
   taskId?: string;
   footerState?: Omit<BuildResult, "items">;
+  hasPendingPermission?: boolean;
 }
 
 export interface ChatThreadProps extends SharedChatThreadProps {
@@ -1175,6 +1217,7 @@ function ChatThreadRenderer({
   task,
   taskId,
   footerState,
+  hasPendingPermission,
   promptRecallRef,
 }: ChatThreadRendererProps) {
   const diffWorkerFactory = useService<DiffWorkerFactory>(DIFF_WORKER_FACTORY);
@@ -1301,6 +1344,7 @@ function ChatThreadRenderer({
         task={task}
         taskId={taskId}
         footerState={footerState}
+        hasPendingPermission={hasPendingPermission}
       />
     </>
   );
@@ -1348,11 +1392,12 @@ function ChatThreadRenderer({
             // engine's own follow would fight it, so it only auto-scrolls when non-virtualized.
             autoScroll={!virtualized}
             defaultScrollPosition="end"
-            // Default is 8px: with the thread's bottom padding you're rarely that close, so
-            // auto-follow ("following-bottom") would disengage on any stray trackpad wheel and
-            // never re-engage. Within this band the engine recaptures follow on the next content
-            // change; deliberate upward flicks travel past it and stay free-scrolling.
-            scrollEdgeThreshold={100}
+            // `scrollEdgeThreshold` is left at the engine's tight default on purpose. The engine
+            // re-enters "following-bottom" on *every* scroll event taken within the band, which
+            // overrides the free-scrolling its own wheel handler just set — so a wide band traps a
+            // reader scrolling up out of the bottom, and streamed content yanks them back each
+            // frame. `ThreadAutoFollow` is what keeps the thread pinned across the band's width;
+            // unlike the engine it only lets go on a real gesture.
             scrollPreviousItemPeek={SCROLL_PREVIOUS_ITEM_PEEK}
           >
             {virtualized ? (
