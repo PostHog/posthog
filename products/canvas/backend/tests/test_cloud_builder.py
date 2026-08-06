@@ -135,6 +135,10 @@ globalThis.parent = {};
 globalThis.location = { hash: "#theme=dark" };
 globalThis.document = {
     readyState: "complete",
+    body: {},
+    head: { appendChild: () => {} },
+    addEventListener: () => {},
+    createElement: () => ({}),
     documentElement: {
         classList: {
             toggle: (name, force) => {
@@ -144,6 +148,9 @@ globalThis.document = {
         },
         style,
     },
+};
+globalThis.MutationObserver = class {
+    observe() {}
 };
 globalThis.addEventListener = (type, handler) => (listeners[type] ??= []).push(handler);
 
