@@ -382,6 +382,11 @@ def _entity_identity(entity: Any) -> tuple[Any, ...]:
     return tuple(normalized)
 
 
+def _dict_field(container: dict[str, Any], key: str) -> dict[str, Any]:
+    value = container.get(key)
+    return value if isinstance(value, dict) else {}
+
+
 def shape_fingerprint(source: dict[str, Any]) -> str:
     """One-line query-shape tag for a RetentionQuery source, for triaging mismatches.
 
@@ -389,12 +394,12 @@ def shape_fingerprint(source: dict[str, Any]) -> str:
     customer values: only structural facts — retention type, entity sameness/types, breakdown
     kinds, aggregation, thresholds, flags — so the tag is safe to print and paste anywhere.
     """
-    retention_filter = source.get("retentionFilter") if isinstance(source.get("retentionFilter"), dict) else {}
+    retention_filter = _dict_field(source, "retentionFilter")
 
     retention_type = {
         "retention_first_time": "first_time",
         "retention_first_ever_occurrence": "first_ever",
-    }.get(retention_filter.get("retentionType"), "recurring")
+    }.get(retention_filter.get("retentionType") or "", "recurring")
 
     target = retention_filter.get("targetEntity")
     returning = retention_filter.get("returningEntity")
@@ -408,11 +413,11 @@ def shape_fingerprint(source: dict[str, Any]) -> str:
         f"intervals={retention_filter.get('totalIntervals') or 7}",
     ]
 
-    date_range = source.get("dateRange") if isinstance(source.get("dateRange"), dict) else {}
+    date_range = _dict_field(source, "dateRange")
     if date_range.get("date_from") or date_range.get("date_to"):
         parts.append(f"range={date_range.get('date_from') or 'default'}..{date_range.get('date_to') or 'now'}")
 
-    breakdown_filter = source.get("breakdownFilter") if isinstance(source.get("breakdownFilter"), dict) else {}
+    breakdown_filter = _dict_field(source, "breakdownFilter")
     breakdowns = breakdown_filter.get("breakdowns")
     if isinstance(breakdowns, list) and breakdowns:
         kinds = [(b.get("type") if isinstance(b, dict) else None) or "event" for b in breakdowns]
