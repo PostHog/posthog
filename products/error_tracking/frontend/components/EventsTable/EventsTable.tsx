@@ -95,15 +95,12 @@ export function EventsTable({ query, queryKey, onEventSelect, selectedEvent }: E
         )
     }
 
-    function renderRowTimelineIndicator(record: ErrorEventType): JSX.Element {
-        const color =
-            record.uuid === summary?.first_event_uuid
-                ? 'bg-[var(--brand-blue)]'
-                : record.uuid === summary?.last_event_uuid
-                  ? 'bg-[var(--brand-red)]'
-                  : 'bg-[var(--brand-yellow)]'
-
-        return <div className={cn('min-h-[56px] w-1', isEventSelected(record) ? color : 'bg-transparent')} />
+    function getRowTimelineIndicatorColor(record: ErrorEventType): string {
+        return record.uuid === summary?.first_event_uuid
+            ? 'border-l-brand-blue'
+            : record.uuid === summary?.last_event_uuid
+              ? 'border-l-brand-red'
+              : 'border-l-brand-yellow'
     }
 
     return (
@@ -127,7 +124,14 @@ export function EventsTable({ query, queryKey, onEventSelect, selectedEvent }: E
                                 )}
                                 onClick={() => onEventSelect(record)}
                             >
-                                <TableCell className="w-1 p-0">{renderRowTimelineIndicator(record)}</TableCell>
+                                <TableCell
+                                    className={cn(
+                                        'w-1 border-l-4 p-0',
+                                        isEventSelected(record)
+                                            ? getRowTimelineIndicatorColor(record)
+                                            : 'border-l-transparent'
+                                    )}
+                                />
                                 <TableCell className="min-w-0 overflow-hidden p-0">
                                     <div className="flex w-full min-w-0 items-center">
                                         <div className="min-w-0 flex-1 overflow-hidden px-3 py-2">
