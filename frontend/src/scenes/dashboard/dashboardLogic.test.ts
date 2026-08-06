@@ -2010,7 +2010,7 @@ describe('dashboardLogic', () => {
                 }).toDispatchActions(['setPageVisibility', 'resetInterval'])
             })
 
-            it('does not restart auto-refresh on page visible if auto-refresh is disabled', async () => {
+            it('re-checks freshness (but does not start the interval) on page visible when auto-refresh is disabled', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.setAutoRefresh(false, 1800)
                 })
@@ -2019,10 +2019,12 @@ describe('dashboardLogic', () => {
                         autoRefresh: { enabled: false, interval: 1800 },
                     })
 
+                // Returning to the tab must recover stale/blank tiles even with auto-refresh off,
+                // so it refreshes items without arming the recurring interval.
                 await expectLogic(logic, () => {
                     logic.actions.setPageVisibility(true)
                 })
-                    .toDispatchActions(['setPageVisibility'])
+                    .toDispatchActions(['setPageVisibility', 'refreshDashboardItems'])
                     .toNotHaveDispatchedActions(['resetInterval'])
             })
         })

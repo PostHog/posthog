@@ -101,19 +101,18 @@ function DashboardInsightRefreshHintOrLoading({
     return <InsightRefreshDataHint onRetry={onRetry} insightProps={insightProps} />
 }
 
-/** Dashboard tile: show refresh when merged `result` is still nullish (empty success is `[]`, not `null`). */
-export function shouldShowDashboardInsightRefreshHint({
-    isInDashboardContext,
+/** Show refresh when merged `result` is still nullish (empty success is `[]`, not `null`), on a
+ * dashboard tile or a standalone insight, so neither dead-ends on a blank chart area. */
+export function shouldShowInsightRefreshHint({
     doNotLoad,
     activeView,
     insightData,
 }: {
-    isInDashboardContext: boolean
     doNotLoad?: boolean
     activeView: InsightType
     insightData: Record<string, any> | null | undefined
 }): boolean {
-    if (!isInDashboardContext || doNotLoad || activeView === InsightType.WEB_ANALYTICS) {
+    if (doNotLoad || activeView === InsightType.WEB_ANALYTICS) {
         return false
     }
     const rawResult = insightData?.result
@@ -143,7 +142,7 @@ export function InsightVizDisplay({
     inSharedMode?: boolean
     editMode?: boolean
 }): JSX.Element | null {
-    const { insightProps, canEditInsight, isInDashboardContext } = useValues(insightLogic)
+    const { insightProps, canEditInsight } = useValues(insightLogic)
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
@@ -280,13 +279,12 @@ export function InsightVizDisplay({
             return <InsightTimeoutState queryId={timedOutQueryId} />
         }
 
-        // On a dashboard, users sometimes see an empty chart even though the insight is valid—often because
-        // they navigated away while numbers were still loading, or nothing was cached yet. Prompt them to
-        // refresh rather than staring at a blank tile. this is possible if the redis cache is a miss, and they dont have anything
-        // cached on their browser yet either.
+        // Users sometimes see an empty chart even though the insight is valid, often because they
+        // navigated away while numbers were still loading, or nothing was cached yet. Prompt them to
+        // refresh rather than staring at a blank area. This happens on a dashboard tile or a standalone
+        // insight when the redis cache is a miss and nothing is cached in their browser either.
         if (
-            shouldShowDashboardInsightRefreshHint({
-                isInDashboardContext,
+            shouldShowInsightRefreshHint({
                 doNotLoad: insightProps.doNotLoad,
                 activeView,
                 insightData,

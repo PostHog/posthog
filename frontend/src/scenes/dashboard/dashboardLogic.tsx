@@ -3171,8 +3171,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setPageVisibility: ({ visible }) => {
             if (!visible) {
                 cache.disposables.dispose('autoRefreshInterval')
-            } else if (values.autoRefresh.enabled) {
+                return
+            }
+            if (values.autoRefresh.enabled) {
                 actions.resetInterval()
+            } else if (!values.itemsLoading && !values.blockRefresh) {
+                // Returning to a dashboard tab re-checks tile freshness even with auto-refresh off, so
+                // stale or never-cached tiles recover instead of staying blank until edit mode. `blockRefresh`
+                // rate-limits this, and forceRefresh: false keeps it cheap since fresh tiles return cached data.
+                actions.refreshDashboardItems({
+                    action: RefreshDashboardItemsAction.Refresh,
+                    forceRefresh: false,
+                })
             }
         },
         loadDashboardFailure: () => {

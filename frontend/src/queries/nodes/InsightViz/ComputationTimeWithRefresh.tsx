@@ -39,15 +39,19 @@ export function ComputationTimeWithRefresh({ disableRefresh }: { disableRefresh?
                     <span className="px-1">•</span>
                     <Tooltip
                         title={
-                            canBypassRefreshDisabled && disabledReason
-                                ? `${disabledReason} (you can bypass this due to dev env / staff permissions)`
+                            disabledReason
+                                ? canBypassRefreshDisabled
+                                    ? `${disabledReason} (you can bypass this due to dev env / staff permissions)`
+                                    : disabledReason
                                 : undefined
                         }
                     >
                         <Link
                             onClick={() => loadData(shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')}
                             className={disabledReason ? 'opacity-50' : ''}
-                            disabledReason={canBypassRefreshDisabled ? '' : disabledReason}
+                            // The outer Tooltip explains the disabled state to everyone, so disable via
+                            // `disabled` rather than `disabledReason` to avoid a redundant second tooltip.
+                            disabled={!canBypassRefreshDisabled && !!disabledReason}
                         >
                             Refresh
                         </Link>
