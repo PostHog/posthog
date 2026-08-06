@@ -378,6 +378,10 @@ Backend side flags are automatically configured in DEBUG mode using the
 dev API key created by `manage.py setup_local_api_key`.
 If you need to override the key, set the `POSTHOG_PERSONAL_API_KEY` env var.
 
+That dev key's full value is also shown in [Settings > Personal API keys](http://localhost:8010/settings/user-api-keys), so you can copy it without rerunning the command.
+This needs `DEBUG=1` and `ALLOW_DEV_API_KEY_REVEAL=1`, both of which are already set in `.env.development`.
+No other personal API key is ever shown in full: the dev key is the only one whose value is a repo constant rather than a hash.
+
 ## Extra: Debugging with VS Code
 
 The PostHog repository includes [VS Code launch options for debugging](https://github.com/PostHog/posthog/blob/master/.vscode/launch.json). Simply go to the `Run and Debug` tab in VS Code, select the desired service you want to debug, and run it. Once it starts up, you can set breakpoints and step through code to see exactly what is happening. There are also debug launch options for frontend and backend tests if you're dealing with a tricky test failure.

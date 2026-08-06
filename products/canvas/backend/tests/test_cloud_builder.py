@@ -96,6 +96,18 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertIn('event.data?.type!=="connect"', runtime)
         self.assertIn("event.ports[0]", runtime)
         self.assertIn("port?.postMessage", runtime)
+        self.assertIn('event.data?.type==="set-comment-highlights"', runtime)
+        self.assertIn('CSS.highlights.set("posthog-canvas-comment"', runtime)
+        self.assertNotIn("ph-canvas-comment-outline", runtime)
+        self.assertIn('type:"comment-activate"', runtime)
+        self.assertIn("event.preventDefault();event.stopPropagation()", runtime)
+        self.assertIn("if(!items.length||timer)return", runtime)
+        self.assertNotIn("clearTimeout(timer);timer=setTimeout(()=>render(items),100)", runtime)
+        self.assertIn('document.addEventListener("selectionchange"', runtime)
+        self.assertNotIn('document.addEventListener("mouseup"', runtime)
+        self.assertIn('event.data?.type==="clear-text-selection"', runtime)
+        self.assertIn("getSelection()?.removeAllRanges()", runtime)
+        self.assertIn("if(selection&&!selection.isCollapsed)return", runtime)
         self.assertNotIn("parent.postMessage({channel,...message}", runtime)
 
     def test_runtime_bounds_host_side_effects(self) -> None:
@@ -123,6 +135,10 @@ globalThis.parent = {};
 globalThis.location = { hash: "#theme=dark" };
 globalThis.document = {
     readyState: "complete",
+    body: {},
+    head: { appendChild: () => {} },
+    addEventListener: () => {},
+    createElement: () => ({}),
     documentElement: {
         classList: {
             toggle: (name, force) => {
@@ -132,6 +148,9 @@ globalThis.document = {
         },
         style,
     },
+};
+globalThis.MutationObserver = class {
+    observe() {}
 };
 globalThis.addEventListener = (type, handler) => (listeners[type] ??= []).push(handler);
 

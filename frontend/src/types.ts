@@ -531,6 +531,8 @@ export interface PersonalAPIKeyType {
     value?: string
     is_legacy_hashing: boolean
     mask_value?: string | null
+    /** Full value, only present for the seeded local dev key when the backend reveal gate is on. */
+    local_dev_value?: string | null
     created_at: string
     last_used_at: string | null
     last_rolled_at: string | null
@@ -3028,6 +3030,7 @@ export enum InsightType {
     FUNNELS = 'FUNNELS',
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
+    JOURNEYS = 'JOURNEYS',
     JSON = 'JSON',
     SQL = 'SQL',
     HOG = 'HOG',
