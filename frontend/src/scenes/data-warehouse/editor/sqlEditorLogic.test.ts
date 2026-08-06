@@ -1614,6 +1614,62 @@ describe('sqlEditorLogic', () => {
             biLogic.unmount()
         })
 
+        it('attributes a BI view update to its originating tab', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SQL_EDITOR_BI_MODE], {
+                [FEATURE_FLAGS.SQL_EDITOR_BI_MODE]: true,
+            })
+            let resolveFirstViewRequest: () => void = () => {}
+            let markFirstViewRequestStarted: () => void = () => {}
+            const firstViewRequestStarted = new Promise<void>((resolve) => {
+                markFirstViewRequestStarted = resolve
+            })
+            const firstViewRequestPending = new Promise<void>((resolve) => {
+                resolveFirstViewRequest = resolve
+            })
+            let viewRequestCount = 0
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/warehouse_saved_queries/:id/': async () => {
+                        viewRequestCount += 1
+                        if (viewRequestCount === 1) {
+                            markFirstViewRequestStarted()
+                            await firstViewRequestPending
+                        }
+                        return [200, MOCK_VIEW]
+                    },
+                },
+            })
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            logic.actions.createTab(MOCK_VIEW.query.query, MOCK_VIEW, undefined, undefined, undefined, {
+                editorView: BIEditorView.BI,
+                config,
+            })
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            ;(posthog.capture as jest.Mock).mockClear()
+            logic.actions.updateView({
+                id: MOCK_VIEW.id,
+                query: { kind: NodeKind.HogQLQuery, query: 'SELECT 2' },
+                types: [],
+            })
+            await firstViewRequestStarted
+            logic.actions.updateTab({ ...logic.values.activeTab!, biEditorState: undefined })
+            resolveFirstViewRequest()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(posthog.capture).toHaveBeenCalledWith(BI_EDITOR_EVENTS.QUERY_SAVED, {
+                save_type: 'view',
+                operation: 'update',
+                added_to_dashboard: false,
+                ...configEventProperties,
+            })
+        })
+
         it('offers every sidebar table while excluding hidden PostHog tables', () => {
             const biLogic = biEditorLogic({ tabId: TAB_ID })
             biLogic.mount()

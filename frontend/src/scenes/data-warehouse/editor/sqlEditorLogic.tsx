@@ -1070,8 +1070,10 @@ export interface sqlEditorLogicActions {
     }
     updateViewSuccess: (
         view: UpdateViewPayload,
-        draftId?: string
+        draftId?: string,
+        biEditorState?: BIEditorState
     ) => {
+        biEditorState: BIEditorState | undefined
         draftId: string | undefined
         view: UpdateViewPayload
     }
@@ -1349,9 +1351,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             view,
             draftId,
         }),
-        updateViewSuccess: (view: UpdateViewPayload, draftId?: string) => ({
+        updateViewSuccess: (view: UpdateViewPayload, draftId?: string, biEditorState?: BIEditorState) => ({
             view,
             draftId,
+            biEditorState,
         }),
         setUpstreamViewMode: (mode: 'graph' | 'table') => ({ mode }),
         setHoveredNode: (nodeId: string | null) => ({ nodeId }),
@@ -2847,6 +2850,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })
             },
             updateView: async ({ view, draftId }) => {
+                const biEditorState = getActiveBIEditorState()
                 const latestView = await api.dataWarehouseSavedQueries.get(view.id)
                 // A real conflict means someone else changed the query text since this edit began.
                 // Detect it by comparing the server's current query against the baseline this edit
@@ -2873,7 +2877,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                 ...view,
                                 edited_history_id: latestView?.latest_history_id,
                             })
-                            actions.updateViewSuccess(view, draftId)
+                            actions.updateViewSuccess(view, draftId, biEditorState)
                         },
                         onReject: () => {},
                     })
@@ -2885,11 +2889,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         ...view,
                         edited_history_id: latestView?.latest_history_id ?? view.edited_history_id,
                     })
-                    actions.updateViewSuccess(view, draftId)
+                    actions.updateViewSuccess(view, draftId, biEditorState)
                 }
             },
-            updateViewSuccess: async ({ view, draftId }) => {
-                captureBIEditorQuerySaved(getActiveBIEditorState(), 'view', 'update')
+            updateViewSuccess: async ({ view, draftId, biEditorState }) => {
+                captureBIEditorQuerySaved(biEditorState, 'view', 'update')
                 if (draftId) {
                     actions.deleteDraft(draftId, view?.name)
                 }
