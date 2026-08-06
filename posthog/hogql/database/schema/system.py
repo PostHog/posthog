@@ -579,15 +579,34 @@ data_warehouse_sources: PostgresTable = PostgresTable(
         "is_live_queryable": ExpressionField(
             name="is_live_queryable",
             # Mirrors `is_direct_capable`: the source type must map to an engine, and the source must
-            # either be a pure direct connection or a synced source opted into live queries.
-            expr=parse_expr(
-                "toInt(source_type IN {live_queryable_source_types} "
-                "AND (access_method = 'direct' OR _direct_query_enabled))",
-                placeholders={
-                    "live_queryable_source_types": ast.Tuple(
-                        exprs=[ast.Constant(value=name) for name in LIVE_QUERYABLE_SOURCE_TYPES]
+            # either be a pure direct connection or a synced source opted into live queries. Built as
+            # AST rather than parse_expr with a placeholder: placeholder replacement compiles bytecode,
+            # which would drag posthog.schema onto the django.setup() import path via this module-level call.
+            expr=ast.Call(
+                name="toInt",
+                args=[
+                    ast.And(
+                        exprs=[
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.In,
+                                left=ast.Field(chain=["source_type"]),
+                                right=ast.Tuple(
+                                    exprs=[ast.Constant(value=name) for name in LIVE_QUERYABLE_SOURCE_TYPES]
+                                ),
+                            ),
+                            ast.Or(
+                                exprs=[
+                                    ast.CompareOperation(
+                                        op=ast.CompareOperationOp.Eq,
+                                        left=ast.Field(chain=["access_method"]),
+                                        right=ast.Constant(value="direct"),
+                                    ),
+                                    ast.Field(chain=["_direct_query_enabled"]),
+                                ]
+                            ),
+                        ]
                     )
-                },
+                ],
             ),
             description="1 if this source can be live-queried by passing its id as a query's connection id, "
             "0 otherwise. Use `WHERE is_live_queryable = 1` to list every connection available for live queries.",

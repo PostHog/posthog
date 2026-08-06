@@ -59,7 +59,11 @@ def _name_filter(missing_tables: list[str], field: str) -> Q:
     """
     return reduce(
         or_,
-        (Q(**{f"{field}__iexact": name}) | Q(**{f"{field}__iendswith": f".{name}"}) for name in missing_tables),
+        (
+            # nosemgrep: orm-field-injection -- field is a hardcoded caller literal ("name"), not user input; the user-supplied table names land only in the parameterized value position
+            Q(**{f"{field}__iexact": name}) | Q(**{f"{field}__iendswith": f".{name}"})
+            for name in missing_tables
+        ),
     )
 
 
