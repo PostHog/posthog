@@ -84,6 +84,24 @@ class TestMarketingAnalyticsConfig(BaseTest):
         assert config.attribution_mode == AttributionMode.FIRST_TOUCH
         assert self._multi_touch_flag_calls(mock_ff) == []
 
+    @patch(
+        "products.marketing_analytics.backend.hogql_queries.marketing_analytics_config.feature_enabled_or_false",
+        return_value=True,
+    )
+    def test_from_team_targets_flags_at_the_project_group(self, mock_ff):
+        # Without the project group, the narrowest way to opt a customer out of precompute is the
+        # whole organization, and a person-level override does nothing at all (the distinct id is a
+        # team uuid with no person behind it).
+        self._set_attribution_mode(AttributionMode.LINEAR)
+        MarketingAnalyticsConfig.from_team(self.team)
+
+        assert mock_ff.call_args_list, "expected the precompute and multi-touch flags to be evaluated"
+        for call in mock_ff.call_args_list:
+            assert call.args[1] == str(self.team.uuid)
+            assert call.kwargs["groups"]["project"] == str(self.team.id)
+            assert call.kwargs["groups"]["organization"] == str(self.team.organization_id)
+            assert call.kwargs["group_properties"]["project"] == {"id": str(self.team.id)}
+
     def test_is_multi_touch_property(self):
         config = MarketingAnalyticsConfig()
 

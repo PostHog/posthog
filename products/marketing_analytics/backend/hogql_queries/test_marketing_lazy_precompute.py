@@ -94,6 +94,22 @@ class TestMarketingLazyPrecompute(BaseTest):
 
         assert flag_eval.call_count == 1
 
+    @mock.patch(f"{_MODULE}.ensure_precomputed")
+    @mock.patch(f"{_MODULE}.feature_enabled_or_false")
+    def test_flag_is_targeted_at_the_project_group(self, flag_eval, mock_ensure):
+        # The kill switch has to be flippable for one project. With only the organization group it is
+        # all-or-nothing per org, and a person-level override is silently ignored (the distinct id is a
+        # team uuid with no person behind it).
+        del self.team._ma_serve_stale_flag  # type: ignore[attr-defined]
+        flag_eval.return_value = True
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
+
+        marketing_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
+
+        assert flag_eval.call_args.args[1] == str(self.team.uuid)
+        assert flag_eval.call_args.kwargs["groups"]["project"] == str(self.team.id)
+        assert flag_eval.call_args.kwargs["group_properties"]["project"] == {"id": str(self.team.id)}
+
     @mock.patch(_DELAY)
     def test_handle_stale_served_tags_read_and_debounces_same_shape(self, delay):
         # A dashboard renders several tiles off one query shape and they go stale together. Each stale

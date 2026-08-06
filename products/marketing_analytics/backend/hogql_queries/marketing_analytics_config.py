@@ -33,6 +33,7 @@ from .constants import (
     TOTAL_REPORTED_CONVERSION_VALUE_FIELD,
     UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
 )
+from .flag_targeting import team_flag_target
 
 logger = structlog.get_logger(__name__)
 
@@ -116,7 +117,8 @@ class MarketingAnalyticsConfig:
         flag ~6 times. The team model instance is shared across the runners of a query, so caching on it
         dedupes the evaluation to once per load without leaking across requests (a fresh team is loaded per
         request). The multi-touch flag is evaluated separately (see `_multi_touch_enabled`) so single-touch
-        modes never trigger its evaluation.
+        modes never trigger its evaluation. See `team_flag_target` for why conditions on these flags
+        have to be group conditions.
 
         Test authors: the cache lives on the team instance (`team._ma_precompute_flags`, and
         `team._ma_multi_touch_flag`). A test that reuses the same team across cases (e.g. class-level setup)
@@ -126,18 +128,17 @@ class MarketingAnalyticsConfig:
         cached = getattr(team, "_ma_precompute_flags", None)
         if cached is not None:
             return cached
-        groups = {"organization": str(team.organization.id)}
-        group_properties = {"organization": {"id": str(team.organization.id)}}
+        distinct_id, groups, group_properties = team_flag_target(team)
         flags = {
             "conversion": feature_enabled_or_false(
                 "marketing-analytics-precomputation",
-                str(team.uuid),
+                distinct_id,
                 groups=groups,
                 group_properties=group_properties,
             ),
             "costs": feature_enabled_or_false(
                 "marketing-analytics-costs-precomputation",
-                str(team.uuid),
+                distinct_id,
                 groups=groups,
                 group_properties=group_properties,
             ),
@@ -156,11 +157,12 @@ class MarketingAnalyticsConfig:
         cached = getattr(team, "_ma_multi_touch_flag", None)
         if cached is not None:
             return cached
+        distinct_id, groups, group_properties = team_flag_target(team)
         enabled = feature_enabled_or_false(
             "marketing-analytics-multi-touch-attribution",
-            str(team.uuid),
-            groups={"organization": str(team.organization.id)},
-            group_properties={"organization": {"id": str(team.organization.id)}},
+            distinct_id,
+            groups=groups,
+            group_properties=group_properties,
         )
         team._ma_multi_touch_flag = enabled  # type: ignore[attr-defined]
         return enabled

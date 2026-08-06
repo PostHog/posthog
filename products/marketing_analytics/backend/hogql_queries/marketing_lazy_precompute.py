@@ -37,6 +37,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     ensure_precomputed,
 )
 from products.analytics_platform.backend.lazy_computation.stale_policy import resolve_stale_while_revalidate_seconds
+from products.marketing_analytics.backend.hogql_queries.flag_targeting import team_flag_target
 
 logger = structlog.get_logger(__name__)
 
@@ -107,11 +108,12 @@ def serve_stale_enabled(team: Team) -> bool:
     cached = getattr(team, "_ma_serve_stale_flag", None)
     if cached is not None:
         return cached
+    distinct_id, groups, group_properties = team_flag_target(team)
     enabled = feature_enabled_or_false(
         SERVE_STALE_FLAG,
-        str(team.uuid),
-        groups={"organization": str(team.organization.id)},
-        group_properties={"organization": {"id": str(team.organization.id)}},
+        distinct_id,
+        groups=groups,
+        group_properties=group_properties,
     )
     team._ma_serve_stale_flag = enabled  # type: ignore[attr-defined]
     return enabled
