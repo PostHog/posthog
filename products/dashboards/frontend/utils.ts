@@ -1,4 +1,4 @@
-import { type DashboardTile, type QueryBasedInsightModel } from '~/types'
+import type { DashboardTile, QueryBasedInsightModel } from '~/types'
 
 import { dashboardsPartialUpdate } from './generated/api'
 import type { PatchedPatchedDashboardOpenApiApi } from './generated/api.schemas'
