@@ -1064,7 +1064,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         filters={featureFlag.filters}
                                         onChange={setFeatureFlagFilters}
                                         variants={nonEmptyVariants}
-                                        isDisabled={!featureFlag.active}
+                                        flagIsInactive={!featureFlag.active}
                                         bucketingIdentifier={featureFlag.bucketing_identifier}
                                         onBucketingIdentifierChange={(value: FeatureFlagBucketingIdentifier | null) => {
                                             // Always go through setFeatureFlag so this caller and

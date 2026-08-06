@@ -2,6 +2,8 @@ import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.m
 
 import { expectLogic } from 'kea-test-utils'
 
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -135,6 +137,40 @@ describe('teamLogic', () => {
             // The stale team's intents must not be grafted onto the team that is now active.
             expect(logic.values.currentTeam?.id).toBe(MOCK_TEAM_ID)
             expect((logic.values.currentTeam as TeamType)?.product_intents).toBeUndefined()
+        })
+    })
+
+    describe('updateCurrentTeam analytics reflect the persisted response', () => {
+        beforeEach(() => {
+            initKeaTests()
+            useMocks({
+                get: {
+                    '/api/environments/:id/user_product_list': () => [200, { results: [], count: 0 }],
+                },
+                patch: {
+                    // Server silently drops the requested change and stores the opposite value,
+                    // yet still returns 2xx — the failure mode the fix makes diagnosable.
+                    '/api/environments/:id': async ({ request }) => [
+                        200,
+                        {
+                            ...MOCK_DEFAULT_TEAM,
+                            ...((await request.json()) as Record<string, any>),
+                            autocapture_opt_out: false,
+                        },
+                    ],
+                },
+            })
+            eventUsageLogic.mount()
+            logic = teamLogic()
+            logic.mount()
+        })
+
+        it('reports the response value, not the requested payload, when a write is dropped', async () => {
+            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+
+            await expectLogic(eventUsageLogic, () => {
+                logic.actions.updateCurrentTeam({ autocapture_opt_out: true })
+            }).toDispatchActions([eventUsageLogic.actionCreators.reportTeamSettingChange('autocapture_opt_out', false)])
         })
     })
 

@@ -51,7 +51,6 @@ export function DefaultReleaseConditions(): JSX.Element {
                                 )
                             )
                         }}
-                        isDisabled={!!restrictedReason}
                         hideEarlyExit
                     />
                 </div>

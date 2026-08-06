@@ -92,7 +92,9 @@ interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleas
     flagId?: FeatureFlagLogicProps['id']
     readOnly?: boolean
     variants?: MultivariateFlagVariant[]
-    isDisabled?: boolean
+    /** Shows the "this flag is disabled" banner. Only pass when the flag itself is inactive — not for
+     * permission restrictions, which have their own guards (the save controls carry a disabledReason). */
+    flagIsInactive?: boolean
     bucketingIdentifier?: FeatureFlagBucketingIdentifier | null
     onBucketingIdentifierChange?: (value: FeatureFlagBucketingIdentifier | null) => void
     evaluationRuntime?: FeatureFlagEvaluationRuntime
@@ -856,7 +858,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
     onChange,
     readOnly,
     variants,
-    isDisabled,
+    flagIsInactive,
     bucketingIdentifier,
     onBucketingIdentifierChange,
     evaluationRuntime,
@@ -1101,7 +1103,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 </div>
             )}
 
-            {isDisabled && (
+            {flagIsInactive && (
                 <LemonBanner type="info" className="mb-3">
                     This flag is currently <b>disabled</b>. These release conditions won't take effect until you enable
                     it.

@@ -393,17 +393,23 @@ export const teamLogic = kea<teamLogicType>([
                     const updatedAttribute =
                         Object.keys(payload).length === 1 ? (Object.keys(payload)[0] as keyof TeamType) : null
 
+                    // Report what the server actually persisted, not what we asked it to store. When a
+                    // write silently no-ops (validation drops a field, a read-only column, etc.) the 2xx
+                    // still resolves, so a payload-derived toast and event would claim a change that
+                    // never happened. Reading it back off the response keeps them honest and diagnosable.
+                    const persisted = patchedTeam as TeamType
+
                     let message: string
                     if (updatedAttribute === 'feature_flag_confirmation_enabled') {
-                        message = payload.feature_flag_confirmation_enabled
+                        message = persisted.feature_flag_confirmation_enabled
                             ? 'Feature flag confirmation enabled'
                             : 'Feature flag confirmation disabled'
                     } else if (updatedAttribute === 'default_evaluation_contexts_enabled') {
-                        message = payload.default_evaluation_contexts_enabled
+                        message = persisted.default_evaluation_contexts_enabled
                             ? 'Default evaluation contexts enabled'
                             : 'Default evaluation contexts disabled'
                     } else if (updatedAttribute === 'require_evaluation_contexts') {
-                        message = payload.require_evaluation_contexts
+                        message = persisted.require_evaluation_contexts
                             ? 'Require evaluation contexts enabled'
                             : 'Require evaluation contexts disabled'
                     } else if (
@@ -418,7 +424,7 @@ export const teamLogic = kea<teamLogicType>([
                     Object.keys(payload).map((property) => {
                         eventUsageLogic
                             .findMounted()
-                            ?.actions?.reportTeamSettingChange(property, payload[property as keyof TeamType])
+                            ?.actions?.reportTeamSettingChange(property, persisted[property as keyof TeamType])
                     })
 
                     const isUpdatingOnboardingTasks = Object.keys(payload).every((key) => key === 'onboarding_tasks')

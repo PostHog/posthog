@@ -86,7 +86,7 @@ function ItemLabel({
 }
 
 export function SidebarItemsSetting(): JSX.Element {
-    const { isSidebarSectionShown, isSidebarItemShown, userLoading } = useValues(uiCustomizationLogic)
+    const { isSidebarSectionShown, isSidebarItemShown } = useValues(uiCustomizationLogic)
     const { setSidebarSectionShown, setSidebarItemShown } = useActions(uiCustomizationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -112,7 +112,6 @@ export function SidebarItemsSetting(): JSX.Element {
                 className="py-2"
                 checked={isSidebarItemShown(key)}
                 onChange={(checked) => setSidebarItemShown(key, checked)}
-                loading={userLoading}
                 label={<ItemLabel icon={item.icon} label={item.label} description={item.description} />}
                 bordered
                 fullWidth
@@ -136,7 +135,6 @@ export function SidebarItemsSetting(): JSX.Element {
                             className="py-2"
                             checked={isSidebarSectionShown(section.key)}
                             onChange={(checked) => setSidebarSectionShown(section.key, checked)}
-                            loading={userLoading}
                             label={
                                 <ItemLabel
                                     icon={section.icon}
@@ -168,7 +166,7 @@ export function SidebarItemsSetting(): JSX.Element {
 }
 
 export function SidebarMyToolsSetting(): JSX.Element {
-    const { enabledToolPaths, customProductsLoading } = useValues(customProductsLogic)
+    const { enabledToolPaths } = useValues(customProductsLogic)
     const { setToolEnabled } = useActions(customProductsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -224,7 +222,6 @@ export function SidebarMyToolsSetting(): JSX.Element {
                                     className="py-2"
                                     checked={enabledToolPaths.has(product.path)}
                                     onChange={(checked) => setToolEnabled(product.path, checked)}
-                                    loading={customProductsLoading}
                                     label={
                                         <ItemLabel
                                             icon={iconForType(product.iconType, product.iconColor)}
