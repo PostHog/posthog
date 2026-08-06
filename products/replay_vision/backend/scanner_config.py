@@ -3,17 +3,19 @@
 Its own module because both the API serializers and Max validate a config before saving or scanning
 with it, and neither should import the other."""
 
-from typing import Any
+from typing import Any, cast
 
 from pydantic import ValidationError as PydanticValidationError
+
+from posthog.models.user import User
 
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.tags import slugify_tag
 from products.replay_vision.backend.temporal.scanners import validate_scanner_config
 
-_MAX_PROMPT_LENGTH = 20_000
-_MAX_TAGS = 100
-_MAX_TAG_LENGTH = 100
+MAX_PROMPT_LENGTH = 20_000
+MAX_TAGS = 100
+MAX_TAG_LENGTH = 100
 
 
 def scanner_config_error(scanner_type: ScannerType, scanner_config: Any) -> str | None:
@@ -22,18 +24,18 @@ def scanner_config_error(scanner_type: ScannerType, scanner_config: Any) -> str 
     prompt = scanner_config.get("prompt")
     if not isinstance(prompt, str) or not prompt.strip():
         return "Prompt is required."
-    if len(prompt) > _MAX_PROMPT_LENGTH:
-        return f"Prompt can be at most {_MAX_PROMPT_LENGTH:,} characters."
+    if len(prompt) > MAX_PROMPT_LENGTH:
+        return f"Prompt can be at most {MAX_PROMPT_LENGTH:,} characters."
     if scanner_type == ScannerType.CLASSIFIER:
         tags = scanner_config.get("tags") or []
         if len(tags) == 0:
             return "Tag vocabulary must have at least one tag."
-        if len(tags) > _MAX_TAGS:
-            return f"Tag vocabulary can have at most {_MAX_TAGS} tags."
+        if len(tags) > MAX_TAGS:
+            return f"Tag vocabulary can have at most {MAX_TAGS} tags."
         if any(not isinstance(t, str) or not t.strip() for t in tags):
             return "Tags can't be blank."
-        if any(len(t) > _MAX_TAG_LENGTH for t in tags):
-            return f"Tags can be at most {_MAX_TAG_LENGTH} characters."
+        if any(len(t) > MAX_TAG_LENGTH for t in tags):
+            return f"Tags can be at most {MAX_TAG_LENGTH} characters."
         # Uniqueness on the slug, since filtering/stripping/search all compare slugified tags downstream.
         slugged: dict[str, str] = {}
         for t in tags:
@@ -61,3 +63,14 @@ def scanner_config_error(scanner_type: ScannerType, scanner_config: Any) -> str 
     if unknown:
         return f"Unknown scanner configuration keys: {', '.join(sorted(unknown))}."
     return None
+
+
+def acting_user(context: dict[str, Any]) -> User:
+    """Who a serializer write is on behalf of.
+
+    Max has no DRF request, so it passes `user` in the context directly. Everything else that reads the
+    request stays optional, since `report_user_action` treats a missing one as "no request-derived
+    properties" rather than an error.
+    """
+    request = context.get("request")
+    return cast(User, context.get("user") or (request.user if request is not None else None))
