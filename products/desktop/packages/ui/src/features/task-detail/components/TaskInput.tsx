@@ -20,6 +20,10 @@ import {
   TaskRepositoryDialog,
 } from "@posthog/ui/features/canvas/components/TaskRepositoryDialog";
 import { useUpdateTaskChannelRepositories } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import {
+  resolveTaskRepositoryDraft,
+  useTaskRepositoryDraftStore,
+} from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import type { TaskInputReportAssociation } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
@@ -214,19 +218,23 @@ export function TaskInput({
   const selectedDirectory = useActiveRepoStore((s) => s.path);
   const setSelectedDirectory = useActiveRepoStore((s) => s.setPath);
   const [repositoryDialogOpen, setRepositoryDialogOpen] = useState(false);
-  const [taskRepositories, setTaskRepositories] = useState(channelRepositories);
-  const [taskGithubIntegration, setTaskGithubIntegration] = useState<
-    number | null
-  >(channelGithubIntegration);
-  const [taskFolder, setTaskFolder] = useState("");
+  // "" only on channel-less repo-optional surfaces (none today); a real space
+  // id keys the draft shared with the space home composer.
+  const repositoryDraftKey = channelId ?? "";
+  const repositoryDraft = useTaskRepositoryDraftStore(
+    (s) => s.drafts[repositoryDraftKey],
+  );
+  const setRepositoryDraft = useTaskRepositoryDraftStore((s) => s.setDraft);
+  const {
+    repositories: taskRepositories,
+    githubIntegration: taskGithubIntegration,
+    folder: taskFolder,
+  } = resolveTaskRepositoryDraft(
+    repositoryDraft,
+    channelRepositories,
+    channelGithubIntegration,
+  );
   const updateChannelRepositories = useUpdateTaskChannelRepositories();
-  const channelRepositoriesKey = channelRepositories.join("\n");
-  useEffect(() => {
-    setTaskRepositories(
-      channelRepositoriesKey ? channelRepositoriesKey.split("\n") : [],
-    );
-    setTaskGithubIntegration(channelGithubIntegration);
-  }, [channelRepositoriesKey, channelGithubIntegration]);
   // Inline file preview opened from the command palette's file search.
   const previewFile = useFileSearchStore((s) => s.previewFile);
   const closePreviewFile = useFileSearchStore((s) => s.closePreview);
@@ -1634,19 +1642,27 @@ export function TaskInput({
           integrationId={taskGithubIntegration}
           folder={taskFolder}
           onApply={(selection) => {
-            setTaskRepositories(selection.repositories);
-            setTaskGithubIntegration(selection.integrationId);
-            setTaskFolder(selection.folder);
+            setRepositoryDraft(repositoryDraftKey, {
+              repositories: selection.repositories,
+              githubIntegration: selection.integrationId,
+              folder: selection.folder,
+            });
             if (
               selection.saveToSpace &&
               channelId &&
               workspaceMode === "cloud"
             ) {
-              updateChannelRepositories.mutate({
-                channelId,
-                githubIntegration: selection.integrationId,
-                repositories: selection.repositories,
-              });
+              updateChannelRepositories.mutate(
+                {
+                  channelId,
+                  githubIntegration: selection.integrationId,
+                  repositories: selection.repositories,
+                },
+                {
+                  onError: () =>
+                    toast.error("Couldn't save repositories to the space"),
+                },
+              );
             }
           }}
         />

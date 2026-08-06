@@ -15,6 +15,7 @@ import {
   useState,
 } from "react";
 import { useConnectivity } from "../../../hooks/useConnectivity";
+import { toast } from "../../../primitives/toast";
 import { track } from "../../../shell/analytics";
 import { useFeatureFlag } from "../../feature-flags/useFeatureFlag";
 import { useFeatureFlagsLoaded } from "../../feature-flags/useFeatureFlagsLoaded";
@@ -43,6 +44,10 @@ import { resolveWorkspaceModePreference } from "../../task-detail/hooks/workspac
 import { channelFeedQueryKey } from "../hooks/useChannelFeed";
 import { useGenerateFreeformCanvas } from "../hooks/useGenerateFreeformCanvas";
 import { useUpdateTaskChannelRepositories } from "../hooks/useTaskChannels";
+import {
+  resolveTaskRepositoryDraft,
+  useTaskRepositoryDraftStore,
+} from "../stores/taskRepositoryDraftStore";
 import type { PendingKickoff } from "./ChannelFeedView";
 import {
   TaskRepositoryChip,
@@ -188,19 +193,20 @@ export const ChannelHomeComposer = forwardRef<
     string | null
   >(null);
   const [repositoryDialogOpen, setRepositoryDialogOpen] = useState(false);
-  const [taskRepositories, setTaskRepositories] = useState(channelRepositories);
-  const [taskGithubIntegration, setTaskGithubIntegration] = useState<
-    number | null
-  >(channelGithubIntegration);
-  const [taskFolder, setTaskFolder] = useState("");
+  const repositoryDraft = useTaskRepositoryDraftStore(
+    (s) => s.drafts[channelId],
+  );
+  const setRepositoryDraft = useTaskRepositoryDraftStore((s) => s.setDraft);
+  const {
+    repositories: taskRepositories,
+    githubIntegration: taskGithubIntegration,
+    folder: taskFolder,
+  } = resolveTaskRepositoryDraft(
+    repositoryDraft,
+    channelRepositories,
+    channelGithubIntegration,
+  );
   const updateChannelRepositories = useUpdateTaskChannelRepositories();
-  const channelRepositoriesKey = channelRepositories.join("\n");
-  useEffect(() => {
-    setTaskRepositories(
-      channelRepositoriesKey ? channelRepositoriesKey.split("\n") : [],
-    );
-    setTaskGithubIntegration(channelGithubIntegration);
-  }, [channelRepositoriesKey, channelGithubIntegration]);
   const setWorkspaceMode = useCallback(
     (mode: WorkspaceMode) => {
       setWorkspaceModeState(mode);
@@ -520,15 +526,23 @@ export const ChannelHomeComposer = forwardRef<
         integrationId={taskGithubIntegration}
         folder={taskFolder}
         onApply={(selection) => {
-          setTaskRepositories(selection.repositories);
-          setTaskGithubIntegration(selection.integrationId);
-          setTaskFolder(selection.folder);
+          setRepositoryDraft(channelId, {
+            repositories: selection.repositories,
+            githubIntegration: selection.integrationId,
+            folder: selection.folder,
+          });
           if (selection.saveToSpace && workspaceMode === "cloud") {
-            updateChannelRepositories.mutate({
-              channelId,
-              githubIntegration: selection.integrationId,
-              repositories: selection.repositories,
-            });
+            updateChannelRepositories.mutate(
+              {
+                channelId,
+                githubIntegration: selection.integrationId,
+                repositories: selection.repositories,
+              },
+              {
+                onError: () =>
+                  toast.error("Couldn't save repositories to the space"),
+              },
+            );
           }
         }}
       />
