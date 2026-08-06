@@ -152,29 +152,6 @@ def _is_private_ip_literal(host: str) -> bool:
     )
 
 
-def has_authority_bypass_chars(url: str) -> bool:
-    """
-    Detect characters that produce a parser-vs-client disagreement on the URL authority.
-
-    ``urllib.parse.urlparse`` treats ``\\`` before ``@`` as part of the userinfo and
-    returns the host after the ``@``, while ``requests``/``urllib3`` and browsers
-    interpret ``\\`` as the end of the authority (a path separator) and connect to
-    the host before it. ``%5c`` decodes to ``\\`` and produces the same divergence.
-
-    URLs containing these characters cannot be safely validated by host, because
-    the validated host differs from the host the client will actually connect to.
-
-    This is the lenient rule, for URLs we are about to fetch ourselves. Only the SSRF
-    validator in this module uses it. Anything that hands a URL back to a client wants
-    ``has_ambiguous_authority`` instead.
-    """
-    if "\\" in url:
-        return True
-    if "%5c" in url.lower():
-        return True
-    return False
-
-
 def has_ambiguous_authority(url: str) -> bool:
     """
     Reject a URL whose authority any client could read differently than ``urlparse`` does.
@@ -203,6 +180,29 @@ def has_ambiguous_authority(url: str) -> bool:
     except ValueError:
         return True
     return any(terminator in authority for terminator in ENCODED_AUTHORITY_TERMINATORS)
+
+
+def has_authority_bypass_chars(url: str) -> bool:
+    """
+    Detect characters that produce a parser-vs-client disagreement on the URL authority.
+
+    ``urllib.parse.urlparse`` treats ``\\`` before ``@`` as part of the userinfo and
+    returns the host after the ``@``, while ``requests``/``urllib3`` and browsers
+    interpret ``\\`` as the end of the authority (a path separator) and connect to
+    the host before it. ``%5c`` decodes to ``\\`` and produces the same divergence.
+
+    URLs containing these characters cannot be safely validated by host, because
+    the validated host differs from the host the client will actually connect to.
+
+    This is the lenient rule, for URLs we are about to fetch ourselves. Only the SSRF
+    validator in this module uses it. Anything that hands a URL back to a client wants
+    ``has_ambiguous_authority`` instead.
+    """
+    if "\\" in url:
+        return True
+    if "%5c" in url.lower():
+        return True
+    return False
 
 
 def _dev_bypass_enabled() -> bool:
