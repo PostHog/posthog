@@ -811,6 +811,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         team_id: Optional[int] = None,
         batch_size: int = DEFAULT_COHORT_INSERT_BATCH_SIZE,
         email_property_key: str | None = None,
+        raise_on_error: bool = False,
     ) -> int:
         """
         Insert a list of users identified by their email address into the cohort, for the given team.
@@ -820,6 +821,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             batch_size: Number of records to process in each batch. Defaults to 1000.
             email_property_key: Accepted for backwards compatibility but ignored — all lookups
                                 use the ClickHouse pmat_email materialized column.
+            raise_on_error: When True, a batch insert failure is re-raised and terminal cohort
+                state is left for the caller to finalize, instead of being swallowed and
+                recorded on the cohort here. Use when the caller must not treat a partial
+                insert as success.
         """
         if team_id is None:
             team_id = self.team_id
@@ -836,7 +841,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             return self._get_uuids_for_emails_batch_ch(items[start_idx:end_idx], team_id)
 
         batch_iterator = FunctionBatchIterator(create_uuid_batch, batch_size=batch_size, max_items=len(items))
-        return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
+        return self._insert_users_list_with_batching(
+            batch_iterator, insert_in_clickhouse=True, team_id=team_id, raise_on_error=raise_on_error
+        )
 
     def _get_uuids_for_emails_batch_ch(self, emails: list[str], team_id: int) -> list[str]:
         if not emails:
