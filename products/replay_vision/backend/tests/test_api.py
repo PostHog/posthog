@@ -2135,6 +2135,23 @@ class TestRetryActions(_VisionAPITestCase):
         self.assertTrue(ReplayObservation.objects.filter(id=observation.id).exists())
         start_workflow.assert_not_called()
 
+    def test_retry_reports_status_before_consent(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # Both paths 400, so only the message distinguishes them. A succeeded observation should hear
+        # that it isn't retryable, not that the org needs to turn on AI.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+        observation = self._create_failed("sess-order")
+        ReplayObservation.objects.filter(id=observation.id).update(status=ObservationStatus.SUCCEEDED)
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        resp = self.client.post(self.retry_url(str(observation.id)))
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertIn("retried", resp.json()["detail"])
+
     def test_retry_rejects_non_terminal_statuses(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:

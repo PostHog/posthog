@@ -57,7 +57,6 @@ from products.replay_vision.backend.scanner_access import (
     scanners_for_reading_observations,
 )
 from products.replay_vision.backend.scanning import RetryOutcome, retry_observation
-from products.replay_vision.backend.temporal.constants import build_apply_scanner_workflow_id
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
 from products.tasks.backend.facade import api as tasks_facade
@@ -908,6 +907,10 @@ class ReplayObservationViewSet(
         scanner = getattr(self, "_scanner_for_url_cache", None) or observation.scanner
         # Retry writes to the scanner; the session route's get_object only object-checks the observation row.
         self.check_object_permissions(self.request, scanner)
+        # Status first, matching the order before this moved: it needs no query, and a succeeded
+        # observation should hear that it isn't retryable rather than about consent.
+        if observation.status not in (ObservationStatus.FAILED, ObservationStatus.INELIGIBLE):
+            raise ValidationError("Only failed or ineligible observations can be retried.")
         # Consent is gated before the row is touched: the replacement workflow fails closed at create
         # time when consent is off, and the sweep never revisits past sessions, so a delete would leave
         # nothing behind.
@@ -916,8 +919,9 @@ class ReplayObservationViewSet(
                 "AI data processing is turned off for this organization, so the scan can't run. "
                 "An organization admin can turn it on in organization settings."
             )
-        outcome = retry_observation(observation=observation, user=cast(User, request.user))
+        outcome, workflow_id = retry_observation(observation=observation, user=cast(User, request.user))
         if outcome is RetryOutcome.NOT_RETRYABLE:
+            # Re-read under the row lock disagreed with the check above; a racing retry won.
             raise ValidationError("Only failed or ineligible observations can be retried.")
         if outcome is RetryOutcome.CAPPED:
             raise Throttled(detail="This team is at its in-flight observation limit. Try again in a few minutes.")
@@ -934,12 +938,7 @@ class ReplayObservationViewSet(
                 {"detail": "Failed to start the retry. The failed observation was kept; retry again in a moment."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        return Response(
-            RetryResponseSerializer(
-                {"workflow_id": build_apply_scanner_workflow_id(scanner.id, observation.session_id)}
-            ).data,
-            status=status.HTTP_202_ACCEPTED,
-        )
+        return Response(RetryResponseSerializer({"workflow_id": workflow_id}).data, status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(
         methods=["POST"],

@@ -28,9 +28,11 @@ from products.replay_vision.backend.inline_scan import create_inline_scanner, fi
 from products.replay_vision.backend.models.replay_observation import TERMINAL_STATUSES, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.quota import compute_quota_snapshot
+from products.replay_vision.backend.scanner_config import scanner_config_error
 from products.replay_vision.backend.temporal.constants import (
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
+    build_apply_scanner_workflow_id,
 )
 
 # One page of recordings. Above this the in-flight caps bind long before the batch does.
@@ -207,7 +209,17 @@ def run_inline_scan(
     scanner_config: dict[str, Any],
     model: str,
 ) -> InlineScanResult:
-    """Scan named sessions against a config nobody saved (see `inline_scan.py` for why a scanner exists)."""
+    """Scan named sessions against a config nobody saved (see `inline_scan.py` for why a scanner exists).
+
+    Raises ValueError on a config or batch the API layer would have rejected. Enforced here rather than
+    only in the serializer because the config is persisted on the scanner and copied into every
+    observation snapshot, so a caller that skips DRF must not be able to write one.
+    """
+    if len(session_ids) > MAX_SESSIONS_PER_SCAN:
+        raise ValueError(f"At most {MAX_SESSIONS_PER_SCAN} sessions can be scanned at once.")
+    config_error = scanner_config_error(scanner_type, scanner_config)
+    if config_error is not None:
+        raise ValueError(config_error)
     key = inline_scan_key(scanner_type=scanner_type, scanner_config=scanner_config, model=model)
     scanner = find_inline_scanner(team=team, key=key)
     headroom = scan_headroom(team=team, model=model, scanner=scanner)
@@ -248,7 +260,7 @@ class RetryOutcome(Enum):
     FAILED = "failed"
 
 
-def retry_observation(*, observation: ReplayObservation, user: User) -> RetryOutcome:
+def retry_observation(*, observation: ReplayObservation, user: User) -> tuple[RetryOutcome, str]:
     """Delete a failed or ineligible observation and scan the same recording again.
 
     The row has to go because UNIQUE(scanner, session_id) would otherwise lock the session out of that
@@ -275,8 +287,9 @@ def retry_observation(*, observation: ReplayObservation, user: User) -> RetryOut
     original_created_at = observation.created_at
     # Ineligible is retryable because some gates are timing artifacts: the recording or its snapshots can
     # finish ingesting after the scan ran (see IneligibleSessionKind.NO_SNAPSHOTS).
+    workflow_id = build_apply_scanner_workflow_id(scanner.id, session_id)
     if observation.status not in (ObservationStatus.FAILED, ObservationStatus.INELIGIBLE):
-        return RetryOutcome.NOT_RETRYABLE
+        return RetryOutcome.NOT_RETRYABLE, workflow_id
     # Advisory, and deliberately outside the lock below: the atomic claim is the authoritative gate, and
     # these two read enough to be worth keeping off a held row lock.
     # Raises QuotaLimitExceeded / Throttled, which callers already know how to render. Kept as
@@ -288,7 +301,7 @@ def retry_observation(*, observation: ReplayObservation, user: User) -> RetryOut
     with transaction.atomic():
         locked = ReplayObservation.objects.select_for_update().get(pk=original_pk, team_id=scanner.team_id)
         if locked.status not in (ObservationStatus.FAILED, ObservationStatus.INELIGIBLE):
-            return RetryOutcome.NOT_RETRYABLE
+            return RetryOutcome.NOT_RETRYABLE, workflow_id
         # Captured before the delete cascades it away: a run that never starts has to put the team's
         # rating back with the row, not just the row.
         original_label = ReplayObservationLabel.objects.filter(
@@ -298,9 +311,9 @@ def retry_observation(*, observation: ReplayObservation, user: User) -> RetryOut
         label_updated_at = original_label.updated_at if original_label else None
         # Claimed before the delete so a capped retry never touches the row, and so never cascades away
         # the observation's shared label for a request that changes nothing.
-        workflow_id, claimed = claim_apply_scanner_slot(scanner, session_id)
+        _, claimed = claim_apply_scanner_slot(scanner, session_id)
         if not claimed:
-            return RetryOutcome.CAPPED
+            return RetryOutcome.CAPPED, workflow_id
         try:
             # Free the UNIQUE(scanner, session_id) slot; the ledger is immutable, so the failed attempt
             # stays counted.
@@ -340,7 +353,7 @@ def retry_observation(*, observation: ReplayObservation, user: User) -> RetryOut
             outcome = WorkflowStartOutcome.ALREADY_RUNNING
 
     if outcome is WorkflowStartOutcome.ALREADY_RUNNING:
-        return RetryOutcome.ALREADY_RUNNING
+        return RetryOutcome.ALREADY_RUNNING, workflow_id
     if outcome is WorkflowStartOutcome.STARTED:
-        return RetryOutcome.STARTED
-    return RetryOutcome.FAILED
+        return RetryOutcome.STARTED, workflow_id
+    return RetryOutcome.FAILED, workflow_id
