@@ -684,6 +684,51 @@ export interface TicketPersonApi {
 }
 
 /**
+ * One of the requester's other open tickets, previewed on a list row.
+ */
+export interface RelatedOpenTicketApi {
+    /** The other ticket's UUID. */
+    readonly id: string
+    /** The other ticket's number, as shown in the UI. */
+    readonly ticket_number: number
+    /** The other ticket's status: new, open, pending, or on_hold. Never resolved.
+     *
+     * * `new` - New
+     * * `open` - Open
+     * * `pending` - Pending
+     * * `on_hold` - On hold
+     * * `resolved` - Resolved */
+    readonly status: TicketStatusEnumApi
+    /**
+     * Subject line, set on email-channel tickets only. Null on every other channel.
+     * @nullable
+     */
+    readonly email_subject: string | null
+    /**
+     * Truncated preview of the other ticket's most recent message, for channels that have no subject.
+     * @nullable
+     */
+    readonly last_message_text: string | null
+}
+
+/**
+ * How `count` breaks down by status, keyed by status. Statuses with no tickets are omitted.
+ */
+export type TicketRelatedOpenApiCountsByStatus = { [key: string]: number }
+
+/**
+ * The requester's other open tickets, for spotting duplicate and related threads while triaging.
+ */
+export interface TicketRelatedOpenApi {
+    /** Number of other open (not resolved) tickets from the same requester, excluding this one. Requesters are matched on their person profile's merged distinct_ids, so tickets whose distinct_id resolves to no person only ever match themselves. */
+    readonly count: number
+    /** How `count` breaks down by status, keyed by status. Statuses with no tickets are omitted. */
+    readonly counts_by_status: TicketRelatedOpenApiCountsByStatus
+    /** A few of those tickets, most recent activity first. Holds fewer entries than `count` when the requester has more than the preview limit. */
+    readonly tickets: readonly RelatedOpenTicketApi[]
+}
+
+/**
  * Mixin for serializers to add user access control fields
  */
 export interface TicketApi {
@@ -769,6 +814,7 @@ export interface TicketApi {
      */
     readonly organization_id_source: string | null
     readonly person: TicketPersonApi | null
+    readonly related_open: TicketRelatedOpenApi | null
     tags?: unknown[]
     /**
      * The effective access level the user has for this object
@@ -872,6 +918,7 @@ export interface PatchedTicketApi {
      */
     readonly organization_id_source?: string | null
     readonly person?: TicketPersonApi | null
+    readonly related_open?: TicketRelatedOpenApi | null
     tags?: unknown[]
     /**
      * The effective access level the user has for this object
@@ -1393,6 +1440,10 @@ export type ConversationsTicketsListParams = {
      * Comma-separated list of email addresses to filter by, matched case-insensitively against `email_from` (max 100). When combined with `distinct_ids`, tickets matching either the distinct_ids or the emails are returned (OR).
      */
     emails?: string
+    /**
+     * Set to `true` to populate `related_open` on every returned ticket: how many other open tickets the same requester has, plus a few previews. Costs one extra query per page, so it's off by default.
+     */
+    include_related_open?: boolean
     /**
      * Number of results to return per page.
      */

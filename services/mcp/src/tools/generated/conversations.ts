@@ -47,6 +47,7 @@ const conversationsTicketsList = (): ToolBase<
                 date_to: params.date_to,
                 distinct_ids: params.distinct_ids,
                 emails: params.emails,
+                include_related_open: params.include_related_open,
                 limit: params.limit,
                 offset: params.offset,
                 order_by: params.order_by,

@@ -2,7 +2,7 @@ import type { AccessControlLevel } from '~/types'
 
 import { MAX_ASSIGNEE_FILTER_ENTRIES } from './components/Assignee'
 import type { AssigneeFilterEntry, TicketAssignee } from './components/Assignee'
-import type { TicketViewFiltersApi } from './generated/api.schemas'
+import type { RelatedOpenTicketApi, TicketRelatedOpenApi, TicketViewFiltersApi } from './generated/api.schemas'
 
 export type { AssigneeFilterEntry }
 
@@ -122,6 +122,10 @@ export interface UserBasic {
     is_email_verified: boolean
 }
 
+/** The requester's other open tickets, populated on list rows only. */
+export type TicketRelatedOpen = TicketRelatedOpenApi
+export type RelatedOpenTicket = RelatedOpenTicketApi
+
 export interface TicketPerson {
     id: string
     name: string
@@ -172,6 +176,8 @@ export interface Ticket {
     organization_id?: string | null
     organization_id_source?: string | null
     person?: TicketPerson | null
+    /** Only the list endpoint populates this, and only when asked to. */
+    related_open?: TicketRelatedOpen | null
     tags?: string[]
     ai_triage?: AITriage
     /** The effective access level the current user has for this ticket. */

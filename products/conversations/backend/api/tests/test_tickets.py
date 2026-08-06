@@ -14,7 +14,8 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
-from django.db import transaction
+from django.db import connection, transaction
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -2942,3 +2943,176 @@ class TestTicketNoteAPI(APIBaseTest):
     def test_blank_message_rejected(self, mock_on_commit):
         response = self.client.patch(self.url, {"message": "   "}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestTicketRelatedOpenTickets(APIBaseTest):
+    """`related_open` on list rows: the requester's other open tickets, and their previews."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.url = f"/api/projects/{self.team.id}/conversations/tickets/"
+
+    def _create_ticket(self, distinct_id: str, status_value: str = Status.OPEN, **kwargs) -> Ticket:
+        return Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=kwargs.pop("channel_source", Channel.WIDGET),
+            widget_session_id=f"sess-{distinct_id}-{kwargs.pop('suffix', '')}",
+            distinct_id=distinct_id,
+            status=status_value,
+            **kwargs,
+        )
+
+    def _related_by_number(self) -> dict[int, dict]:
+        response = self.client.get(self.url, data={"include_related_open": "true"})
+        assert response.status_code == status.HTTP_200_OK
+        return {row["ticket_number"]: row["related_open"] for row in response.json()["results"]}
+
+    def test_groups_a_merged_person_across_distinct_ids(self, mock_on_commit):
+        # The two tickets share a person but not a distinct_id, and both sit on the same page.
+        # Grouping on distinct_id, or excluding every page ticket in SQL, would report nothing here.
+        create_person(team=self.team, distinct_ids=["anon-abc", "someone@example.com"])
+        first = self._create_ticket("anon-abc", last_message_text="Cannot log in")
+        second = self._create_ticket("someone@example.com", channel_source=Channel.EMAIL, email_subject="Login help")
+
+        related = self._related_by_number()
+
+        assert related[first.ticket_number]["count"] == 1
+        assert [t["ticket_number"] for t in related[first.ticket_number]["tickets"]] == [second.ticket_number]
+        assert related[second.ticket_number]["count"] == 1
+        assert [t["ticket_number"] for t in related[second.ticket_number]["tickets"]] == [first.ticket_number]
+
+    def test_groups_personless_tickets_by_their_own_distinct_id(self, mock_on_commit):
+        # Email tickets from an unrecognized sender have no person, but their distinct_id is the
+        # sender's address, so two of them still belong to the same requester.
+        first = self._create_ticket("stranger@example.com", channel_source=Channel.EMAIL, suffix="a")
+        second = self._create_ticket("stranger@example.com", channel_source=Channel.EMAIL, suffix="b")
+
+        related = self._related_by_number()
+
+        assert related[first.ticket_number]["count"] == 1
+        assert related[second.ticket_number]["count"] == 1
+
+    def test_excludes_resolved_tickets_the_row_itself_and_other_requesters(self, mock_on_commit):
+        own = self._create_ticket("solo-user", suffix="own")
+        self._create_ticket("solo-user", status_value=Status.RESOLVED, suffix="resolved")
+        someone_else = self._create_ticket("other-user", suffix="other")
+
+        related = self._related_by_number()
+
+        assert related[own.ticket_number]["count"] == 0
+        assert related[own.ticket_number]["tickets"] == []
+        assert related[someone_else.ticket_number]["count"] == 0
+
+    def test_counts_every_status_but_previews_only_a_few(self, mock_on_commit):
+        create_person(team=self.team, distinct_ids=["busy-user"])
+        own = self._create_ticket("busy-user", suffix="own")
+        for index, other_status in enumerate([Status.NEW, Status.NEW, Status.PENDING, Status.PENDING, Status.ON_HOLD]):
+            self._create_ticket("busy-user", status_value=other_status, suffix=f"o{index}")
+
+        related = self._related_by_number()[own.ticket_number]
+
+        assert related["count"] == 5
+        assert related["counts_by_status"] == {"new": 2, "pending": 2, "on_hold": 1}
+        # A count derived from the previews would cap at the preview limit and read as 3.
+        assert len(related["tickets"]) == 3
+
+    def test_keeps_each_requesters_previews_to_their_own_rows(self, mock_on_commit):
+        # Two requesters with tickets on the same page must not borrow each other's previews.
+        first_own = self._create_ticket("requester-one", suffix="own")
+        first_other = self._create_ticket("requester-one", suffix="other")
+        second_own = self._create_ticket("requester-two", suffix="own")
+        second_other = self._create_ticket("requester-two", suffix="other")
+
+        related = self._related_by_number()
+
+        assert [t["ticket_number"] for t in related[first_own.ticket_number]["tickets"]] == [first_other.ticket_number]
+        assert [t["ticket_number"] for t in related[second_own.ticket_number]["tickets"]] == [
+            second_other.ticket_number
+        ]
+
+    def test_previews_most_recent_activity_first(self, mock_on_commit):
+        own = self._create_ticket("recency-user", suffix="own")
+        oldest = self._create_ticket("recency-user", suffix="a")
+        middle = self._create_ticket("recency-user", suffix="b")
+        newest = self._create_ticket("recency-user", suffix="c")
+        for offset, ticket in enumerate([oldest, middle, newest]):
+            Ticket.objects.filter(id=ticket.id).update(last_message_at=timezone.now() + timedelta(minutes=offset))
+
+        related = self._related_by_number()[own.ticket_number]
+
+        assert [t["ticket_number"] for t in related["tickets"]] == [
+            newest.ticket_number,
+            middle.ticket_number,
+            oldest.ticket_number,
+        ]
+
+    def test_omitted_unless_requested(self, mock_on_commit):
+        self._create_ticket("opt-in-user", suffix="a")
+        self._create_ticket("opt-in-user", suffix="b")
+
+        response = self.client.get(self.url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["related_open"] for row in response.json()["results"]] == [None, None]
+
+    def test_costs_one_extra_query(self, mock_on_commit):
+        self._create_ticket("budget-user", suffix="a")
+        self._create_ticket("budget-user", suffix="b")
+
+        # Asserting the delta rather than absolute counts: what matters is that enriching a whole
+        # page costs one bounded query, not one per row. The warm-up absorbs the first request's
+        # one-off work, which would otherwise be counted against the baseline.
+        self.client.get(self.url)
+
+        with CaptureQueriesContext(connection) as without:
+            assert self.client.get(self.url).status_code == status.HTTP_200_OK
+        with CaptureQueriesContext(connection) as with_related:
+            assert self.client.get(self.url, data={"include_related_open": "true"}).status_code == status.HTTP_200_OK
+
+        assert len(with_related) == len(without) + 1
+
+
+class TestTicketRelatedOpenAccessControl(APIBaseTest):
+    """A denied ticket must drop out of `related_open` counts, not just its previews."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+        self.team.conversations_enabled = True
+        self.team.save()
+        self.member = User.objects.create_and_join(self.organization, "related-member@posthog.com", "password")
+        self.client.force_login(self.member)
+
+    def test_denied_ticket_is_absent_from_count_and_previews(self) -> None:
+        visible = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="rac-visible",
+            distinct_id="rac-user",
+            status=Status.OPEN,
+        )
+        denied = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="rac-denied",
+            distinct_id="rac-user",
+            status=Status.OPEN,
+        )
+        AccessControl.objects.create(
+            resource="ticket",
+            resource_id=str(denied.id),
+            organization_member=self.member.organization_memberships.get(organization=self.organization),
+            team=self.team,
+            access_level="none",
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/", data={"include_related_open": "true"}
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        rows = response.json()["results"]
+        assert [row["id"] for row in rows] == [str(visible.id)]
+        assert rows[0]["related_open"]["count"] == 0

@@ -718,6 +718,10 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
 
             if (props.distinctIds && props.distinctIds.length > 0) {
                 params.distinct_ids = props.distinctIds.join(',')
+            } else {
+                // Embedded tables are already scoped to one person, so the pill would be noise
+                // and the extra query wasted.
+                params.include_related_open = true
             }
 
             if (values.statusFilter.length > 0) {

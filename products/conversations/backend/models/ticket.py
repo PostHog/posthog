@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.db import models, transaction
 
@@ -36,6 +36,8 @@ class Ticket(UUIDTModel):
 
     # Dynamic attribute set by TicketViewSet._attach_persons_to_tickets for serialization
     person: "Person | None"
+    # Dynamic attribute set by TicketViewSet._attach_related_open_tickets for serialization
+    related_open: dict[str, Any] | None
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     ticket_number = models.PositiveIntegerField()

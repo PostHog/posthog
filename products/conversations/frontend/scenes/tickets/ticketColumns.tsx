@@ -14,12 +14,50 @@ import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { SlaDisplay } from '../../components/SlaDisplay'
 import { TicketPreviewPopover } from '../../components/TicketPreview/TicketPreviewPopover'
 import {
+    type RelatedOpenTicket,
     type Ticket,
+    type TicketRelatedOpen,
+    type TicketStatus,
     aiTriageProcessingLabel,
     aiTriageResultLabel,
     aiTriageResultTagType,
     aiTriageTicketTypeLabel,
 } from '../../types'
+
+/** Order the overflow lines read in, from freshest to most parked. */
+const RELATED_OPEN_STATUS_ORDER: TicketStatus[] = ['new', 'open', 'pending', 'on_hold']
+
+const relatedOpenStatusLabel = (status: TicketStatus): string => (status === 'on_hold' ? 'on hold' : status)
+
+/** Only email tickets carry a subject, so everything else falls back to its latest message. */
+const relatedOpenSubject = (ticket: RelatedOpenTicket): string => {
+    const subject = ticket.email_subject?.trim()
+    if (subject) {
+        return subject
+    }
+    const preview = ticket.last_message_text ? stripMarkdown(ticket.last_message_text).replace(/\s+/g, ' ').trim() : ''
+    return preview || 'No subject'
+}
+
+export const relatedOpenTooltip = (related: TicketRelatedOpen): string => {
+    const previewedPerStatus = new Map<string, number>()
+    for (const ticket of related.tickets) {
+        previewedPerStatus.set(ticket.status, (previewedPerStatus.get(ticket.status) ?? 0) + 1)
+    }
+
+    const lines = related.tickets.map(
+        (ticket) => `#${ticket.ticket_number} (${relatedOpenStatusLabel(ticket.status)}) ${relatedOpenSubject(ticket)}`
+    )
+    for (const status of RELATED_OPEN_STATUS_ORDER) {
+        const remaining = (related.counts_by_status?.[status] ?? 0) - (previewedPerStatus.get(status) ?? 0)
+        if (remaining > 0) {
+            lines.push(
+                `+ ${remaining} more ${relatedOpenStatusLabel(status)} ${remaining === 1 ? 'ticket' : 'tickets'}`
+            )
+        }
+    }
+    return lines.join('\n')
+}
 
 export type TicketColumnKey =
     | 'ticket_number'
@@ -87,6 +125,15 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
                         withIcon
                     />
                     {ticket.identity_verified === false && <IdentityBadge verified={false} iconOnly />}
+                    {!!ticket.related_open && ticket.related_open.count > 0 && (
+                        <Tooltip
+                            title={<div className="whitespace-pre-line">{relatedOpenTooltip(ticket.related_open)}</div>}
+                        >
+                            <LemonTag type="highlight" size="small" className="cursor-default">
+                                {`+${ticket.related_open.count}`}
+                            </LemonTag>
+                        </Tooltip>
+                    )}
                 </div>
             ),
         },

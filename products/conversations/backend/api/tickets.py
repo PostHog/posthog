@@ -3,17 +3,25 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from collections import defaultdict
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, cast
 
 from django.db import transaction
-from django.db.models import Q, QuerySet, Sum
+from django.db.models import Count, F, Q, QuerySet, Sum, Window
+from django.db.models.functions import Coalesce, RowNumber
 from django.http import Http404
 
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from rest_framework import (
     pagination,
     serializers,
@@ -71,6 +79,13 @@ if TYPE_CHECKING:
     from posthog.models import User
 
 logger = structlog.get_logger(__name__)
+
+# How many of a requester's other open tickets the list response previews inline.
+RELATED_OPEN_PREVIEW_LIMIT = 3
+RELATED_OPEN_PREVIEW_TEXT_LENGTH = 160
+# A merge-heavy person can carry thousands of distinct_ids, and every one widens the IN list.
+RELATED_OPEN_MAX_DISTINCT_IDS_PER_PERSON = 25
+RELATED_OPEN_MAX_TOTAL_DISTINCT_IDS = 500
 
 
 class TicketErrorSerializer(serializers.Serializer):
@@ -273,10 +288,59 @@ class TicketPersonSerializer(serializers.Serializer):
         return get_person_name(team, person)
 
 
+class RelatedOpenTicketSerializer(serializers.Serializer):
+    """One of the requester's other open tickets, previewed on a list row."""
+
+    id = serializers.UUIDField(read_only=True, help_text="The other ticket's UUID.")
+    ticket_number = serializers.IntegerField(read_only=True, help_text="The other ticket's number, as shown in the UI.")
+    status = serializers.ChoiceField(
+        choices=Status.choices,
+        read_only=True,
+        help_text="The other ticket's status: new, open, pending, or on_hold. Never resolved.",
+    )
+    email_subject = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Subject line, set on email-channel tickets only. Null on every other channel.",
+    )
+    last_message_text = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Truncated preview of the other ticket's most recent message, for channels that have no subject.",
+    )
+
+
+class TicketRelatedOpenSerializer(serializers.Serializer):
+    """The requester's other open tickets, for spotting duplicate and related threads while triaging."""
+
+    count = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Number of other open (not resolved) tickets from the same requester, excluding this one. "
+            "Requesters are matched on their person profile's merged distinct_ids, so tickets whose "
+            "distinct_id resolves to no person only ever match themselves."
+        ),
+    )
+    counts_by_status = serializers.DictField(
+        child=serializers.IntegerField(),
+        read_only=True,
+        help_text="How `count` breaks down by status, keyed by status. Statuses with no tickets are omitted.",
+    )
+    tickets = RelatedOpenTicketSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "A few of those tickets, most recent activity first. Holds fewer entries than `count` "
+            "when the requester has more than the preview limit."
+        ),
+    )
+
+
 class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMixin, serializers.ModelSerializer):
     assignee = TicketAssignmentSerializer(source="assignment", read_only=True)
     person = TicketPersonSerializer(read_only=True, allow_null=True)
     email_to = serializers.SerializerMethodField()
+    related_open = serializers.SerializerMethodField()
 
     class Meta:
         model = Ticket
@@ -318,6 +382,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "organization_id",
             "organization_id_source",
             "person",
+            "related_open",
             "tags",
             "user_access_level",
         ]
@@ -349,6 +414,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "organization_id",
             "organization_id_source",
             "person",
+            "related_open",
             "ai_triage",
             "identity_verified",
         ]
@@ -383,6 +449,11 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
         if config is not None:
             return config.from_email
         return None
+
+    @extend_schema_field(TicketRelatedOpenSerializer(allow_null=True))
+    def get_related_open(self, obj: Ticket) -> dict[str, Any] | None:
+        # Only the list action opts into computing this; everywhere else it stays null.
+        return getattr(obj, "related_open", None)
 
 
 TICKET_ID_PARAM = OpenApiParameter(
@@ -582,6 +653,115 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                     if found is not None:
                         ticket.person = found
 
+    def _attach_related_open_tickets(self, tickets: Sequence[Ticket]) -> None:
+        """Attach `related_open`: the requester's other open tickets, with a few previews.
+
+        Runs after _attach_persons_to_tickets, because a merged person's tickets each carry a
+        different distinct_id — grouping on distinct_id alone would report nothing for exactly the
+        duplicate-requester case this exists to surface. Costs one extra query for the whole page.
+        """
+        for ticket in tickets:
+            ticket.related_open = {"count": 0, "counts_by_status": {}, "tickets": []}
+
+        key_by_ticket: dict[uuid.UUID, str] = {}
+        dids_by_key: dict[str, list[str]] = {}
+        for ticket in tickets:
+            if not ticket.distinct_id:
+                continue
+            person = getattr(ticket, "person", None)
+            key = f"person:{person.uuid}" if person is not None else f"did:{ticket.distinct_id}"
+            key_by_ticket[ticket.id] = key
+            if key in dids_by_key:
+                continue
+            # Own distinct_id first: a merge-heavy person can carry thousands of them and the IN
+            # list has to stay bounded, but the row's own id must never be the one dropped.
+            candidates = [ticket.distinct_id]
+            if person is not None:
+                candidates += [did for did in person.distinct_ids if did != ticket.distinct_id]
+            dids_by_key[key] = candidates[:RELATED_OPEN_MAX_DISTINCT_IDS_PER_PERSON]
+
+        keys_by_did: dict[str, set[str]] = defaultdict(set)
+        for key, dids in dids_by_key.items():
+            for did in dids:
+                if did not in keys_by_did and len(keys_by_did) >= RELATED_OPEN_MAX_TOTAL_DISTINCT_IDS:
+                    continue
+                keys_by_did[did].add(key)
+        if not keys_by_did:
+            return
+
+        # Filter by access level before annotating, so tickets the user is denied drop out of the
+        # counts and not just the previews.
+        queryset = self._filter_queryset_by_access_level(
+            Ticket.objects.filter(team_id=self.team_id, distinct_id__in=list(keys_by_did)).exclude(
+                status=Status.RESOLVED
+            )
+        ).annotate(related_recency=Coalesce("last_message_at", "created_at"))
+        rows = queryset.annotate(
+            status_count=Window(Count("id"), partition_by=[F("distinct_id"), F("status")]),
+            # Ranking within each status rather than globally is what keeps this to one query: the
+            # most recent tickets overall are always a subset of the most recent per status, so the
+            # previews stay right while every status still reports an exact count. The spare rank
+            # covers the row's own ticket landing in its own partition.
+            related_rank=Window(
+                RowNumber(),
+                partition_by=[F("distinct_id"), F("status")],
+                order_by=[F("related_recency").desc(), F("ticket_number").desc()],
+            ),
+        ).filter(related_rank__lte=RELATED_OPEN_PREVIEW_LIMIT + 1)
+
+        counts_by_did: dict[str, dict[str, int]] = defaultdict(dict)
+        previews_by_key: dict[str, list[tuple[Any, ...]]] = defaultdict(list)
+        for row in rows.values_list(
+            "id",
+            "distinct_id",
+            "status",
+            "ticket_number",
+            "email_subject",
+            "last_message_text",
+            "related_recency",
+            "status_count",
+        ):
+            row_id, did, row_status, number, subject, last_text, recency, status_count = row
+            counts_by_did[did][row_status] = status_count
+            for key in keys_by_did[did]:
+                previews_by_key[key].append((recency, number, row_id, row_status, subject, last_text))
+
+        for ticket in tickets:
+            ticket_key = key_by_ticket.get(ticket.id)
+            if ticket_key is None:
+                continue
+            totals: dict[str, int] = defaultdict(int)
+            for did in dids_by_key[ticket_key]:
+                for row_status, status_count in counts_by_did.get(did, {}).items():
+                    totals[row_status] += status_count
+            # The row's own ticket is in the matched set unless it's resolved (already excluded) or
+            # its distinct_id fell outside the page cap.
+            if ticket.status != Status.RESOLVED and ticket.distinct_id in keys_by_did:
+                totals[ticket.status] -= 1
+            counts_by_status = {row_status: value for row_status, value in totals.items() if value > 0}
+            count = sum(counts_by_status.values())
+            if not count:
+                continue
+            previews = sorted(
+                (row for row in previews_by_key.get(ticket_key, []) if row[2] != ticket.id),
+                key=lambda row: (row[0], row[1]),
+                reverse=True,
+            )[:RELATED_OPEN_PREVIEW_LIMIT]
+            ticket.related_open = {
+                "count": count,
+                "counts_by_status": counts_by_status,
+                "tickets": [
+                    {
+                        "id": row_id,
+                        "ticket_number": number,
+                        "status": row_status,
+                        "email_subject": subject,
+                        "last_message_text": last_text[:RELATED_OPEN_PREVIEW_TEXT_LENGTH] if last_text else None,
+                    }
+                    for _, number, row_id, row_status, subject, last_text in previews
+                ],
+            }
+
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -722,6 +902,16 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 description="Filter by snooze state: `true` returns only snoozed tickets, `false` only non-snoozed.",
             ),
             OpenApiParameter(
+                "include_related_open",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Set to `true` to populate `related_open` on every returned ticket: how many other "
+                    "open tickets the same requester has, plus a few previews. Costs one extra query per "
+                    "page, so it's off by default."
+                ),
+            ),
+            OpenApiParameter(
                 "order_by",
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
@@ -748,13 +938,19 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             queryset = self.filter_queryset(self.get_queryset())
             page = self.paginate_queryset(queryset)
 
+            include_related_open = self.request.query_params.get("include_related_open") == "true"
+
             if page is not None:
                 self._attach_persons_to_tickets(page)
+                if include_related_open:
+                    self._attach_related_open_tickets(page)
                 serializer = self.get_serializer(page, many=True)
                 return self.get_paginated_response(serializer.data)
 
             tickets = list(queryset)
             self._attach_persons_to_tickets(tickets)
+            if include_related_open:
+                self._attach_related_open_tickets(tickets)
             serializer = self.get_serializer(tickets, many=True)
             return Response(serializer.data)
         finally:

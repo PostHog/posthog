@@ -69,6 +69,12 @@ export const ConversationsTicketsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             'Comma-separated list of email addresses to filter by, matched case-insensitively against `email_from` (max 100). When combined with `distinct_ids`, tickets matching either the distinct_ids or the emails are returned (OR).'
         ),
+    include_related_open: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Set to `true` to populate `related_open` on every returned ticket: how many other open tickets the same requester has, plus a few previews. Costs one extra query per page, so it's off by default."
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
