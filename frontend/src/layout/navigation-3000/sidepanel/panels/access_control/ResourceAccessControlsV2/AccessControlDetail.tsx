@@ -74,14 +74,17 @@ export function AccessControlDetailContent({
 
 function MemberHeader({ member }: { member: AccessControlMemberEntry }): JSX.Element {
     return (
-        <div className="flex items-center gap-3">
+        // Top aligned, and the roles row reserves the height its editing input takes, so switching
+        // between the tags and the input doesn't move the avatar
+        <div className="flex items-start gap-3">
             <ProfilePicture user={member.user} size="xl" />
             <div className="min-w-0">
                 <div className="font-medium text-sm truncate">
                     {member.user.first_name ? fullName(member.user) : member.user.email}
                 </div>
                 {member.user.first_name && <div className="text-secondary text-sm truncate">{member.user.email}</div>}
-                <div className="mt-1">
+                {/* Medium LemonInput height, so the row keeps its size once the tags become an input */}
+                <div className="mt-1 min-h-[calc(2.125rem+3px)] flex items-center">
                     <MemberRoles userUuid={member.user.uuid} />
                 </div>
             </div>
