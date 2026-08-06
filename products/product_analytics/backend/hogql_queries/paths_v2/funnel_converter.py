@@ -19,6 +19,9 @@ from posthog.hogql import ast
 from posthog.models.team.team import Team
 
 from products.product_analytics.backend.hogql_queries.paths_v2.path_item import (
+    DEFAULT_GAP_INTERVAL,
+    DEFAULT_GAP_INTERVAL_UNIT,
+    PATHS_V2_OTHER,
     path_item_expr,
     resolve_step_sources,
     source_events_filter_expr,
@@ -74,15 +77,27 @@ def _item_strict_exclusion(
     )
 
 
+def _ensure_convertible(item: PathsV2Item | None, endpoint: str) -> PathsV2Item:
+    if item is None or item.event == PATHS_V2_OTHER:
+        raise ValueError(
+            f"The edge {endpoint} is not a named path item; the other row and drop-offs have no funnel equivalent."
+        )
+    return item
+
+
 def edge_to_funnels_query(
     query: PathsV2Query,
     team: Team,
-    source_item: PathsV2Item,
-    target_item: PathsV2Item,
+    source_item: PathsV2Item | None,
+    target_item: PathsV2Item | None,
 ) -> FunnelsQuery:
-    """Convert a displayed edge into the funnel that reproduces its unique-actor count: an ordered
-    two-step funnel over the same date range and properties, with the gap G as conversion window
-    and the item-strict universe encoded as an all-events exclusion between the steps."""
+    """Convert an edge between two named path items into the funnel that reproduces its
+    position-free unique-actor count: an ordered two-step funnel over the same date range and
+    properties, with the gap G as conversion window and the item-strict universe encoded as an
+    all-events exclusion between the steps."""
+    source_item = _ensure_convertible(source_item, "source")
+    target_item = _ensure_convertible(target_item, "target")
+
     paths_filter = query.pathsV2Filter or PathsV2Filter()
     sources = resolve_step_sources(query)
 
@@ -96,15 +111,9 @@ def edge_to_funnels_query(
     ):
         segment_item_exprs.append(_item_tuple_expr(target_item, target_source))
 
-    gap_interval = (
-        paths_filter.gapInterval
-        if paths_filter.gapInterval is not None
-        else PathsV2Filter.model_fields["gapInterval"].default
-    )
+    gap_interval = paths_filter.gapInterval if paths_filter.gapInterval is not None else DEFAULT_GAP_INTERVAL
     gap_interval_unit: FunnelConversionWindowTimeUnit = (
-        paths_filter.gapIntervalUnit
-        if paths_filter.gapIntervalUnit is not None
-        else PathsV2Filter.model_fields["gapIntervalUnit"].default
+        paths_filter.gapIntervalUnit if paths_filter.gapIntervalUnit is not None else DEFAULT_GAP_INTERVAL_UNIT
     )
 
     return FunnelsQuery(

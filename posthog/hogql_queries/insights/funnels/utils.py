@@ -19,6 +19,7 @@ from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
 from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID, NOT_IN_COHORT_ID
 from posthog.models.team.team import Team
 from posthog.types import FunnelEntityNode, FunnelExclusionEntityNode
+from posthog.utils import DATERANGE_MAP
 
 from products.cohorts.backend.models.cohort import Cohort
 
@@ -33,6 +34,14 @@ CONVERSION_WINDOW_INTERVAL_BOUNDS: dict[FunnelConversionWindowTimeUnit, tuple[in
     FunnelConversionWindowTimeUnit.WEEK: (1, 53),
     FunnelConversionWindowTimeUnit.MONTH: (1, 12),
 }
+
+
+def conversion_window_to_seconds(interval: int, unit: FunnelConversionWindowTimeUnit) -> int:
+    """The funnel engine's conversion window realization: fixed seconds per unit, with month
+    meaning 31 days, never calendar arithmetic. Keep in sync with
+    FunnelUDF.conversion_window_limit; paths v2 uses this for gap G so a journey's gap and the
+    emitted funnel's window can never diverge on calendar-length units."""
+    return int(interval * DATERANGE_MAP[unit].total_seconds())
 
 
 def funnel_window_interval_unit_to_sql(

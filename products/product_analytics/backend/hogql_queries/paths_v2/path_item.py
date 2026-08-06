@@ -1,11 +1,22 @@
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import PathsV2Query, PathsV2StepSource
+from posthog.schema import FunnelConversionWindowTimeUnit, PathsV2Query, PathsV2StepSource
 
 from posthog.hogql import ast
 from posthog.hogql.property import apply_path_cleaning
 
 from posthog.models.team.team import Team
+
+# Sentinel event marking a per-step "other" bucket row; never a real event name.
+PATHS_V2_OTHER = "$$__posthog_other__$$"
+
+# Must match the @default annotations on PathsV2Filter in
+# frontend/src/queries/schema/schema-general.ts; test_defaults pins them to the generated schema.
+DEFAULT_MAX_STEPS = 5
+DEFAULT_MAX_ROWS_PER_STEP = 3
+DEFAULT_GAP_INTERVAL = 30
+DEFAULT_GAP_INTERVAL_UNIT = FunnelConversionWindowTimeUnit.MINUTE
+DEFAULT_COLLAPSE_REPEATS = True
 
 
 def default_step_sources() -> list[PathsV2StepSource]:
