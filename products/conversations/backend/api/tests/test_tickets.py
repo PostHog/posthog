@@ -1930,6 +1930,24 @@ class TestComposeTicketAPI(APIBaseTest):
         ticket = Ticket.objects.get(team=self.team)
         assert ticket.identity_verified is None
 
+    def test_composed_ticket_stores_recipient_email_in_traits(self, mock_on_commit):
+        response = self._compose(
+            {
+                "recipient_email": "someone@test.com",
+                "email_config_id": str(self.email_config.id),
+                "message": "Hello!",
+            }
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.anonymous_traits == {"email": "someone@test.com"}
+
+        search = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/?search=someone@test.com",
+        )
+        assert search.status_code == status.HTTP_200_OK
+        assert [t["id"] for t in search.json()["results"]] == [str(ticket.id)]
+
 
 class TestTicketPersonalAPIKeyScopes(APIBaseTest):
     def _auth_with_pak(self, scopes: list[str]) -> None:
