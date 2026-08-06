@@ -188,6 +188,7 @@ export function CustomPropertiesConfig(): JSX.Element {
             <div className="flex items-center gap-2">
                 <LemonInput
                     type="search"
+                    size="small"
                     placeholder="Search custom properties"
                     value={searchTerm}
                     onChange={setSearchTerm}
