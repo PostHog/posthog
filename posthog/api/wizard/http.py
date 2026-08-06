@@ -10,7 +10,7 @@ from django.core.cache import cache
 from django.utils.crypto import get_random_string
 
 import posthoganalytics
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from google.genai.types import GenerateContentConfig, Schema
 from openai.types.chat import (
     ChatCompletionMessageParam,
@@ -43,6 +43,7 @@ from posthog.rate_limit import (
 from posthog.user_permissions import UserPermissions
 
 from products.tasks.backend.facade import api as tasks_facade
+from products.wizard.backend.facade import api as wizard_facade
 
 SETUP_WIZARD_CACHE_PREFIX = "setup-wizard:v1:"
 SETUP_WIZARD_CACHE_TIMEOUT = 600
@@ -172,6 +173,39 @@ class SetupWizardRepositoryDetectionSerializer(serializers.Serializer):
         if len(parts) != 2 or not all(parts):
             raise serializers.ValidationError("Repository must be in 'owner/repo' format.")
         return repository
+
+
+class SetupWizardRepositoryDetectionStatusSerializer(serializers.Serializer):
+    """Output: one detection row joined with the live status of the run producing it."""
+
+    repository = serializers.CharField(help_text="Repository the detection is for, in 'owner/repo' form.")
+    kind = serializers.CharField(help_text="Detection flavor, e.g. 'error-tracking-source-maps'.")
+    task_run_id = serializers.CharField(
+        allow_null=True,
+        help_text="TaskRun UUID of the latest cloud scan triggered for this row. Null for rows produced by local wizard runs.",
+    )
+    # CharField, not ChoiceField: the values are TaskRun statuses owned by the tasks product,
+    # and a ChoiceField here would mint a collision-prone StatusEnum in the OpenAPI schema.
+    task_run_status = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Live status of that run: 'queued' or 'in_progress' mean a scan is running now; "
+            "'completed', 'failed', 'cancelled' are terminal. Null when no cloud run is tracked "
+            "or its run row no longer exists."
+        ),
+    )
+    report = serializers.JSONField(
+        allow_null=True,
+        help_text=(
+            "Latest completed detection report ({repo_type, projects[]}). Null while the first "
+            "scan is still running, or when the last completed scan failed (see `error`)."
+        ),
+    )
+    error = serializers.JSONField(
+        allow_null=True,
+        help_text="{type, message} describing the last failed scan. Null when the last scan succeeded.",
+    )
+    updated_at = serializers.DateTimeField(help_text="When this row last changed (trigger or completion).")
 
 
 class SetupWizardViewSet(viewsets.ViewSet):
@@ -632,10 +666,89 @@ class SetupWizardViewSet(viewsets.ViewSet):
             raise exceptions.ValidationError(str(e))
 
         latest_run = result.latest_run
+        if latest_run is not None:
+            # Best-effort: the stamp only feeds the status read below, so it must not fail a
+            # scan that is already dispatched.
+            try:
+                wizard_facade.record_wizard_repository_detection_run(
+                    team_id=project.passthrough_team.pk,
+                    repository=serializer.validated_data["repository"],
+                    kind=serializer.validated_data["kind"],
+                    task_run_id=str(latest_run.id),
+                    created_by_id=cast(User, request.user).id,
+                )
+            except Exception as e:
+                capture_exception(e)
+
         return Response(
             {
                 "task_id": str(result.task_id),
                 "run_id": str(latest_run.id) if latest_run else "",
                 "status": latest_run.status if latest_run else "queued",
             }
+        )
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="project_id",
+                required=True,
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="ID of the PostHog project whose detections to list. The authenticated user must have access to it.",
+            ),
+            OpenApiParameter(
+                name="kind",
+                required=False,
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Filter to a single detection flavor, e.g. 'error-tracking-source-maps'.",
+            ),
+        ],
+        responses={200: SetupWizardRepositoryDetectionStatusSerializer(many=True)},
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="repository_detections",
+        authentication_classes=[SessionAuthentication],
+        permission_classes=[IsAuthenticated],
+    )
+    def repository_detections(self, request: Request) -> Response:
+        """List the project's repository detections with the live status of their runs.
+
+        One row per (repository, kind), most recently updated first, up to 200 rows. Each row
+        carries the last completed report or error plus `task_run_status` of the latest cloud
+        scan, so the app can show both the previous result and whether a rescan is running.
+        Rows also exist for scans the wizard ran locally; those carry no run to track.
+        """
+        raw_project_id = request.query_params.get("project_id")
+        try:
+            project_id = int(raw_project_id) if raw_project_id is not None else None
+        except (TypeError, ValueError):
+            project_id = None
+        if project_id is None:
+            raise exceptions.ValidationError({"project_id": ["A valid integer is required."]})
+        project = self._resolve_visible_project(request, project_id)
+        team_id = project.passthrough_team.pk
+
+        detections = wizard_facade.list_wizard_repository_detections(
+            team_id, kind=request.query_params.get("kind") or None
+        )
+        statuses = tasks_facade.task_run_statuses(
+            team_id, [detection.task_run_id for detection in detections if detection.task_run_id]
+        )
+        return Response(
+            [
+                {
+                    "repository": detection.repository,
+                    "kind": detection.kind,
+                    "task_run_id": detection.task_run_id,
+                    "task_run_status": statuses.get(detection.task_run_id) if detection.task_run_id else None,
+                    "report": detection.report,
+                    "error": detection.error,
+                    "updated_at": detection.updated_at,
+                }
+                for detection in detections
+            ]
         )

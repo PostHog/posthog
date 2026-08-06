@@ -88,8 +88,8 @@ class WizardRepositoryDetection(UUIDModel, TeamScopedRootMixin, CreatedMetaField
     repository = models.CharField(max_length=255)
     kind = models.CharField(max_length=64)
 
-    # Exactly one of report/error is set per push; there is no status column, so
-    # `error is null` is the success signal.
+    # A completed scan sets exactly one of report/error; both null means a triggered scan
+    # has not completed yet (see record_wizard_repository_detection_run). No status column.
     report = models.JSONField(null=True, blank=True)
     error = models.JSONField(null=True, blank=True)
 

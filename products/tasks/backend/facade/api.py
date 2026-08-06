@@ -487,6 +487,20 @@ def get_resume_snapshot_carry_state(run_state: dict[str, Any] | None) -> dict[st
     return parse_run_state(run_state).resume_snapshot_carry_state()
 
 
+def task_run_statuses(team_id: int, run_ids: Collection[str | UUID]) -> dict[str, str]:
+    """Status of each of the team's runs among ``run_ids``, keyed by str(id).
+
+    Ids that don't exist for the team are simply absent, so a caller holding ids from
+    untrusted rows can't probe other teams' runs.
+    """
+    if not run_ids:
+        return {}
+    return {
+        str(run_id): status
+        for run_id, status in TaskRun.objects.filter(team_id=team_id, id__in=list(run_ids)).values_list("id", "status")
+    }
+
+
 def get_task_run(run_id: str | UUID, team_id: int | None = None) -> contracts.TaskRunDTO | None:
     """Fetch a single task run as a DTO, optionally scoped to a team."""
     qs = TaskRun.objects.select_related("task", "task__created_by")

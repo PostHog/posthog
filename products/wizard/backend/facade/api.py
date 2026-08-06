@@ -34,6 +34,32 @@ def upsert_wizard_repository_detection(
     return repository_detections.upsert_wizard_repository_detection(params)
 
 
+def record_wizard_repository_detection_run(
+    *,
+    team_id: int,
+    repository: str,
+    kind: str,
+    task_run_id: str,
+    created_by_id: int | None = None,
+) -> WizardRepositoryDetectionDTO:
+    """Stamp a triggered cloud scan's run id onto the (repository, kind) row, keeping any
+    previous report/error readable while the scan runs."""
+    return repository_detections.record_wizard_repository_detection_run(
+        team_id=team_id,
+        repository=repository,
+        kind=kind,
+        task_run_id=task_run_id,
+        created_by_id=created_by_id,
+    )
+
+
+def list_wizard_repository_detections(
+    team_id: int, *, kind: str | None = None, limit: int = 200
+) -> list[WizardRepositoryDetectionDTO]:
+    """The team's detection rows, most recently updated first."""
+    return repository_detections.list_wizard_repository_detections(team_id, kind=kind, limit=limit)
+
+
 def get(team_id: int, session_id: str) -> WizardSessionDTO | None:
     return sessions.get_session(team_id, session_id)
 
