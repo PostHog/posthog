@@ -85,8 +85,8 @@ class TestEnrichmentCore(BaseTest):
         assert [r.is_recheck for r in rows] == [False, True]
 
     def test_scores_the_org_from_our_fields_the_signup_role_and_clays_columns(self):
-        # First attempt: scores immediately because Clay has already processed the org
-        # (clay_processed=True) — but the person mirror is recheck-only, so `set` stays unused.
+        # First attempt: Clay's bridge columns are already present, so they feed the score too —
+        # but the person mirror is recheck-only, so `set` stays unused.
         pha_client = MagicMock()
         fields = EnrichmentFields(headcount=750, country="US", founded_year=2021)
         self._enrich(
@@ -105,16 +105,50 @@ class TestEnrichmentCore(BaseTest):
         assert properties["icp_score_version"] == "clay-parity-1"
         pha_client.set.assert_not_called()
 
-    def test_first_attempt_before_clay_has_processed_the_org_writes_no_score(self):
-        # Clay's bridge write lands after ours more often than not, so a first attempt with
-        # clay_processed=False must skip scoring entirely rather than write a too-low score.
+    def test_first_attempt_scores_without_waiting_for_clay(self):
+        # Clay's bridge write lands after ours more often than not, so the first attempt scores
+        # on our fields alone (clay_processed=False) rather than waiting for the recheck.
         fields = EnrichmentFields(headcount=750, country="US", founded_year=2021)
-        self._enrich(ProviderLookup(fields=fields, raw_payload={"n": 1}), role_at_organization="engineering")
+        result = self._enrich(ProviderLookup(fields=fields, raw_payload={"n": 1}), role_at_organization="engineering")
 
+        assert result is fields
+        record = OrganizationEnrichment.objects.get(organization=self.organization)
+        assert record.data["icp_score"] == 12
+        assert record.data["icp_score_version"] == "clay-parity-1"
+
+    def test_first_attempt_miss_reconstructs_fields_from_a_prior_record_and_scores(self):
+        # A re-dispatched first attempt (e.g. via the backfill command) can land on an org that
+        # already carries a partial record; it must score from that record just like a recheck
+        # would, without mirroring onto the person (mirror stays recheck-only).
+        OrganizationEnrichment.objects.create(
+            organization=self.organization,
+            data={"headcount": 750, "country": "US", "founded_year": 2021, "company_type_deterministic": "yc"},
+        )
+        pha_client = MagicMock()
+
+        result = self._enrich(
+            ProviderLookup(fields=None, raw_payload=None),
+            role_at_organization="engineering",
+            pha_client=pha_client,
+            distinct_id="signer-distinct-id",
+        )
+
+        assert result is None
+        record = OrganizationEnrichment.objects.get(organization=self.organization)
+        assert record.data["icp_score"] == 12
+        pha_client.set.assert_not_called()
+
+    def test_first_attempt_miss_with_only_first_party_data_does_not_score(self):
+        # The work_email row written before every dispatch must not count as prior provider data.
+        OrganizationEnrichment.objects.create(organization=self.organization, data={"work_email": True})
+        pha_client = MagicMock()
+
+        result = self._enrich(ProviderLookup(fields=None, raw_payload=None), pha_client=pha_client)
+
+        assert result is None
         record = OrganizationEnrichment.objects.get(organization=self.organization)
         assert "icp_score" not in record.data
-        assert "icp_score_version" not in record.data
-        assert record.data["headcount"] == 750
+        pha_client.group_identify.assert_not_called()
 
     def test_recheck_scores_unconditionally_even_when_clay_never_processed(self):
         fields = EnrichmentFields(headcount=750, country="US", founded_year=2021)
