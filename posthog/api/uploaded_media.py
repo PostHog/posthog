@@ -18,6 +18,7 @@ from statshog.defaults.django import statsd
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import report_user_action
 from posthog.models import UploadedMedia
 from posthog.models.uploaded_media import ObjectStorageUnavailable
 from posthog.storage import object_storage
@@ -198,6 +199,14 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     statsd.incr(
                         "uploaded_media.image_failed_validation",
                         tags={"file_name": file.name, "team": self.team_id},
+                    )
+                    # statsd only counts these, so we can't tell what people actually pick. Capture an
+                    # analytics event with the content type and size to measure the real rejection rate.
+                    report_user_action(
+                        request.user,
+                        "uploaded media rejected",
+                        {"content_type": file.content_type, "file_size_bytes": file.size},
+                        team=self.team,
                     )
                     # TODO a batch process can delete media with no records in the DB or for deleted teams
                     uploaded_media.delete()

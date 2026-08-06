@@ -5,6 +5,29 @@ import api from 'lib/api'
 
 import { MediaUploadResponse } from '~/types'
 
+// Formats the server can actually decode (PIL) and the browser can preview. `image/*` also lets
+// through SVG and HEIC, which the server always rejects, so upload controls should accept this set.
+export const SUPPORTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
+export const SUPPORTED_IMAGE_ACCEPT = SUPPORTED_IMAGE_TYPES.join(',')
+
+const UNREADABLE_IMAGE_MESSAGE = "We couldn't read that image. Try a PNG, JPEG, GIF, or WebP file."
+
+/** Thrown when the browser can't decode the chosen file, so uploading it would only earn a server rejection. */
+export class UnreadableImageError extends Error {
+    // useUploadFiles surfaces `.detail` (the shape API errors use), so mirror the message there.
+    readonly detail = UNREADABLE_IMAGE_MESSAGE
+
+    constructor() {
+        super(UNREADABLE_IMAGE_MESSAGE)
+        this.name = 'UnreadableImageError'
+    }
+}
+
+function isImageDecodeError(error: unknown): boolean {
+    // createImageBitmap rejects with an InvalidStateError DOMException when the bytes aren't a decodable image.
+    return error instanceof DOMException && error.name === 'InvalidStateError'
+}
+
 export const lazyImageBlobReducer = async (blob: Blob): Promise<Blob> => {
     try {
         const blobReducer = (await import('image-blob-reduce')).default()
@@ -17,9 +40,16 @@ export const lazyImageBlobReducer = async (blob: Blob): Promise<Blob> => {
             posthog.captureException(
                 new Error('Image compression fallback failed', {
                     cause: error,
-                })
+                }),
+                { image_type: blob.type, image_size: blob.size }
             )
-            // Final fallback to original blob
+            if (isImageDecodeError(error)) {
+                // The browser couldn't decode it, so the server won't either. Fail fast instead of
+                // round-tripping an undecodable blob to a guaranteed rejection.
+                throw new UnreadableImageError()
+            }
+            // Otherwise we merely lack a resize API (e.g. no OffscreenCanvas); the original may still
+            // be a valid image, so let the server be the judge.
             return blob
         }
     }
@@ -116,7 +146,7 @@ export function useUploadFiles({
                 const media = await uploadFile(file)
                 onUpload?.(media.image_location, media.name, media.id)
             } catch (error) {
-                const errorDetail = (error as any).detail || 'unknown error'
+                const errorDetail = (error as any).detail || (error as any).message || 'unknown error'
                 onError(errorDetail)
             } finally {
                 uploadInProgressRef.current = false
