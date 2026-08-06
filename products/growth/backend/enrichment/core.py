@@ -16,7 +16,7 @@ from posthoganalytics.client import Client
 from posthog.exceptions_capture import capture_exception
 from posthog.models.person.util import get_person_by_distinct_id
 
-from products.growth.backend.enrichment.bridge import read_clay_bridge_inputs
+from products.growth.backend.enrichment.bridge import ClayBridgeInputs, read_clay_bridge_inputs
 from products.growth.backend.enrichment.fields import EnrichmentFields
 from products.growth.backend.enrichment.providers import EnrichmentProvider
 from products.growth.backend.enrichment.score import IcpScoreInputs, compute_icp_score
@@ -89,8 +89,11 @@ def _score_and_mirror(
     try:
         clay = read_clay_bridge_inputs(organization_id=organization_id)
     except Exception as e:
+        # A failed bridge READ is not absent bridge data: the bridge is optional input, so a
+        # read failure (unresolvable internal team, transient store error) degrades to scoring
+        # without it rather than costing the score entirely.
         capture_exception(e)
-        return None, None
+        clay = ClayBridgeInputs()
 
     icp_score = compute_icp_score(
         IcpScoreInputs(

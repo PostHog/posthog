@@ -254,19 +254,22 @@ class TestEnrichmentCore(BaseTest):
         assert "icp_score" not in record.data
         pha_client.group_identify.assert_not_called()
 
-    def test_bridge_read_failure_writes_no_score_rather_than_a_low_one(self):
-        fields = EnrichmentFields(headcount=750, country="US")
+    def test_bridge_read_failure_still_scores_from_own_fields(self):
+        # The bridge is optional input, so a failed READ scores exactly like an empty bridge
+        # instead of costing the score entirely (a transient store error would otherwise leave
+        # the org score-less until the next attempt).
+        fields = EnrichmentFields(headcount=750, country="US", founded_year=2021)
         with patch("products.growth.backend.enrichment.core.capture_exception") as capture_mock:
             result = self._enrich(
                 ProviderLookup(fields=fields, raw_payload={"n": 1}),
-                is_recheck=True,
+                role_at_organization="engineering",
                 clay=RuntimeError("group store down"),
             )
 
         assert result is fields
         capture_mock.assert_called_once()
         record = OrganizationEnrichment.objects.get(organization=self.organization)
-        assert "icp_score" not in record.data
+        assert record.data["icp_score"] == 12
         assert record.data["headcount"] == 750
 
     def test_archive_failure_does_not_break_enrich(self):
