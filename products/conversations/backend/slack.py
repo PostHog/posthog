@@ -18,7 +18,8 @@ from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from django.conf import settings
-from django.db.models import F
+from django.db.models import DateTimeField, F, Value
+from django.db.models.functions import Least
 
 import structlog
 import posthoganalytics
@@ -1379,6 +1380,7 @@ def _backfill_thread_replies(
     comments_to_create: list[Comment] = []
     customer_message_count = 0
     team_message_count = 0
+    first_team_reply_index: int | None = None
 
     for reply in thread_replies:
         reply_is_bot = bool(reply.get("bot_id") or reply.get("subtype") == "bot_message")
@@ -1424,6 +1426,8 @@ def _backfill_thread_replies(
             continue
 
         if is_team_member:
+            if first_team_reply_index is None:
+                first_team_reply_index = len(comments_to_create)
             team_message_count += 1
         else:
             customer_message_count += 1
@@ -1466,6 +1470,16 @@ def _backfill_thread_replies(
             update_fields["unread_team_count"] = F("unread_team_count") + customer_message_count
         if team_message_count:
             update_fields["unread_customer_count"] = F("unread_customer_count") + team_message_count
+        if first_team_reply_index is not None:
+            # bulk_create skips the message signal, so apply its first-response rule here: every
+            # backfilled reply lands after the message that opened the ticket, so the earliest
+            # team one is the first response. Without this the column stays NULL until the next
+            # live reply, which would then be recorded as a first response the team had in fact
+            # already given. Least keeps an existing stamp (Postgres LEAST ignores NULLs).
+            update_fields["first_response_at"] = Least(
+                F("first_response_at"),
+                Value(created_comments[first_team_reply_index].created_at, output_field=DateTimeField()),
+            )
         Ticket.objects.filter(id=ticket.id, team=team).update(**update_fields)
 
     logger.info(

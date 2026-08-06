@@ -70,6 +70,31 @@ class TestBackfillThreadReplies(BaseTest):
 
         self.ticket.refresh_from_db()
         assert self.ticket.unread_team_count == 3  # 1 original + 2 backfilled
+        assert self.ticket.first_response_at is None  # no team member replied in the thread
+
+    @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
+    @patch(f"{MODULE}.resolve_posthog_user_for_slack")
+    @patch(f"{MODULE}.resolve_slack_user", return_value={"name": "Alice", "email": "a@x.com", "avatar": None})
+    @patch(f"{MODULE}.extract_slack_files", return_value=[])
+    def test_backfilled_team_reply_stamps_first_response_at(
+        self, _mock_files, _mock_user, mock_posthog_user, _mock_bot
+    ):
+        # resolved once per distinct slack user: customer, then two team members
+        mock_posthog_user.side_effect = [None, self.user, self.user]
+        replies = [
+            _make_slack_reply(PARENT_TS, text="parent"),
+            _make_slack_reply("1700000000.000200", user="U_CUSTOMER", text="still broken"),
+            _make_slack_reply("1700000000.000300", user="U_AGENT", text="looking now"),
+            _make_slack_reply("1700000000.000400", user="U_AGENT_2", text="fixed"),
+        ]
+        client = self._mock_client(replies)
+
+        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS)
+
+        comments = Comment.objects.filter(item_id=str(self.ticket.id)).order_by("created_at")
+        assert comments[1].content == "looking now"
+        self.ticket.refresh_from_db()
+        assert self.ticket.first_response_at == comments[1].created_at
 
     @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
     @patch(f"{MODULE}.resolve_slack_user", return_value={"name": "Alice", "email": "a@x.com", "avatar": None})

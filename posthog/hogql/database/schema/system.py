@@ -1906,9 +1906,10 @@ support_tickets: PostgresTable = PostgresTable(
             name="first_response_at",
             nullable=True,
             description="When the support team or AI first replied, not counting a first message the team itself sent to open "
-            "the ticket; NULL if nobody has replied yet. Time to first response = first_response_at - created_at. Also NULL "
-            "when the reply history was backfilled from elsewhere (helpdesk import, pre-existing Slack thread), because those "
-            "replies predate the ticket.",
+            "the ticket; NULL if nobody has replied yet. Time to first response = first_response_at - created_at. For a ticket "
+            "seeded from an existing Slack thread the stamp comes from the backfilled reply history, so it sits at the moment "
+            "the ticket was created rather than at the real Slack reply time. Not set for tickets imported from another "
+            "helpdesk.",
         ),
         "resolved_at": DateTimeDatabaseField(
             name="resolved_at",
