@@ -104,10 +104,8 @@ SESSIONS_COLUMN_ALIAS = "Sessions"
 # enum so the sides can't drift apart and split one row in two.
 UNKNOWN_CHANNEL = DefaultChannelTypes.UNKNOWN.value
 
-# Derived column built from conversion goals marked counts_as_revenue: their summed value over
-# the channel divided by that channel's spend. Distinct from REPORTED_ROAS, which uses the ad
-# platform's own reported conversion value. Left out of MarketingAnalyticsBaseColumns because it
-# needs the unified conversion goals CTE, not just campaign_costs.
+# Revenue from goals marked counts_as_revenue over the channel's spend. Distinct from
+# REPORTED_ROAS, the platform's own figure. Not a base column: it needs the goals CTE.
 ROAS_COLUMN = MarketingAnalyticsConstants.ROAS.value
 
 # Field used for joining with conversion goals

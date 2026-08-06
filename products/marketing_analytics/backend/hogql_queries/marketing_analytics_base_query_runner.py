@@ -776,9 +776,8 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
     ) -> list:
         """Create conversion goal processors for reuse across different methods"""
         processors = []
-        # ROAS aggregates every revenue goal, so it needs their processors even when the user has
-        # hidden the goals' own columns. Without this the ratio would quietly change value as
-        # columns are added or removed from the table.
+        # Needed even when the goals' own columns are hidden, or the ratio changes value as
+        # columns are added or removed.
         roas_selected = self.query.select is not None and ROAS_COLUMN in self.query.select
         for index, conversion_goal in enumerate(conversion_goals):
             # Create processor if select is None (all columns) or if conversion goal columns are explicitly selected

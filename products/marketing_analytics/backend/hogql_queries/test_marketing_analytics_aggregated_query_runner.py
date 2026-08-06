@@ -81,8 +81,7 @@ class TestMarketingAnalyticsAggregatedQueryRunner(ClickhouseTestMixin, BaseTest)
         assert pretty_print_in_tests(hogql, self.team.pk) == self.snapshot
 
     def test_roas_column_is_excluded_from_the_generic_sum_wrapper(self):
-        # ROAS is a per-row ratio; if it leaks into the aggregated mapping the generic SUM() wrapper
-        # produces sum-of-ratios, which is not total revenue / total cost.
+        # A per-row ratio: in the aggregated mapping SUM() gives sum-of-ratios, not the total.
         self.team.marketing_analytics_config.conversion_goals = [
             {
                 "kind": NodeKind.EVENTS_NODE,
