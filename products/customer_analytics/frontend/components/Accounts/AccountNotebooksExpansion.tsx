@@ -1,7 +1,16 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconCloud, IconGraph, IconPencil, IconPeople, IconPiggyBank, IconReceipt } from '@posthog/icons'
+import {
+    IconCloud,
+    IconCopy,
+    IconDatabase,
+    IconGraph,
+    IconPencil,
+    IconPeople,
+    IconPiggyBank,
+    IconReceipt,
+} from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
@@ -18,6 +27,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { fullName } from 'lib/utils/strings'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { urls } from 'scenes/urls'
@@ -58,6 +68,7 @@ const LINK_ICONS: Record<string, JSX.Element> = {
     organization: <IconPeople />,
     revenue: <IconPiggyBank />,
     'usage-dashboard': <IconGraph />,
+    metabase: <IconDatabase />,
     slack: <IconSlack />,
     'billing-admin': <IconReceipt />,
     salesforce: <IconCloud />,
@@ -126,6 +137,24 @@ function UsefulLinks({ accountId }: { accountId: string }): JSX.Element {
                     </LemonButton>
                 ))
             )}
+            <LemonButton
+                type="tertiary"
+                size="small"
+                fullWidth
+                icon={<IconCopy />}
+                onClick={() => {
+                    void copyToClipboard(
+                        urls.absolute(urls.currentProject(urls.customerAnalyticsAccount(accountId))),
+                        'link to this account'
+                    )
+                    posthog.capture(AccountsEvents.LinkClicked, {
+                        link_key: 'copy-account-link',
+                        has_destination: true,
+                    })
+                }}
+            >
+                Copy link to account
+            </LemonButton>
         </div>
     )
 }

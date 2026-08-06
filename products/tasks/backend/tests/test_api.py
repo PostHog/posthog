@@ -25,12 +25,13 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
 from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
 from posthog.storage import object_storage
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 from posthog.utils import absolute_uri
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -40,9 +41,8 @@ from products.tasks.backend.facade.run_config import TaskArtifactAdapter, TaskAr
 from products.tasks.backend.logic.services.code_usage_gate import (
     CodeUsageStatus,
     _gateway_usage_url,
-    cloud_usage_limit_response,
-    code_access_required_response,
     get_posthog_code_usage,
+    usage_limit_response,
 )
 from products.tasks.backend.logic.services.connection_token import (
     create_sandbox_event_ingest_token,
@@ -70,6 +70,7 @@ from products.tasks.backend.models import (
     Task,
     TaskArtifact,
     TaskAutomation,
+    TaskClientProvenance,
     TaskPin,
     TaskRun,
     TaskSession,
@@ -1011,6 +1012,96 @@ class TestTaskVisibilityInternalDebugRegionGate(BaseTaskAPITest):
 
 
 class TestTaskAPI(BaseTaskAPITest):
+    def _oauth_client(self, client_id: str, *, scope: str = "task:read task:write") -> APIClient:
+        application = OAuthApplication.objects.create(
+            name="Task API client",
+            client_id=client_id,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_task_{uuid.uuid4().hex}",
+            expires=django_timezone.now() + timedelta(hours=1),
+            scope=scope,
+            scoped_teams=[self.team.id],
+        )
+        OAuthRefreshToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"phr_task_{uuid.uuid4().hex}",
+            access_token=access_token,
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        return client
+
+    def test_desktop_oauth_task_creation_records_trusted_provenance(self):
+        client = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV)
+
+        response = client.post(
+            "/api/projects/@current/tasks/",
+            {"title": "Desktop task", "description": "Created in Desktop"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task = Task.objects.get(id=response.json()["id"])
+        self.assertEqual(task.client_provenance, TaskClientProvenance.POSTHOG_DESKTOP)
+
+    @parameterized.expand(
+        [
+            ("session", None, None),
+            ("other_oauth", "untrusted-client", "task:read task:write"),
+            ("server_token", ARRAY_APP_CLIENT_ID_DEV, "task:read task:write internal_run:read"),
+        ]
+    )
+    def test_task_creation_without_trusted_desktop_oauth_fails_closed(
+        self, _name: str, client_id: str | None, scope: str | None
+    ) -> None:
+        client = self.client if client_id is None else self._oauth_client(client_id, scope=scope or "")
+
+        response = client.post(
+            "/api/projects/@current/tasks/",
+            {"title": "Other task", "description": "Not created in Desktop"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(Task.objects.get(id=response.json()["id"]).client_provenance)
+
+    @parameterized.expand(
+        [
+            (Task.OriginProduct.SLACK,),
+            (Task.OriginProduct.SIGNAL_REPORT,),
+        ]
+    )
+    def test_desktop_access_cannot_change_existing_task_provenance(self, origin_product: Task.OriginProduct):
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Slack task",
+            description="Created from Slack",
+            origin_product=origin_product,
+        )
+        client = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV)
+
+        self.assertEqual(client.get(f"/api/projects/@current/tasks/{task.id}/").status_code, status.HTTP_200_OK)
+        response = client.patch(
+            f"/api/projects/@current/tasks/{task.id}/",
+            {"client_provenance": TaskClientProvenance.POSTHOG_DESKTOP},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertIsNone(task.client_provenance)
+
     def test_pin_state_is_persisted_per_user(self):
         task = self.create_task()
 
@@ -1313,7 +1404,82 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(data["title"], "New Task")
         self.assertEqual(data["description"], "New Description")
         self.assertEqual(data["repository"], "posthog/posthog")
+        self.assertEqual(data["repositories"], ["posthog/posthog"])
         self.assertEqual(data["runtime"], Task.Runtime.ACP)
+
+    @patch("products.tasks.backend.facade.api._find_idling_warm_run")
+    def test_create_task_with_multiple_repositories(self, mock_find_warm_run):
+        mock_find_warm_run.return_value = None
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="123",
+            repository_cache=[
+                {"id": 1, "name": "posthog", "full_name": "posthog/posthog"},
+                {"id": 2, "name": "code", "full_name": "posthog/code"},
+            ],
+            repository_cache_updated_at=django_timezone.now(),
+        )
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Cross-repo task",
+                "description": "Update both services",
+                "github_integration": integration.id,
+                "repositories": ["PostHog/PostHog", "PostHog/Code"],
+                "branch": "main",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task = Task.objects.get(id=response.json()["id"])
+        self.assertEqual(task.repositories, ["posthog/posthog", "posthog/code"])
+        self.assertEqual(task.create_run().state["repositories"], task.repositories)
+        mock_find_warm_run.assert_not_called()
+
+        update = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/",
+            {"repository": "posthog/posthog"},
+            format="json",
+        )
+        self.assertEqual(update.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertEqual(task.repository, "posthog/posthog")
+        self.assertEqual(task.repositories, ["posthog/posthog", "posthog/code"])
+
+    def test_create_task_rejects_repository_outside_integration(self):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="123",
+            repository_cache=[{"id": 1, "name": "posthog", "full_name": "posthog/posthog"}],
+            repository_cache_updated_at=django_timezone.now(),
+        )
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Invalid task",
+                "github_integration": integration.id,
+                "repositories": ["posthog/code"],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Invalid legacy task",
+                "github_integration": integration.id,
+                "repository": "posthog/code",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_create_task_with_pi_runtime(self):
         response = self.client.post(
@@ -2289,6 +2455,52 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(task_run.state["run_source"], "manual")
         self.assertEqual(task_run.state["auto_publish"], True)
         mock_workflow.assert_not_called()
+
+    @parameterized.expand([("high",), ("off",)])
+    def test_create_run_endpoint_accepts_pi_model_selection(self, thinking_level: str):
+        task = self.create_task(runtime=Task.Runtime.PI)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {
+                "environment": "cloud",
+                "model": "gpt-5.6-terra",
+                "reasoning_effort": thinking_level,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task_run = TaskRun.objects.get(id=response.json()["id"])
+        self.assertEqual(task_run.state["model"], "gpt-5.6-terra")
+        self.assertEqual(task_run.state["reasoning_effort"], thinking_level)
+
+    @parameterized.expand(
+        [
+            ("runtime_adapter", {"runtime_adapter": "codex"}),
+            ("context_window", {"context_window": "1m"}),
+            ("fast_mode", {"fast_mode": True}),
+            ("initial_permission_mode", {"initial_permission_mode": "plan"}),
+            ("reasoning_effort", {"reasoning_effort": "ultracode"}),
+        ]
+    )
+    def test_create_run_endpoint_rejects_invalid_configuration_for_pi(
+        self, field: str, pi_incompatible_config: dict[str, str | bool]
+    ) -> None:
+        task = self.create_task(runtime=Task.Runtime.PI)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {
+                "environment": "cloud",
+                "model": "gpt-5.6-terra",
+                **pi_incompatible_config,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], field)
 
     # is_url_allowed resolves DNS for real in CI, and example.com subdomains don't resolve.
     @patch("products.tasks.backend.presentation.serializers.is_url_allowed", return_value=(True, None))
@@ -3943,6 +4155,7 @@ class TestTaskRepositoriesAction(BaseTaskAPITest):
             description="",
             origin_product=Task.OriginProduct.USER_CREATED,
             repository="posthog/posthog",
+            repositories=["posthog/posthog", "posthog/code"],
         )
         # Duplicate of an existing repo should be collapsed.
         Task.objects.create(
@@ -3966,7 +4179,7 @@ class TestTaskRepositoriesAction(BaseTaskAPITest):
 
         self.assertEqual(
             response.json(),
-            {"repositories": ["posthog/posthog", "posthog/posthog-js"]},
+            {"repositories": ["posthog/code", "posthog/posthog", "posthog/posthog-js"]},
         )
 
     def test_excludes_soft_deleted_tasks(self):
@@ -4276,7 +4489,8 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
         mock_sync_schedule.assert_called_once_with(automation)
 
     @patch("products.tasks.backend.automation_service.sync_automation_schedule")
-    def test_create_automation_requires_code_access(self, mock_sync_schedule):
+    def test_create_automation_without_code_access(self, mock_sync_schedule):
+        # `tasks` gates the Desktop client's UI, not the API.
         self.set_tasks_feature_flag(False)
 
         response = self.client.post(
@@ -4291,10 +4505,9 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["code"], "code_access_required")
-        self.assertFalse(TaskAutomation.objects.exists())
-        mock_sync_schedule.assert_not_called()
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(TaskAutomation.objects.exists())
+        mock_sync_schedule.assert_called_once()
 
     def test_list_automations(self):
         automation = self.create_automation()
@@ -4409,7 +4622,7 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
         mock_sync_schedule.assert_called_once_with(automation)
 
     @patch("products.tasks.backend.automation_service.sync_automation_schedule")
-    def test_enable_automation_requires_code_access(self, mock_sync_schedule):
+    def test_enable_automation_without_code_access(self, mock_sync_schedule):
         automation = self.create_automation()
         automation.enabled = False
         automation.save(update_fields=["enabled", "updated_at"])
@@ -4421,11 +4634,10 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["code"], "code_access_required")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         automation.refresh_from_db()
-        self.assertFalse(automation.enabled)
-        mock_sync_schedule.assert_not_called()
+        self.assertTrue(automation.enabled)
+        mock_sync_schedule.assert_called_once()
 
     @patch("products.tasks.backend.facade.api._sync_automation_schedule")
     def test_update_automation_rolls_back_automation_when_task_update_fails(self, mock_sync_schedule):
@@ -4466,15 +4678,14 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
         mock_run_task_automation.assert_called_once_with(str(automation.id))
 
     @patch("products.tasks.backend.automation_service.run_task_automation")
-    def test_run_requires_code_access(self, mock_run_task_automation):
+    def test_run_without_code_access(self, mock_run_task_automation):
         self.set_tasks_feature_flag(False)
         automation = self.create_automation()
 
         response = self.client.post(f"/api/projects/@current/task_automations/{automation.id}/run/")
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["code"], "code_access_required")
-        mock_run_task_automation.assert_not_called()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_run_task_automation.assert_called_once_with(str(automation.id))
 
 
 _PR_URL = "https://github.com/posthog/posthog-js/pull/1"
@@ -5333,12 +5544,35 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         run.refresh_from_db()
+        assert isinstance(run.output, dict)
         self.assertEqual(
             run.output,
             {
                 "head_branch": "posthog-code/update-readme",
                 "pr_url": "https://github.com/org/repo/pull/2",
+                "pr_urls": ["https://github.com/org/repo/pull/2"],
             },
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {
+                "output": {
+                    "pr_url": "https://github.com/org/repo/pull/2",
+                    "pr_urls": [
+                        "https://github.com/org/repo/pull/2",
+                        "https://github.com/org/other/pull/3",
+                    ],
+                }
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        self.assertEqual(
+            run.output["pr_urls"],
+            ["https://github.com/org/repo/pull/2", "https://github.com/org/other/pull/3"],
         )
 
     def test_partial_update_does_not_restore_stale_state(self):
@@ -8804,7 +9038,9 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         )
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
-    def test_command_user_message_requires_code_access(self, mock_signal_followup):
+    def test_command_user_message_without_code_access_still_sends(self, mock_signal_followup):
+        # The Inbox drops users straight into this composer after starting an interactive run,
+        # so replying must not require Desktop waitlist access.
         self.set_tasks_feature_flag(False)
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
@@ -8815,9 +9051,8 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["code"], "code_access_required")
-        mock_signal_followup.assert_not_called()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_signal_followup.assert_called_once()
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_signals_user_message_without_active_sandbox(self, mock_signal_followup):
@@ -10367,7 +10602,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
     @patch("products.tasks.backend.facade.api.warm_task_sandbox")
     @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
-    def test_warm_without_code_access_returns_403_before_provisioning(self, _mock_warm_enabled, mock_warm):
+    def test_warm_without_code_access_still_provisions(self, _mock_warm_enabled, mock_warm):
         self.set_tasks_feature_flag(False)
 
         response = self.client.post(
@@ -10376,13 +10611,14 @@ class TestCloudUsageGate(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["code"], "code_access_required")
-        mock_warm.assert_not_called()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
-    def test_run_without_code_access_returns_403_before_usage_check(self, mock_gate, mock_workflow):
+    def test_run_without_code_access_still_runs(self, mock_gate, mock_workflow):
+        # The generally-available Inbox runs report and scout tasks through this endpoint, so the
+        # Desktop waitlist (`tasks` flag) must not gate it.
+        mock_gate.return_value = None
         self.set_tasks_feature_flag(False)
         task = self.create_task()
 
@@ -10392,11 +10628,9 @@ class TestCloudUsageGate(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["code"], "code_access_required")
-        self.assertFalse(TaskRun.objects.filter(task=task).exists())
-        mock_gate.assert_not_called()
-        mock_workflow.assert_not_called()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(TaskRun.objects.filter(task=task).exists())
+        mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_run_over_limit_returns_429_and_creates_no_run(self, mock_gate):
@@ -10428,6 +10662,22 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(response.json()["code"], "usage_limit_exceeded")
         self.assertFalse(TaskRun.objects.filter(task=task).exists())
+
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
+    def test_create_cloud_run_without_code_access_still_runs(self, mock_gate):
+        # Desktop is usage-billed, so cloud runs are metered rather than waitlist-gated.
+        mock_gate.return_value = None
+        self.set_tasks_feature_flag(False)
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {"environment": "cloud"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(TaskRun.objects.filter(task=task).exists())
 
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_create_local_run_is_not_gated(self, mock_gate):
@@ -10504,37 +10754,13 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertTrue(TaskRun.objects.filter(task=task).exists())
         mock_workflow.assert_called_once()
 
-    def _signal_report_task(self):
-        from products.signals.backend.models import SignalReport
-
-        report = SignalReport.objects.create(team=self.team)
-        return Task.objects.create(
-            team=self.team,
-            created_by=self.user,
-            title="Act on report",
-            description="Act on report",
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
-            signal_report=report,
-        )
-
-    @parameterized.expand(
-        [
-            ("under_limit_runs", CodeUsageStatus(False, None, None, False), status.HTTP_200_OK),
-            ("over_limit_still_blocked", OVER_LIMIT, status.HTTP_429_TOO_MANY_REQUESTS),
-        ]
-    )
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
-    def test_run_signal_report_task_bypasses_code_access_but_keeps_usage_backstop(
-        self, _name, gate_return, expected_status, mock_gate, _mock_workflow
-    ):
-        # Self-driving is entitled through the Inbox (`product-autonomy`), not PostHog Code, so a
-        # signal-report task runs with the `tasks` flag off — where a plain task 403s (see
-        # test_run_without_code_access_returns_403_before_usage_check). The usage cost-backstop must
-        # still fire, so an over-limit team is blocked even on the entitlement-bypassed path.
+    def test_run_without_code_access_keeps_usage_backstop(self, mock_gate):
+        # Usage limits are the only cost backstop left on this endpoint, so they have to fire
+        # with the `tasks` flag off.
         self.set_tasks_feature_flag(False)
-        mock_gate.return_value = gate_return
-        task = self._signal_report_task()
+        mock_gate.return_value = self.OVER_LIMIT
+        task = self.create_task()
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/run/",
@@ -10542,9 +10768,8 @@ class TestCloudUsageGate(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, expected_status)
-        mock_gate.assert_called_once()
-        self.assertEqual(TaskRun.objects.filter(task=task).exists(), expected_status == status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
 
 
 class TestGetPosthogCodeUsage(TestCase):
@@ -10623,26 +10848,19 @@ class TestGetPosthogCodeUsage(TestCase):
         mock_token.assert_not_called()
 
 
-class TestCloudUsageGateResponse(SimpleTestCase):
+class TestUsageLimitResponse(SimpleTestCase):
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
-    @patch("products.tasks.backend.logic.services.code_usage_gate.has_tasks_access")
-    def test_missing_code_access_returns_403_before_usage_check(self, mock_access, mock_usage):
-        mock_access.return_value = False
+    def test_over_limit_response_is_structured(self, mock_usage):
+        mock_usage.return_value = CodeUsageStatus(
+            is_rate_limited=True, limit_type="burst", reset_at="2026-06-09T00:00:00Z", is_pro=False
+        )
 
-        response = cloud_usage_limit_response(MagicMock(), 1)
-
-        assert response is not None
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.data["code"], "code_access_required")
-        mock_usage.assert_not_called()
-
-    @patch("products.tasks.backend.logic.services.code_usage_gate.has_tasks_access", return_value=False)
-    def test_code_access_required_response_is_structured(self, _mock_access):
-        response = code_access_required_response(MagicMock())
+        response = usage_limit_response(MagicMock(), 1)
 
         assert response is not None
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.data["code"], "code_access_required")
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.data["code"], "usage_limit_exceeded")
+        self.assertEqual(response.data["limit_type"], "burst")
 
 
 def _make_custom_image(*, team: Team, user: User, **kwargs) -> SandboxCustomImage:

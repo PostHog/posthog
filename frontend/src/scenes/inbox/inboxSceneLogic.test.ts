@@ -52,6 +52,14 @@ describe('mergeSignalRuns', () => {
         expect(merged.map((r) => r.task_id)).toEqual(['task-ok'])
     })
 
+    it('drops signal tasks with no report link (the scout-authoring CTA threads share the origin)', () => {
+        const merged = mergeSignalRuns(
+            [],
+            [signalTask({ id: 'scout-authoring-chat', title: 'Suggest a scout', signal_report: null })]
+        )
+        expect(merged).toEqual([])
+    })
+
     it('interleaves scout and signal rows newest-first by created_at', () => {
         const merged = mergeSignalRuns(
             [scoutRun({ task_id: 'scout-old', created_at: '2026-06-10T00:00:00Z' })],
