@@ -805,7 +805,7 @@ jobs:
 
             # Start Docker early (before dependency installs) so containers can pull
             # images and initialize while we install deps. This matches the pattern
-            # used by core-tests/django and makes the later wait step nearly free.
+            # used by core-tests/django and makes the later wait step negligible.
             - name: Clean up data directories
               run: |
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
@@ -923,7 +923,7 @@ jobs:
             - name: Register Temporal search attributes
               # Some product groups (data_warehouse, batch_exports) connect to a live Temporal
               # via sync_connect() in their tests, so keep a readiness gate before tests run.
-              # By this point Temporal has warmed up in the background, so the wait is ~1-2s.
+              # By this point Temporal has warmed up in the background, so the wait is negligible.
               # data_warehouse tests use custom search attributes (PostHogTeamId, PostHogOrgId,
               # PostHogDagId) when calling schedule_materialization() → sync_saved_query_workflow(),
               # so they must be registered before tests run.
@@ -3426,7 +3426,7 @@ jobs:
 
             # Per-test failure rollup: only when a test job actually failed, download that
             # shard's JUnit so "Check dependency results" can list the failing tests. Skipped
-            # on green runs (the common case) to avoid pulling ~50 artifacts for nothing.
+            # on green runs (the common case) to avoid pulling every shard artifact for nothing.
             # continue-on-error so a flaky fetch can't fail this required gate.
             - name: Download shard JUnit results
               if: always() && (needs.django.result != 'success' || needs.turbo-tests.result != 'success')
