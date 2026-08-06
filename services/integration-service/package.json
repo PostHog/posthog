@@ -1,0 +1,47 @@
+{
+    "name": "@posthog/integration-service",
+    "version": "1.0.0",
+    "description": "PostHog integration service — serves platform integration credentials over HTTP",
+    "license": "MIT",
+    "author": "PostHog Inc.",
+    "type": "module",
+    "scripts": {
+        "build": "tsx scripts/build-integration-service.ts",
+        "dev": "tsx scripts/dev-integration-service.ts | pino-pretty --colorize --ignore pid,hostname --messageKey event --translateTime SYS:HH:MM:ss.l",
+        "test": "vitest",
+        "test:unit": "vitest run tests/unit",
+        "typecheck": "tsc --noEmit",
+        "lint": "oxlint --quiet",
+        "lint:fix": "oxlint --fix --quiet",
+        "format": "oxfmt \"./**/*.{js,mjs,ts,tsx,json,yaml,yml}\"",
+        "format:check": "oxfmt --check \"./**/*.{js,mjs,ts,tsx,json,yaml,yml}\"",
+        "fix": "pnpm lint:fix; s=$?; pnpm format && exit $s",
+        "check:deps": "tsx scripts/check-deps-allowlist.ts",
+        "check:boundary": "tsx scripts/check-import-boundary.ts"
+    },
+    "dependencies": {
+        "@aws-sdk/client-kms": "3.975.0",
+        "@aws-sdk/client-s3": "3.975.0",
+        "@aws-sdk/client-secrets-manager": "3.975.0",
+        "@aws-sdk/credential-provider-web-identity": "3.972.70",
+        "@hono/node-server": "^2.0.2",
+        "esbuild": "^0.25.11",
+        "hono": "^4.12.18",
+        "ioredis": "^5.4.1",
+        "jose": "^6.0.10",
+        "pino": "^8.6.0",
+        "prom-client": "^14.2.0"
+    },
+    "devDependencies": {
+        "@smithy/types": "^4.16.1",
+        "@types/node": "^22.17.2",
+        "oxfmt": "catalog:",
+        "oxlint": "^1.72.0",
+        "pino-pretty": "^9.1.0",
+        "tsx": "^4.20.5",
+        "typescript": "catalog:",
+        "vite-tsconfig-paths": "^5.1.4",
+        "vitest": "^3.2.4"
+    },
+    "//aws-sdk-pins": "Exact pins, not ranges. The AWS SDK ships its clients in lockstep against a matching @smithy/* tree; a floating range let client-secrets-manager drift ahead of the rest of the monorepo and the bundle failed on missing @smithy/core exports. Bump all three together."
+}
