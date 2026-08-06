@@ -701,6 +701,7 @@ export function PiSessionView({
           taskId={taskId}
           repoPath={repoPath}
           promptRecallRef={promptRecallRef}
+          hasPendingPermission={Boolean(mcpPermission)}
         />
       </Box>
       <Box
