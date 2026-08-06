@@ -118,7 +118,6 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_facet_on_attribute_returns_values(self, target, key):
-        """An attribute key of either type can be faceted and returns its values with counts."""
         result = self._facet_attr(key, target=target)
         self.assertGreater(len(result), 0)
         self.assertTrue(all(count > 0 for count in result.values()))
