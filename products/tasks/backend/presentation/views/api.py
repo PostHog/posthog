@@ -1697,7 +1697,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             dismissed=request.validated_data["dismissed"],
         )
         if error == "not_found":
-            raise NotFound("Artifact not found on this run")
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Artifact not found on this run"}).data,
+                status=status.HTTP_404_NOT_FOUND,
+            )
         if manifest is None:
             raise NotFound()
         return Response(TaskRunArtifactsDismissResponseSerializer({"artifacts": manifest}).data)

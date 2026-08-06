@@ -49564,11 +49564,8 @@ export namespace Schemas {
       storage_path: string;
       /** Timestamp when the artifact was uploaded */
       uploaded_at: string;
-      /**
-         * Timestamp when a user dismissed the artifact, or null when it is still shown.
-         * @nullable
-         */
-      dismissed_at?: string | null;
+      /** Timestamp when a user dismissed the artifact. Absent while the artifact is shown. */
+      dismissed_at?: string;
       /** Presigned download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file directly; it is time-limited and not persisted on the manifest. */
       url?: string;
     }

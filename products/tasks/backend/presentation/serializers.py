@@ -282,8 +282,7 @@ class TaskRunArtifactResponseSerializer(serializers.Serializer):
     uploaded_at = serializers.CharField(help_text="Timestamp when the artifact was uploaded")
     dismissed_at = serializers.CharField(
         required=False,
-        allow_null=True,
-        help_text="Timestamp when a user dismissed the artifact, or null when it is still shown.",
+        help_text="Timestamp when a user dismissed the artifact. Absent while the artifact is shown.",
     )
     url = serializers.URLField(
         required=False,

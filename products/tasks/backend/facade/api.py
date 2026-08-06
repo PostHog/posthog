@@ -2795,6 +2795,7 @@ def finalize_task_run_artifact_uploads(
     manifest = list(run.artifacts or [])
     artifact_prefix = f"{run.get_artifact_s3_prefix()}/"
     finalized_entries: list[dict] = []
+    new_entries: list[dict] = []
     new_storage_paths: list[str] = []
 
     for artifact in artifacts:
@@ -2835,10 +2836,21 @@ def finalize_task_run_artifact_uploads(
             metadata=artifact.get("metadata"),
         )
         manifest.append(entry)
+        new_entries.append(entry)
         finalized_entries.append(entry)
         new_storage_paths.append(storage_path)
 
-    _save_artifact_manifest(run, manifest)
+    if new_entries:
+        # Re-read the manifest under the row lock rather than writing back the snapshot taken
+        # above: verifying the uploads does S3 I/O, and a dismissal that commits in that window
+        # would be silently reverted by a blind whole-array write.
+        with transaction.atomic():
+            locked_run = TaskRun.objects.select_for_update().get(pk=run.pk)
+            new_ids = {entry["id"] for entry in new_entries}
+            merged = [entry for entry in (locked_run.artifacts or []) if entry.get("id") not in new_ids]
+            merged.extend(new_entries)
+            _save_artifact_manifest(locked_run, merged)
+
     for storage_path in new_storage_paths:
         _tag_artifact_object(run, storage_path)
 
@@ -2976,13 +2988,17 @@ def presign_task_run_artifact(
     return url, None
 
 
+def _without_dismissal(entry: dict) -> dict:
+    return {key: value for key, value in entry.items() if key != "dismissed_at"}
+
+
 def set_task_run_artifacts_dismissed(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_ids: list[str], dismissed: bool
 ) -> tuple[list[dict] | None, str | None]:
     """Mark run artifacts as dismissed, or bring them back.
 
-    Dismissal is a manifest flag rather than a delete: the object stays in storage until its TTL
-    expires, so a file dismissed by mistake can be restored.
+    Dismissal is a ``dismissed_at`` stamp on the manifest entry rather than a delete: the object
+    stays in storage until its TTL expires, so a file dismissed by mistake can be restored.
 
     Returns ``(manifest, error)``: ``(None, None)`` when the run isn't found, ``(None, "not_found")``
     when an id isn't on the run, else ``(updated_manifest, None)``.
@@ -2998,9 +3014,16 @@ def set_task_run_artifacts_dismissed(
         if not requested.issubset({entry.get("id") for entry in manifest}):
             return None, "not_found"
 
-        dismissed_at = django_timezone.now().isoformat() if dismissed else None
+        # Restoring drops the key rather than nulling it, so a manifest entry only ever carries
+        # ``dismissed_at`` while it is dismissed and the response shape stays a plain optional.
+        dismissed_at = django_timezone.now().isoformat()
         manifest = [
-            {**entry, "dismissed_at": dismissed_at} if entry.get("id") in requested else entry for entry in manifest
+            (
+                ({**entry, "dismissed_at": dismissed_at} if dismissed else _without_dismissal(entry))
+                if entry.get("id") in requested
+                else entry
+            )
+            for entry in manifest
         ]
         _save_artifact_manifest(locked_run, manifest)
 
