@@ -142,10 +142,16 @@ export function initKea({
                 // distinct codes (`read_only_blocked`, `impersonation_read_only`) and still toasts.
                 const isAccessDenied =
                     isAccessDeniedError(error) && (isLoadAction || ACCESS_DENIED_SELF_HANDLED.has(String(actionKey)))
+                // An approvals 409 is the change-request workflow doing its job: the gate answered a
+                // policy-gated change by creating a request (or finding one already pending). The
+                // approvals UI surfaces this to the user, so it is expected, customer-facing control
+                // flow — not a generic failure toast, and not a production exception to capture.
+                const isApprovalRequired = error?.status === 409
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     error?.status !== undefined &&
-                    ![200, 201, 204, 401, 409].includes(error.status) && // 401 is handled by api.ts and the userLogic, 409 is handled by approval workflow
+                    ![200, 201, 204, 401].includes(error.status) && // 401 is handled by api.ts and the userLogic
+                    !isApprovalRequired &&
                     !(isLoadAction && error.status === 403) && // 403 access denied is handled by sceneLogic gates
                     !isAccessDenied
                 ) {
@@ -190,9 +196,7 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                // A 409 here is the approval workflow doing its job (change request created, or one
-                // already pending) — expected control flow, not a production exception.
-                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status) && error?.status !== 409) {
+                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status) && !isApprovalRequired) {
                     posthog.captureException(error)
                 }
             },
