@@ -1581,7 +1581,10 @@ export type TrendsFilter = {
     detailedResultsAggregationType?: 'total' | 'average' | 'median'
     /** @default true */
     excludeBoxPlotOutliers?: boolean
-    /** @default false */
+    /** Ignored. Superseded by `dateRange.daysOfWeek`, which excludes the days from the query
+     * instead of only hiding their buckets. Still accepted so existing API clients keep working.
+     * @deprecated
+     * @default false */
     hideWeekends?: boolean
     /** @default true */
     showAnnotations?: boolean
