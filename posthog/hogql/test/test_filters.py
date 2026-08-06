@@ -8,12 +8,14 @@ from parameterized import parameterized
 from posthog.schema import (
     CohortPropertyFilter,
     DateRange,
+    ElementPropertyFilter,
     EventMetadataPropertyFilter,
     EventPropertyFilter,
     GroupPropertyFilter,
     HogQLFilters,
     HogQLPropertyFilter,
     PersonPropertyFilter,
+    RecordingPropertyFilter,
 )
 
 from posthog.hogql import ast
@@ -656,6 +658,16 @@ class TestFilters(BaseTest):
                 "hogql",
                 HogQLPropertyFilter(key="properties.x = 1", type="hogql"),
                 "SQL expression filters can't be applied through {filters(...)} bindings",
+            ),
+            (
+                "element",
+                ElementPropertyFilter(key="selector", operator="exact", value=".sign-up", type="element"),
+                "Element filters match autocaptured elements and can't be applied through {filters(...)} bindings",
+            ),
+            (
+                "recording",
+                RecordingPropertyFilter(key="visited_page", operator="icontains", value="/pricing", type="recording"),
+                "Session recording filters can't be applied through {filters(...)} bindings",
             ),
         ]
     )

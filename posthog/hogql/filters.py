@@ -425,6 +425,18 @@ class ReplaceFilters(CloningVisitor):
                 "Cohort filters can't be applied through {filters(...)} bindings, because cohort "
                 "membership is resolved per person. Remove the cohort filter from the dashboard or insight."
             )
+        if property.type == "element":
+            # Element filters match autocaptured DOM structure (selector regexes over elements_chain),
+            # which a single bound column can't reproduce.
+            raise QueryError(
+                "Element filters match autocaptured elements and can't be applied through "
+                "{filters(...)} bindings. Remove the element filter from the dashboard or insight."
+            )
+        if property.type == "recording":
+            raise QueryError(
+                "Session recording filters can't be applied through {filters(...)} bindings. "
+                "Remove the recording filter from the dashboard or insight."
+            )
 
         key = str(property.key)
         if key not in bindings:
