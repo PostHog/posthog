@@ -7,7 +7,12 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.product_analytics.backend.models.insight import Insight
 
-from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS, generate_assets
+from ee.tasks.subscriptions.subscription_utils import (
+    ASSET_GENERATION_FAILED_MESSAGE,
+    MAX_INSIGHTS,
+    generate_assets,
+    subscription_asset_error_message,
+)
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 
@@ -91,3 +96,33 @@ class TestSubscriptionsTasksUtils(APIBaseTest):
 
         assert str(e.value) == "Timed out waiting for celery task to finish"
         running_export_task.revoke.assert_called()
+
+
+class TestSubscriptionAssetErrorMessage(APIBaseTest):
+    def _asset(self, exception: str | None) -> ExportedAsset:
+        return ExportedAsset.objects.create(
+            team=self.team, insight_id=self.insight.id, export_format="image/png", exception=exception
+        )
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
+
+    def test_passes_through_non_oom_exception_text(self) -> None:
+        asset = self._asset("Unknown table 'nonexistent_table'")
+        assert subscription_asset_error_message(asset) == "Unknown table 'nonexistent_table'"
+
+    def test_replaces_out_of_memory_text_with_generic_message(self) -> None:
+        # The OOM advice is unactionable for a scheduled recipient — surface the generic message.
+        asset = self._asset(
+            "This query ran out of memory before it could finish, usually because it's scanning too much data."
+        )
+        assert subscription_asset_error_message(asset) == ASSET_GENERATION_FAILED_MESSAGE
+
+    def test_replaces_out_of_memory_regardless_of_casing(self) -> None:
+        asset = self._asset("Query Ran Out Of Memory")
+        assert subscription_asset_error_message(asset) == ASSET_GENERATION_FAILED_MESSAGE
+
+    def test_falls_back_to_generic_message_when_no_exception(self) -> None:
+        asset = self._asset(None)
+        assert subscription_asset_error_message(asset) == ASSET_GENERATION_FAILED_MESSAGE

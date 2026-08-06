@@ -34,6 +34,33 @@ def _has_asset_failed(asset: ExportedAsset) -> bool:
     return (not asset.content and not asset.content_location) or asset.exception is not None
 
 
+# Phrasings ClickHouse's MEMORY_LIMIT_EXCEEDED error can take by the time it's stored on an
+# ExportedAsset.exception (a plain string). `wrap_clickhouse_query_error` rewrites the live
+# exception into ClickHouseQueryMemoryLimitExceeded, whose default_detail is this exact text, so
+# matching it (case-insensitively, on the stable lead) covers the rendered message regardless of
+# which ClickHouse version produced the underlying error. Kept here rather than keyed off the
+# exception class because the asset only persists the string.
+_OOM_MESSAGE_MARKER = "ran out of memory"
+
+
+def _is_oom_exception_text(exception_text: str | None) -> bool:
+    return bool(exception_text) and _OOM_MESSAGE_MARKER in exception_text.lower()
+
+
+def subscription_asset_error_message(asset: ExportedAsset) -> str:
+    """Owner-facing error text for a failed subscription asset.
+
+    Out-of-memory is replaced with the generic failure message: the recipient of a scheduled
+    subscription didn't author the query behind the asset, so the stock advice to shorten the
+    date range or narrow filters is something they can't act on, and the scan size is ours to
+    fix. The original text stays on `asset.exception` (and `exception_type`) for our own logs and
+    error tracking — this only changes what we put in front of the recipient.
+    """
+    if asset.exception and not _is_oom_exception_text(asset.exception):
+        return asset.exception
+    return ASSET_GENERATION_FAILED_MESSAGE
+
+
 def generate_assets(
     resource: Union[Subscription, SharingConfiguration],
     max_asset_count: int = MAX_INSIGHTS,

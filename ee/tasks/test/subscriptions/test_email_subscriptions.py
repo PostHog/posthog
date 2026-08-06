@@ -150,6 +150,25 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         assert "AI summary:" in mocked_email_messages[0].html_body
         assert "AI summary skipped" not in mocked_email_messages[0].html_body
 
+    def test_hides_out_of_memory_cause_in_failed_asset(self, MockEmailMessage: MagicMock) -> None:
+        # The recipient didn't author the query behind a scheduled asset, so the OOM advice is
+        # unactionable — the email shows the generic failure message instead of the raw exception.
+        mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
+        oom_error = (
+            "This query ran out of memory before it could finish, usually because it's scanning too "
+            "much data. Try a shorter date range or narrower filters."
+        )
+        failed_asset = ExportedAsset.objects.create(
+            team=self.team, insight_id=self.insight.id, export_format="image/png", exception=oom_error
+        )
+
+        send_email_subscription_report("test1@posthog.com", self.subscription, [failed_asset])
+
+        body = mocked_email_messages[0].html_body
+        assert "ran out of memory" not in body
+        assert "shorter date range" not in body
+        assert "Failed to generate content" in body
+
     def test_same_recipient_gets_distinct_campaign_per_subscription(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
 
