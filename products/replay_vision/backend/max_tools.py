@@ -29,7 +29,7 @@ from products.replay_vision.backend.embeddings import (
     EMBEDDING_PRODUCT,
     OBSERVATION_EMBEDDING_MODEL,
 )
-from products.replay_vision.backend.feature_flag import is_replay_vision_enabled
+from products.replay_vision.backend.feature_flag import is_replay_vision_actions_enabled, is_replay_vision_enabled
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.vision_action import ActionMode
@@ -1282,9 +1282,17 @@ class CreateReplayVisionActionTool(ReplayVisionGatesMixin, MaxTool):
     async def _arun_impl(
         self, scanner_id: str, name: str, cadence: str = "daily", focus: str | None = None
     ) -> tuple[str, dict[str, Any]]:
-        if not await self._is_enabled():
-            return self._not_enabled()
+        # Actions sit behind their own flag, and the API 404s without it. Checking only the product flag
+        # would let Max create a scheduled job on a project that can't see or manage it.
+        if not await self._actions_enabled():
+            return "Replay Vision actions are not enabled for this project.", {"error": "not_enabled"}
         return await self._create(scanner_id, name, cadence, focus)
+
+    @database_sync_to_async
+    def _actions_enabled(self) -> bool:
+        return is_replay_vision_enabled(self._user, self._team) and is_replay_vision_actions_enabled(
+            self._user, self._team
+        )
 
     @database_sync_to_async
     def _create(self, scanner_id: str, name: str, cadence: str, focus: str | None) -> tuple[str, dict[str, Any]]:
@@ -1296,7 +1304,10 @@ class CreateReplayVisionActionTool(ReplayVisionGatesMixin, MaxTool):
         scanner = (
             ReplayScanner.objects.filter(team_id=self._team.id, id=scanner_id).first() if is_uuid(scanner_id) else None
         )
-        if scanner is None or not self.user_access_control.check_access_level_for_object(scanner, "viewer"):
+        # Editor, not viewer: an action is automation bound to the scanner, and _check_action_scanner_access
+        # object-checks the target at editor level for writes. Viewer here would let a per-scanner
+        # restriction that blocks the API be walked around through Max.
+        if scanner is None or not self.user_access_control.check_access_level_for_object(scanner, "editor"):
             return f"Scanner {scanner_id} not found.", {"error": "not_found"}
         # Through the serializer so the rrule and timezone are validated and the unique-name race is
         # handled, rather than writing a trigger_config the scheduler later chokes on.

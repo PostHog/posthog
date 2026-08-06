@@ -662,6 +662,9 @@ class TestCreateReplayVisionScannerTool(BaseTest):
         assert not await sync_to_async(ReplayScanner.objects.filter(name="too-sparse").exists)()
 
 
+_ACTIONS_FLAG_PATH = "products.replay_vision.backend.max_tools.is_replay_vision_actions_enabled"
+
+
 class TestCreateReplayVisionActionTool(BaseTest):
     def _tool(self) -> CreateReplayVisionActionTool:
         config: RunnableConfig = {"configurable": {"team": self.team, "user": self.user}}
@@ -684,7 +687,7 @@ class TestCreateReplayVisionActionTool(BaseTest):
         # context, so without it every call failed validation and the tool could never create anything.
         scanner = await sync_to_async(self._scanner)()
 
-        with patch(_FLAG_PATH, return_value=True):
+        with patch(_FLAG_PATH, return_value=True), patch(_ACTIONS_FLAG_PATH, return_value=True):
             content, artifact = await self._tool()._arun_impl(
                 scanner_id=str(scanner.id), name=f"{cadence}-summary", cadence=cadence
             )
@@ -710,8 +713,40 @@ class TestCreateReplayVisionActionTool(BaseTest):
             model=ScannerModel.GEMINI_3_6_FLASH,
         )
 
-        with patch(_FLAG_PATH, return_value=True):
+        with patch(_FLAG_PATH, return_value=True), patch(_ACTIONS_FLAG_PATH, return_value=True):
             _, artifact = await self._tool()._arun_impl(scanner_id=str(scanner.id), name="cross-team")
+
+        assert artifact["error"] == "not_found"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_refuses_when_the_actions_flag_is_off(self):
+        # The action API 404s without this flag, so Max must not be a way around it.
+        scanner = await sync_to_async(self._scanner)()
+
+        with patch(_FLAG_PATH, return_value=True), patch(_ACTIONS_FLAG_PATH, return_value=False):
+            _, artifact = await self._tool()._arun_impl(scanner_id=str(scanner.id), name="gated")
+
+        assert artifact["error"] == "not_enabled"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_requires_editor_on_the_scanner_not_just_viewer(self):
+        # An action is automation bound to the scanner. The API object-checks it at editor level, so
+        # viewer here would let a per-scanner restriction be walked around through Max.
+        scanner = await sync_to_async(self._scanner)()
+        tool = self._tool()
+
+        with (
+            patch(_FLAG_PATH, return_value=True),
+            patch(_ACTIONS_FLAG_PATH, return_value=True),
+            patch.object(type(tool), "user_access_control", new_callable=PropertyMock) as uac,
+        ):
+            # Viewer yes, editor no: exactly the grant the API refuses.
+            uac.return_value = MagicMock(
+                check_access_level_for_object=MagicMock(side_effect=lambda _s, level: level == "viewer")
+            )
+            _, artifact = await tool._arun_impl(scanner_id=str(scanner.id), name="viewer-only")
 
         assert artifact["error"] == "not_found"
 
