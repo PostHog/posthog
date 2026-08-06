@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
@@ -179,5 +180,72 @@ describe('maxGlobalLogic', () => {
                 await expectLogic(logic).toMatchValues({ effectivePhaiView: expected })
             }
         )
+    })
+
+    // Deleting the chat you're viewing must land you on a fresh chat, never on the "Conversation not
+    // found" page or a "Load conversation failed" toast. The cleanup has to be unconditional: drop the
+    // conversation locally and reset any surface bound to it, rather than trusting the URL's ?chat= param.
+    describe('deleteConversation', () => {
+        beforeEach(async () => {
+            useMocks({
+                delete: { '/api/projects/:team_id/conversations/:id/': {} },
+            })
+            // Let the mount-time history load settle, then seed a conversation deterministically.
+            await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+            logic.actions.prependOrReplaceConversation(MOCK_CONVERSATION)
+        })
+
+        it('drops the deleted conversation from history immediately, without waiting for a refetch', async () => {
+            // The list endpoint keeps returning the conversation (read-replica lag): removal must not
+            // depend on a refetch, or a re-clickable dead chat 404s into NotFound + a failure toast.
+            useMocks({ get: { '/api/environments/:team_id/conversations/': { results: [MOCK_CONVERSATION] } } })
+            expect(logic.values.conversationHistory).toHaveLength(1)
+
+            await expectLogic(logic, () => {
+                logic.actions.deleteConversation(MOCK_CONVERSATION_ID)
+            }).toFinishAllListeners()
+
+            expect(logic.values.conversationHistory).toHaveLength(0)
+        })
+
+        it.each([
+            { surface: 'side panel', panelId: SIDE_PANEL_PANEL_ID, page: '/insights/abc' },
+            { surface: 'scene URL', panelId: undefined, page: null },
+        ])('resets the $surface bound to the deleted conversation to a fresh chat', async ({ panelId, page }) => {
+            const surfaceMax = maxLogic({ panelId })
+            surfaceMax.mount()
+            if (page) {
+                router.actions.push(page)
+                surfaceMax.actions.openConversation(MOCK_CONVERSATION_ID)
+            } else {
+                router.actions.push('/ai', { chat: MOCK_CONVERSATION_ID })
+            }
+            await expectLogic(surfaceMax).toDispatchActions(['setConversationId'])
+            expect(surfaceMax.values.conversationId).toBe(MOCK_CONVERSATION_ID)
+
+            await expectLogic(surfaceMax, () => {
+                logic.actions.deleteConversation(MOCK_CONVERSATION_ID)
+            }).toDispatchActions(['startNewConversation'])
+
+            // A null conversationId is what keeps Thread from rendering <NotFound object="conversation" />.
+            expect(surfaceMax.values.conversationId).toBeNull()
+            // The scene surface owns the URL; deleting its chat must drop the ?chat= param too.
+            if (!page) {
+                expect(router.values.searchParams.chat).toBeUndefined()
+            }
+            surfaceMax.unmount()
+        })
+
+        it('keeps the conversation and surfaces an error when the delete request fails', async () => {
+            useMocks({ delete: { '/api/projects/:team_id/conversations/:id/': () => [500, {}] } })
+            const toastError = jest.spyOn(lemonToast, 'error')
+
+            await expectLogic(logic, () => {
+                logic.actions.deleteConversation(MOCK_CONVERSATION_ID)
+            }).toFinishAllListeners()
+
+            expect(logic.values.conversationHistory).toHaveLength(1)
+            expect(toastError).toHaveBeenCalledWith('Failed to delete chat')
+        })
     })
 })

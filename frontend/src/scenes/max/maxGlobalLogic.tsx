@@ -222,6 +222,9 @@ export interface maxGlobalLogicActions {
     prependOrReplaceConversation: (conversation: Conversation | ConversationDetail) => {
         conversation: Conversation | ConversationDetail
     }
+    removeConversation: (id: string) => {
+        id: string
+    }
     registerTool: (tool: ToolRegistration) => {
         tool: ToolRegistration
     }
@@ -303,6 +306,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         registerTool: (tool: ToolRegistration) => ({ tool }),
         deregisterTool: (key: string) => ({ key }),
         prependOrReplaceConversation: (conversation: ConversationDetail | Conversation) => ({ conversation }),
+        removeConversation: (id: string) => ({ id }),
         deleteConversation: (id: string) => ({ id }),
         dismissLiabilityNotice: true,
         setPhaiViewMode: (mode: PhaiViewMode) => ({ mode }),
@@ -354,6 +358,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             prependOrReplaceConversation: (state, { conversation }) => {
                 return mergeConversationHistory(state, conversation)
             },
+            removeConversation: (state, { id }) => state.filter((conversation) => conversation.id !== id),
         },
         registeredToolMap: [
             {} as Record<string, ToolRegistration>,
@@ -425,17 +430,26 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         deleteConversation: async ({ id }) => {
             try {
                 await conversationsDestroy(String(values.currentTeamIdStrict), id)
-                if (values.currentConversationId === id) {
-                    router.actions.push(urls.aiHistory())
-                }
-                for (const logic of maxLogic.findAllMounted()) {
-                    if (logic.values.conversationId === id) {
-                        logic.actions.startNewConversation()
-                    }
-                }
-                actions.loadConversationHistory()
             } catch {
                 lemonToast.error('Failed to delete chat')
+                return
+            }
+            // Drop the conversation locally right away so nothing re-renders or refetches the now-dead
+            // id (a refetch 404s and pops a "Load conversation failed" toast).
+            actions.removeConversation(id)
+            // Reset every surface bound to the deleted conversation — scene, tab, or side panel —
+            // rather than trusting the URL's ?chat= param to match. The side panel doesn't sync the URL,
+            // so a param-only guard could strand it on a "Conversation not found" page.
+            for (const logic of maxLogic.findAllMounted()) {
+                if (logic.values.conversationId === id) {
+                    logic.actions.startNewConversation()
+                }
+            }
+            // Resetting the scene instance above already rewrites the URL to a fresh chat. If the route
+            // still points at the deleted chat (e.g. no scene instance was mounted to do that), send it
+            // to a fresh chat so we never land on the not-found page.
+            if (values.currentConversationId === id) {
+                router.actions.push(urls.ai())
             }
         },
     })),
