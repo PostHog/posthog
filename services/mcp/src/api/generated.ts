@@ -15634,6 +15634,50 @@ export namespace Schemas {
       ticket_number: number;
     }
 
+    export interface ComputeRateCard {
+      /** Published compute rate-card version. */
+      version: string;
+      /** Timestamp when this rate card became effective. */
+      effective_at: string;
+      /**
+         * Timestamp when this rate card stopped applying, or null for the current version.
+         * @nullable
+         */
+      expires_at: string | null;
+      /**
+         * Published USD price per CPU core-second.
+         * @pattern ^-?\d{0,6}(?:\.\d{0,18})?$
+         */
+      cpu_usd_per_core_second: string;
+      /**
+         * Published USD price per memory GiB-second.
+         * @pattern ^-?\d{0,6}(?:\.\d{0,18})?$
+         */
+      memory_usd_per_gib_second: string;
+    }
+
+    /**
+     * * `invalid_configuration` - invalid_configuration
+     */
+    export type ErrorEnum = typeof ErrorEnum[keyof typeof ErrorEnum];
+
+
+    export const ErrorEnum = {
+      InvalidConfiguration: 'invalid_configuration',
+    } as const;
+
+    export interface ComputeRateCardsResponse {
+      /**
+         * Published compute rate cards overlapping the organization's synchronized billing period. Null means the configured rate cards are invalid; an empty list means compute pricing is inactive.
+         * @nullable
+         */
+      rate_cards: ComputeRateCard[] | null;
+      /** Set when configured compute rates are invalid and therefore omitted.
+       *
+       * * `invalid_configuration` - invalid_configuration */
+      error: ErrorEnum | null;
+    }
+
     /**
      * * `won` - won
      * * `lost` - lost

@@ -679,6 +679,49 @@ export interface LoopSkillBundlesWriteApi {
     bundles: LoopSkillBundleUploadApi[]
 }
 
+export interface ComputeRateCardApi {
+    /** Published compute rate-card version. */
+    version: string
+    /** Timestamp when this rate card became effective. */
+    effective_at: string
+    /**
+     * Timestamp when this rate card stopped applying, or null for the current version.
+     * @nullable
+     */
+    expires_at: string | null
+    /**
+     * Published USD price per CPU core-second.
+     * @pattern ^-?\d{0,6}(?:\.\d{0,18})?$
+     */
+    cpu_usd_per_core_second: string
+    /**
+     * Published USD price per memory GiB-second.
+     * @pattern ^-?\d{0,6}(?:\.\d{0,18})?$
+     */
+    memory_usd_per_gib_second: string
+}
+
+/**
+ * * `invalid_configuration` - invalid_configuration
+ */
+export type ErrorEnumApi = (typeof ErrorEnumApi)[keyof typeof ErrorEnumApi]
+
+export const ErrorEnumApi = {
+    InvalidConfiguration: 'invalid_configuration',
+} as const
+
+export interface ComputeRateCardsResponseApi {
+    /**
+     * Published compute rate cards overlapping the organization's synchronized billing period. Null means the configured rate cards are invalid; an empty list means compute pricing is inactive.
+     * @nullable
+     */
+    rate_cards: ComputeRateCardApi[] | null
+    /** Set when configured compute rates are invalid and therefore omitted.
+     *
+     * * `invalid_configuration` - invalid_configuration */
+    error: ErrorEnumApi | null
+}
+
 /**
  * @nullable
  */

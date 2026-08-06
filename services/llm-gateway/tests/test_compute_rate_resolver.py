@@ -34,16 +34,17 @@ def _response(payload: object, status_code: int = 200) -> httpx.Response:
 
 @pytest.mark.asyncio
 async def test_rates_round_trip_through_the_existing_freshness_window() -> None:
+    rate_cards: list[dict[str, object]] = [
+        {
+            "version": "2026-07-15",
+            "effective_at": "2026-07-15T00:00:00Z",
+            "expires_at": None,
+            "cpu_usd_per_core_second": "0.00001234",
+            "memory_usd_per_gib_second": "0.00000567",
+        }
+    ]
     payload = {
-        "rate_cards": [
-            {
-                "version": "2026-07-15",
-                "effective_at": "2026-07-15T00:00:00Z",
-                "expires_at": None,
-                "cpu_usd_per_core_second": "0.00001234",
-                "memory_usd_per_gib_second": "0.00000567",
-            }
-        ],
+        "rate_cards": rate_cards,
         "error": None,
     }
     redis = _FakeRedis()
@@ -54,7 +55,7 @@ async def test_rates_round_trip_through_the_existing_freshness_window() -> None:
     first = await resolver.get_rates(42, "Bearer phx_test")
     cached = await resolver.get_rates(42, "Bearer phx_test")
 
-    assert first == cached == ComputeRateStatus(rate_cards=payload["rate_cards"])
+    assert first == cached == ComputeRateStatus(rate_cards=rate_cards)
     assert redis.ttls[_redis_key(42)] == 300
     http_client.get.assert_awaited_once()
 

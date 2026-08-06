@@ -18,6 +18,7 @@ import type {
     ChannelStarWriteApi,
     ChannelWriteApi,
     CodeInviteRedeemRequestApi,
+    ComputeRateCardsResponseApi,
     ConnectionTokenResponseApi,
     LoopDTOApi,
     LoopFireResultApi,
@@ -386,6 +387,23 @@ export const loopsTriggerCreate = async (
         ...options,
         method: 'POST',
         body: JSON.stringify(loopsTriggerCreateBody),
+    })
+}
+
+export const getSandboxComputeRateCardsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/sandbox_compute_rate_cards/`
+}
+
+/**
+ * @summary Get published cloud-compute rates
+ */
+export const sandboxComputeRateCardsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ComputeRateCardsResponseApi[]> => {
+    return apiMutator<ComputeRateCardsResponseApi[]>(getSandboxComputeRateCardsListUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

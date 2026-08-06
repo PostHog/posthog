@@ -20,7 +20,7 @@ class TestComputeRateCardsAPI(APIBaseTest):
         )
 
         with patch(
-            "products.tasks.backend.presentation.views.compute_rate_cards.COMPUTE_RATE_CARDS",
+            "products.tasks.backend.facade.compute_rates.COMPUTE_RATE_CARDS",
             (rate,),
         ):
             response = self.client.get(f"/api/projects/{self.team.pk}/sandbox_compute_rate_cards/")
@@ -49,7 +49,7 @@ class TestComputeRateCardsAPI(APIBaseTest):
         )
 
         with patch(
-            "products.tasks.backend.presentation.views.compute_rate_cards.COMPUTE_RATE_CARDS",
+            "products.tasks.backend.facade.compute_rates.COMPUTE_RATE_CARDS",
             (invalid,),
         ):
             response = self.client.get(f"/api/projects/{self.team.pk}/sandbox_compute_rate_cards/")

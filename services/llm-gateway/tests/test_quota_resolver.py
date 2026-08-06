@@ -298,7 +298,7 @@ class TestQuotaResolver:
         }
         redis = _FakeRedis()
         resolver = QuotaResolver(
-            redis=redis,
+            redis=redis,  # type: ignore[arg-type]
             http_client=_make_http_client(
                 _make_response(
                     200,
@@ -331,14 +331,18 @@ class TestQuotaResolver:
                     },
                 )
             ),
-        )  # type: ignore[arg-type]
+        )
 
         first = await resolver.get_resource_status("posthog_code_credits", 42, "Bearer phx_test")
         cached = await resolver.get_resource_status("posthog_code_credits", 42, "Bearer phx_test")
 
         assert first.posthog_code_usage == breakdown
         assert cached.posthog_code_usage == breakdown
-        assert first.posthog_code_usage["token_credits"] + first.posthog_code_usage["compute_credits"] == 1301
+        token_credits = first.posthog_code_usage["token_credits"]
+        compute_credits = first.posthog_code_usage["compute_credits"]
+        assert isinstance(token_credits, int)
+        assert isinstance(compute_credits, int)
+        assert token_credits + compute_credits == 1301
         assert first.used_usd == 13.01
         assert first.limit_usd == 20.0
 

@@ -1,8 +1,6 @@
-from datetime import datetime
 from typing import Any
 
 import structlog
-import dateutil.parser
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.request import Request
@@ -10,11 +8,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.tasks.backend.logic.services.sandbox_pricing import (
-    COMPUTE_RATE_CARDS,
-    ComputeRateCardConfigurationError,
-    get_compute_rate_cards_for_period,
-)
+from products.tasks.backend.facade import compute_rates
 
 logger = structlog.get_logger(__name__)
 
@@ -55,15 +49,6 @@ class ComputeRateCardsResponseSerializer(serializers.Serializer):
     )
 
 
-def _billing_period(period: object) -> tuple[datetime | None, datetime | None]:
-    if not isinstance(period, list) or len(period) != 2:
-        return None, None
-    try:
-        return dateutil.parser.isoparse(period[0]), dateutil.parser.isoparse(period[1])
-    except (TypeError, ValueError):
-        return None, None
-
-
 @extend_schema(tags=["tasks"])
 class ComputeRateCardsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "project"
@@ -75,12 +60,7 @@ class ComputeRateCardsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         responses={200: ComputeRateCardsResponseSerializer},
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        start, end = _billing_period((self.team.organization.usage or {}).get("period"))
-        try:
-            rate_cards = get_compute_rate_cards_for_period(start, end, COMPUTE_RATE_CARDS)
-            error = None
-        except ComputeRateCardConfigurationError:
-            logger.exception("posthog_code_compute_rate_card_invalid")
-            rate_cards = None
-            error = "invalid_configuration"
-        return Response(ComputeRateCardsResponseSerializer({"rate_cards": rate_cards, "error": error}).data)
+        rates = compute_rates.get_published_compute_rates((self.team.organization.usage or {}).get("period"))
+        if rates.error:
+            logger.error("posthog_code_compute_rate_card_invalid")
+        return Response(ComputeRateCardsResponseSerializer({"rate_cards": rates.rate_cards, "error": rates.error}).data)
