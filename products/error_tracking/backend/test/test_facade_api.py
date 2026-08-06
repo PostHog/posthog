@@ -142,13 +142,14 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         attachment_url = mock_create_issue.call_args.args[0]
         assert attachment_url.endswith(f"/project/{self.team.id}/error_tracking/{issue.id}")
 
+    @override_settings(ATLASSIAN_APP_CLIENT_ID="atlassian-client-id", ATLASSIAN_APP_CLIENT_SECRET="atlassian-secret")
     @patch("products.error_tracking.backend.logic.JiraIntegration.create_issue")
     def test_create_external_reference_links_existing_issue_without_creating(self, mock_create_issue):
         issue = self._create_issue(team=self.team, name="Checkout TypeError")
         integration = Integration.objects.create(
             team=self.team,
             kind=Integration.IntegrationKind.JIRA.value,
-            config={"site_url": "https://acme.atlassian.net"},
+            config={"site_url": "https://acme.atlassian.net", "site_name": "acme"},
             sensitive_config={"access_token": "access-token"},
         )
 
@@ -157,6 +158,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
             issue_id=issue.id,
             integration_id=integration.id,
             external_context={"key": "ENG-42", "id": "10042"},
+            distinct_id=self.user.id,
         )
 
         mock_create_issue.assert_not_called()
@@ -184,6 +186,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
                 integration_id=integration.id,
                 config=config,
                 external_context=external_context,
+                distinct_id=self.user.id,
             )
 
     def test_link_existing_issue_rejects_incomplete_external_context(self):
@@ -202,6 +205,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
                 issue_id=issue.id,
                 integration_id=integration.id,
                 external_context={"repository": "posthog"},
+                distinct_id=self.user.id,
             )
 
     def test_search_external_issues_requires_repository_for_github(self):

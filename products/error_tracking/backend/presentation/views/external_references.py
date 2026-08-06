@@ -1,4 +1,5 @@
 import logging
+from typing import cast
 from uuid import UUID
 
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_serializer
@@ -197,7 +198,7 @@ class ErrorTrackingExternalReferenceViewSet(TeamAndOrgViewSetMixin, ForbidDestro
                 issue_id=issue_id,
                 integration_id=serializer.validated_data["integration_id"],
                 external_context=serializer.validated_data["external_context"],
-                distinct_id=request.user.pk,
+                distinct_id=cast(int, request.user.pk),
             )
         except ExternalReferenceValidationError as error:
             logger.warning("Failed to link external reference", exc_info=error)
