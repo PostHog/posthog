@@ -664,7 +664,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             has_unverifiable_metadata=bool(validated_data.get("mentions") or validated_data.get("slug")),
         )
 
-    def _created_response(self, serializer: CommentSerializer) -> Response:
+    def _created_response(self, serializer: serializers.BaseSerializer[Any]) -> Response:
         data = serializer.data
         return Response(data, status=status.HTTP_201_CREATED, headers=self.get_success_headers(data))
 
