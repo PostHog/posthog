@@ -1,23 +1,14 @@
-"""Suggest `campaign_name_mappings` entries for typo'd or lightly-mangled
-`utm_campaign` values.
+"""Suggest `campaign_name_mappings` entries for typo'd `utm_campaign` values.
 
-A campaign whose UTM tag is `sprng_sale_2024` while the platform calls it
-`spring_sale_2024` shows up in the audit as "not linked" with no explanation. This
-proposes the mapping that reconnects it.
+A campaign tagged `sprng_sale_2024` while the platform calls it `spring_sale_2024`
+shows up in the audit as "not linked" with no explanation. This proposes the mapping
+that reconnects it.
 
-READ THIS BEFORE TOUCHING THE THRESHOLDS. A false positive here silently
-misattributes spend and nobody notices for months — it surfaces later as "our ROAS
-numbers are wrong", by which time the mapping is ancient config nobody remembers
-adding. That asymmetry (a miss costs one unlinked campaign, a false positive
-corrupts a number people make decisions on) is why:
-
-- the score cutoff is 88, not the helper's default 70;
-- a near-tie between the top two candidates produces advice, not a guess;
-- pairs that differ only by a period token are rejected outright, however high they
-  score — `brand_us_q1` vs `brand_us_q2` scores ~96 on WRatio and is a *different
-  campaign*. Without that guard this whole module is net-negative;
-- a mapping is only ever offered alongside "fix the ad URL", which is the actual
-  cure. The mapping is a band-aid over a tagging bug in the ad platform.
+READ THIS BEFORE TOUCHING THE THRESHOLDS. The errors are not symmetric: a miss costs
+one unlinked campaign, a false positive misattributes spend into a number people make
+decisions on, and surfaces months later as "our ROAS is wrong". Hence the cutoffs
+below, the refusal to break a near-tie, and the period guard — without which this
+module is net-negative.
 
 Pure function, no queries. Feed it `get_campaigns_with_spend` and
 `get_utm_campaign_catalogue` output.
@@ -52,43 +43,35 @@ logger = structlog.get_logger(__name__)
 # Below this many events a config change isn't worth the risk of getting it wrong.
 MIN_EVENT_COUNT = 25
 
-# Only consider the top-N orphans by volume. Caps prompt/compute cost and keeps the
-# long tail of one-off test tags out of the suggestions.
+# Top-N orphans by volume, so the long tail of one-off test tags stays out.
 MAX_UNMATCHED_VALUES = 100
 
-# Far above `fuzzy_search.DEFAULT_SCORE_CUTOFF` (70), which is tuned for
-# human-in-the-loop search boxes rather than for writing config unattended.
+# Far above the helper's default 70, which is tuned for a search box with a human reading it.
 SCORE_CUTOFF = 88.0
 
-# When the runner-up is within this many points, the match is ambiguous — emit
-# advice instead of picking.
+# A runner-up this close makes the match ambiguous: emit advice instead of picking.
 MIN_MARGIN = 6.0
 
-# Without a resolvable utm_source we have to search every integration's campaigns,
-# so the bar goes up and batching is off.
+# No resolvable utm_source means searching every platform, so the bar goes up and batching is off.
 UNSCOPED_SCORE_CUTOFF = 93.0
 
 # "Apply all safe" needs near-certainty and a clear runner-up gap.
 BATCH_SCORE = 95.0
 BATCH_MARGIN = 15.0
 
-# Ranking floor used while *measuring* the margin, distinct from the acceptance cutoffs above.
-# A runner-up only makes the top candidate ambiguous if it is within MIN_MARGIN (or BATCH_MARGIN)
-# of it, so anything further below the lowest cutoff than the widest margin can never change a
-# verdict — but everything above that has to stay visible, or the near-tie it proves gets discarded
-# before it can be counted.
+# Floor for *measuring* the margin, not for accepting a match. A runner-up further below the
+# lowest cutoff than the widest margin can never change a verdict; anything above it must stay
+# visible, or the near-tie it proves is discarded before it can be counted.
 MARGIN_FLOOR = SCORE_CUTOFF - BATCH_MARGIN
 
 # How many candidates to keep per orphan. 3 is enough to measure the margin.
 TOP_N_CANDIDATES = 3
 
-# Extra candidates to rank before the period filter runs, so a quarterly family can't fill
-# every slot and hide a real match underneath it. A campaign named per quarter yields at most
-# four siblings, so four times the window clears the worst realistic case.
+# Extra candidates ranked before the period filter runs, so a quarterly family can't fill every
+# slot and hide a real match below it. Four siblings is the worst realistic case.
 CANDIDATE_HEADROOM = 4
 
-# Tokens that mean "same campaign family, different period/instance". A pair whose
-# only differences are these is a sibling, not a typo.
+# A pair differing only in these is a sibling, not a typo.
 _TOKEN_SPLIT = re.compile(r"[-_./\s+|:]+")
 _MONTHS = frozenset(
     "jan feb mar apr may jun jul aug sep oct nov dec january february march april june "
@@ -106,8 +89,8 @@ class CampaignMappingProposal:
     # PascalCase `NativeMarketingSource` value — the key team config uses.
     integration: str
     integration_display_name: str
-    # What the platform calls it, in the field this integration matches on. This is
-    # the value that has to end up equal to `match_key` for the join to work.
+    # What the platform calls it, in the field this integration matches on — this has to end up
+    # equal to `match_key` for the join to work.
     clean_name: str
     raw_utm_campaign: str
     event_count: int
@@ -141,8 +124,7 @@ class AmbiguousCampaign:
 class CampaignMappingSuggestions:
     proposals: list[CampaignMappingProposal] = field(default_factory=list)
     ambiguous: list[AmbiguousCampaign] = field(default_factory=list)
-    # Orphans considered but matched nothing above the cutoff. These are the AI
-    # layer's input: structurally-renamed campaigns edit distance can't reach.
+    # Matched nothing above the cutoff. The AI layer's input: renames edit distance can't reach.
     unresolved: list[AmbiguousCampaign] = field(default_factory=list)
     total_orphans: int = 0
     orphans_considered: int = 0
@@ -166,14 +148,10 @@ def suggest_campaign_name_mappings(
         get_match_value(campaign, mappings) for group in campaigns_by_source.values() for campaign in group
     }
 
-    # Campaigns whose match value already shows up in the catalogue are linked and
-    # working. Mapping an orphan onto one would pile a second campaign's traffic onto
-    # a row that's already attributing correctly, so they're not valid targets.
-    #
-    # Keyed by resolved source, because "already receiving traffic" is per-platform: candidates are
-    # scoped to one integration, so a global set let Meta's `brand` traffic disqualify Google's own
-    # `brand` campaign — and cross-platform name reuse (brand / retargeting / prospecting) is the
-    # norm for anyone running both. Lowercased because the lookup compares a lowercased candidate.
+    # Campaigns already in the catalogue are attributing correctly, so they aren't valid targets —
+    # mapping an orphan onto one would pile a second campaign's traffic onto a working row.
+    # Keyed per platform, not globally: cross-platform name reuse (brand / retargeting) is the norm,
+    # and a global set let Meta's `brand` traffic disqualify Google's own `brand` campaign.
     seen_by_source: dict[str, set[str]] = {}
     for utm_campaign, utm_source in utm_events:
         if not utm_campaign:
@@ -197,8 +175,7 @@ def suggest_campaign_name_mappings(
         orphans_considered=len(considered),
         notes=notes,
     )
-    # clean_name -> the utm_source already proposed for it, so two orphans arriving
-    # from different platforms can't be merged under one clean name.
+    # clean_name -> the utm_source already proposed for it, so two platforms' orphans can't merge.
     claimed_clean_names: dict[str, str] = {}
 
     for orphan in considered:
@@ -259,20 +236,14 @@ def _is_period_token(token: str) -> bool:
 def differs_only_by_period(a: str, b: str) -> bool:
     """True when the two names differ *only* in period/instance tokens.
 
-    `brand_us_q1` vs `brand_us_q2`, `sale_2024` vs `sale_2025`, `promo` vs
-    `promo_march` — same family, different run. Mapping one onto the other merges
-    two campaigns' spend, which is worse than leaving one unlinked.
+    `brand_us_q1` vs `brand_us_q2`, `sale_2024` vs `sale_2025` — same family, different run.
+    Merging their spend is worse than leaving one unlinked. Identical token multisets return
+    False: that's a separator or ordering difference, i.e. a real match.
 
-    Identical token multisets return False: that's a separator or ordering
-    difference, i.e. a real match.
-
-    Accepted false negative: this also rejects genuine typos whose only difference
-    is numeric — `spring_sale_202` vs `spring_sale_2024` (a truncation) is
-    structurally identical to `sale_2024` vs `sale_2025` (a sibling), and nothing
-    in the strings distinguishes them. Refusing both is the safe direction, and it
-    matters most for integrations matching on `campaign_id`, where a "near-miss" id
-    is usually just *another campaign's real id*. Those land in `unresolved`, which
-    is the AI layer's input — semantics can separate them, edit distance cannot.
+    Accepted false negative: a truncation like `spring_sale_202` is structurally identical to a
+    sibling, and nothing in the strings separates them. Refusing both is the safe direction, most
+    of all for id-matching integrations where a near-miss id is usually another campaign's real
+    one. Those land in `unresolved`, which semantics can rescue and edit distance cannot.
     """
     diff = (Counter(_tokens(a)) - Counter(_tokens(b))) + (Counter(_tokens(b)) - Counter(_tokens(a)))
     return bool(diff) and all(_is_period_token(token) for token in diff.elements())
@@ -288,8 +259,8 @@ def _classify(
     claimed_clean_names: dict[str, str],
     result: CampaignMappingSuggestions,
 ) -> None:
-    # A value that exactly equals some integration's match value isn't a typo, it's a
-    # cross-platform collision — campaign_field_suggester's problem, not ours.
+    # An exact match for some integration's value is a collision, not a typo — that's
+    # campaign_field_suggester's problem.
     if orphan.raw_utm_campaign in all_match_values:
         return
 
@@ -316,10 +287,8 @@ def _classify(
     )
 
     by_value: dict[str, Campaign] = {}
-    # Which platforms carry each match value. Always a single entry on the scoped path, where the
-    # candidates come from one source's group; it earns its keep unscoped, where the pool spans
-    # every integration and the "highest spend wins" tiebreak below would otherwise choose the
-    # platform on its own. See the guard on `top_value`.
+    # Which platforms carry each match value. One entry on the scoped path; it earns its keep
+    # unscoped, where the pool spans every integration — see the guard on `top_value`.
     natives_by_value: dict[str, set[str]] = {}
     for campaign in candidates:
         value = get_match_value_raw(campaign, mappings)
@@ -335,23 +304,19 @@ def _classify(
         if value not in by_value or campaign.spend > by_value[value].spend:
             by_value[value] = campaign
 
-    # Ranked WITHOUT the acceptance cutoff, because the cutoff and the margin answer different
-    # questions. The cutoff decides whether the top candidate is close enough to propose at all;
-    # the margin decides whether a *second* candidate makes that proposal a guess. Filtering by
-    # cutoff first discards exactly the runner-ups that prove ambiguity — a 90.9 top next to an
-    # 85.5 runner-up looked like a lone match with margin 100 when the real margin is 5.4.
-    #
-    # Headroom, and truncation only after the period filter: taking the top N first would let a
-    # quarterly family — which scores ~96 across every sibling — fill all N slots and bury a
-    # genuine typo match below them, reporting the orphan as unresolvable.
+    # Ranked WITHOUT the acceptance cutoff: it decides whether the top candidate is close enough
+    # to propose, while the margin decides whether a second one makes that a guess. Filtering by
+    # cutoff first discards the very runner-ups that prove ambiguity — a 90.9 top next to an 85.5
+    # runner-up read as a lone match at margin 100 when the real margin is 5.4. Truncation waits
+    # for the period filter for the same reason: a quarterly family would fill every slot.
     ranked = fuzzy_rank(
         orphan.raw_utm_campaign,
         list(by_value),
         score_cutoff=MARGIN_FLOOR,
         limit=TOP_N_CANDIDATES * CANDIDATE_HEADROOM,
     )
-    # Drop period-siblings before measuring the margin: otherwise `brand_q2` sitting
-    # at 96 next to `brand_q1` at 96 reads as "ambiguous" when it's simply not a match.
+    # Before measuring the margin, or `brand_q2` at 96 beside `brand_q1` at 96 reads as ambiguous
+    # when it simply isn't a match.
     ranked = [(value, score) for value, score in ranked if not differs_only_by_period(orphan.raw_utm_campaign, value)]
     ranked = ranked[:TOP_N_CANDIDATES]
 
@@ -395,11 +360,9 @@ def _classify(
         return
 
     # A name several platforms run — "brand", "retargeting" — is ambiguous in a way the score
-    # cannot show: every candidate is spelled identically, so the margin is 100 and the top
-    # candidate looks unrivalled. Without this the winner is `by_value`'s spend tiebreak, which
-    # means the platform the mapping is written against flips with next month's budget while the
-    # evidence stays the same. Unreachable on the scoped path — the utm_source named the platform
-    # there, which is precisely the signal that is missing here.
+    # cannot show: identical spellings tie *at* the top, so the margin reads 100. Without this the
+    # winner is the spend tiebreak, so the platform flips with next month's budget while the
+    # evidence stays put. Unreachable when scoped: there the utm_source named the platform.
     contenders = natives_by_value.get(top_value, set())
     if len(contenders) > 1:
         result.ambiguous.append(
