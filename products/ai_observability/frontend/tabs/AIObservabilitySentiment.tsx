@@ -306,6 +306,10 @@ export function AIObservabilitySentiment(): JSX.Element {
     return (
         <div data-attr="llma-sentiment-tab">
             <SentimentControls />
+            <p className="text-sm text-muted mb-3">
+                Sentiment evaluation results are ranked by score, with the strongest positive and negative results
+                first.
+            </p>
 
             {generationsLoading && generations.length === 0 ? (
                 <div className="flex items-center justify-center py-20">
@@ -320,6 +324,17 @@ export function AIObservabilitySentiment(): JSX.Element {
                 <div className="text-center py-20 text-muted">
                     <p className="text-lg font-medium mb-1">No sentiment evaluation results found</p>
                     <p className="text-sm">Try changing the date range or filters, or wait for matching generations.</p>
+                    {hasMore && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={loadMoreGenerations}
+                            className="mt-4"
+                            data-attr="llma-sentiment-load-more"
+                        >
+                            Load more
+                        </LemonButton>
+                    )}
                 </div>
             ) : (
                 <>

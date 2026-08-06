@@ -98,15 +98,20 @@ describe('sentimentQueries', () => {
     })
 
     it('builds sentiment tab rows from evaluated generations and ai_events input', async () => {
-        jest.spyOn(mockApi, 'query').mockResolvedValue({
-            results: [['generation-uuid', 'trace-1', null, 'gpt-4.1', 'distinct-1', '2026-06-23T10:00:00Z']],
-        } as any)
-        jest.spyOn(mockApi, 'queryHogQL')
+        jest.spyOn(mockApi, 'query')
+            .mockResolvedValueOnce({
+                results: [['evaluation-uuid', 'trace-1', 'generation-uuid']],
+            } as any)
             .mockResolvedValueOnce({
                 results: [
                     [
-                        'trace-1',
                         'generation-uuid',
+                        'trace-1',
+                        null,
+                        'gpt-4.1',
+                        'distinct-1',
+                        '2026-06-23T10:00:00Z',
+                        JSON.stringify([{ role: 'user', content: 'this was great' }]),
                         'positive',
                         '0.91',
                         { positive: 0.91, neutral: 0.08, negative: 0.01 },
@@ -118,13 +123,7 @@ describe('sentimentQueries', () => {
                             },
                         },
                         1,
-                        '2026-06-23T10:00:01Z',
                     ],
-                ],
-            } as any)
-            .mockResolvedValueOnce({
-                results: [
-                    ['generation-uuid', 'trace-1', JSON.stringify([{ role: 'user', content: 'this was great' }])],
                 ],
             } as any)
 
@@ -148,5 +147,43 @@ describe('sentimentQueries', () => {
                 score: 0.91,
             },
         })
+
+        expect(mockApi.query).toHaveBeenCalledTimes(2)
+        const evaluationQuery = mockApi.query.mock.calls[0][0]
+        expect(evaluationQuery.kind).toBe('HogQLQuery')
+        expect((evaluationQuery as any).query).toContain('FROM events')
+        expect((evaluationQuery as any).query).toContain("event = '$ai_evaluation'")
+        expect((evaluationQuery as any).query).toContain("properties.$ai_evaluation_runtime = 'sentiment'")
+        expect((evaluationQuery as any).query).toContain('ORDER BY toFloat(score) DESC')
+
+        const hydrationQuery = mockApi.query.mock.calls[1][0]
+        expect(hydrationQuery.kind).toBe('HogQLQuery')
+        expect((hydrationQuery as any).query).toContain('FROM posthog.ai_events')
+        expect((hydrationQuery as any).query).toContain("event = '$ai_generation'")
+        expect((hydrationQuery as any).query).toContain("trace_id IN ['trace-1']")
+    })
+
+    it('does not fall back to events when ai_events no longer retains a generation input', async () => {
+        jest.spyOn(mockApi, 'query')
+            .mockResolvedValueOnce({
+                results: [['evaluation-uuid', 'trace-1', 'generation-uuid']],
+            } as any)
+            .mockResolvedValueOnce({ results: [] } as any)
+
+        const page = await fetchSentimentGenerationsPage(
+            {
+                dateFilter: { dateFrom: '-7d', dateTo: null },
+                shouldFilterTestAccounts: false,
+                propertyFilters: [],
+            },
+            0
+        )
+
+        expect(page.rawCount).toBe(1)
+        expect(page.generations).toEqual([])
+        expect(mockApi.query).toHaveBeenCalledTimes(2)
+        expect((mockApi.query.mock.calls[0][0] as any).query).toContain('FROM events')
+        expect((mockApi.query.mock.calls[1][0] as any).query).toContain('FROM posthog.ai_events')
+        expect(mockApi.queryHogQL).not.toHaveBeenCalled()
     })
 })

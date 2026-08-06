@@ -40,10 +40,6 @@ export interface GroupedSentimentCard {
 
 export type AIObservabilitySentimentLogicProps = Record<string, never>
 
-/** Stop auto-loading once we have at least this many visible cards */
-const MIN_VISIBLE_CARDS = 50
-/** Cap how many extra pages we fetch automatically to avoid runaway API calls */
-const MAX_AUTO_LOAD_ROUNDS = 3
 // Match backend MAX_MESSAGE_CHARS (2000) so training data captures the same text window the model classified
 export const CLASSIFIER_WINDOW = 2000
 /** Number of other visible cards to sample as negative (impressed) examples per engagement */
@@ -162,7 +158,6 @@ export interface aiObservabilitySentimentLogicValues {
     hasSentimentEvaluations: boolean // sentimentEvaluationAvailabilityLogic
     sentimentEvaluationsLoading: boolean // sentimentEvaluationAvailabilityLogic
     activeFilters: Set<SentimentCategory>
-    autoLoadRounds: number
     expandedCardIds: Set<string>
     generations: SentimentGeneration[]
     generationsError: boolean
@@ -262,8 +257,7 @@ export interface aiObservabilitySentimentLogicMeta {
             generations: SentimentGeneration[],
             generationsLoading: boolean,
             generationsError: boolean,
-            hasMore: boolean,
-            autoLoadRounds: number
+            hasMore: boolean
         ) => boolean
     }
 }
@@ -351,13 +345,6 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
             {
                 setHasMore: (_, { hasMore }) => hasMore,
                 loadGenerations: () => true,
-            },
-        ],
-        autoLoadRounds: [
-            0 as number,
-            {
-                loadGenerations: () => 0,
-                loadMoreGenerations: (state: number) => state + 1,
             },
         ],
         hasLoadedOnce: [
@@ -518,7 +505,6 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
                 s.generationsLoading,
                 s.generationsError,
                 s.hasMore,
-                s.autoLoadRounds,
             ],
             (
                 hasLoadedSentimentEvaluations: boolean,
@@ -527,8 +513,7 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
                 generations: SentimentGeneration[],
                 generationsLoading: boolean,
                 generationsError: boolean,
-                hasMore: boolean,
-                autoLoadRounds: number
+                hasMore: boolean
             ): boolean =>
                 hasLoadedSentimentEvaluations &&
                 hasLoadedOnce &&
@@ -536,7 +521,7 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
                 !generationsLoading &&
                 !generationsError &&
                 generations.length === 0 &&
-                (!hasMore || autoLoadRounds >= MAX_AUTO_LOAD_ROUNDS),
+                !hasMore,
         ],
     }),
 
@@ -610,25 +595,14 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
                 if (wasAnalyzing && !stillAnalyzing && values.activeTab === 'sentiment') {
                     const totalGenerations = values.generations.length
                     const cardCount = values.sentimentCards.length
-                    const visibleCards = values.groupedSentimentCards.length
 
-                    // Auto-load more generations if we don't have enough visible cards
-                    const shouldAutoLoad =
-                        visibleCards < MIN_VISIBLE_CARDS &&
-                        values.hasMore &&
-                        values.autoLoadRounds < MAX_AUTO_LOAD_ROUNDS
-
-                    if ((totalGenerations === 0 || cardCount === 0) && !shouldAutoLoad) {
+                    if (totalGenerations === 0 || cardCount === 0) {
                         posthog.capture('llma sentiment empty state', {
                             reason: totalGenerations === 0 ? 'no_generations' : 'no_sentiment_results',
                             total_generations: totalGenerations,
                             sentiment_filter: Array.from(values.activeFilters).sort().join(','),
                             intensity_threshold: values.intensityThreshold,
                         })
-                    }
-
-                    if (shouldAutoLoad) {
-                        actions.loadMoreGenerations()
                     }
                 }
                 wasAnalyzing = stillAnalyzing

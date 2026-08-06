@@ -88,6 +88,21 @@ describe('aiObservabilitySentimentLogic', () => {
         expect(logic!.values.showSentimentEvaluationOnboarding).toBe(false)
     })
 
+    it('does not automatically load another page when more results are available', async () => {
+        mockFetchSentimentGenerationsPage.mockResolvedValue({
+            generations: [generationWithSentiment],
+            rawCount: 200,
+        })
+        mountLogics()
+
+        await expectLogic(logic!, () => {
+            logic!.actions.activate()
+        }).toFinishAllListeners()
+
+        expect(mockFetchSentimentGenerationsPage).toHaveBeenCalledTimes(1)
+        expect(logic!.values.hasMore).toBe(true)
+    })
+
     it('shows onboarding only when no configured eval and no stored sentiment rows match', async () => {
         mountLogics()
 
