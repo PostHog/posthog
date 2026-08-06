@@ -778,6 +778,8 @@ function GithubTriggerFields({
                 value={condition.path}
                 disabled={disabled}
                 placeholder="requested_team.slug"
+                // The placeholder stops naming the field as soon as someone types into it.
+                aria-label="Condition path"
                 className="h-7 flex-1"
                 onChange={(event) =>
                   updateCondition(index, { path: event.target.value })
@@ -797,7 +799,11 @@ function GithubTriggerFields({
                 variant="outline"
                 size="sm"
                 disabled={disabled}
-                aria-label="Remove condition"
+                aria-label={
+                  condition.path
+                    ? `Remove condition ${condition.path}`
+                    : "Remove condition"
+                }
                 onClick={() =>
                   setConditions(conditions.filter((_, i) => i !== index))
                 }
