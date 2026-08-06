@@ -30,7 +30,7 @@ class TestReviewUserSettingsAPI(APIBaseTest):
             "review_labeled_prs": True,
             "resolve_comments": True,
             "urgency_threshold": "consider",
-            "can_trigger_reviews": False,  # REVIEWHOG_TEAM_ID is unset in tests
+            "can_trigger_reviews": False,  # REVIEWHOG_TEAM_IDS is empty in tests
             "stamphog_connected": False,  # no synced+enabled repo config in this project
         }
         assert ReviewUserSettings.objects.for_team(self.team.id).filter(user_id=self.user.id).count() == 1

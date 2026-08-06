@@ -130,7 +130,8 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
         if repo.lower() not in ALLOWED_REPOS:
             return Response({"error": f"Repository {repo} is not allowed"}, status=status.HTTP_403_FORBIDDEN)
 
-        team_id = settings.REVIEWHOG_TEAM_ID
+        # First configured team = the one label-triggered runs execute and publish under.
+        team_id = settings.REVIEWHOG_TEAM_IDS[0] if settings.REVIEWHOG_TEAM_IDS else None
         if not team_id:
             return Response({"error": "ReviewHog team is not configured"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 

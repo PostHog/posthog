@@ -57,6 +57,34 @@ review-without-resolving / resolve-only side actions). Standalone entry: `POST /
 vocabulary: CONTEXT.md; the live-e2e qualification plan (the resolver fixes its own PR):
 `eval/experiments/2026-07-resolution-e2e/PLAN.md`.
 
+**TODO (SOON) — react to thread replies: answer and act when a human responds to an escalated (or any settled) thread.**
+The per-thread mechanics already exist and are e2e-proven: a new human comment beats the verdict watermark and
+re-opens triage for exactly that thread, standing verdicts ("SAFE TO FIX" / "E2E REQUIRED") steer the re-judged
+outcome, and everything else skips at zero cost. What's missing is the **trigger**: nothing starts a resolution
+run when the reply lands, so today the conversation only advances when someone runs `run_resolution` / the
+resolve-only action. Build the comment trigger — a `pull_request_review_comment` (created) event → the existing
+trigger API → `start_resolution_workflow` for that PR (debounced; skip when the commenter is ReviewHog itself,
+mirroring the label-trigger Action) — so replying to an escalation gets an actual answer: implement on a go-ahead,
+decline-and-say-why on a disagreement, re-escalate with the new context otherwise. Mind the known blind spot: the
+work-list only fetches **unresolved** threads, so replies on already-resolved (FIXED) threads are invisible —
+the trigger should either unresolve-on-human-reply or the fetch must include threads with comments newer than
+their verdict watermark (see the resolution e2e's F-findings).
+
+**TODO — make resolution replies concise.** The e2e's escalation replies are three-paragraph walls no human
+will read (see the `/resolve` acting-user thread on #72074). The prompt asks for "a self-contained answer the
+author can act on without opening the code" and the model over-delivers; the deep detail already has a home in
+`reasoning` (the work log). Add a hard reply shape to `thread_resolution.py`'s prompt: verdict first in one
+sentence, then at most 2–3 short supporting lines (for an escalation: exactly what a human must decide);
+everything else stays in `reasoning`.
+
+**TODO (later thoughts, cost) — let the resolver lean on the validator's work.** For ReviewHog's own threads the
+report already holds a researched `validation_verdict` per finding (argumentation, category, adjusted priority) —
+yet the resolution turn starts from just the thread text and re-investigates the same code cold in an
+opus-xhigh sandbox (~$1/turn in the e2e). No clear task yet; directions when this gets picked up: join a bot
+thread back to its finding + verdict and put that argumentation in the turn prompt as a head start, and see
+whether that shortens turns or lets bot-thread turns run a cheaper tier while human threads keep the full
+treatment.
+
 **TODO — check whether the reviewers sweep too wide, and how to move them closer to the validation bar.**
 The resolution e2e's review leg found 55 raw issues, dedup kept 48, and the validator kept **12** — a 75% kill
 rate, with every raw `must_fix` downgraded on the way through. Either the finders are paying for breadth the
