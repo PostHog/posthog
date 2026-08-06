@@ -1,5 +1,3 @@
-import re
-
 import pytest
 
 from autoevals.llm import LLMClassifier
@@ -15,7 +13,6 @@ from posthog.schema import AssistantMessage, HumanMessage
 from ee.hogai.chat_agent.slash_commands.commands.ticket.prompts import (
     SUPPORT_SUMMARIZER_SYSTEM_PROMPT,
     SUPPORT_SUMMARIZER_USER_PROMPT,
-    SUPPORT_TICKET_TOPICS,
 )
 from ee.hogai.chat_agent.slash_commands.commands.ticket.transcript import (
     customer_turns,
@@ -26,10 +23,6 @@ from ee.hogai.chat_agent.slash_commands.commands.ticket.transcript import (
 from ee.hogai.llm import MaxChatAnthropic
 
 from ..base import MaxPublicEval
-
-VALID_TOPIC_KEYS = set(re.findall(r"^- ([\w-]+):", SUPPORT_TICKET_TOPICS, re.M))
-
-TOPIC_LINE = re.compile(r"\*\*Topic:?\*\*:?\s*([\w-]+)")
 
 
 def _to_messages(conversation: list[dict[str, str]]) -> list[HumanMessage | AssistantMessage]:
@@ -53,9 +46,10 @@ read the conversation it came from afterwards. Judge whether this orients them a
 
 It should:
 1. Use only these section labels, in this order, omitting any with nothing to report:
-   **Reported issue:**, **Details provided:**, **Checked by the customer:**, **Not yet answered:**, **Topic:**
+   **Reported issue:**, **Details provided:**, **Checked by the customer:**
 2. Open with a verbatim quote of how the customer described the problem
-3. Record what the customer said, not what PostHog AI found, suggested, or concluded
+3. Record what the customer said, not what PostHog AI found, suggested, asked or concluded. Its
+   answer to a question the customer actually asked may appear, but only as "the customer was told"
 4. Carry no diagnosis of its own, and repeat no PostHog AI diagnosis as if it were established
 5. Write in third person, calling them "the customer"
 6. Put one line per item under the list sections, with no narration between them
@@ -71,8 +65,9 @@ What this summary should contain:
 
 Choose one:
 - pass: right sections, leads with the customer's words, records their side, no invented diagnosis
-- fail: narrates what PostHog AI did, carries its own or PostHog AI's diagnosis, wrong or missing
-  sections, first person, pads sections it has nothing to report, or misses the actual issue""",
+- fail: narrates what PostHog AI did, carries its own or PostHog AI's diagnosis, lists steps for
+  anyone to take, wrong or missing sections, first person, pads sections it has nothing to report,
+  or misses the actual issue""",
             choice_scores={"pass": 1.0, "fail": 0.0},
             model="gpt-4.1",
             **kwargs,
@@ -97,21 +92,6 @@ class QuoteFidelity(ScorerWithPartial):
             score=(len(spans) - len(bad)) / len(spans),
             metadata={"quotes": len(spans), "unverifiable": bad},
         )
-
-
-class ResolvableTopic(ScorerWithPartial):
-    """The Topic line must carry a key from the prompt's list, or be absent so the form can fall back.
-
-    This catches a key the model invented. It cannot catch the prompt's list drifting from the
-    frontend's TARGET_AREA_OPTIONS, which is the other way a key ends up unresolvable.
-    """
-
-    def _run_eval_sync(self, output, expected, **kwargs):
-        match = TOPIC_LINE.search(output or "")
-        if match is None:
-            return Score(name=self._name(), score=None, metadata={"reason": "no topic line"})
-        key = match.group(1)
-        return Score(name=self._name(), score=1.0 if key in VALID_TOPIC_KEYS else 0.0, metadata={"key": key})
 
 
 @pytest.fixture
@@ -148,7 +128,7 @@ async def eval_ticket_summary(call_summarizer, pytestconfig):
     await MaxPublicEval(
         experiment_name="ticket_summary",
         task=call_summarizer,
-        scores=[TicketSummaryQuality(), QuoteFidelity(), ResolvableTopic()],
+        scores=[TicketSummaryQuality(), QuoteFidelity()],
         data=[
             EvalCase(
                 input=[
@@ -179,7 +159,7 @@ async def eval_ticket_summary(call_summarizer, pytestconfig):
                         "content": "/ticket I switched on the inbox and self drive last week. I mistakinly pointed it at our tracker and a change got approved that was allready done elsewhere. I rolled it back. I would like to ask about getting the charge refunded.",
                     },
                 ],
-                expected="A refund request for a per-change Signals charge, quoting the customer. Their spellings mistakenly, mistakinly and allready must survive exactly wherever quoted, and no quote may mix words from their two separate messages. Topic signals or billing.",
+                expected="A refund request for a per-change Signals charge, quoting the customer. Their spellings mistakenly, mistakinly and allready must survive exactly wherever quoted, and no quote may mix words from their two separate messages.",
             ),
             EvalCase(
                 input=[
@@ -193,7 +173,7 @@ async def eval_ticket_summary(call_summarizer, pytestconfig):
                     },
                     {"role": "human", "content": "/ticket"},
                 ],
-                expected="The proxy hostname, the awaiting_validation certificate state quoted from the customer, that CNAME, CAA and HTTP-01 passed before, and that they already rebuilt the proxy once. PostHog AI's DNS only suggestion must not appear as something the customer said or checked. Topic platform_addons.",
+                expected="The proxy hostname, the awaiting_validation certificate state quoted from the customer, that CNAME, CAA and HTTP-01 passed before, and that they already rebuilt the proxy once. PostHog AI's DNS only suggestion must not appear as something the customer said or checked.",
             ),
             EvalCase(
                 input=[
@@ -218,7 +198,7 @@ async def eval_ticket_summary(call_summarizer, pytestconfig):
                         "content": "/ticket hi support, im getting Austrian flags where I expect German ones, testing on example.com. no proxy or vpn here and I assumed it reads my IP in Hamburg. why is the recording list showing the wrong one. makes me wonder if the rst of the flags are guesswork too.",
                     },
                 ],
-                expected="Only the wrong country flag on session recordings. The opening turn about finding Data management is not the issue and should not appear. The customer's im, shows shows and rst must survive verbatim wherever quoted. Topic session_replay.",
+                expected="Only the wrong country flag on session recordings. The opening turn about finding Data management is not the issue and should not appear. The customer's im, shows shows and rst must survive verbatim wherever quoted.",
             ),
             EvalCase(
                 input=[
@@ -232,7 +212,7 @@ async def eval_ticket_summary(call_summarizer, pytestconfig):
                     },
                     {"role": "human", "content": "/ticket"},
                 ],
-                expected="A request to move a warehouse connection off the unsupported vendor API v1 to v2, quoting the product warning the customer pasted. The same fact must not be restated as three separate detail lines. Topic data_warehouse.",
+                expected="A request to move a warehouse connection off the unsupported vendor API v1 to v2, quoting the product warning the customer pasted. The same fact must not be restated as three separate detail lines.",
             ),
             EvalCase(
                 input=[
@@ -259,7 +239,7 @@ async def eval_ticket_summary(call_summarizer, pytestconfig):
                     {"role": "assistant", "content": "I cannot find a documented setting for it."},
                     {"role": "human", "content": "/ticket"},
                 ],
-                expected="The automation error text quoted from the customer, the id 7bd10099, and that they looked for the setting and came up empty. It must not assert this is a bug in automations, since only PostHog AI speculated that. Topic workflows.",
+                expected="The automation error text quoted from the customer, the id 7bd10099, and that they looked for the setting and came up empty. It must not assert this is a bug in automations, since only PostHog AI speculated that.",
             ),
             EvalCase(
                 input=[
@@ -280,7 +260,7 @@ async def eval_ticket_summary(call_summarizer, pytestconfig):
                     },
                     {"role": "human", "content": "/ticket"},
                 ],
-                expected="The jittering panel on the Summary tab, quoted from the customer. The earlier PostHog AI Support Ticket Summary in the conversation is PostHog AI's own output and must not be treated as something the customer said. Any gaps listed should be ones actually left open in the conversation, not a generic triage checklist.",
+                expected="The jittering panel on the Summary tab, quoted from the customer. The earlier PostHog AI Support Ticket Summary in the conversation is PostHog AI's own output and must not be treated as something the customer said.",
             ),
             EvalCase(
                 input=[
@@ -299,7 +279,7 @@ async def eval_ticket_summary(call_summarizer, pytestconfig):
                     },
                     {"role": "human", "content": "/ticket"},
                 ],
-                expected="The customer asking whether events dropped while a billing limit was reached arrive after adding a card. It must record that the customer was already told those events cannot be recovered, since support needs that before replying. Topic billing.",
+                expected="The customer asking whether events dropped while a billing limit was reached arrive after adding a card. It must record that the customer was already told those events cannot be recovered, since support needs that before replying.",
             ),
             EvalCase(
                 input=[
@@ -321,7 +301,7 @@ async def eval_ticket_summary(call_summarizer, pytestconfig):
                     },
                     {"role": "human", "content": "/ticket"},
                 ],
-                expected="A server error when loading the data warehouse sources page. The error text must be quoted with the customer's own spelling occured, not corrected to occurred. Topic data_warehouse.",
+                expected="A server error when loading the data warehouse sources page. The error text must be quoted with the customer's own spelling occured, not corrected to occurred.",
             ),
             EvalCase(
                 input=[
