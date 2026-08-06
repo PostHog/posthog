@@ -3201,6 +3201,25 @@ class JiraIntegration:
         except Exception:
             logger.warning("JiraIntegration: token refresh pre-check failed", exc_info=True)
 
+    def _raise_create_issue_error(self, response: requests.Response, response_body: Any) -> NoReturn:
+        properties: dict[str, Any] = {
+            "jira_status_code": response.status_code,
+            "jira_response_content_type": response.headers.get("Content-Type"),
+            "integration_id": self.integration.id,
+            "team_id": self.integration.team_id,
+        }
+        if isinstance(response_body, dict):
+            properties.update(
+                {
+                    "jira_error_messages": response_body.get("errorMessages"),
+                    "jira_field_errors": response_body.get("errors"),
+                    "jira_response_keys": list(response_body.keys()),
+                }
+            )
+
+        capture_exception(Exception("Jira issue creation failed"), additional_properties=properties)
+        raise ValidationError("Could not create the Jira issue. Check the project's issue settings and try again.")
+
     def list_projects(self) -> list[dict]:
         """List all Jira projects accessible to the user"""
         cloud_id = self.cloud_id()
@@ -3263,8 +3282,18 @@ class JiraIntegration:
             timeout=10,
         )
 
-        issue = response.json()
-        return {"key": issue.get("key", ""), "id": issue.get("id", "")}
+        try:
+            issue = response.json()
+        except ValueError:
+            issue = None
+
+        if response.status_code != 201:
+            self._raise_create_issue_error(response, issue)
+
+        if not isinstance(issue, dict) or not issue.get("key"):
+            self._raise_create_issue_error(response, issue)
+
+        return {"key": issue["key"], "id": issue.get("id", "")}
 
 
 # Default branches change rarely; a multi-hour TTL is plenty to avoid hitting
