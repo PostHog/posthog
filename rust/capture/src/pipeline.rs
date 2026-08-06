@@ -202,6 +202,14 @@ pub fn resolve(
                 AddressDecision::lane(Pipeline::Ai, Lane::Main, OrderingGuarantee::PerDistinctId)
             }
         }
+        // Single-lane pipelines: capture has no overflow topic for warnings,
+        // heatmaps, or error tracking, so `Lane::Overflow` is never resolved
+        // for them. Error tracking is the only one of the three that can
+        // actually carry overflow intent — an error-tracking-scoped
+        // ForceOverflow restriction stamps `force_overflow` on an exception
+        // event — and the stamp is deliberately ignored here; the event
+        // publishes to main. Warnings and heatmaps flow through event
+        // restrictions unrestricted (no restriction pipeline covers them).
         DataType::ClientIngestionWarning => AddressDecision::lane(
             Pipeline::Warnings,
             Lane::Main,
@@ -316,6 +324,28 @@ mod tests {
             d.address,
             lane(pipeline, expected_lane),
             "wrong address for {data_type:?}"
+        );
+    }
+
+    /// The single-lane pipelines have no overflow lane to give: stamped
+    /// overflow intent (an error-tracking-scoped ForceOverflow restriction is
+    /// the reachable case) must resolve to main, not to an overflow address
+    /// no output backs.
+    #[rstest]
+    #[case(DataType::ClientIngestionWarning, Pipeline::Warnings)]
+    #[case(DataType::HeatmapMain, Pipeline::Heatmaps)]
+    #[case(DataType::ExceptionErrorTracking, Pipeline::ErrorTracking)]
+    fn single_lane_pipelines_ignore_overflow_intent(
+        #[case] data_type: DataType,
+        #[case] pipeline: Pipeline,
+    ) {
+        let mut m = meta(data_type);
+        m.force_overflow = true;
+        m.overflow_reason = Some(OverflowReason::ForceLimited);
+        assert_eq!(
+            resolve(&m, true).unwrap().address,
+            lane(pipeline, Lane::Main),
+            "overflow intent must not move {data_type:?} off its main lane"
         );
     }
 
