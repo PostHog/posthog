@@ -389,6 +389,29 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         payload["item_id"] = "not-on-visible-task"
         assert self.client.post(f"/api/projects/{self.team.id}/comments", payload).status_code == 403
 
+    def test_private_task_comment_thread_is_invisible_to_other_users(self) -> None:
+        other = User.objects.create_and_join(self.organization, "private-thread-owner@posthog.com", "password")
+        task = self._task_artifact_target(public=False, creator=other)
+        root = Comment.objects.create(
+            team=self.team,
+            created_by=other,
+            scope="task",
+            item_id=str(task.id),
+            content="Private root",
+        )
+        Comment.objects.create(
+            team=self.team,
+            created_by=other,
+            scope="task",
+            item_id=str(task.id),
+            source_comment=root,
+            content="Private reply",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/comments/{root.id}/thread")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_canvas_comments_use_the_relational_canvas_owner(self) -> None:
         task = self._task_artifact_target()
         channel = task.channel
@@ -440,6 +463,38 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         other_task = self._task_artifact_target()
         payload["item_context"]["taskId"] = str(other_task.id)
         assert self.client.post(f"/api/projects/{self.team.id}/comments", payload).status_code == 403
+
+    def test_canvas_comments_respect_personal_channel_visibility(self) -> None:
+        task = self._task_artifact_target()
+        other = User.objects.create_and_join(self.organization, "private-canvas-owner@posthog.com", "password")
+        channel_model = apps.get_model("tasks", "Channel")
+        channel = channel_model.objects.unscoped().create(
+            team=self.team,
+            name="private-canvas",
+            channel_type="personal",
+            created_by=other,
+        )
+        canvas_model = apps.get_model("canvas", "Canvas")
+        canvas = canvas_model.objects.unscoped().create(
+            team=self.team,
+            channel=channel,
+            name="Private canvas",
+            created_by=other,
+            generation_task_id=task.id,
+        )
+        payload = {
+            "content": "Should not land",
+            "scope": "desktop_canvas",
+            "item_id": str(canvas.id),
+            "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+        }
+
+        assert self.client.post(f"/api/projects/{self.team.id}/comments", payload).status_code == 403
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas.id}&task_id={task.id}"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == []
 
     def test_comment_without_a_mention_notifies_the_task_owner(self) -> None:
         task = self._task_artifact_target()

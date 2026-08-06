@@ -120,12 +120,12 @@ def _record_task_comment_activity(
     if comment.scope not in {"task", "task_artifact", "desktop_canvas"}:
         return
 
+    owner_id = None
     try:
         from products.tasks.backend.facade.api import (  # noqa: PLC0415 — keeps the generic comments API decoupled from the tasks product
             record_comment_activity,
         )
 
-        owner_id = None
         if comment.scope == "desktop_canvas" and comment.item_id:
             from products.canvas.backend.comment_access import canvas_owner_id  # noqa: PLC0415
 
@@ -203,6 +203,7 @@ def _task_comment_target_is_accessible(
         return False
     return canvas_belongs_to_task(
         team_id=team_id,
+        user_id=user_id,
         canvas_id=item_id,
         task_id=parsed_task_id,
     )
@@ -822,6 +823,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
 
     @action(methods=["GET"], detail=True)
     def thread(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        self.get_object()
         return self.list(request, *args, **kwargs)
 
     @action(methods=["GET"], detail=False)
