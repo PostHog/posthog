@@ -72,6 +72,7 @@ class QuotaResourceStatus:
     # synced numbers. None means unknown (unsynced org, fail-open) — never $0.
     used_usd: float | None = None
     limit_usd: float | None = None
+    posthog_code_usage: dict[str, object] | None = None
 
 
 def _optional_number(value: object) -> float | None:
@@ -209,6 +210,9 @@ class QuotaResolver:
             code_usage_billing_active=bool(data.get("code_usage_billing_active")),
             used_usd=_credits_to_usd(resource.get("usage")),
             limit_usd=_credits_to_usd(resource.get("limit")),
+            posthog_code_usage=data.get("posthog_code_usage")
+            if isinstance(data.get("posthog_code_usage"), dict)
+            else None,
         ), self._cache_ttl
 
     async def _get_cached(self, resource_key: str, team_id: int) -> QuotaResourceStatus | None:
@@ -226,6 +230,9 @@ class QuotaResolver:
                 code_usage_billing_active=bool(payload.get("code_usage_billing_active")),
                 used_usd=_optional_number(payload.get("used_usd")),
                 limit_usd=_optional_number(payload.get("limit_usd")),
+                posthog_code_usage=payload.get("posthog_code_usage")
+                if isinstance(payload.get("posthog_code_usage"), dict)
+                else None,
             )
         except Exception:
             logger.debug("quota_cache_read_failed", resource=resource_key, team_id=team_id)
@@ -241,6 +248,11 @@ class QuotaResolver:
                     "code_usage_billing_active": status.code_usage_billing_active,
                     "used_usd": status.used_usd,
                     "limit_usd": status.limit_usd,
+                    **(
+                        {"posthog_code_usage": status.posthog_code_usage}
+                        if status.posthog_code_usage is not None
+                        else {}
+                    ),
                 }
             )
             await self._redis.set(_redis_key(resource_key, team_id), payload, ex=ttl)

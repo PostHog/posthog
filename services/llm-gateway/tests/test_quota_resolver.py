@@ -284,6 +284,42 @@ class TestQuotaResolver:
         assert http_client.get.await_count == 1
 
     @pytest.mark.asyncio
+    async def test_component_integers_and_rates_round_trip_through_cache(self) -> None:
+        breakdown = {
+            "token_credits": 1234,
+            "token_used_usd": "12.34",
+            "compute_credits": 67,
+            "compute_used_usd": "0.67",
+            "cpu_millicore_seconds": 9_876_543_210,
+            "memory_mib_seconds": 7_654_321_098,
+            "cpu_cost_microusd": 123_456_789,
+            "memory_cost_microusd": 98_765_432,
+            "rate_cards": [{"version": "2026-07-15", "effective_at": "2026-07-15T00:00:00+00:00"}],
+            "rate_card_error": None,
+        }
+        redis = _FakeRedis()
+        resolver = QuotaResolver(
+            redis=redis,
+            http_client=_make_http_client(
+                _make_response(
+                    200,
+                    {
+                        "limited": {"posthog_code_credits": {"limited": False, "usage": 1301, "limit": 2000}},
+                        "posthog_code_usage": breakdown,
+                    },
+                )
+            ),
+        )  # type: ignore[arg-type]
+
+        first = await resolver.get_resource_status("posthog_code_credits", 42, "Bearer phx_test")
+        cached = await resolver.get_resource_status("posthog_code_credits", 42, "Bearer phx_test")
+
+        assert first.posthog_code_usage == breakdown
+        assert cached.posthog_code_usage == breakdown
+        assert first.used_usd == 13.01
+        assert first.limit_usd == 20.0
+
+    @pytest.mark.asyncio
     async def test_fetches_and_parses_unlimited_response(self) -> None:
         http_client = _make_http_client(
             _make_response(200, {"team_id": 1, "limited": {"ai_credits": {"limited": False}}})
