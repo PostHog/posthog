@@ -162,6 +162,9 @@ export interface aiFirstHomepageLogicActions {
     setQuery: (query: string) => {
         query: string
     }
+    typeQuery: (query: string) => {
+        query: string
+    }
     setSelectedCapability: (key: string | null) => {
         key: string | null
     }
@@ -243,6 +246,9 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         startHandsFreeChat: true,
         enterAiMode: (trigger: string) => ({ trigger }),
         setQuery: (query: string) => ({ query }),
+        // Like setQuery, but driven by the suggestion typewriter — keeps the selected capability so the
+        // cards stay mounted (and the animation running) while text types into the input.
+        typeQuery: (query: string) => ({ query }),
         setAnimationPhase: (phase: AnimationPhase) => ({ phase }),
         returnToIdle: true,
         setPreviousHomepage: (tab: SceneTab | null) => ({ tab }),
@@ -281,6 +287,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             '',
             {
                 setQuery: (_, { query }) => query,
+                typeQuery: (_, { query }) => query,
                 returnToIdle: () => '',
             },
         ],
@@ -301,6 +308,10 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             null as string | null,
             {
                 setSelectedCapability: (_, { key }) => key,
+                // A user editing the input (typing, clearing, or Escape) drops the badge selection so no
+                // stale capability is left sitting behind the collapsed block. The typewriter uses
+                // typeQuery instead, which is absent here, so the cards survive while it types.
+                setQuery: () => null,
                 submitQuery: () => null,
                 returnToIdle: () => null,
             },
@@ -398,6 +409,11 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
 
     listeners(({ actions, values }) => ({
         setQuery: ({ query }) => {
+            if (values.mode === 'idle') {
+                actions.setChatDraftForTab(HOMEPAGE_IDLE_DRAFT_KEY, query)
+            }
+        },
+        typeQuery: ({ query }) => {
             if (values.mode === 'idle') {
                 actions.setChatDraftForTab(HOMEPAGE_IDLE_DRAFT_KEY, query)
             }

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { IconArrowRight, IconClock, IconInfo, IconLock, IconMicrophone, IconPin, IconStar } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
+import { Fade } from 'lib/components/Fade/Fade'
 import { Search } from 'lib/components/Search/Search'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -535,7 +536,7 @@ function IdleGrid(): JSX.Element {
 
 export function HomepageInput(): JSX.Element {
     const { mode, query, capabilities, selectedCapability } = useValues(aiFirstHomepageLogic)
-    const { setQuery, submitQuery, setSelectedCapability, setFillInHint } = useActions(aiFirstHomepageLogic)
+    const { typeQuery, submitQuery, setSelectedCapability, setFillInHint } = useActions(aiFirstHomepageLogic)
     const { user } = useValues(userLogic)
 
     const selectedCapabilityData = capabilities.find((capability) => capability.key === selectedCapability) ?? null
@@ -571,19 +572,23 @@ export function HomepageInput(): JSX.Element {
                                 className="w-full shrink-0 overflow-hidden"
                                 style={{ height: CAPABILITY_CARDS_HEIGHT_PX }}
                             >
-                                {selectedCapabilityData ? (
-                                    <CapabilitySuggestions
-                                        capability={selectedCapabilityData}
-                                        onType={setQuery}
-                                        onSubmit={() => submitQuery('ai')}
-                                        onFillIn={(hint) => {
-                                            setFillInHint(hint)
-                                            document.querySelector<HTMLElement>('#homepage-input')?.focus()
-                                        }}
-                                    />
-                                ) : (
-                                    <IdleGrid />
-                                )}
+                                {/* Keyed so each selection change remounts and replays the fade — the swap
+                                    visibly arrives instead of teleporting into an identical-size box. */}
+                                <Fade visible key={selectedCapability ?? '__recents__'} className="h-full">
+                                    {selectedCapabilityData ? (
+                                        <CapabilitySuggestions
+                                            capability={selectedCapabilityData}
+                                            onType={typeQuery}
+                                            onSubmit={() => submitQuery('ai')}
+                                            onFillIn={(hint) => {
+                                                setFillInHint(hint)
+                                                document.querySelector<HTMLElement>('#homepage-input')?.focus()
+                                            }}
+                                        />
+                                    ) : (
+                                        <IdleGrid />
+                                    )}
+                                </Fade>
                             </div>
                         </div>
                     </div>

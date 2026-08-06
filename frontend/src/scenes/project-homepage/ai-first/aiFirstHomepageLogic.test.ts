@@ -75,4 +75,19 @@ describe('aiFirstHomepageLogic', () => {
         // The prompt rides along as `ask`, which the new surface's composer seeds and submits.
         expect(router.values.searchParams.ask).toEqual(sandboxFlagOn ? 'what is my dau' : undefined)
     })
+
+    // The badge selection drives which panel the swap area shows. A user editing the input drops it
+    // (so no stale capability sits behind the collapsed block), but the suggestion typewriter types via
+    // typeQuery, which must keep it so the cards stay mounted while the animation runs.
+    it.each([
+        ['setQuery (user editing)', 'setQuery' as const, null],
+        ['typeQuery (typewriter)', 'typeQuery' as const, 'analyze'],
+    ])('%s vs the selected capability', (_case, action, expected) => {
+        logic.actions.setSelectedCapability('analyze')
+        expect(logic.values.selectedCapability).toEqual('analyze')
+
+        logic.actions[action]('what is my')
+        expect(logic.values.query).toEqual('what is my')
+        expect(logic.values.selectedCapability).toEqual(expected)
+    })
 })

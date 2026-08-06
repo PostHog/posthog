@@ -62,7 +62,9 @@ export function CapabilityBadges({
                     type="secondary"
                     active={selectedKey === capability.key}
                     icon={badgeIcon(capability)}
-                    onClick={() => onSelect(selectedKey === capability.key ? null : capability.key)}
+                    // Behaves like a tab: selecting sticks. Re-clicking the active badge keeps it
+                    // selected rather than silently reverting to the recents grid (a click that reads as dead).
+                    onClick={() => onSelect(capability.key)}
                     data-attr={`capability-badge-${capability.key}`}
                 >
                     {capability.label}
