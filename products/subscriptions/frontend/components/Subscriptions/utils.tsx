@@ -87,13 +87,62 @@ export const weekdayOptions = [
 ] satisfies LemonSelectOptionLeaf<WeekdayType>[]
 
 export const ALL_DAYS = weekdayOptions.map(({ value }) => value)
+export const WEEKDAY_DAYS = ALL_DAYS.slice(0, 5)
+export const WEEKEND_DAYS = ALL_DAYS.slice(5)
+
 export const weekdayInputOptions = weekdayOptions.map(({ value, label }) => ({
     key: value,
     value,
     label,
 }))
 
-export const WEEKDAYS: Set<string> = new Set(['monday', 'tuesday', 'wednesday', 'thursday', 'friday'])
+export const WEEKDAYS: Set<string> = new Set(WEEKDAY_DAYS)
+
+export type DayPickerValue = WeekdayType | 'all_days' | 'weekdays' | 'weekends' | 'custom'
+
+export const dayPickerOptions: LemonSelectOptions<DayPickerValue> = [
+    { value: 'all_days', label: 'every day' },
+    { value: 'weekdays', label: 'weekdays' },
+    { value: 'weekends', label: 'weekend only' },
+    ...weekdayOptions,
+]
+
+function hasSameDays(selectedDays: WeekdayType[], presetDays: WeekdayType[]): boolean {
+    const selectedSet = new Set(selectedDays)
+    return selectedSet.size === presetDays.length && presetDays.every((day) => selectedSet.has(day))
+}
+
+export function selectedDaysToDayPickerValue(selectedDays: WeekdayType[]): DayPickerValue {
+    if (hasSameDays(selectedDays, ALL_DAYS)) {
+        return 'all_days'
+    }
+    if (hasSameDays(selectedDays, WEEKDAY_DAYS)) {
+        return 'weekdays'
+    }
+    if (hasSameDays(selectedDays, WEEKEND_DAYS)) {
+        return 'weekends'
+    }
+    if (selectedDays.length === 1) {
+        return selectedDays[0]
+    }
+    return 'custom'
+}
+
+export function dayPickerValueToSelectedDays(value: DayPickerValue | null): WeekdayType[] {
+    if (value === 'all_days') {
+        return [...ALL_DAYS]
+    }
+    if (value === 'weekdays') {
+        return [...WEEKDAY_DAYS]
+    }
+    if (value === 'weekends') {
+        return [...WEEKEND_DAYS]
+    }
+    if (value === null || value === 'custom') {
+        return []
+    }
+    return [value]
+}
 
 export const monthlyWeekdayOptions: LemonSelectOptions<
     'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday' | 'day' | 'weekday'

@@ -45,6 +45,8 @@ import { subscriptionLogic } from '../subscriptionLogic'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import {
     bysetposOptions,
+    dayPickerOptions,
+    dayPickerValueToSelectedDays,
     frequencyOptionsPlural,
     frequencyOptionsSingular,
     getAiSubscriptionGate,
@@ -53,6 +55,7 @@ import {
     monthlyWeekdayOptions,
     targetTypeOptions,
     timeOptions,
+    selectedDaysToDayPickerValue,
     weekdayInputOptions,
     weekdayOptions,
     WEEKDAYS,
@@ -660,6 +663,21 @@ function EditSubscriptionForm({
                                             <LemonField name="byweekday">
                                                 {({ value, onChange }) => {
                                                     const selectedDays = value ?? []
+                                                    const dayPickerValue = selectedDaysToDayPickerValue(selectedDays)
+
+                                                    if (dayPickerValue !== 'custom') {
+                                                        return (
+                                                            <LemonSelect
+                                                                dropdownMatchSelectWidth={false}
+                                                                options={dayPickerOptions}
+                                                                value={dayPickerValue}
+                                                                onChange={(val) =>
+                                                                    onChange(dayPickerValueToSelectedDays(val))
+                                                                }
+                                                            />
+                                                        )
+                                                    }
+
                                                     return (
                                                         <LemonInputSelect
                                                             mode="multiple"

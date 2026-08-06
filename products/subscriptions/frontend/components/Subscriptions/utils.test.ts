@@ -1,4 +1,32 @@
-import { getAiSubscriptionGate, getNextDeliveryDate } from './utils'
+import {
+    dayPickerValueToSelectedDays,
+    getAiSubscriptionGate,
+    getNextDeliveryDate,
+    selectedDaysToDayPickerValue,
+} from './utils'
+
+describe('day picker values', () => {
+    it.each([
+        ['every day', ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'], 'all_days'],
+        ['weekdays', ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'], 'weekdays'],
+        ['weekend only', ['saturday', 'sunday'], 'weekends'],
+        ['a single day', ['wednesday'], 'wednesday'],
+        ['custom days', ['monday', 'wednesday'], 'custom'],
+    ] as const)('displays %s for selected days', (_label, selectedDays, expected) => {
+        expect(selectedDaysToDayPickerValue([...selectedDays])).toBe(expected)
+    })
+
+    it.each([
+        ['all_days', ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']],
+        ['weekdays', ['monday', 'tuesday', 'wednesday', 'thursday', 'friday']],
+        ['weekends', ['saturday', 'sunday']],
+        ['wednesday', ['wednesday']],
+        ['custom', []],
+        [null, []],
+    ] as const)('stores concrete days for %s', (value, expected) => {
+        expect(dayPickerValueToSelectedDays(value)).toEqual(expected)
+    })
+})
 
 describe('getNextDeliveryDate', () => {
     beforeEach(() => {
