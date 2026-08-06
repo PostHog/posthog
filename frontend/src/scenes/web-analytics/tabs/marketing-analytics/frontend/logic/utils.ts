@@ -336,7 +336,10 @@ function buildConversionExpr(
 
 const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
     GoogleAds: {
-        idField: 'id',
+        // Google Ads flattens `campaign.id` to `campaign_id` on both the campaign and
+        // stats tables (see GoogleAdsAdapter._campaign_stats_fk_column) — the stats
+        // table has no bare `id` column.
+        idField: 'campaign_id',
         timestampField: 'segments_date',
         columnMappings: {
             cost: 'metrics_cost_micros',
@@ -595,13 +598,17 @@ function buildNativeTileNode(
     tileColumnSelection: validColumnsForTiles,
     mathHogql: string
 ): DataWarehouseNode {
+    // The configured id field may not exist on the table actually synced for this
+    // source (schema drift, an older sync, or a source that never exposed it) — fall
+    // back to `id` rather than referencing a column HogQL can't resolve.
+    const idField = table.fields && tileConfig.idField in table.fields ? tileConfig.idField : 'id'
     return {
         kind: NodeKind.DataWarehouseNode,
         id: table.id,
         name: integrationConfig.primarySource,
         custom_name: `${table.name} ${tileColumnSelection}`,
-        id_field: tileConfig.idField,
-        distinct_id_field: tileConfig.idField,
+        id_field: idField,
+        distinct_id_field: idField,
         timestamp_field: tileConfig.timestampField,
         table_name: table.name,
         math: HogQLMathType.HogQL,

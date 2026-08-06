@@ -272,6 +272,22 @@ class TestMetaAdsConfigDiscovery(BaseTest):
         tables_no_campaign = [self._make_table("campaign_stats")]
         assert self._create_meta_config(factory, tables_no_campaign) is None
 
+    def test_duplicate_campaign_table_match_resolves_to_first_regardless_of_order(self):
+        """Two tables both matching the campaign_table keyword (e.g. a leftover table
+        from a prior sync alongside a re-synced one) must resolve to the same table
+        every run. Before, later matches silently overwrote earlier ones, so which
+        table won depended on `tables` list order rather than being deterministic."""
+        factory = self._make_factory()
+        first = self._make_table("campaigns")
+        second = self._make_table("campaigns_old")
+        stats = self._make_table("campaign_stats")
+
+        config_forward = self._create_meta_config(factory, [first, second, stats])
+        config_reversed = self._create_meta_config(factory, [second, first, stats])
+
+        assert config_forward is not None and config_forward.campaign_table.name == "metaads_campaigns"
+        assert config_reversed is not None and config_reversed.campaign_table.name == "metaads_campaigns_old"
+
 
 class TestNativeHierarchicalConfigDiscovery(BaseTest):
     """Verifies `_create_native_config` populates adset/ad slots for every native source

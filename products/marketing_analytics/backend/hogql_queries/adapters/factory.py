@@ -251,29 +251,35 @@ class MarketingSourceFactory:
         ad_table_name = hierarchy_names.get("ad_table")
         ad_unified = ad_table_name is not None and ad_table_name == hierarchy_names.get("ad_stats_table")
 
+        # First match wins for every slot below — table names are matched by keyword
+        # or schema-name substring, so a project with more than one candidate table
+        # (e.g. a legacy sync left alongside a re-synced one) must resolve to the same
+        # table on every run rather than whichever happens to sort last in `tables`.
         for table in tables:
             table_suffix = table.name.split(".")[-1].lower()
             schema_name = _extract_schema_name(table_suffix, source.source_type)
 
-            if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
-                ex in schema_name for ex in patterns["campaign_table_exclusions"]
+            if (
+                campaign_table is None
+                and any(kw in table_suffix for kw in patterns["campaign_table_keywords"])
+                and not any(ex in schema_name for ex in patterns["campaign_table_exclusions"])
             ):
                 campaign_table = table
-            elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
+            elif campaign_stats_table is None and any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
                 campaign_stats_table = table
             # Exact schema-name match (not keyword) so ad-group / ad tables don't
             # collide with the campaign keyword.
-            elif schema_name == hierarchy_names.get("adset_table"):
+            elif adset_table is None and schema_name == hierarchy_names.get("adset_table"):
                 adset_table = table
                 if adset_unified:
                     adset_stats_table = table
-            elif schema_name == hierarchy_names.get("adset_stats_table"):
+            elif adset_stats_table is None and schema_name == hierarchy_names.get("adset_stats_table"):
                 adset_stats_table = table
-            elif schema_name == hierarchy_names.get("ad_table"):
+            elif ad_table is None and schema_name == hierarchy_names.get("ad_table"):
                 ad_table = table
                 if ad_unified:
                     ad_stats_table = table
-            elif schema_name == hierarchy_names.get("ad_stats_table"):
+            elif ad_stats_table is None and schema_name == hierarchy_names.get("ad_stats_table"):
                 ad_stats_table = table
 
         # Legacy Google Ads users may have `campaign_stats` synced instead of the

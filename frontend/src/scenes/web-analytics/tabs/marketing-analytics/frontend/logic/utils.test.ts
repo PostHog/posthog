@@ -266,6 +266,19 @@ describe('marketing analytics utils', () => {
         ]
 
         // All fields each source could reference, so the mock table has them all
+        // Each source's stats table id column, per the backend adapter's
+        // `_campaign_stats_fk_column` (see products/marketing_analytics/backend/hogql_queries/adapters/*.py)
+        const idFieldBySource: Record<NativeMarketingSource, string> = {
+            GoogleAds: 'campaign_id',
+            RedditAds: 'campaign_id',
+            LinkedinAds: 'id',
+            MetaAds: 'campaign_id',
+            TikTokAds: 'campaign_id',
+            BingAds: 'campaign_id',
+            SnapchatAds: 'id',
+            PinterestAds: 'campaign_id',
+        }
+
         const sourceFields: Record<NativeMarketingSource, string[]> = {
             GoogleAds: [
                 'metrics_cost_micros',
@@ -315,6 +328,7 @@ describe('marketing analytics utils', () => {
                 'currency',
             ],
         }
+        VALID_NATIVE_MARKETING_SOURCES.forEach((source) => sourceFields[source].push(idFieldBySource[source]))
 
         // Minimal fields: only non-conversion columns (cost, impressions, clicks, currency)
         const minimalSourceFields: Record<NativeMarketingSource, string[]> = {
@@ -327,6 +341,7 @@ describe('marketing analytics utils', () => {
             SnapchatAds: ['spend', 'impressions', 'swipes', 'currency'],
             PinterestAds: ['spend_in_dollar', 'total_impression', 'total_clickthrough', 'currency'],
         }
+        VALID_NATIVE_MARKETING_SOURCES.forEach((source) => minimalSourceFields[source].push(idFieldBySource[source]))
 
         function makeMockSource(sourceType: NativeMarketingSource, fieldList: string[]): NativeSource {
             const config = MARKETING_INTEGRATION_CONFIGS[sourceType]
@@ -398,6 +413,20 @@ describe('marketing analytics utils', () => {
             const result = createMarketingTile(source, column, 'USD')
             expect(result).toMatchSnapshot()
         })
+
+        // Guards the "Field not found" crash: a table synced without the configured
+        // id column (schema drift, an older sync) must fall back to `id` instead of
+        // referencing a column HogQL can't resolve.
+        it.each(VALID_NATIVE_MARKETING_SOURCES)(
+            '%s falls back to id when the configured id field is absent',
+            (sourceType) => {
+                const fieldsWithoutId = sourceFields[sourceType].filter((f) => f !== idFieldBySource[sourceType])
+                const source = makeMockSource(sourceType, fieldsWithoutId)
+                const result = createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Cost, 'USD')
+                expect(result?.id_field).toBe('id')
+                expect(result?.distinct_id_field).toBe('id')
+            }
+        )
     })
 
     describe('findSchemaByFieldName', () => {
