@@ -3201,27 +3201,24 @@ class JiraIntegration:
         except Exception:
             logger.warning("JiraIntegration: token refresh pre-check failed", exc_info=True)
 
-    @staticmethod
-    def _create_issue_error_message(response_body: Any) -> str:
-        fallback = "Could not create the Jira issue. Check the project's issue settings and try again."
-        if not isinstance(response_body, dict):
-            return fallback
-
-        error_messages = response_body.get("errorMessages", [])
-        details = (
-            [message for message in error_messages if isinstance(message, str)]
-            if isinstance(error_messages, list)
-            else []
-        )
-        field_errors = response_body.get("errors", {})
-        if isinstance(field_errors, dict):
-            details.extend(
-                f"{field}: {message}"
-                for field, message in field_errors.items()
-                if isinstance(field, str) and isinstance(message, str)
+    def _raise_create_issue_error(self, response: requests.Response, response_body: Any) -> NoReturn:
+        properties: dict[str, Any] = {
+            "jira_status_code": response.status_code,
+            "jira_response_content_type": response.headers.get("Content-Type"),
+            "integration_id": self.integration.id,
+            "team_id": self.integration.team_id,
+        }
+        if isinstance(response_body, dict):
+            properties.update(
+                {
+                    "jira_error_messages": response_body.get("errorMessages"),
+                    "jira_field_errors": response_body.get("errors"),
+                    "jira_response_keys": list(response_body.keys()),
+                }
             )
 
-        return f"{fallback} Jira reported: {'; '.join(details)}" if details else fallback
+        capture_exception(Exception("Jira issue creation failed"), additional_properties=properties)
+        raise ValidationError("Could not create the Jira issue. Check the project's issue settings and try again.")
 
     def list_projects(self) -> list[dict]:
         """List all Jira projects accessible to the user"""
@@ -3288,13 +3285,13 @@ class JiraIntegration:
         try:
             issue = response.json()
         except ValueError:
-            issue = {}
+            issue = None
 
         if response.status_code != 201:
-            raise ValidationError(self._create_issue_error_message(issue))
+            self._raise_create_issue_error(response, issue)
 
-        if not issue.get("key"):
-            raise ValidationError(self._create_issue_error_message(issue))
+        if not isinstance(issue, dict) or not issue.get("key"):
+            self._raise_create_issue_error(response, issue)
 
         return {"key": issue["key"], "id": issue.get("id", "")}
 
