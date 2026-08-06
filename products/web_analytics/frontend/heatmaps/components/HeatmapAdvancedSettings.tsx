@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonCollapse, LemonInput, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 
-import { heatmapLogic } from 'scenes/heatmaps/scenes/heatmap/heatmapLogic'
+import { heatmapLogic } from '../scenes/heatmap/heatmapLogic'
 
 export interface HeatmapAdvancedSettingsProps {
     dataUrlPlaceholderFallback: string
