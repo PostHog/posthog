@@ -1,7 +1,6 @@
 import {
   addRecentFile,
   addActionTab as coreAddActionTab,
-  addTerminalTab as coreAddTerminalTab,
   closeOtherTabs as coreCloseOtherTabs,
   closeTab as coreCloseTab,
   closeTabsToRight as coreCloseTabsToRight,
@@ -13,7 +12,6 @@ import {
   reorderTabs as coreReorderTabs,
   setActiveTab as coreSetActiveTab,
   updateSizes as coreUpdateSizes,
-  updateTabLabel as coreUpdateTabLabel,
   updateTabMetadata as coreUpdateTabMetadata,
   createInitialTaskLayout,
   splitPanelTree,
@@ -106,9 +104,7 @@ export interface PanelLayoutStore {
     tabId: string,
     metadata: Partial<Pick<Tab, "hasUnsavedChanges">>,
   ) => void;
-  updateTabLabel: (taskId: string, tabId: string, label: string) => void;
   setFocusedPanel: (taskId: string, panelId: string) => void;
-  addTerminalTab: (taskId: string, panelId: string) => void;
   addActionTab: (
     taskId: string,
     panelId: string,
@@ -475,33 +471,11 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
         );
       },
 
-      updateTabLabel: (taskId, tabId, label) => {
-        set((state) =>
-          updateTaskLayout(
-            state,
-            taskId,
-            (layout) =>
-              coreUpdateTabLabel(layout, tabId, label) as Partial<TaskLayout>,
-          ),
-        );
-      },
-
       setFocusedPanel: (taskId, panelId) => {
         set((state) =>
           updateTaskLayout(state, taskId, () => ({
             focusedPanelId: panelId,
           })),
-        );
-      },
-
-      addTerminalTab: (taskId, panelId) => {
-        set((state) =>
-          updateTaskLayout(
-            state,
-            taskId,
-            (layout) =>
-              coreAddTerminalTab(layout, panelId) as Partial<TaskLayout>,
-          ),
         );
       },
 
@@ -522,7 +496,7 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
     }),
     {
       name: "panel-layout-store",
-      version: 10,
+      version: 11,
       migrate: () => ({ taskLayouts: {} }),
       storage: createJSONStorage(() => panelLayoutStorage),
     },

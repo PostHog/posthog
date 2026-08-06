@@ -12,7 +12,6 @@ import { PlanUsageSettings } from "@posthog/ui/features/settings/sections/PlanUs
 import { ShortcutsSettings } from "@posthog/ui/features/settings/sections/ShortcutsSettings";
 import { SignalSourcesSettings } from "@posthog/ui/features/settings/sections/SignalSourcesSettings";
 import { SlackSettings } from "@posthog/ui/features/settings/sections/SlackSettings";
-import { TerminalSettings } from "@posthog/ui/features/settings/sections/TerminalSettings";
 import { UpdatesSettings } from "@posthog/ui/features/settings/sections/UpdatesSettings";
 import { WorkspacesSettings } from "@posthog/ui/features/settings/sections/WorkspacesSettings";
 import { WorktreesSettings } from "@posthog/ui/features/settings/sections/worktrees/WorktreesSettings";
@@ -71,7 +70,6 @@ const SETTINGS_PAGES: Record<SettingsCategory, SettingsPageDefinition> = {
     PersonalizationSettings,
   ),
   sidebar: defineSettingsPage("Sidebar", CustomizeSidebarSettings),
-  terminal: defineSettingsPage("Terminal", TerminalSettings),
   harness: defineSettingsPage("Harness", HarnessSettings),
   shortcuts: defineSettingsPage("Shortcuts", ShortcutsSettings),
   github: defineSettingsPage("GitHub", GitHubSettings),

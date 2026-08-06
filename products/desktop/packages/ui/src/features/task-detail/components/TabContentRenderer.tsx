@@ -14,7 +14,6 @@ import { ChangesPanel } from "./ChangesPanel";
 import { ChannelContextTab } from "./ChannelContextTab";
 import { FileTreePanel } from "./FileTreePanel";
 import { TaskLogsPanel } from "./TaskLogsPanel";
-import { TaskShellPanel } from "./TaskShellPanel";
 
 interface TabContentRendererProps {
   tab: Tab;
@@ -33,11 +32,6 @@ export function TabContentRenderer({
   switch (data.type) {
     case "logs":
       return <TaskLogsPanel taskId={taskId} task={task} />;
-
-    case "terminal":
-      return (
-        <TaskShellPanel taskId={taskId} task={task} shellId={data.terminalId} />
-      );
 
     case "file":
       return (

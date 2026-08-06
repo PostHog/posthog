@@ -84,11 +84,6 @@ import {
 } from "@posthog/core/tasks/identifiers";
 import { TaskDeletionService } from "@posthog/core/tasks/taskDeletionService";
 import {
-  SHELL_PROCESS_READER,
-  type ShellProcessReader,
-} from "@posthog/core/terminal/identifiers";
-import { terminalCoreModule } from "@posthog/core/terminal/terminal.module";
-import {
   WORKSPACE_SETUP_GIT_CLIENT,
   WORKSPACE_SETUP_SERVICE,
 } from "@posthog/core/workspace/identifiers";
@@ -288,13 +283,6 @@ container.bind(MCP_APP_HOST_COMPONENT).toConstantValue(McpAppHost);
 container
   .bind(MCP_SANDBOX_PROXY_URL)
   .toConstantValue(() => "mcp-sandbox://proxy");
-
-// terminal shell process reader + core module
-container.bind<ShellProcessReader>(SHELL_PROCESS_READER).toConstantValue({
-  getProcess: async (input) =>
-    (await trpcClient.shell.getProcess.query(input)) ?? null,
-});
-container.load(terminalCoreModule);
 
 // analytics tracker
 container

@@ -22,14 +22,11 @@ describe("panelLayoutTransforms", () => {
   });
 
   describe("createInitialTaskLayout", () => {
-    it("creates a leaf main panel with logs and shell tabs", () => {
+    it("creates a leaf main panel holding only the logs tab", () => {
       const layout = createInitialTaskLayout();
       expect(layout.panelTree.type).toBe("leaf");
       if (layout.panelTree.type !== "leaf") return;
-      expect(layout.panelTree.content.tabs.map((t) => t.id)).toEqual([
-        "logs",
-        "shell",
-      ]);
+      expect(layout.panelTree.content.tabs.map((t) => t.id)).toEqual(["logs"]);
       expect(layout.panelTree.content.activeTabId).toBe("logs");
     });
   });
@@ -43,7 +40,7 @@ describe("panelLayoutTransforms", () => {
       expect(findTabInTree(next.panelTree, tabId)).not.toBeNull();
       expect(next.panelTree.type).toBe("leaf");
       if (next.panelTree.type !== "leaf") return;
-      expect(next.panelTree.content.tabs.length).toBe(3);
+      expect(next.panelTree.content.tabs.length).toBe(2);
       expect(next.panelTree.content.activeTabId).toBe(tabId);
     });
 

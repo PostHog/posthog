@@ -100,12 +100,6 @@ export function createNewTab(
     case "system":
       if (tabId === "logs") {
         data = { type: "logs" };
-      } else if (tabId.startsWith("shell")) {
-        data = {
-          type: "terminal",
-          terminalId: tabId,
-          cwd: "",
-        };
       } else {
         data = { type: "other" };
       }
@@ -145,6 +139,12 @@ export function addNewTabToPanel(
       activeTabId: tabId,
     },
   };
+}
+
+// A lone permanent tab (Chat on its own) gives the bar nothing to switch
+// between and nothing to close, so it stays hidden until a second tab opens.
+export function shouldShowTabBar(tabs: Pick<Tab, "closeable">[]): boolean {
+  return !(tabs.length === 1 && tabs[0].closeable === false);
 }
 
 export function selectNextTabAfterClose(

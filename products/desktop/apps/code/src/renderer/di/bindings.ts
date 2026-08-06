@@ -146,10 +146,6 @@ import {
 } from "@posthog/core/tasks/identifiers";
 import type { TaskDeletionService } from "@posthog/core/tasks/taskDeletionService";
 import {
-  SHELL_PROCESS_READER,
-  type ShellProcessReader,
-} from "@posthog/core/terminal/identifiers";
-import {
   WORKSPACE_SETUP_GIT_CLIENT,
   WORKSPACE_SETUP_SERVICE,
   type WorkspaceSetupGitClient,
@@ -299,7 +295,6 @@ export interface RendererBindings {
   [MCP_TOOL_BLOCK_COMPONENT]: McpToolBlockComponent;
   [MCP_APP_HOST_COMPONENT]: McpAppHostComponent;
   [MCP_SANDBOX_PROXY_URL]: McpSandboxProxyUrlProvider;
-  [SHELL_PROCESS_READER]: ShellProcessReader;
   [ANALYTICS_TRACKER]: AnalyticsTracker;
   [TASK_CREATION_HOST]: ITaskCreationHost;
   [PI_RUNNER]: PiRunner;

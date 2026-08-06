@@ -15,7 +15,6 @@ export const DEFAULT_PANEL_IDS = {
 
 export const DEFAULT_TAB_IDS = {
   LOGS: "logs",
-  SHELL: "shell",
   FILES: "files",
   CHANGES: "changes",
 } as const;

@@ -41,18 +41,6 @@ export function createDefaultPanelTree(): PanelNode {
           closeable: false,
           draggable: true,
         },
-        {
-          id: DEFAULT_TAB_IDS.SHELL,
-          label: "Terminal",
-          data: {
-            type: "terminal",
-            terminalId: DEFAULT_TAB_IDS.SHELL,
-            cwd: "",
-          },
-          component: null,
-          closeable: true,
-          draggable: true,
-        },
       ],
       activeTabId: DEFAULT_TAB_IDS.LOGS,
       showTabs: true,
@@ -530,50 +518,10 @@ export function splitPanelTree(
   const tab = findTabInPanel(sourcePanel, tabId);
   if (!tab) return {};
 
+  // Splitting a panel moves its active tab into the new side, so a panel with
+  // nothing to give away has no split to perform.
   if (sourcePanelId === targetPanelId && targetPanel.content.tabs.length <= 1) {
-    const singleTabConfig = getSplitConfig(direction);
-    const newPanelId = generatePanelId();
-    const terminalTabId = `shell-${Date.now()}`;
-    const newPanel: PanelNode = {
-      type: "leaf",
-      id: newPanelId,
-      content: {
-        id: newPanelId,
-        tabs: [
-          {
-            id: terminalTabId,
-            label: "Terminal",
-            data: {
-              type: "terminal",
-              terminalId: terminalTabId,
-              cwd: "",
-            },
-            component: null,
-            draggable: true,
-            closeable: true,
-          },
-        ],
-        activeTabId: terminalTabId,
-        showTabs: true,
-        droppable: true,
-      },
-    };
-
-    const updatedTree = updateTreeNode(
-      layout.panelTree,
-      targetPanelId,
-      (panel) => ({
-        type: "group" as const,
-        id: generatePanelId(),
-        direction: singleTabConfig.splitDirection,
-        sizes: [50, 50],
-        children: singleTabConfig.isAfter
-          ? [panel, newPanel]
-          : [newPanel, panel],
-      }),
-    );
-
-    return { panelTree: updatedTree, focusedPanelId: newPanelId };
+    return {};
   }
 
   const config = getSplitConfig(direction);
@@ -663,37 +611,6 @@ export function updateTabMetadata(
   return { panelTree: updatedTree };
 }
 
-export function updateTabLabel(
-  layout: TaskLayout,
-  tabId: string,
-  label: string,
-): Partial<TaskLayout> {
-  const tabLocation = findTabInTree(layout.panelTree, tabId);
-  if (!tabLocation) return {};
-
-  const updatedTree = updateTreeNode(
-    layout.panelTree,
-    tabLocation.panelId,
-    (panel) => {
-      if (panel.type !== "leaf") return panel;
-
-      const updatedTabs = panel.content.tabs.map((tab) =>
-        tab.id === tabId ? { ...tab, label } : tab,
-      );
-
-      return {
-        ...panel,
-        content: {
-          ...panel.content,
-          tabs: updatedTabs,
-        },
-      };
-    },
-  );
-
-  return { panelTree: updatedTree };
-}
-
 export function setActiveTab(
   layout: TaskLayout,
   panelId: string,
@@ -705,26 +622,6 @@ export function setActiveTab(
       ...panel,
       content: { ...panel.content, activeTabId: tabId },
     };
-  });
-
-  return { panelTree: updatedTree };
-}
-
-export function addTerminalTab(
-  layout: TaskLayout,
-  panelId: string,
-): Partial<TaskLayout> {
-  const tabId = `shell-${Date.now()}`;
-  const updatedTree = updateTreeNode(layout.panelTree, panelId, (panel) => {
-    if (panel.type !== "leaf") return panel;
-    return addTabToPanel(panel, {
-      id: tabId,
-      label: "Terminal",
-      data: { type: "terminal", terminalId: tabId, cwd: "" },
-      component: null,
-      draggable: true,
-      closeable: true,
-    });
   });
 
   return { panelTree: updatedTree };

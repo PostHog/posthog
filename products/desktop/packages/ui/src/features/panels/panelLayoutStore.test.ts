@@ -46,7 +46,7 @@ describe("panelLayoutStore", () => {
       assertPanelLayout(tree, [
         {
           panelId: "main-panel",
-          expectedTabs: ["logs", "shell"],
+          expectedTabs: ["logs"],
           activeTab: "logs",
         },
       ]);
@@ -61,19 +61,26 @@ describe("panelLayoutStore", () => {
     it("adds file tab to main panel by default", () => {
       usePanelLayoutStore.getState().openFile("task-1", "src/App.tsx");
 
-      assertTabCount(getPanelTree("task-1"), "main-panel", 3);
+      assertTabCount(getPanelTree("task-1"), "main-panel", 2);
       assertPanelLayout(getPanelTree("task-1"), [
         {
           panelId: "main-panel",
-          expectedTabs: ["logs", "shell", "file-src/App.tsx"],
+          expectedTabs: ["logs", "file-src/App.tsx"],
         },
       ]);
     });
 
     it("opens file in the focused panel", () => {
+      usePanelLayoutStore.getState().openFile("task-1", "src/Other.tsx", false);
       usePanelLayoutStore
         .getState()
-        .splitPanel("task-1", "logs", "main-panel", "main-panel", "right");
+        .splitPanel(
+          "task-1",
+          "file-src/Other.tsx",
+          "main-panel",
+          "main-panel",
+          "right",
+        );
 
       const tree = getPanelTree("task-1");
       expect(tree.type).toBe("group");
@@ -86,7 +93,7 @@ describe("panelLayoutStore", () => {
       assertPanelLayout(getPanelTree("task-1"), [
         {
           panelId: newPanelId,
-          expectedTabs: ["logs", "file-src/App.tsx"],
+          expectedTabs: ["file-src/Other.tsx", "file-src/App.tsx"],
           activeTab: "file-src/App.tsx",
         },
       ]);
@@ -102,11 +109,11 @@ describe("panelLayoutStore", () => {
       usePanelLayoutStore.getState().openFile("task-1", "src/App.tsx");
 
       // File should fall back to main-panel
-      assertTabCount(getPanelTree("task-1"), "main-panel", 3);
+      assertTabCount(getPanelTree("task-1"), "main-panel", 2);
       assertPanelLayout(getPanelTree("task-1"), [
         {
           panelId: "main-panel",
-          expectedTabs: ["logs", "shell", "file-src/App.tsx"],
+          expectedTabs: ["logs", "file-src/App.tsx"],
         },
       ]);
     });
@@ -162,7 +169,6 @@ describe("panelLayoutStore", () => {
       expect(tree.content.activeTabId).toBe("artifact-output-1");
       expect(tree.content.tabs.map((tab) => tab.label)).toEqual([
         "Chat",
-        "Terminal",
         "report.html",
       ]);
       expect(tree.content.tabs.at(-1)?.data).toEqual({
@@ -229,7 +235,7 @@ describe("panelLayoutStore", () => {
       assertActiveTab(getPanelTree("task-1"), "main-panel", "file-src/App.tsx");
     });
 
-    it("falls back to shell when last file tab closed", () => {
+    it("falls back to chat when last file tab closed", () => {
       usePanelLayoutStore
         .getState()
         .closeTab("task-1", "main-panel", "file-src/App.tsx");
@@ -237,7 +243,7 @@ describe("panelLayoutStore", () => {
         .getState()
         .closeTab("task-1", "main-panel", "file-src/Other.tsx");
 
-      assertActiveTab(getPanelTree("task-1"), "main-panel", "shell");
+      assertActiveTab(getPanelTree("task-1"), "main-panel", "logs");
     });
   });
 
@@ -419,21 +425,21 @@ describe("panelLayoutStore", () => {
     });
 
     it("reorders tabs within a panel", () => {
-      // tabs: [logs, shell, file-src/App.tsx, file-src/Other.tsx, file-src/Third.tsx]
-      // move index 2 to index 4
-      usePanelLayoutStore.getState().reorderTabs("task-1", "main-panel", 2, 4);
+      // tabs: [logs, file-src/App.tsx, file-src/Other.tsx, file-src/Third.tsx]
+      // move index 1 to index 3
+      usePanelLayoutStore.getState().reorderTabs("task-1", "main-panel", 1, 3);
 
       const panel = findPanelById(getPanelTree("task-1"), "main-panel");
       const tabIds = panel?.content.tabs.map((t: { id: string }) => t.id);
-      expect(tabIds?.[2]).toBe("file-src/Other.tsx");
-      expect(tabIds?.[4]).toBe("file-src/App.tsx");
+      expect(tabIds?.[1]).toBe("file-src/Other.tsx");
+      expect(tabIds?.[3]).toBe("file-src/App.tsx");
     });
 
     it("preserves active tab after reorder", () => {
       usePanelLayoutStore
         .getState()
         .setActiveTab("task-1", "main-panel", "file-src/App.tsx");
-      usePanelLayoutStore.getState().reorderTabs("task-1", "main-panel", 2, 4);
+      usePanelLayoutStore.getState().reorderTabs("task-1", "main-panel", 1, 3);
 
       assertActiveTab(getPanelTree("task-1"), "main-panel", "file-src/App.tsx");
     });

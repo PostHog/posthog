@@ -65,13 +65,6 @@ const PanelLayoutRenderer: React.FC<{
     [layoutState, taskId],
   );
 
-  const handleAddTerminal = useCallback(
-    (panelId: string) => {
-      layoutState.addTerminalTab(taskId, panelId);
-    },
-    [layoutState, taskId],
-  );
-
   const handleSplitPanel = useCallback(
     (panelId: string, direction: SplitDirection) => {
       const layout = usePanelLayoutStore.getState().getLayout(taskId);
@@ -127,7 +120,6 @@ const PanelLayoutRenderer: React.FC<{
             draggingTabPanelId={layoutState.draggingTabPanelId}
             onActiveTabChange={handleSetActiveTab}
             onPanelFocus={handlePanelFocus}
-            onAddTerminal={handleAddTerminal}
             onSplitPanel={handleSplitPanel}
           />
         );
@@ -155,7 +147,6 @@ const PanelLayoutRenderer: React.FC<{
       handleCloseTabsToRight,
       handleKeepTab,
       handlePanelFocus,
-      handleAddTerminal,
       handleSplitPanel,
       setGroupRef,
       handleLayout,

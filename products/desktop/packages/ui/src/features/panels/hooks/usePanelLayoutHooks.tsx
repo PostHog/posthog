@@ -3,7 +3,6 @@ import {
   ChatCenteredText,
   FileText,
   Scroll,
-  Terminal,
 } from "@phosphor-icons/react";
 import { resolveTabAbsolutePath } from "@posthog/core/panels/resolveTabPath";
 import type { Task } from "@posthog/shared/domain-types";
@@ -26,7 +25,6 @@ export interface PanelLayoutState {
   closeTabsToRight: (taskId: string, panelId: string, tabId: string) => void;
   keepTab: (taskId: string, panelId: string, tabId: string) => void;
   setFocusedPanel: (taskId: string, panelId: string) => void;
-  addTerminalTab: (taskId: string, panelId: string) => void;
   splitPanel: (
     taskId: string,
     tabId: string,
@@ -50,7 +48,6 @@ export function usePanelLayoutState(taskId: string): PanelLayoutState {
         closeTabsToRight: state.closeTabsToRight,
         keepTab: state.keepTab,
         setFocusedPanel: state.setFocusedPanel,
-        addTerminalTab: state.addTerminalTab,
         splitPanel: state.splitPanel,
         draggingTabId: state.getLayout(taskId)?.draggingTabId ?? null,
         draggingTabPanelId: state.getLayout(taskId)?.draggingTabPanelId ?? null,
@@ -107,8 +104,6 @@ export function useTabInjection(
           if (tab.data.type === "file") {
             const filename = tab.data.relativePath.split("/").pop() || "";
             icon = <FileIcon filename={filename} size={14} />;
-          } else if (tab.data.type === "terminal") {
-            icon = <Terminal size={14} />;
           } else if (tab.data.type === "logs") {
             icon = <ChatCenteredText size={14} />;
           } else if (tab.data.type === "action") {

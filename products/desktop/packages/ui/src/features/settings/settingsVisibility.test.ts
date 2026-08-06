@@ -28,14 +28,7 @@ describe("getHiddenSettingsCategories", () => {
         spendAnalysisEnabled: true,
         localWorkspaces: false,
       },
-      expected: [
-        "workspaces",
-        "worktrees",
-        "terminal",
-        "harness",
-        "discord",
-        "updates",
-      ],
+      expected: ["workspaces", "worktrees", "harness", "discord", "updates"],
     },
     {
       // The channels layout uses a fixed nav, so the Sidebar page's

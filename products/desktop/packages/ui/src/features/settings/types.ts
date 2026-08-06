@@ -11,7 +11,6 @@ export type SettingsCategory =
   | "mcp-servers"
   | "personalization"
   | "sidebar"
-  | "terminal"
   | "harness"
   | "shortcuts"
   | "github"
@@ -34,7 +33,6 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
   "mcp-servers",
   "personalization",
   "sidebar",
-  "terminal",
   "harness",
   "shortcuts",
   "github",

@@ -10,11 +10,6 @@ export type TabData =
       repoPath: string;
     }
   | {
-      type: "terminal";
-      terminalId: string;
-      cwd: string;
-    }
-  | {
       type: "action";
       actionId: string;
       command: string;
