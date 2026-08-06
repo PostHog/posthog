@@ -3,9 +3,12 @@ import datetime as dt
 from decimal import Decimal
 
 import pytest
+from unittest.mock import MagicMock, patch
 
+from posthog.api.services.query import ExecutionMode
 from posthog.caching.insight_result import InsightResult
 
+from products.exports.backend.temporal.subscriptions import insight_snapshot
 from products.exports.backend.temporal.subscriptions.insight_snapshot import (
     _has_comparison_enabled,
     _serialize_insight_result,
@@ -108,3 +111,43 @@ def test_serialize_insight_result_handles_decimal_and_date():
 
     reparsed = json.loads(json.dumps(serialized))
     assert reparsed["result"] == [["1.5", "2026-04-20"]]
+
+
+_HOGQL_QUERY = {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "select 1"}}
+_TRENDS_QUERY = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": []}}
+
+
+@pytest.mark.parametrize(
+    "query_json,force_fresh,expected_eligible,expected_mode",
+    [
+        (_HOGQL_QUERY, True, True, ExecutionMode.CALCULATE_BLOCKING_ALWAYS),
+        # An out-of-scope shape must not pay for the fresh calculation, and must not be
+        # stamped eligible: its rows-as-lists result would otherwise render cached text
+        # next to the freshly calculated image (the disagreement the stamp exists to stop).
+        (_TRENDS_QUERY, True, False, ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE),
+        (_HOGQL_QUERY, False, False, ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE),
+    ],
+)
+def test_snapshot_stamps_text_eligibility_and_execution_mode_together(
+    query_json, force_fresh, expected_eligible, expected_mode
+):
+    insight = MagicMock()
+    insight.get_effective_query.return_value = query_json
+    with (
+        patch(f"{insight_snapshot.__name__}.calculate_cache_key", return_value="hash"),
+        patch(
+            f"{insight_snapshot.__name__}.calculate_for_query_based_insight",
+            return_value=_build_insight_result(result=[[1]], columns=["n"]),
+        ) as mock_calculate,
+    ):
+        snapshot = insight_snapshot.build_insight_delivery_snapshot(
+            insight=insight,
+            team=MagicMock(),
+            dashboard=None,
+            tile=None,
+            user=None,
+            force_fresh_calculation=force_fresh,
+        )
+
+    assert snapshot["results_text_eligible"] is expected_eligible
+    assert mock_calculate.call_args.kwargs["execution_mode"] is expected_mode
