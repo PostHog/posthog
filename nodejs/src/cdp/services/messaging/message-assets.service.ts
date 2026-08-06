@@ -1,6 +1,10 @@
 import { Counter, Gauge } from 'prom-client'
 
-import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
+import {
+    CyclotronInvocationQueueParametersEmailType,
+    CyclotronInvocationQueueParametersSendPushNotificationType,
+    PushNotificationPayloadType,
+} from '~/cdp/schema/cyclotron'
 import { MESSAGE_ASSETS_OUTPUT, MessageAssetsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { safeClickhouseString } from '~/common/utils/db/utils'
@@ -67,6 +71,38 @@ const wrapPlainTextAsHtml = (text: string): string => {
 // the safe budget — the row still lands, the chip works, and the batch is unaffected.
 const MAX_HTML_BYTES = 4 * 1024 * 1024
 
+const escapeHtml = (text: string): string => text.replace(/[&<>"']/g, (c) => HTML_ESCAPE[c])
+
+// A push has no stored body to replay the way an email does, so render the delivered content into the
+// same `html` column. That keeps one asset pipeline and one viewer for both channels: the person view
+// renders this snapshot instead of needing a push-specific renderer.
+// Only the parts the recipient actually saw are rendered. The custom `data` payload is deliberately
+// left out: it is app routing context, not user-visible, and can carry arbitrary customer data we
+// should not be re-displaying in the UI.
+//
+// Two interpolations below carry a `nosemgrep` for `raw-html-format`. That rule fires on customer data
+// reaching a hand-built HTML string at all and can't see a local escaper, but every value here goes
+// through `escapeHtml` (which covers `& < > " '`, enough for both text nodes and the one quoted
+// attribute), and the viewer renders this in an iframe with `sandbox=""`, so scripts can't run even if
+// the escaping were wrong. Keep both properties if you edit this: escape at every interpolation, and
+// don't render anything the recipient didn't see.
+const renderPushPreviewHtml = (payload: PushNotificationPayloadType): string => {
+    const image = payload.image
+        ? `<img src="${escapeHtml(payload.image)}" alt="" style="width:100%;max-height:180px;object-fit:cover;border-radius:8px;margin-top:8px">`
+        : ''
+    // The recipient sees this as a second bold line under the title on iOS, so a snapshot that drops
+    // it doesn't match the notification that was delivered.
+    const subtitle = payload.apns?.subtitle
+        ? `<div style="font-size:15px;font-weight:600;color:#111;margin-bottom:2px">${escapeHtml(payload.apns.subtitle)}</div>`
+        : ''
+    const body = payload.body
+        ? // nosemgrep: javascript.express.security.injection.raw-html-format.raw-html-format
+          `<div style="font-size:14px;line-height:1.4;color:#2d2d2d">${escapeHtml(payload.body)}</div>`
+        : ''
+    // nosemgrep: javascript.express.security.injection.raw-html-format.raw-html-format
+    return `<!doctype html><meta charset="utf-8"><div style="font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;padding:1rem;max-width:420px;margin:1rem auto"><div style="background:#f4f4f5;border-radius:14px;padding:12px 14px"><div style="font-size:15px;font-weight:600;color:#111;margin-bottom:2px">${escapeHtml(payload.title)}</div>${subtitle}${body}${image}</div></div>`
+}
+
 const oversizedPlaceholderHtml = (bytes: number): string => {
     const mb = (bytes / 1024 / 1024).toFixed(1)
     return `<!doctype html><meta charset="utf-8"><div style="padding:1rem;font-family:ui-sans-serif,system-ui,sans-serif;color:#555;max-width:640px;margin:2rem auto"><h3 style="margin:0 0 0.5rem">Email too large to capture</h3><p style="margin:0">The rendered email was ${mb}&nbsp;MB, which exceeds the ${MAX_HTML_BYTES / 1024 / 1024}&nbsp;MB capture limit. The send itself succeeded — this placeholder is stored so the &ldquo;View email&rdquo; link works, but the original body is not viewable here.</p></div>`
@@ -127,12 +163,57 @@ export class MessageAssetsService {
         }
     }
 
+    // One row per push step, not per channel. A step fans out to several provider integrations, but the
+    // recipient experiences a single notification, so the person view should show one entry rather than
+    // a near-identical row per channel. `platforms` is what actually took delivery, and the caller only
+    // builds a row once at least one channel has, so this is only ever a delivered notification.
+    buildRowForPush(
+        invocation: CyclotronJobInvocationHogFunction,
+        params: CyclotronInvocationQueueParametersSendPushNotificationType,
+        platforms: string[]
+    ): MessageAssetRow | null {
+        if (!invocation.state.actionId) {
+            return null
+        }
+        const payload = params.payload
+        // Same rule as the email row: drop only when there is no content to show. A title-less push
+        // still delivered something the recipient saw, so a body alone is worth capturing.
+        if (!payload?.title && !payload?.body) {
+            return null
+        }
+        // Nothing took delivery, so there is no notification a recipient saw to snapshot.
+        if (platforms.length === 0) {
+            return null
+        }
+        const recipient = params.distinctId
+        return {
+            team_id: invocation.teamId,
+            function_kind: 'hog_flow',
+            function_id: invocation.functionId,
+            parent_run_id: invocation.parentRunId ?? '',
+            invocation_id: invocation.id,
+            action_id: invocation.state.actionId ?? '',
+            kind: 'push',
+            distinct_id: recipient,
+            person_id: invocation.state.globals.person?.id ?? '',
+            // The person, not the providers that carried it, so the Assets tab's RECIPIENT column means
+            // the same thing for push as it does for email. Per-channel outcomes stay in the run log.
+            recipient,
+            subject: payload.title,
+            status: 'sent',
+            sent_at: isoMicroseconds(new Date()),
+            version: microsecondsSinceEpoch(),
+            is_deleted: 0,
+            html: renderPushPreviewHtml(payload),
+        }
+    }
+
     queueInvocationResults(results: CyclotronJobInvocationResult[]): void {
         for (const result of results) {
-            if (!result.emailAssets || result.emailAssets.length === 0) {
+            if (!result.messageAssets || result.messageAssets.length === 0) {
                 continue
             }
-            for (const row of result.emailAssets) {
+            for (const row of result.messageAssets) {
                 this.queuedRows.push(row)
             }
         }
@@ -158,7 +239,13 @@ export class MessageAssetsService {
                     })
                 )
             )
-            counterMessageAssetsCaptured.inc({ kind: 'email' }, rows.length)
+            const capturedByKind = new Map<MessageAssetRow['kind'], number>()
+            for (const row of rows) {
+                capturedByKind.set(row.kind, (capturedByKind.get(row.kind) ?? 0) + 1)
+            }
+            for (const [kind, count] of capturedByKind) {
+                counterMessageAssetsCaptured.inc({ kind }, count)
+            }
         } catch (error) {
             counterMessageAssetsFailed.inc(rows.length)
             logger.error('⚠️', `failed to flush message assets — dropping batch: ${error}`, {

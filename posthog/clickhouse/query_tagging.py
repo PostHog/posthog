@@ -263,11 +263,15 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
         case (
             NodeKind.MARKETING_ANALYTICS_TABLE_QUERY
             | NodeKind.MARKETING_ANALYTICS_AGGREGATED_QUERY
+            | NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_QUERY
+            | NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY
             | NodeKind.NON_INTEGRATED_CONVERSIONS_TABLE_QUERY
         ):
             return {"product": Product.MARKETING_ANALYTICS}
         case (
             NodeKind.MCP_HARNESS_BREAKDOWN_QUERY
+            | NodeKind.MCP_TOOL_CALL_BREAKDOWN_QUERY
+            | NodeKind.MCP_TOOL_CALLS_AND_ERRORS_QUERY
             | NodeKind.MCP_TOOL_TOP_USERS_QUERY
             | NodeKind.MCP_TOOL_FAILURES_QUERY
             | NodeKind.MCP_TOOL_FAILURE_OCCURRENCES_QUERY
@@ -680,6 +684,7 @@ _EVENT_TO_TAGS: tuple[tuple[frozenset[str], FallbackTags], ...] = (
     (frozenset({"$exception"}), {"product": Product.ERROR_TRACKING}),
     (frozenset({"$web_vitals"}), {"product": Product.WEB_ANALYTICS}),
     (frozenset({"$feature_flag_called"}), {"product": Product.FEATURE_FLAGS}),
+    (frozenset({"$experiment_exposure"}), {"product": Product.EXPERIMENTS}),
 )
 
 # Union of every event the fallback can match — exposed so HogQLFeatureExtractor can use it as

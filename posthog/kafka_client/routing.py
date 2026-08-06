@@ -54,8 +54,6 @@ from posthog.kafka_client.topics import (
     KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS_DLQ,
-    KAFKA_WAREHOUSE_SOURCES_JOBS,
-    KAFKA_WAREHOUSE_SOURCES_JOBS_DLQ,
 )
 from posthog.settings.kafka import KafkaProfileSettings
 
@@ -92,8 +90,6 @@ _DEFAULT_TOPIC_ROUTING: dict[str, KafkaClusterProfile] = {
     # so it needs no Django producer routing entry.
     KAFKA_FLAGS_CACHE_INVALIDATION: KafkaClusterProfile.SHARED,
     # --- WAREHOUSE_SOURCES (Warpstream warehouse-pipelines) ---
-    KAFKA_WAREHOUSE_SOURCES_JOBS: KafkaClusterProfile.WAREHOUSE_SOURCES,
-    KAFKA_WAREHOUSE_SOURCES_JOBS_DLQ: KafkaClusterProfile.WAREHOUSE_SOURCES,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS: KafkaClusterProfile.WAREHOUSE_SOURCES,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS_DLQ: KafkaClusterProfile.WAREHOUSE_SOURCES,
     KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES: KafkaClusterProfile.WAREHOUSE_SOURCES,

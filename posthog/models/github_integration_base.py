@@ -47,6 +47,11 @@ GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS = 60 * 60 * 24
 
 INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY = "installation_unavailable_since"
 
+# Reactions cost one extra round trip per reacted comment, and GitHub offers no way to fetch them in
+# bulk, so bound the fan-out. Set high enough that a real pull request never reaches it: past this
+# point a comment renders without its pills, which is worse than the extra requests.
+MAX_REACTION_HYDRATIONS = 100
+
 
 class NormalizedPRComment(TypedDict):
     """Wire shape for a PR comment shared by the read path and the review-comment write endpoints."""
@@ -66,6 +71,7 @@ class NormalizedPRComment(TypedDict):
     diff_hunk: str | None
     in_reply_to_id: str | None
     commit_id: str | None
+    reactions: list[dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -87,6 +93,19 @@ class GitHubCommitAttribution:
     is_bot: bool
     # Git author display name — untrusted free text, for display only, never parse it.
     name: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class PullRequestRef:
+    """A pull request's coordinates, parsed from its GitHub HTML URL."""
+
+    owner: str
+    repo: str
+    number: int
+
+    @property
+    def repository(self) -> str:
+        return f"{self.owner}/{self.repo}"
 
 
 class GitHubIntegrationError(Exception):
@@ -839,8 +858,8 @@ class GitHubIntegrationBase:
         return attributions
 
     @staticmethod
-    def parse_pull_request_url(pr_url: str) -> tuple[str, str, int] | None:
-        """Parse a GitHub pull request URL into ``(owner, repo, pr_number)``.
+    def parse_pull_request_url(pr_url: str) -> PullRequestRef | None:
+        """Parse a GitHub pull request URL into a :class:`PullRequestRef`.
 
         Returns ``None`` if the URL does not look like a GitHub PR URL.
         """
@@ -859,7 +878,7 @@ class GitHubIntegrationBase:
             pr_number = int(pr_number_str)
         except ValueError:
             return None
-        return owner, repo, pr_number
+        return PullRequestRef(owner=owner, repo=repo, number=pr_number)
 
     def get_pull_request(self, repository: str, pr_number: int) -> dict[str, Any]:
         """Fetch a pull request by repository (``owner/repo`` or just ``repo``) and PR number."""
@@ -923,8 +942,7 @@ class GitHubIntegrationBase:
         parsed = self.parse_pull_request_url(pr_url)
         if parsed is None:
             return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
-        owner, repo, pr_number = parsed
-        return self.get_pull_request(f"{owner}/{repo}", pr_number)
+        return self.get_pull_request(parsed.repository, parsed.number)
 
     def close_pull_request(self, repository: str, pr_number: int) -> dict[str, Any]:
         """Close a pull request (``PATCH`` state=closed). ``repository`` is ``owner/repo`` or a bare repo.
@@ -960,8 +978,7 @@ class GitHubIntegrationBase:
         parsed = self.parse_pull_request_url(pr_url)
         if parsed is None:
             return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
-        owner, repo, pr_number = parsed
-        return self.close_pull_request(f"{owner}/{repo}", pr_number)
+        return self.close_pull_request(parsed.repository, parsed.number)
 
     def comment_on_pull_request(self, repository: str, pr_number: int, body: str) -> dict[str, Any]:
         """Post a comment on a pull request. ``repository`` is ``owner/repo`` or a bare repo.
@@ -990,8 +1007,7 @@ class GitHubIntegrationBase:
         parsed = self.parse_pull_request_url(pr_url)
         if parsed is None:
             return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
-        owner, repo, pr_number = parsed
-        return self.comment_on_pull_request(f"{owner}/{repo}", pr_number, body)
+        return self.comment_on_pull_request(parsed.repository, parsed.number, body)
 
     def get_pull_request_checks(self, repository: str, pr_number: int) -> dict[str, Any]:
         """Fetch the CI status for a PR — GitHub Actions check runs plus commit statuses from external
@@ -1077,7 +1093,8 @@ class GitHubIntegrationBase:
 
     @staticmethod
     def normalize_pr_comment(raw: object, comment_type: str) -> NormalizedPRComment | None:
-        """Shape a raw GitHub comment into the wire contract."""
+        """Shape a raw GitHub comment into the wire contract shared by the read path and the write
+        endpoints. ``reactions`` is left empty; the read path fills it for review comments that have any."""
         if not isinstance(raw, dict):
             return None
         user = raw.get("user") or {}
@@ -1100,6 +1117,7 @@ class GitHubIntegrationBase:
             "diff_hunk": raw.get("diff_hunk") if is_review else None,
             "in_reply_to_id": str(raw["in_reply_to_id"]) if is_review and raw.get("in_reply_to_id") else None,
             "commit_id": raw.get("commit_id") if is_review else None,
+            "reactions": [],
         }
 
     def get_pull_request_comments(self, repository: str, pr_number: int) -> dict[str, Any]:
@@ -1112,6 +1130,7 @@ class GitHubIntegrationBase:
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
 
         comments: list[NormalizedPRComment] = []
+        hydrated_reactions = 0
         for path, comment_type, endpoint in (
             (f"issues/{pr_number}/comments", "conversation", "/repos/{owner}/{repo}/issues/{issue_number}/comments"),
             (f"pulls/{pr_number}/comments", "review", "/repos/{owner}/{repo}/pulls/{pull_number}/comments"),
@@ -1137,11 +1156,52 @@ class GitHubIntegrationBase:
                     normalized = self.normalize_pr_comment(raw, comment_type)
                     if normalized is None:
                         continue
+                    if comment_type == "review" and hydrated_reactions < MAX_REACTION_HYDRATIONS:
+                        reaction_summary = raw.get("reactions") or {}
+                        if isinstance(reaction_summary, dict) and reaction_summary.get("total_count"):
+                            normalized["reactions"] = self._get_review_comment_reactions(repo_path, str(raw["id"]))
+                            hydrated_reactions += 1
                     comments.append(normalized)
 
         # Merge both streams into a single chronological thread; entries without a timestamp sort last.
         comments.sort(key=lambda c: c.get("created_at") or "")
         return {"success": True, "comments": comments}
+
+    def _get_review_comment_reactions(self, repo_path: str, comment_id: str) -> list[dict[str, Any]]:
+        """Fetch a review comment's reactions, each with its id, content, and reactor login.
+
+        Returned per-reactor (not just counts) so the frontend can group them, highlight the viewer's
+        own, and delete them by id. Best-effort: returns [] on any non-200 / parse failure.
+        """
+        try:
+            # One page only: a comment past 100 reactions isn't worth extra round trips here.
+            response = self._installation_authenticated_get(
+                f"https://api.github.com/repos/{repo_path}/pulls/comments/{comment_id}/reactions",
+                endpoint="/repos/{owner}/{repo}/pulls/comments/{comment_id}/reactions",
+                params={"per_page": 100},
+            )
+        except Exception:
+            logger.warning("GitHubIntegration: reactions fetch failed", repository=repo_path, comment_id=comment_id)
+            return []
+        if response is None or response.status_code != 200:
+            return []
+        try:
+            body = response.json()
+        except Exception:
+            return []
+        if not isinstance(body, list):
+            return []
+        out: list[dict[str, Any]] = []
+        for reaction in body:
+            if isinstance(reaction, dict) and reaction.get("content") and reaction.get("id") is not None:
+                out.append(
+                    {
+                        "id": str(reaction["id"]),
+                        "content": reaction["content"],
+                        "user_login": (reaction.get("user") or {}).get("login"),
+                    }
+                )
+        return out
 
     def find_pull_request_urls_for_branch(self, repository: str, branch: str) -> list[str]:
         """Return the HTML URLs of open or closed PRs whose head is ``branch`` in ``repository``.
@@ -1330,11 +1390,10 @@ class GitHubIntegrationBase:
         parsed = self.parse_pull_request_url(pr_url)
         if parsed is None:
             return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
-        owner, repo, pr_number = parsed
 
         data = self._gh_graphql(
             self._PR_SNAPSHOT_QUERY,
-            {"owner": owner, "repo": repo, "number": pr_number},
+            {"owner": parsed.owner, "repo": parsed.repo, "number": parsed.number},
             endpoint="/graphql:pullRequestSnapshot",
         )
         pr = ((data or {}).get("repository") or {}).get("pullRequest")

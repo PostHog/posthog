@@ -125,7 +125,7 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 source: 'pganalyze',
                 sourceProduct: SignalSourceProduct.Pganalyze,
                 label: 'pganalyze',
-                description: 'Postgres performance problems – slow queries and bad indexes.',
+                description: 'Postgres performance problems, including slow queries and bad indexes.',
             },
         ],
     },

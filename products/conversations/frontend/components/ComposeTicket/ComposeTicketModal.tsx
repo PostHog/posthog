@@ -57,7 +57,7 @@ export function ComposeTicketModal(): JSX.Element | null {
                 </>
             }
         >
-            <div className="flex flex-col gap-3 min-w-[500px]">
+            <div className="flex flex-col gap-3 w-[500px] max-w-full">
                 <div className="flex flex-col gap-1">
                     <label className="font-semibold text-xs">From</label>
                     <LemonSelect

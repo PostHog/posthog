@@ -2048,6 +2048,7 @@ class ExternalDataSourceType(StrEnum):
     CAMPFIRE = "Campfire"
     CRISP = "Crisp"
     KOMMO = "Kommo"
+    GOOGLE_MERCHANT_CENTER = "GoogleMerchantCenter"
     AXIOM = "Axiom"
     PLIVO = "Plivo"
     DATA_FOR_SEO = "DataForSEO"
@@ -2460,6 +2461,14 @@ class ExternalDataSourceType(StrEnum):
     CLAY = "Clay"
     TRADABLE_BITS = "TradableBits"
     SWAN = "Swan"
+    HYROS = "Hyros"
+    ODOO = "Odoo"
+    AIRBRIDGE = "Airbridge"
+    SNOVIO = "Snovio"
+    RAISELY = "Raisely"
+    WINDSOR_AI = "WindsorAi"
+    WIX = "Wix"
+    SEVALLA = "Sevalla"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2931,9 +2940,25 @@ class LogsSparklineBreakdownBy(StrEnum):
     SERVICE = "service"
 
 
+class LogsSparklineRankBy(StrEnum):
+    COUNT = "count"
+    BYTES = "bytes"
+
+
 class NeighborDirection(StrEnum):
     BEFORE = "before"
     AFTER = "after"
+
+
+class MarketingAnalyticsAttributionBreakdown(StrEnum):
+    CHANNEL = "channel"
+    SOURCE = "source"
+    CAMPAIGN = "campaign"
+    MEDIUM = "medium"
+    CONTENT = "content"
+    TERM = "term"
+    REFERRING_DOMAIN = "referring_domain"
+    LANDING_PAGE = "landing_page"
 
 
 class MarketingAnalyticsBaseColumns(StrEnum):
@@ -3208,6 +3233,8 @@ class NodeKind(StrEnum):
     WEB_NOTABLE_CHANGES_QUERY = "WebNotableChangesQuery"
     MARKETING_ANALYTICS_TABLE_QUERY = "MarketingAnalyticsTableQuery"
     MARKETING_ANALYTICS_AGGREGATED_QUERY = "MarketingAnalyticsAggregatedQuery"
+    MARKETING_ANALYTICS_ATTRIBUTION_QUERY = "MarketingAnalyticsAttributionQuery"
+    MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY = "MarketingAnalyticsAttributionPathsQuery"
     NON_INTEGRATED_CONVERSIONS_TABLE_QUERY = "NonIntegratedConversionsTableQuery"
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
@@ -3233,6 +3260,8 @@ class NodeKind(StrEnum):
     ENDPOINTS_USAGE_OVERVIEW_QUERY = "EndpointsUsageOverviewQuery"
     ENDPOINTS_USAGE_TABLE_QUERY = "EndpointsUsageTableQuery"
     ENDPOINTS_USAGE_TRENDS_QUERY = "EndpointsUsageTrendsQuery"
+    MCP_TOOL_CALL_BREAKDOWN_QUERY = "MCPToolCallBreakdownQuery"
+    MCP_TOOL_CALLS_AND_ERRORS_QUERY = "MCPToolCallsAndErrorsQuery"
     MCP_HARNESS_BREAKDOWN_QUERY = "MCPHarnessBreakdownQuery"
     MCP_TOOL_TOP_USERS_QUERY = "MCPToolTopUsersQuery"
     MCP_TOOL_FAILURES_QUERY = "MCPToolFailuresQuery"
@@ -3679,33 +3708,35 @@ class Theme(StrEnum):
     SYSTEM = "system"
 
 
+class SidebarDensity(StrEnum):
+    COMFORTABLE = "comfortable"
+    COMPACT = "compact"
+
+
 class SlackIntegrationScope(StrEnum):
     APP_MENTIONS_READ = "app_mentions:read"
+    ASSISTANT_WRITE = "assistant:write"
+    CANVASES_WRITE = "canvases:write"
     CHANNELS_HISTORY = "channels:history"
+    CHANNELS_MANAGE = "channels:manage"
     CHANNELS_READ = "channels:read"
     CHAT_WRITE = "chat:write"
     CHAT_WRITE_CUSTOMIZE = "chat:write.customize"
+    COMMANDS = "commands"
+    FILES_READ = "files:read"
+    FILES_WRITE = "files:write"
     GROUPS_HISTORY = "groups:history"
     GROUPS_READ = "groups:read"
+    IM_HISTORY = "im:history"
     LINKS_READ = "links:read"
     LINKS_WRITE = "links:write"
+    MPIM_HISTORY = "mpim:history"
+    MPIM_READ = "mpim:read"
     REACTIONS_READ = "reactions:read"
     REACTIONS_WRITE = "reactions:write"
     TEAM_READ = "team:read"
     USERS_READ = "users:read"
     USERS_READ_EMAIL = "users:read.email"
-
-
-class SlackIntegrationScopeInReview(StrEnum):
-    ASSISTANT_WRITE = "assistant:write"
-    CANVASES_WRITE = "canvases:write"
-    CHANNELS_MANAGE = "channels:manage"
-    COMMANDS = "commands"
-    FILES_READ = "files:read"
-    FILES_WRITE = "files:write"
-    IM_HISTORY = "im:history"
-    MPIM_HISTORY = "mpim:history"
-    MPIM_READ = "mpim:read"
 
 
 class SlashCommandName(StrEnum):

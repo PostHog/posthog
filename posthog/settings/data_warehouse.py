@@ -19,6 +19,12 @@ USE_LOCAL_SETUP = TEST or (DEBUG and len(os.getenv("OBJECT_STORAGE_ENDPOINT", "h
 
 PYARROW_DEBUG_LOGGING = get_from_env("PYARROW_DEBUG_LOGGING", False, type_cast=str_to_bool)
 
+# Region hosting BUCKET_URL. Only used to build the bucket's virtual-hosted hostname for the
+# egress-proxy bypass in products/data_warehouse/backend/s3_proxy.py; the AWS clients resolve their
+# own region as before. Falls back to the ambient AWS_REGION, and an empty value leaves the bypass
+# off (the bypass itself is gated by a feature flag, not by a setting).
+DATA_WAREHOUSE_S3_REGION: str = os.getenv("DATA_WAREHOUSE_S3_REGION", os.getenv("AWS_REGION", ""))
+
 # Rollback-only escape hatch: restores the legacy delta-rs unsafe-rename S3 backend,
 # which has no commit-conflict detection. Default (false) keeps conditional-put commits.
 DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME = get_from_env(
@@ -35,6 +41,20 @@ DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME = get_from_env(
 # override below rather than by trying to model per-column expansion here.
 DATA_WAREHOUSE_TARGET_PARTITION_BYTES = get_from_env(
     "DATA_WAREHOUSE_TARGET_PARTITION_BYTES", 500_000_000, type_cast=int
+)
+
+# How often each sync activity self-reports its workload (phase, buffer bytes, RSS) to the warehouse
+# Redis, for post-mortem enrichment of silent worker deaths. Zero or negative disables reporting
+# entirely (the fleet kill switch — hooks become no-ops and no thread starts).
+DATA_WAREHOUSE_WORKLOAD_REPORT_INTERVAL_SECONDS = get_from_env(
+    "DATA_WAREHOUSE_WORKLOAD_REPORT_INTERVAL_SECONDS", 30.0, type_cast=float
+)
+
+# A run whose peak self-reported buffer crosses this emits one `dwh_workload_high_watermark` event on
+# completion. Deaths are enriched separately; this captures the tail of *surviving* runs, which is
+# what calibrates OOM-classification thresholds. Zero disables the event.
+DATA_WAREHOUSE_WORKLOAD_HIGH_WATERMARK_BYTES = get_from_env(
+    "DATA_WAREHOUSE_WORKLOAD_HIGH_WATERMARK_BYTES", 500_000_000, type_cast=int
 )
 
 # A schema that records at least this many sync OOMs within the lookback window is force-repartitioned
@@ -68,38 +88,6 @@ DATA_WAREHOUSE_DELTA_MERGE_MAX_SPILL_SIZE_BYTES: int | None = get_from_env(
 )
 DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES: int | None = get_from_env(
     "DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES", None, optional=True, type_cast=int
-)
-
-# --- deltalite shadow verification (rollout canary, phase 1) -------------------------------------
-# When enabled, the incremental merge path ALSO re-applies the same batch through the deltalite
-# streaming upsert into a throwaway copy of the affected partitions, then compares the result to
-# the real (delta-rs MERGE) output. deltalite NEVER writes the real table — this is pure observation
-# to build confidence that deltalite is byte-for-byte equivalent before it writes production tables.
-#
-# This env var is the cheap master switch, checked first so that when it's off nothing runs at all
-# (no DB query, no feature-flag eval, no extra I/O). Per-schema canary targeting is a PostHog feature
-# flag on top of this (see deltalite_shadow.is_deltalite_shadow_enabled). Off by default.
-DATA_WAREHOUSE_DELTALITE_SHADOW_ENABLED = get_from_env(
-    "DATA_WAREHOUSE_DELTALITE_SHADOW_ENABLED", False, type_cast=str_to_bool
-)
-# Fraction of eligible incremental batches to shadow. The comparison roughly doubles a batch's I/O
-# (seed copy + upsert + compare read), so sample rather than shadow every batch. 1.0 = all, 0.0 = none.
-DATA_WAREHOUSE_DELTALITE_SHADOW_SAMPLE_RATE = get_from_env(
-    "DATA_WAREHOUSE_DELTALITE_SHADOW_SAMPLE_RATE", 1.0, type_cast=float
-)
-# Skip the shadow for any batch whose affected partitions exceed this at-rest (compressed) byte size —
-# seeding and re-reading them would be too expensive. Measured from the Delta add-action stats before
-# any data is read, so an oversized batch is skipped cheaply. 0 disables the cap.
-DATA_WAREHOUSE_DELTALITE_SHADOW_MAX_AFFECTED_BYTES = get_from_env(
-    "DATA_WAREHOUSE_DELTALITE_SHADOW_MAX_AFFECTED_BYTES", 2_000_000_000, type_cast=int
-)
-# Also skip when the affected partitions hold more than this many rows. The byte cap above is measured
-# on the *compressed* at-rest size, which a highly compressible partition understates badly — a small
-# on-S3 slice can explode into a huge Arrow working set once the seed + comparison decompress it. Rows
-# bound that uncompressed set directly. When the row/byte estimate can't be read at all, the shadow
-# fails closed (skips) rather than materializing an unbounded slice. 0 disables the cap.
-DATA_WAREHOUSE_DELTALITE_SHADOW_MAX_AFFECTED_ROWS = get_from_env(
-    "DATA_WAREHOUSE_DELTALITE_SHADOW_MAX_AFFECTED_ROWS", 20_000_000, type_cast=int
 )
 
 GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL")

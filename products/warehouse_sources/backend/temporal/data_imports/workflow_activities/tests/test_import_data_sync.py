@@ -1,12 +1,22 @@
 import uuid
 import contextlib
 from datetime import datetime
+from typing import Any, cast
 
 import pytest
+from posthog.test.base import BaseTest
 from unittest import mock
+
+from django.db import InterfaceError, OperationalError
+
+from parameterized import parameterized
+from requests.exceptions import HTTPError
 
 from posthog.temporal.common.errors import NonReportableError
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
@@ -88,6 +98,29 @@ def _inputs() -> ImportDataActivityInputs:
         run_id=str(uuid.uuid4()),
         reset_pipeline=True,
     )
+
+
+class TestGetModelsPrefetchesSource(BaseTest):
+    def test_folder_path_needs_no_query_after_load(self) -> None:
+        # folder_path() reads schema.source.source_type. If _get_models stops prefetching
+        # schema__source, that read fires a lazy SELECT later in the run, on a pooled app-DB
+        # connection the transaction pooler can drop mid-sync — surfacing as a spurious
+        # OperationalError/DNS failure far from where the real query would have been.
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=self.team, source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(name="Invoice", team=self.team, source=source, sync_type_config={})
+        job = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING
+        )
+
+        # Call the undecorated sync loader directly so the query capture runs on this thread.
+        # `.func` is the wrapped sync callable on database_sync_to_async_pool's DatabaseSyncToAsync
+        # (asgiref); it isn't on the decorator's static type, hence the cast.
+        models = cast(Any, module._get_models).func(str(job.id))
+
+        with self.assertNumQueries(0):
+            models.job.folder_path()
 
 
 @pytest.mark.asyncio
@@ -198,6 +231,68 @@ async def test_rest_client_non_retryable_error_routes_through_handler_without_so
 
 
 @pytest.mark.asyncio
+async def test_http_404_routes_through_handler_without_source_opt_in():
+    # A 404 from the shared REST engine's fallback raise_for_status() path means the configured
+    # endpoint/resource doesn't exist — every retry hits the identical dead URL. It must be honored
+    # by status code even when the source's get_non_retryable_errors doesn't list the message, so
+    # any REST-based source stops instead of retrying to the activity max and minting error-tracking
+    # noise on every attempt.
+    error = HTTPError(
+        "404 Client Error: Not Found for url: https://api.example.com/export", response=mock.MagicMock(status_code=404)
+    )
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", new=mock.AsyncMock()) as handle_mock,
+    ):
+        handle_mock.side_effect = NonRetryableException()
+        with pytest.raises(NonRetryableException):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    handle_mock.assert_awaited_once()
+    assert handle_mock.await_args is not None
+    assert handle_mock.await_args.args[5] is error
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_http_401_is_reraised_for_activity_retry():
+    # A 401 can mean an access token expired mid-run — the REST engine's own auth layer re-mints
+    # the token on the next attempt, so this must stay retryable rather than being swept into the
+    # same non-retryable bucket as a 404 (which has no self-recovering path).
+    error = HTTPError(
+        "401 Client Error: Unauthorized for url: https://api.example.com/export",
+        response=mock.MagicMock(status_code=401),
+    )
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", new=mock.AsyncMock()) as handle_mock,
+    ):
+        with pytest.raises(HTTPError):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    handle_mock.assert_not_awaited()
+    logger.aexception.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_rest_client_retryable_error_logged_as_warning_without_source_opt_in():
     # RESTClientRetryableError only escapes the shared REST engine's tenacity retry loop once its
     # own attempts (rate limits, transient 5xx, connection resets/timeouts) are exhausted. It must
@@ -218,6 +313,39 @@ async def test_rest_client_retryable_error_logged_as_warning_without_source_opt_
         with pytest.raises(RESTClientRetryableError):
             await module._handle_import_error(mock.MagicMock(), logger, error)
 
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+@parameterized.expand(
+    [
+        ("operational_error", OperationalError, "query_wait_timeout"),
+        ("interface_error", InterfaceError, "connection already closed"),
+    ]
+)
+@pytest.mark.asyncio
+async def test_app_db_connection_error_reraised_as_non_reportable(_name: str, error_cls: type[Exception], message: str):
+    # A Django OperationalError/InterfaceError here can only come from a lookup against PostHog's
+    # own app DB (e.g. resolving a team or CustomPropertySource for the person-property staging
+    # hook) — sources talk to a customer's own database over a raw driver connection, never Django's
+    # ORM. It's a transient connection-pool blip on our side (e.g. a PgBouncer query_wait_timeout
+    # under load), so it must be re-raised as NonReportableError (like RESTClientRetryableError
+    # above) rather than the bare exception, which the activity interceptor would still capture.
+    error = error_cls(message)
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(NonReportableError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value.__cause__ is error
     logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()
 

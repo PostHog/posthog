@@ -20,6 +20,7 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
+from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.ai.checkpoint_compaction.schedule import (
     create_checkpoint_compaction_schedule,
     should_register_checkpoint_compaction_schedule,
@@ -47,7 +48,6 @@ from posthog.temporal.alerts.schedule import (
 )
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
-from posthog.temporal.ducklake.compaction_types import DucklakeCompactionInput
 from posthog.temporal.experiments.schedule import (
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
@@ -56,10 +56,6 @@ from posthog.temporal.health_checks.schedule import create_health_check_schedule
 from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
 from posthog.temporal.logs_alerting.schedule import create_logs_alert_check_schedule
 from posthog.temporal.mcp_analytics.intent_clustering.schedule import create_intent_clustering_coordinator_schedule
-from posthog.temporal.messaging.schedule import (
-    create_all_realtime_cohort_calculation_schedules,
-    create_reconcile_precalculated_data_schedule,
-)
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
 from posthog.temporal.salesforce_enrichment.conversations_slack_workflow import ConversationsSlackEnrichmentInputs
@@ -98,6 +94,7 @@ from products.error_tracking.backend.facade.temporal import (
 )
 from products.experiments.backend.temporal.schedule import create_experiment_precompute_canary_schedule
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
+from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
 from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     create_replay_vision_gemini_cleanup_sweep_schedule,
@@ -383,9 +380,18 @@ async def create_sync_events_retention_schedule(client: Client):
     sync_events_retention_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "sync-events-retention",
-            SyncEventsRetentionInput(dry_run=False),
+            SyncEventsRetentionInput(
+                dry_run=False,
+                slo=SloConfig(
+                    operation=SloOperation.SYNC_EVENTS_RETENTION,
+                    area=SloArea.ANALYTIC_PLATFORM,
+                    team_id=0,
+                    resource_id="sync-events-retention",
+                    distinct_id="sync-events-retention",
+                ),
+            ),
             id="sync-events-retention-schedule",
-            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
             retry_policy=common.RetryPolicy(
                 maximum_attempts=1,
             ),
@@ -631,6 +637,34 @@ async def cleanup_legacy_session_summarization_schedules(client: Client):
             await a_delete_schedule(client, schedule_id)
 
 
+async def cleanup_cohort_calculation_schedules(client: Client):
+    """Delete the realtime cohort calculation and precalculated-data reconcile schedules.
+
+    This ClickHouse-query-based path did not scale and was putting load on ClickHouse it could not
+    carry. rust/cohort-stream-processor replaces it with incremental evaluation off the event stream,
+    and owns reconciliation too (its workers/reconcile.rs and sweep/reconcile.rs), so nothing here
+    needs to run on a cadence any more.
+
+    The workflows stay registered on the messaging worker only until the Python implementation is
+    deleted. In-flight executions finish on their own; deleting a schedule doesn't cancel them.
+    """
+    legacy_schedule_ids = [
+        "realtime-cohort-calculation-p0-p50",
+        "realtime-cohort-calculation-p50-p80",
+        "realtime-cohort-calculation-p80-p90",
+        "realtime-cohort-calculation-p90-p95",
+        "realtime-cohort-calculation-p95-p99",
+        "realtime-cohort-calculation-p99-p100",
+        "realtime-cohort-calculation-p0-p90",
+        "realtime-cohort-calculation-p95-p100",
+        "realtime-cohort-calculation-schedule",
+        "reconcile-precalculated-data-schedule",
+    ]
+    for schedule_id in legacy_schedule_ids:
+        if await a_schedule_exists(client, schedule_id):
+            await a_delete_schedule(client, schedule_id)
+
+
 async def create_run_usage_reports_schedule(client: Client):
     """Intraday usage report run every 30 minutes.
 
@@ -820,8 +854,7 @@ schedules = [
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
     create_experiment_precompute_canary_schedule,
-    create_all_realtime_cohort_calculation_schedules,
-    create_reconcile_precalculated_data_schedule,
+    cleanup_cohort_calculation_schedules,
     create_ingestion_acceptance_test_schedule,
     create_warehouse_sources_queue_partition_management_schedule,
     create_health_check_schedules,
