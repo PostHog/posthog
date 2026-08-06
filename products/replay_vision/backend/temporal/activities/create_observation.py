@@ -48,7 +48,8 @@ def create_observation_activity(inputs: CreateObservationInputs) -> CreateObserv
 def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOutput:
     # team__organization is prefetched for the AI-consent check below.
     scanner = (
-        ReplayScanner.objects.filter(pk=inputs.scanner_id, team_id=inputs.team_id)
+        # `all_origins`: this is the persistence step for every scan, inline ones included.
+        ReplayScanner.all_origins.filter(pk=inputs.scanner_id, team_id=inputs.team_id)
         .select_related("team", "team__organization")
         .first()
     )

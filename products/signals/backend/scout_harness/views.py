@@ -86,6 +86,8 @@ from products.signals.backend.scout_harness.serializers import (
     ProjectProfileQuerySerializer,
     ProjectProfileSerializer,
     RecentEmissionsQuerySerializer,
+    RecordStructuredOutputRequestSerializer,
+    RecordStructuredOutputResponseSerializer,
     RememberRequestSerializer,
     ScoutEmissionReportLinkSerializer,
     ScoutMemberSerializer,
@@ -99,6 +101,7 @@ from products.signals.backend.scout_harness.serializers import (
     SearchMemoryQuerySerializer,
     SearchRecentRunsQuerySerializer,
     SignalScoutConfigCreateSerializer,
+    SignalScoutConfigListQuerySerializer,
     SignalScoutConfigSerializer,
     SignalScoutConfigUpdateSerializer,
     SignalScoutCreateResponseSerializer,
@@ -155,6 +158,12 @@ from products.signals.backend.scout_harness.tools.scratchpad import (
     remember,
     search_scratchpad,
 )
+from products.signals.backend.scout_harness.tools.structured_output import (
+    InvalidStructuredOutputError,
+    StructuredOutputDeliveryError,
+    StructuredOutputRecord,
+    record_structured_output_sync,
+)
 from products.signals.backend.scout_report import InvalidScoutReportError
 from products.skills.backend.api.skill_services import LLMSkillDuplicateNameConflictError, create_skill
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
@@ -177,6 +186,15 @@ MAX_EMISSIONS_PER_BATCH = 5000
 # lately?" gets a useful window in one call without an unbounded scan; walk back via `date_to`.
 DEFAULT_RECENT_EMISSIONS_LIMIT = 50
 MAX_RECENT_EMISSIONS_LIMIT = 200
+
+
+class _StructuredOutputDeliveryFailed(exceptions.APIException):
+    """503 for a failed structured-output event forward: transient and safe to retry
+    (deterministic event ids), unlike a 400 the agent would read as "fix the batch"."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "structured_output_delivery_failed"
+
 
 # `SignalScoutRunViewSet.lookup_field` is `run_id`, but the model's PK field is `id`, so
 # drf-spectacular can't derive the path-param type from the model and warns (fatal under
@@ -1021,6 +1039,86 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             status=status.HTTP_200_OK,
         )
 
+    @validated_request(
+        request_serializer=RecordStructuredOutputRequestSerializer,
+        parameters=[_RUN_ID_PATH_PARAMETER],
+        responses={
+            200: OpenApiResponse(
+                response=RecordStructuredOutputResponseSerializer,
+                description="All records validated against the configured schema and recorded as events.",
+            ),
+            400: OpenApiResponse(
+                description=(
+                    "No structured_output_schema configured for this scout, the channel is off (dry-run "
+                    "scout, org AI-processing consent missing, or the signals_scout source disabled), a "
+                    "record failed schema validation (nothing written), or a batch/size cap was exceeded."
+                )
+            ),
+            404: OpenApiResponse(description="Run not found for this project."),
+            503: OpenApiResponse(
+                description=(
+                    "The records validated but event delivery failed; nothing was recorded. Retry the "
+                    "same call — delivery is idempotent, so a retry cannot double-count."
+                )
+            ),
+        },
+        summary="Record structured output for a run",
+        description=(
+            "The structured-output channel: record schema-validated records this run produced. Opt-in via "
+            "the scout config's `structured_output_schema` (a JSON Schema describing one record) — without "
+            "it the call fails closed, as it does for a dry-run scout (emit off). All-or-nothing: any "
+            "invalid record fails the whole call with nothing written, so fix and resubmit the batch. Each "
+            "accepted record lands in the project's event stream as a `$scout_structured_output` event — "
+            "query them like any event (insights, SQL over `events`). Recording is idempotent: event ids "
+            "are deterministic, so resubmitting an identical batch (e.g. retrying after a 503) cannot "
+            "double-count."
+        ),
+        operation_id="signals_scout_record_output",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="record-output",
+        required_scopes=["signal_scout_internal:write"],
+        pagination_class=None,
+    )
+    def record_output(self, request: Request, **kwargs) -> Response:
+        run_id = _parse_run_id_or_404(kwargs)
+        from products.tasks.backend.facade import api as tasks_facade
+
+        run = (
+            SignalScoutRun.objects.select_related("scout_config", "task_run", "team")
+            .filter(team_id=_canonical_team_id(self), id=run_id)
+            .first()
+        )
+        if run is None:
+            raise exceptions.NotFound()
+        if run.task_run.status != tasks_facade.TaskRunStatus.IN_PROGRESS:
+            raise exceptions.ValidationError(
+                {
+                    "status": (
+                        f"Structured output can only be recorded on in-progress runs (current: {run.task_run.status})."
+                    )
+                }
+            )
+        records = [
+            StructuredOutputRecord(payload=entry["payload"], subject=entry.get("subject") or None)
+            for entry in request.validated_data["records"]
+        ]
+        try:
+            # `run.team` is the canonical team the run was resolved on, as in `emit_report`.
+            result = record_structured_output_sync(team=run.team, run=run, records=records)
+        except InvalidStructuredOutputError as exc:
+            raise exceptions.ValidationError({"detail": str(exc)})
+        except StructuredOutputDeliveryError as exc:
+            raise _StructuredOutputDeliveryFailed(detail=str(exc))
+        return Response(
+            RecordStructuredOutputResponseSerializer(
+                {"recorded_count": result.recorded_count, "record_ids": result.record_ids}
+            ).data,
+            status=status.HTTP_200_OK,
+        )
+
     # `EvidenceEntrySerializer` is referenced for OpenAPI nested-schema discovery; keep
     # the import live so drf-spectacular registers it even if the runtime never imports
     # it directly inside this module.
@@ -1801,7 +1899,37 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     lookup_field = "id"
     pagination_class = None
 
-    @extend_schema(
+    def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
+        # Setting a `structured_output_schema` injects text a privileged agent reads verbatim in
+        # its run prompt (schema `description` fields are free prose), so it is skill-authoring-level
+        # steering: keys need `llm_skill:write` on top of the config write — the same two-leg gate as
+        # scout notes. Only the *setting* write escalates; reads, other config edits, and clearing
+        # the schema (privilege-reducing) stay on the base config scopes.
+        if getattr(view, "action", None) in ("create", "partial_update") and self._sets_structured_output_schema(
+            request
+        ):
+            return ["signal_scout:write", "llm_skill:write"]
+        return None
+
+    @staticmethod
+    def _sets_structured_output_schema(request: Request) -> bool:
+        data = request.data
+        return isinstance(data, dict) and data.get("structured_output_schema") is not None
+
+    def _assert_can_author_structured_output_schema(self) -> None:
+        # RBAC leg of the schema-write gate, mirroring the scout-notes steering gate: session
+        # callers (and key holders) must clear the same `llm_skill` editor bar that editing a
+        # scout's skill body requires, bound to the canonical team whose scouts read the prompt.
+        canonical_team = self.team.parent_team or self.team
+        access = UserAccessControl(user=cast(User, self.request.user), team=canonical_team)
+        if not access.check_access_level_for_resource("llm_skill", "editor"):
+            raise exceptions.PermissionDenied(
+                "Setting structured_output_schema requires editor access to skills, since the schema "
+                "is read verbatim by the scout agent."
+            )
+
+    @validated_request(
+        query_serializer=SignalScoutConfigListQuerySerializer,
         responses={
             200: OpenApiResponse(
                 response=SignalScoutConfigSerializer(many=True),
@@ -1812,8 +1940,9 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description=(
             "List the per-(team, skill) scout configs for this project. Each row includes its schedule "
             "(rolling `run_interval_minutes`, or a project-local `run_cron_schedule` when set), `enabled`, "
-            "and `emit` posture. A freshly authored scout skill appears here once its config is registered, "
-            "either explicitly via create or by the coordinator's next tick."
+            "`emit` posture, and `tags`. A freshly authored scout skill appears here once its config is "
+            "registered, either explicitly via create or by the coordinator's next tick. Pass `tags` to "
+            "narrow the fleet to the scouts carrying at least one of the given labels."
         ),
         operation_id="signals_scout_config_list",
     )
@@ -1824,12 +1953,14 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # held-back team across the whole config API. Storage is untouched; the row reappears if
         # the team is later un-withheld.
         withheld = withheld_skills_for_team(team_id)
-        configs = list(
-            SignalScoutConfig.objects.unscoped()
-            .filter(team_id=team_id)
-            .exclude(skill_name__in=withheld)
-            .order_by("skill_name")
-        )
+        queryset = SignalScoutConfig.objects.unscoped().filter(team_id=team_id).exclude(skill_name__in=withheld)
+        # Any-of, matching how the fleet UI's tag picker reads. `&&` over the array column rather
+        # than a join table or a GIN index: the team filter already bounds this to the handful of
+        # scouts an org is allowed to create, so there is nothing left for an index to save.
+        tags = (getattr(request, "validated_query_data", None) or {}).get("tags")
+        if tags:
+            queryset = queryset.filter(tags__overlap=tags)
+        configs = list(queryset.order_by("skill_name"))
         skill_info = _skill_info_for(team_id, [c.skill_name for c in configs])
         serializer = SignalScoutConfigSerializer(configs, many=True, context={"skill_info": skill_info})
         return Response(serializer.data)
@@ -1862,6 +1993,8 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
         team_id = _canonical_team_id(self)
+        if self._sets_structured_output_schema(request):
+            self._assert_can_author_structured_output_schema()
         serializer = SignalScoutConfigCreateSerializer(
             data=request.data,
             context={**self.get_serializer_context(), "project_id": self.team.project_id},
@@ -1910,6 +2043,8 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
         team_id = _canonical_team_id(self)
+        if self._sets_structured_output_schema(request):
+            self._assert_can_author_structured_output_schema()
         config_id = _parse_run_id_or_404(kwargs)
         config = SignalScoutConfig.objects.unscoped().filter(team_id=team_id, id=config_id).first()
         if config is None:
