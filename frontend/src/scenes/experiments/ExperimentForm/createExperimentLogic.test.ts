@@ -9,6 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { useMocks } from '~/mocks/jest'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { Experiment } from '~/types'
 
@@ -19,6 +20,7 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
         success: jest.fn(),
         error: jest.fn(),
+        warning: jest.fn(),
     },
 }))
 
@@ -31,12 +33,14 @@ describe('createExperimentLogic', () => {
     let routerPushSpy: jest.SpyInstance
     let scannerCreateSpy: jest.Mock
     let scannerRequestBody: Record<string, unknown> | null
+    let exposureEventSeenWithSessionId: boolean
 
     beforeEach(() => {
         // Clear persisted state to prevent it from affecting tests
         localStorage.clear()
         sessionStorage.clear()
         scannerRequestBody = null
+        exposureEventSeenWithSessionId = true
         scannerCreateSpy = jest.fn(async ({ request }: { request: Request }) => {
             scannerRequestBody = (await request.json()) as Record<string, unknown>
             return [200, { id: 'scanner-123' }]
@@ -47,6 +51,10 @@ describe('createExperimentLogic', () => {
                 // saveExperiment verifies flag-key availability before building the payload
                 '/api/projects/:team_id/feature_flags/': () => [200, { results: [], count: 0 }],
                 '/api/projects/:team_id/experiments': () => [200, { results: [], count: 0 }],
+                '/api/projects/:team_id/property_definitions/seen_together': ({ request }) => {
+                    const eventNames = new URL(request.url).searchParams.getAll('event_names')
+                    return [200, Object.fromEntries(eventNames.map((name) => [name, exposureEventSeenWithSessionId]))]
+                },
             },
             post: {
                 [`/api/projects/${MOCK_TEAM_ID}/experiments`]: async ({ request }) => {
@@ -203,6 +211,38 @@ describe('createExperimentLogic', () => {
                     button: expect.objectContaining({ label: 'View scanner' }),
                 })
             )
+        })
+
+        it('skips the scanner when the exposure event never carries a session ID', async () => {
+            exposureEventSeenWithSessionId = false
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REPLAY_VISION], {
+                [FEATURE_FLAGS.REPLAY_VISION]: true,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setCreateReplayVisionScanner(true)
+                logic.actions.setExperiment({
+                    ...NEW_EXPERIMENT,
+                    name: 'Server-side exposure',
+                    description: 'Test hypothesis',
+                    feature_flag_key: 'server-side-exposure',
+                    exposure_criteria: {
+                        exposure_config: {
+                            kind: NodeKind.ExperimentEventExposureConfig,
+                            event: 'backend_assigned',
+                            properties: [],
+                        },
+                    },
+                })
+                logic.actions.saveExperiment()
+            })
+                .toDispatchActions(['saveExperiment', 'createExperimentSuccess', 'saveExperimentSuccess'])
+                .toFinishAllListeners()
+
+            // A custom exposure event with no session ID has no fallback filter, so any scanner built
+            // on it would match zero sessions forever while looking healthy.
+            expect(scannerCreateSpy).not.toHaveBeenCalled()
+            expect(lemonToast.warning).toHaveBeenCalledWith(expect.stringContaining('without a Replay Vision scanner'))
         })
 
         it('keeps the created experiment when scanner creation fails', async () => {

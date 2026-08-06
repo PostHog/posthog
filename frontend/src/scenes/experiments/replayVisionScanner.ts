@@ -1,11 +1,16 @@
 import { convertUniversalFiltersToRecordingsQuery } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 
-import { FilterLogicalOperator, type Experiment, type RecordingUniversalFilters } from '~/types'
+import {
+    FilterLogicalOperator,
+    type Experiment,
+    type RecordingUniversalFilters,
+    type UniversalFiltersGroupValue,
+} from '~/types'
 
 import type { ReplayScannerApi } from 'products/replay_vision/frontend/generated/api.schemas'
 import { scannerToApiBody } from 'products/replay_vision/frontend/replay_scanners/types'
 
-import { getViewRecordingFiltersForVariant } from './utils'
+import { applySessionLinkability, getExposureFallbackFilter, getViewRecordingFiltersForVariant } from './utils'
 
 const SCANNER_NAME_MAX_LENGTH = 255
 
@@ -45,7 +50,28 @@ export function experimentScannerPrompt(experiment: Experiment): string {
         .join('\n\n')
 }
 
-export function experimentScannerBody(experiment: Experiment): ReplayScannerApi {
+/**
+ * The scanner's population: the experiment's exposed sessions, with the same session-linkability
+ * handling the recordings surfaces use. A server-side exposure event carries no `$session_id`, so
+ * without this the query matches zero sessions forever while the scanner looks healthy.
+ */
+export function experimentScannerFilters(
+    experiment: Experiment,
+    unlinkableEventNames: Set<string>
+): { filters: UniversalFiltersGroupValue[]; usedExposureFallback: boolean; exposureUnlinkable: boolean } {
+    const { filters, usedExposureFallback, exposureUnlinkable } = applySessionLinkability(
+        getViewRecordingFiltersForVariant(experiment),
+        unlinkableEventNames,
+        getExposureFallbackFilter(experiment)
+    )
+    return { filters, usedExposureFallback, exposureUnlinkable }
+}
+
+export function experimentScannerBody(
+    experiment: Experiment,
+    filters: UniversalFiltersGroupValue[],
+    usedExposureFallback: boolean
+): ReplayScannerApi {
     const nameSuffix = ` (#${experiment.id})`
     const name = `${experiment.name.slice(0, SCANNER_NAME_MAX_LENGTH - nameSuffix.length)}${nameSuffix}`
     const universalFilters: RecordingUniversalFilters = {
@@ -53,13 +79,15 @@ export function experimentScannerBody(experiment: Experiment): ReplayScannerApi 
         duration: [],
         filter_group: {
             type: FilterLogicalOperator.And,
-            values: [{ type: FilterLogicalOperator.And, values: getViewRecordingFiltersForVariant(experiment) }],
+            values: [{ type: FilterLogicalOperator.And, values: filters }],
         },
     }
 
     return scannerToApiBody({
         name,
-        description: 'Classifies what participants do after they are exposed to this experiment.',
+        description: usedExposureFallback
+            ? "Classifies what participants do in sessions where this experiment's feature flag was active."
+            : 'Classifies what participants do after they are exposed to this experiment.',
         scanner_type: 'classifier',
         scanner_config: {
             prompt: experimentScannerPrompt(experiment),

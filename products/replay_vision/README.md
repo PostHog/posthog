@@ -12,7 +12,9 @@ A sub-product of Session Replay. Users configure named **scanners** that PostHog
 
 ## Experiment-created scanners
 
-The experiment creation wizard offers an opt-in Replay Vision scanner when the `replay-vision` feature flag is enabled. The scanner is an active summarizer whose `RecordingsQuery` uses the experiment's exposure event, enrolled variant filters, custom exposure properties, and test-account setting. Scanner creation runs after the experiment has been persisted and cannot roll back a successfully created experiment.
+The experiment creation wizard offers an opt-in Replay Vision scanner when the `replay-vision` feature flag is enabled. The scanner is a **disabled** classifier — enabling it, and the credit spend that follows, stays a human decision on the scanner itself. Its `RecordingsQuery` uses the experiment's exposure event, enrolled variant filters, custom exposure properties, and test-account setting, with the same session-linkability handling as the experiment recordings surfaces: an exposure event captured server-side falls back to the `$feature/<key>` property, and a custom exposure event that can't be matched to recordings skips scanner creation instead of producing one that can never observe anything. Scanner creation runs after the experiment has been persisted and cannot roll back a successfully created experiment.
+
+The template lives in `frontend/src/scenes/experiments/replayVisionScanner.ts` and mirrors the one in the `scanning-experiments-with-replay-vision` skill: a fixed tag set (so variants stay comparable), an escape tag for sessions that never reached the changed surface, and no variant names in the prompt.
 
 ## Layout
 
