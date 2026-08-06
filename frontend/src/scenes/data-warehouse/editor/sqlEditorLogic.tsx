@@ -80,7 +80,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { validateMetricName } from 'products/data_catalog/frontend/common'
+import { validateMetricDescription, validateMetricName } from 'products/data_catalog/frontend/common'
 import {
     dataCatalogMetricsCreate,
     dataCatalogMetricsPartialUpdate,
@@ -101,6 +101,7 @@ import type { DataModelingDAG, DataWarehouseSavedQueryFolder, UserType } from '.
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { validateSavedQueryName } from '../saved_queries/savedQueryNameValidation'
 import { dataModelingLogic } from '../scene/dataModelingLogic'
+import { captureBIEditorQueryRun, captureBIEditorQuerySaved } from './bi/biEditorAnalytics'
 import { BIEditorState, parseBIEditorState } from './bi/biEditorTypes'
 import { connectionSelectorLogic } from './connectionSelectorLogic'
 import { draftsLogic } from './draftsLogic'
@@ -1083,8 +1084,10 @@ export interface sqlEditorLogicActions {
     }
     updateViewSuccess: (
         view: UpdateViewPayload,
-        draftId?: string
+        draftId?: string,
+        biEditorState?: BIEditorState
     ) => {
+        biEditorState: BIEditorState | undefined
         draftId: string | undefined
         view: UpdateViewPayload
     }
@@ -1362,9 +1365,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             view,
             draftId,
         }),
-        updateViewSuccess: (view: UpdateViewPayload, draftId?: string) => ({
+        updateViewSuccess: (view: UpdateViewPayload, draftId?: string, biEditorState?: BIEditorState) => ({
             view,
             draftId,
+            biEditorState,
         }),
         setUpstreamViewMode: (mode: 'graph' | 'table') => ({ mode }),
         setHoveredNode: (nodeId: string | null) => ({ nodeId }),
@@ -1700,6 +1704,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
             return resolveSaveCandidatesPure(fullText, cursorOffset, selectionText)
         }
+        const getActiveBIEditorState = (): BIEditorState | undefined =>
+            values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE] ? values.activeTab?.biEditorState : undefined
 
         return {
             fixErrorsSuccess: ({ response }) => {
@@ -2022,6 +2028,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })
             },
             runQuery: ({ queryOverride, switchTab }) => {
+                captureBIEditorQueryRun(getActiveBIEditorState())
+
                 let query: string
                 if (queryOverride) {
                     // Explicit override (e.g. user selected text and pressed Cmd+Enter)
@@ -2298,6 +2306,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 isTest = false,
                 queryOverride,
             }) => {
+                const biEditorState = getActiveBIEditorState()
                 const query: HogQLQuery = values.sourceQuery.source
 
                 const queryToSave = normalizeRawQuerySource({
@@ -2333,6 +2342,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         ...(dagId ? { dag_id: dagId } : {}),
                         ...(isTest ? { is_test: true } : {}),
                     })
+                    captureBIEditorQuerySaved(biEditorState, 'view', 'create')
 
                     // Saved queries are unique by team,name
                     const savedQuery = dataWarehouseViewsLogic.values.dataWarehouseSavedQueries.find(
@@ -2457,6 +2467,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })
             },
             saveAsInsightSubmit: async ({ name, queryOverride }) => {
+                const biEditorState = getActiveBIEditorState()
                 const currentVisualizationQuery = getCurrentVisualizationQuery(values.dataLogicKey, values.sourceQuery)
                 const effectiveVisualizationType = dataVisualizationLogic.findMounted({
                     key: values.dataLogicKey,
@@ -2487,6 +2498,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     saved: true,
                     ...(dashboardId ? { dashboards: [dashboardId] } : {}),
                 })
+                captureBIEditorQuerySaved(biEditorState, 'insight', 'create', dashboardId !== null)
                 const logic = insightLogic({
                     dashboardItemId: insight.short_id,
                     doNotLoad: true,
@@ -2560,6 +2572,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })
             },
             saveAsEndpointSubmit: async ({ name, description, queryOverride }) => {
+                const biEditorState = getActiveBIEditorState()
                 try {
                     const endpoint = await api.endpoint.create({
                         name: slugify(name),
@@ -2569,6 +2582,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             query: queryOverride ?? values.queryInput ?? '',
                         }),
                     })
+                    captureBIEditorQuerySaved(biEditorState, 'endpoint', 'create')
                     lemonToast.success('Endpoint created')
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateFirstEndpoint)
                     router.actions.push(urls.endpoint(endpoint.name))
@@ -2600,13 +2614,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     ),
                     errors: {
                         name: (name) => validateMetricName(name?.trim() || ''),
-                        description: (description) => (!description?.trim() ? 'Add a description' : undefined),
+                        description: (description) =>
+                            !description?.trim() ? 'Add a description' : validateMetricDescription(description.trim()),
                     },
                     onSubmit: async ({ name, description }) =>
                         actions.saveAsMetricSubmit(name.trim(), description.trim(), selectedRef.current),
                 })
             },
             saveAsMetricSubmit: async ({ name, description, queryOverride }) => {
+                const biEditorState = getActiveBIEditorState()
                 try {
                     const metric = await dataCatalogMetricsCreate(String(ApiConfig.getCurrentTeamId()), {
                         name,
@@ -2616,6 +2632,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             query: queryOverride ?? values.queryInput ?? '',
                         }) as unknown as Record<string, unknown>,
                     })
+                    captureBIEditorQuerySaved(biEditorState, 'metric', 'create')
                     lemonToast.success('Metric created')
                     router.actions.push(urls.dataCatalogMetric(metric.name))
                 } catch (error: any) {
@@ -2627,6 +2644,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     return
                 }
                 actions.setMetricUpdating(true)
+                const biEditorState = getActiveBIEditorState()
                 try {
                     await dataCatalogMetricsPartialUpdate(
                         String(ApiConfig.getCurrentTeamId()),
@@ -2638,6 +2656,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             }) as unknown as Record<string, unknown>,
                         }
                     )
+                    captureBIEditorQuerySaved(biEditorState, 'metric', 'update')
                     lemonToast.success('Metric updated')
                     router.actions.push(urls.dataCatalogMetric(values.editingMetricName))
                 } catch (error: any) {
@@ -2667,6 +2686,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
 
                 actions.setInsightLoading(true)
+                const biEditorState = getActiveBIEditorState()
 
                 const insightName = values.activeTab?.name
                 const insightDescription = values.activeTab?.description
@@ -2702,6 +2722,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     throw e
                 }
                 actions.setInsightLoading(false)
+                captureBIEditorQuerySaved(biEditorState, 'insight', 'update', dashboardId !== null)
 
                 if (values.activeTab) {
                     actions.updateTab({
@@ -2853,6 +2874,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })
             },
             updateView: async ({ view, draftId }) => {
+                const biEditorState = getActiveBIEditorState()
                 const latestView = await api.dataWarehouseSavedQueries.get(view.id)
                 // A real conflict means someone else changed the query text since this edit began.
                 // Detect it by comparing the server's current query against the baseline this edit
@@ -2879,7 +2901,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                 ...view,
                                 edited_history_id: latestView?.latest_history_id,
                             })
-                            actions.updateViewSuccess(view, draftId)
+                            actions.updateViewSuccess(view, draftId, biEditorState)
                         },
                         onReject: () => {},
                     })
@@ -2891,10 +2913,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         ...view,
                         edited_history_id: latestView?.latest_history_id ?? view.edited_history_id,
                     })
-                    actions.updateViewSuccess(view, draftId)
+                    actions.updateViewSuccess(view, draftId, biEditorState)
                 }
             },
-            updateViewSuccess: async ({ view, draftId }) => {
+            updateViewSuccess: async ({ view, draftId, biEditorState }) => {
+                captureBIEditorQuerySaved(biEditorState, 'view', 'update')
                 if (draftId) {
                     actions.deleteDraft(draftId, view?.name)
                 }

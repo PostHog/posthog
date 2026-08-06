@@ -211,11 +211,13 @@ async fn scan_persons_page(
             FROM posthog_persondistinctid pd
             WHERE pd.person_id = p.id
               AND pd.team_id = p.team_id
+              AND pd.is_deleted = false
             ORDER BY pd.id
             LIMIT 1
         ) d ON true
         WHERE p.team_id = $1
           AND p.id > $2
+          AND p.is_deleted = false
         ORDER BY p.id
         LIMIT $3
     "#;
