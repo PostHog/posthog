@@ -180,7 +180,7 @@ class TestPrivateNoteSideEffects(BaseTest):
         ]
     )
     def test_only_a_team_authored_note_emits_the_private_event(
-        self, _name, author_type, with_author, expect_event, mock_capture, mock_scoped_capture
+        self, mock_capture, mock_scoped_capture, _name, author_type, with_author, expect_event
     ):
         comment = Comment.objects.create(
             team=self.team,
