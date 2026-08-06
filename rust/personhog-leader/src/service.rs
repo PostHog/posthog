@@ -1180,9 +1180,16 @@ impl PersonHogLeader for PersonHogLeaderService {
 
         match outcome {
             ReleaseOutcome::Committed => {
-                if req.sealed_version <= 0 {
+                // 0 is a legitimate sealed version (a fresh stub's),
+                // which is why the field is explicitly optional in the proto.
+                let Some(sealed_version) = req.sealed_version else {
                     return Err(Status::invalid_argument(
                         "sealed_version is required for a committed release",
+                    ));
+                };
+                if sealed_version < 0 {
+                    return Err(Status::invalid_argument(
+                        "sealed_version must not be negative",
                     ));
                 }
                 if req.created_at <= 0 {
@@ -1290,7 +1297,7 @@ impl PersonHogLeader for PersonHogLeaderService {
                     .as_ref()
                     .map(|p| p.version)
                     .unwrap_or(0)
-                    .max(req.sealed_version);
+                    .max(sealed_version);
                 let death_version = base_version.checked_add(1).ok_or_else(|| {
                     Status::invalid_argument("sealed_version leaves no room for the death version")
                 })?;

@@ -266,7 +266,7 @@ async fn fencing_seals_and_blocks_writes_until_an_aborted_release() {
                 person_uuid: String::new(),
                 op_id: op.to_string(),
                 outcome: ReleaseOutcome::Aborted.into(),
-                sealed_version: 0,
+                sealed_version: None,
                 created_at: 0,
             },
             partition,
@@ -357,7 +357,7 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
                 person_uuid: person_uuid.clone(),
                 op_id: op.to_string(),
                 outcome: ReleaseOutcome::Committed.into(),
-                sealed_version,
+                sealed_version: Some(sealed_version),
                 created_at: sealed.created_at,
             },
             partition,
@@ -412,7 +412,7 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
                 person_uuid,
                 op_id: op.to_string(),
                 outcome: ReleaseOutcome::Committed.into(),
-                sealed_version,
+                sealed_version: Some(sealed_version),
                 created_at: sealed.created_at,
             },
             partition,
@@ -420,6 +420,102 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
         .await
         .expect("duplicate release is idempotent");
     assert_eq!(changelog_records(&harness).len(), records_before);
+
+    sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
+        .bind(op)
+        .execute(&pool)
+        .await
+        .expect("cleanup");
+}
+
+/// A fresh person stub is created at version 0, so 0 is a sealed version
+/// the committed release must accept — a presence check that treats 0 as
+/// "unset" fences the stub forever.
+#[tokio::test]
+async fn a_stub_sealed_at_version_zero_can_be_released() {
+    let pool = common::create_persons_pool().await;
+    // A distinct person id: live marks are unique per (team, person), so
+    // sharing 42 with the sibling committed-release test would collide.
+    let stub = CachedPerson {
+        id: 4200,
+        version: 0,
+        ..test_cached_person()
+    };
+    let mut harness = start_fence_harness(
+        stub,
+        Some(PgFallback {
+            pool: pool.clone(),
+            table: "posthog_person".to_string(),
+        }),
+    )
+    .await;
+    let partition = harness.partition;
+    let person_id = harness.person_id;
+    let op = Uuid::now_v7();
+
+    // A failed earlier run leaves its live mark behind (cleanup runs only
+    // on success), and the live-mark unique index would refuse a second.
+    sqlx::query(
+        "DELETE FROM lifecycle_op WHERE op_id IN \
+         (SELECT op_id FROM lifecycle_op_person WHERE team_id = $1 AND person_id = $2)",
+    )
+    .bind(TEAM_ID as i32)
+    .bind(person_id)
+    .execute(&pool)
+    .await
+    .expect("clear stale marks");
+
+    sqlx::query(
+        "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request) \
+         VALUES ($1, 'delete', $2, 'sealed', '{}'::jsonb)",
+    )
+    .bind(op)
+    .bind(TEAM_ID as i32)
+    .execute(&pool)
+    .await
+    .expect("insert op");
+    sqlx::query(
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed')",
+    )
+    .bind(op)
+    .bind(TEAM_ID as i32)
+    .bind(person_id)
+    .execute(&pool)
+    .await
+    .expect("insert mark");
+
+    let sealed = harness
+        .client
+        .fence_person(with_partition(fence_request(person_id, &op), partition))
+        .await
+        .expect("fence succeeds")
+        .into_inner()
+        .sealed
+        .unwrap();
+    assert_eq!(sealed.version, 0, "the stub seals at its real version");
+
+    harness
+        .client
+        .release_fence(with_partition(
+            ReleaseFenceRequest {
+                team_id: TEAM_ID,
+                person_id,
+                person_uuid: sealed.uuid.clone(),
+                op_id: op.to_string(),
+                outcome: ReleaseOutcome::Committed.into(),
+                sealed_version: Some(0),
+                created_at: sealed.created_at,
+            },
+            partition,
+        ))
+        .await
+        .expect("a sealed version of 0 is presence, not absence");
+
+    let records = changelog_records(&harness);
+    let death = records.last().expect("death document produced");
+    assert!(death.is_deleted);
+    assert_eq!(death.version, 1, "the death version clears the seal");
 
     sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
         .bind(op)
@@ -468,7 +564,7 @@ async fn a_committed_release_without_a_live_mark_is_refused() {
                 person_uuid: test_cached_person().uuid,
                 op_id: op.to_string(),
                 outcome: ReleaseOutcome::Committed.into(),
-                sealed_version: sealed.version,
+                sealed_version: Some(sealed.version),
                 created_at: sealed.created_at,
             },
             partition,
@@ -528,7 +624,7 @@ async fn the_fence_rpcs_refuse_a_partition_this_pod_does_not_serve() {
                 person_uuid: String::new(),
                 op_id: op.to_string(),
                 outcome: ReleaseOutcome::Aborted.into(),
-                sealed_version: 0,
+                sealed_version: None,
                 created_at: 0,
             },
             foreign_partition,

@@ -302,8 +302,11 @@ message ReleaseFenceRequest {
   string op_id = 4;
   ReleaseOutcome outcome = 5;
   // The version sealed at fence time. The death document is produced at
-  // sealed_version + 1. Required when outcome = COMMITTED.
-  int64 sealed_version = 6;
+  // sealed_version + 1. Required when outcome = COMMITTED. Explicitly
+  // optional because 0 is a legitimate sealed version — a fresh person
+  // stub is created at version 0 — so absence must stay distinguishable
+  // from it.
+  optional int64 sealed_version = 6;
   // The person's creation time (epoch millis) as sealed at fence time.
   // The death document carries it verbatim — a cold leader has nothing
   // to re-derive it from, and the writer projects it onto the tombstone
