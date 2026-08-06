@@ -45,6 +45,7 @@ const CREATED_SCOUT: SignalScoutCreateResponseApi = {
         status_changed_at: null,
         auto_pause_exempt: false,
         network_access: 'trusted',
+        model: null,
         created_at: '2026-07-24T00:00:00Z',
     },
 }
@@ -83,6 +84,7 @@ describe('scoutCreateModalLogic', () => {
                             channel: 'C123|#ai-observability',
                         },
                     },
+                    tags: ['on-call', 'revenue'],
                 },
             },
             onClose,
@@ -106,6 +108,7 @@ describe('scoutCreateModalLogic', () => {
                         channel: 'C123|#ai-observability',
                     },
                 },
+                tags: ['on-call', 'revenue'],
             },
         })
 
@@ -126,6 +129,7 @@ describe('scoutCreateModalLogic', () => {
                         channel: 'C123|#ai-observability',
                     },
                 },
+                tags: ['on-call', 'revenue'],
             },
         })
         expect(onCreated).toHaveBeenCalledWith(CREATED_SCOUT)
@@ -157,6 +161,7 @@ describe('scoutCreateModalLogic', () => {
                     emit: true,
                     run_interval_minutes: 1440,
                     run_cron_schedule: '45 14 * * *',
+                    tags: [],
                 },
             }),
         })
@@ -170,6 +175,7 @@ describe('scoutCreateModalLogic', () => {
                     emit: true,
                     run_interval_minutes: 1440,
                     run_cron_schedule: '45 14 * * *',
+                    tags: [],
                 },
             })
         )
