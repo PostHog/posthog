@@ -797,7 +797,9 @@ body {
 }
 
 .markdown-link {
-  color: var(--accent-11);
+  /* currentColor fallback: Radix accent vars don't reach portalled surfaces
+     (quill dialogs), and an unresolvable var would drop the declaration. */
+  color: var(--accent-11, currentColor);
   text-decoration: none;
   cursor: pointer;
 }
