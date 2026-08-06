@@ -79,11 +79,13 @@ export function AccessLevelSelect(props: AccessLevelSelectProps): JSX.Element {
             // The trigger sits at the right edge of its row, so hang the menu off that edge
             dropdownPlacement="bottom-end"
             tooltip={
-                inherited
-                    ? props.level === null
-                        ? inherited.reason
-                        : `Overrides ${inherited.label}. ${inherited.reason}.`
-                    : undefined
+                // A disabled control explains itself through disabledReason; adding the inherited
+                // reason on top reads as two unrelated sentences
+                props.disabledReason || !inherited
+                    ? undefined
+                    : props.level === null
+                      ? inherited.reason
+                      : `Overrides ${inherited.label}. ${inherited.reason}.`
             }
             renderButtonContent={
                 noOverrideLabel ? (leaf) => (props.level === null ? noOverrideLabel : (leaf?.label ?? '')) : undefined
