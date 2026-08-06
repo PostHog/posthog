@@ -190,6 +190,10 @@ def _merge_in_select(
 ) -> bool:
     if node.select_from is None or node.select_from.next_join is None or node.type is None:
         return False
+    # A pre-existing table under the reserved alias would collide with the merged join
+    # during resolution, so leave such a select untouched.
+    if MERGED_ALIAS in node.type.tables:
+        return False
     base_alias = node.select_from.alias
     if base_alias is None and isinstance(node.select_from.table, ast.Field):
         base_alias = str(node.select_from.table.chain[0])
