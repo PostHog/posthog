@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("conversations", "0054_ticket_sla_snooze_asc_indexes"),
+        ("conversations", "0056_backfill_signing_secret"),
     ]
 
     operations = [
@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name="ticket",
-            name="resolved_at",
+            name="last_resolved_at",
             field=models.DateTimeField(blank=True, null=True),
         ),
     ]

@@ -118,11 +118,11 @@ class Ticket(UUIDTModel):
     # Lifecycle timestamps, denormalized for support metrics (TTFR, resolution time).
     # first_response_at: first customer-visible team/AI reply that isn't the message which opened
     #   the ticket, stamped once by the message signal.
-    # resolved_at: latest time the ticket entered `resolved`, kept in step with status by save().
-    #   Cleared on reopen and re-stamped on the next resolve, so it reflects current state rather
-    #   than acting as a resolution log.
+    # last_resolved_at: when the ticket most recently entered `resolved`, stamped by save(). Kept
+    #   through a reopen and overwritten by the next resolve, so it stays queryable as history and
+    #   `status` — not this column — is what says whether a ticket is resolved right now.
     first_response_at = models.DateTimeField(null=True, blank=True)
-    resolved_at = models.DateTimeField(null=True, blank=True)
+    last_resolved_at = models.DateTimeField(null=True, blank=True)
 
     # Snooze — when set, ticket is "on hold" until this time, then auto-reopened by wake task
     snoozed_until = models.DateTimeField(null=True, blank=True)
@@ -230,7 +230,7 @@ class Ticket(UUIDTModel):
     def from_db(cls, db, field_names, values):
         instance = super().from_db(db, field_names, values)
         # A deferred load leaves the snapshot unset rather than triggering a refetch of status;
-        # save() then leaves resolved_at alone instead of guessing at a transition.
+        # save() then leaves last_resolved_at alone instead of guessing at a transition.
         if "status" in field_names:
             instance._status_at_load = instance.status
         return instance
@@ -242,40 +242,35 @@ class Ticket(UUIDTModel):
         self._status_at_load = self.status
 
     def save(self, *args, **kwargs) -> None:
-        self._sync_resolved_at(kwargs)
+        self._stamp_last_resolved_at(kwargs)
         super().save(*args, **kwargs)
         self._status_at_load = self.status
 
-    def _sync_resolved_at(self, save_kwargs: dict) -> None:
-        """Keep resolved_at in step with the status this save writes.
+    def _stamp_last_resolved_at(self, save_kwargs: dict) -> None:
+        """Stamp last_resolved_at when this save moves the ticket into `resolved`.
 
         Status is written from many places (agent UI, external/workflow API, GitHub issue sync,
         snooze wake task) and all of them go through save(), so this is the one spot that can't
-        be forgotten.
+        be forgotten. The stamp is never cleared: a reopen leaves the previous resolve time in
+        place so "resolved during this period" stays answerable, and the next resolve overwrites
+        it.
         """
         update_fields = save_kwargs.get("update_fields")
         if update_fields is not None and "status" not in update_fields:
-            # This save isn't writing status, so it has nothing to say about resolved_at. Acting
-            # on the in-memory status here would let a save about some other field clobber a
-            # resolve that landed after this instance was loaded.
+            # This save isn't writing status, so it can't be a transition into resolved.
             return
 
         if self.status != Status.RESOLVED:
-            # Cleared unconditionally rather than only when this instance saw the ticket as
-            # resolved: a stale instance can't see a resolved_at set since it was loaded, and
-            # writing a non-resolved status must never leave a resolution time behind.
-            self.resolved_at = None
-            _extend_update_fields(save_kwargs, "resolved_at")
             return
 
-        # Stamp on entry to resolved only, so re-asserting `resolved` keeps the original time.
+        # Only on entry, so a later save that re-asserts `resolved` keeps the original time.
         # Rows that reached `resolved` without save() (the Zendesk import writes them with
-        # bulk_create) keep a NULL stamp rather than being back-dated to whenever a later save
-        # happened to touch them. UUIDTModel assigns pk in __init__, so _state.adding is the
-        # only new-row signal.
+        # bulk_create) stay NULL rather than being back-dated to whenever a later save happened
+        # to touch them. UUIDTModel assigns pk in __init__, so _state.adding is the only new-row
+        # signal.
         if self._state.adding or self._status_at_load != Status.RESOLVED:
-            self.resolved_at = timezone.now()
-            _extend_update_fields(save_kwargs, "resolved_at")
+            self.last_resolved_at = timezone.now()
+            _extend_update_fields(save_kwargs, "last_resolved_at")
 
     def __str__(self):
         return f"Ticket {self.id} - {self.widget_session_id[:8]}..."

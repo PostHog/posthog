@@ -9618,12 +9618,12 @@
                   "table": null,
                   "type": "datetime"
               },
-              "resolved_at": {
+              "last_resolved_at": {
                   "chain": null,
                   "fields": null,
-                  "hogql_value": "resolved_at",
+                  "hogql_value": "last_resolved_at",
                   "id": null,
-                  "name": "resolved_at",
+                  "name": "last_resolved_at",
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
@@ -19490,12 +19490,12 @@
                   "table": null,
                   "type": "datetime"
               },
-              "resolved_at": {
+              "last_resolved_at": {
                   "chain": null,
                   "fields": null,
-                  "hogql_value": "resolved_at",
+                  "hogql_value": "last_resolved_at",
                   "id": null,
-                  "name": "resolved_at",
+                  "name": "last_resolved_at",
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"

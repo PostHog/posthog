@@ -1910,13 +1910,13 @@ support_tickets: PostgresTable = PostgresTable(
             "import (e.g. Zendesk) it carries the real historical reply time; for a ticket seeded from an existing Slack thread "
             "it sits at the moment the ticket was created rather than the real Slack reply time.",
         ),
-        "resolved_at": DateTimeDatabaseField(
-            name="resolved_at",
+        "last_resolved_at": DateTimeDatabaseField(
+            name="last_resolved_at",
             nullable=True,
-            description="The latest time the ticket entered the resolved status: reopening clears it, resolving again overwrites "
-            "it. Resolution time = resolved_at - created_at. Current state rather than a resolution log, so it cannot count how "
-            "many tickets were resolved in a past period. Not backfilled for imported tickets, which can be resolved with a "
-            "NULL resolved_at.",
+            description="When the ticket most recently entered the resolved status. Retained if the ticket is later reopened and "
+            "overwritten if it is resolved again, so use `status` to tell whether a ticket is resolved right now — an open ticket "
+            "that was resolved before keeps its stamp. Resolution time = last_resolved_at - created_at. Not set for tickets "
+            "imported from another helpdesk.",
         ),
         "priority": StringDatabaseField(
             name="priority", nullable=True, description="Ticket priority, e.g. 'low', 'high'."

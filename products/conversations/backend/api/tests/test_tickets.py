@@ -2945,7 +2945,7 @@ class TestTicketNoteAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
-class TestTicketResolvedAtStamping(BaseTest):
+class TestTicketLastResolvedAtStamping(BaseTest):
     def _make_ticket(self) -> Ticket:
         return Ticket.objects.create_with_number(
             team=self.team,
@@ -2954,9 +2954,9 @@ class TestTicketResolvedAtStamping(BaseTest):
             channel_source="widget",
         )
 
-    def test_resolved_at_tracks_the_latest_resolve_across_update_fields_saves(self):
+    def test_last_resolved_at_survives_reopen_and_only_moves_on_a_new_resolve(self):
         ticket = self._make_ticket()
-        assert ticket.resolved_at is None
+        assert ticket.last_resolved_at is None
 
         # every transition path saves with update_fields, which drops anything save() sets
         # unless it widens the list
@@ -2964,32 +2964,28 @@ class TestTicketResolvedAtStamping(BaseTest):
             first_resolve = timezone.now()
             ticket.status = Status.RESOLVED
             ticket.save(update_fields=["status", "updated_at"])
-        assert Ticket.objects.get(pk=ticket.pk).resolved_at == first_resolve
+        assert Ticket.objects.get(pk=ticket.pk).last_resolved_at == first_resolve
 
+        # reopening keeps the stamp, so "resolved during June" doesn't shrink when a ticket is
+        # reopened in July
         ticket.status = Status.OPEN
         ticket.save(update_fields=["status", "updated_at"])
-        assert Ticket.objects.get(pk=ticket.pk).resolved_at is None
+        assert Ticket.objects.get(pk=ticket.pk).last_resolved_at == first_resolve
 
         with freeze_time("2026-07-03T10:00:00Z"):
             second_resolve = timezone.now()
             ticket.status = Status.RESOLVED
             ticket.save(update_fields=["status", "updated_at"])
-        assert Ticket.objects.get(pk=ticket.pk).resolved_at == second_resolve
+        assert Ticket.objects.get(pk=ticket.pk).last_resolved_at == second_resolve
 
-    def test_resolved_at_cleared_by_a_stale_instance_writing_a_non_resolved_status(self):
-        ticket = self._make_ticket()
-        # loaded while the ticket is still open, so it never sees the resolve below
-        stale = Ticket.objects.get(pk=ticket.pk)
+        # a later save that re-asserts `resolved` (status in update_fields, so it clears the
+        # guard) must not bump the stamp to now
+        with freeze_time("2026-07-05T10:00:00Z"):
+            ticket.priority = Priority.HIGH
+            ticket.save(update_fields=["status", "priority", "updated_at"])
+        assert Ticket.objects.get(pk=ticket.pk).last_resolved_at == second_resolve
 
-        ticket.status = Status.RESOLVED
-        ticket.save(update_fields=["status", "updated_at"])
-        assert Ticket.objects.get(pk=ticket.pk).resolved_at is not None
-
-        stale.status = Status.OPEN
-        stale.save(update_fields=["status", "updated_at"])
-        assert Ticket.objects.get(pk=ticket.pk).resolved_at is None
-
-    def test_resolved_at_not_back_dated_on_rows_that_reached_resolved_without_save(self):
+    def test_last_resolved_at_not_back_dated_on_rows_that_reached_resolved_without_save(self):
         # The Zendesk import writes already-resolved tickets with bulk_create, which bypasses
         # save(), so they land resolved with no stamp. A later unrelated save must not date those
         # to today and pass a years-old ticket off as resolved just now.
@@ -3009,11 +3005,11 @@ class TestTicketResolvedAtStamping(BaseTest):
         loaded = Ticket.objects.get(pk=imported.pk)
         loaded.priority = Priority.HIGH
         loaded.save(update_fields=["priority", "updated_at"])
-        assert Ticket.objects.get(pk=imported.pk).resolved_at is None
+        assert Ticket.objects.get(pk=imported.pk).last_resolved_at is None
 
         # a real transition still stamps, so an unstamped row isn't stuck that way forever
         loaded.status = Status.OPEN
         loaded.save(update_fields=["status", "updated_at"])
         loaded.status = Status.RESOLVED
         loaded.save(update_fields=["status", "updated_at"])
-        assert Ticket.objects.get(pk=imported.pk).resolved_at is not None
+        assert Ticket.objects.get(pk=imported.pk).last_resolved_at is not None
