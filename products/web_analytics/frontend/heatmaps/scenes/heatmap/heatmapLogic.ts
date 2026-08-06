@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { validateProposedUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import type { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
@@ -25,7 +26,7 @@ import {
 } from 'products/web_analytics/frontend/generated/api'
 import type { SavedHeatmapRequestApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
-import { heatmapsBrowserLogic, isUrlPattern } from '../../components/heatmapsBrowserLogic'
+import { ensureUrlScheme, heatmapsBrowserLogic, isUrlPattern } from '../../components/heatmapsBrowserLogic'
 import { heatmapsSceneLogic } from '../heatmaps/heatmapsSceneLogic'
 
 const DEFAULT_HEATMAP_NAME = 'Untitled heatmap'
@@ -61,19 +62,17 @@ function getCreationFailureCategory(error: unknown): 'validation' | 'permission'
     return 'unknown'
 }
 
-function isValidPageUrl(url: string | null): boolean {
+export function isValidPageUrl(url: string | null): boolean {
     if (!url) {
         return true
     }
+    // A saved heatmap renders one concrete page, so a wildcard page URL is never valid.
     if (isUrlPattern(url)) {
         return false
     }
-    try {
-        new URL(url)
-        return url.includes('://')
-    } catch {
-        return false
-    }
+    // Accept a bare domain by assuming https, matching how the value is stored, and reuse the
+    // shared authorized-URL validator instead of a second, stricter parse that trips on query strings.
+    return validateProposedUrl(ensureUrlScheme(url), []) === undefined
 }
 
 // Screenshot heatmaps store a same-origin API path as `screenshotUrl`; the export backend's
@@ -569,7 +568,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             if (!values.isPageUrlDraftValid) {
                 return
             }
-            const next = values.pageUrlDraft.trim()
+            const next = ensureUrlScheme(values.pageUrlDraft)
             if (!next) {
                 return
             }

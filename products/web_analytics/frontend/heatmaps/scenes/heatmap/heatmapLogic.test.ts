@@ -1,6 +1,22 @@
 import { HeatmapType } from '~/types'
 
-import { resolveHeatmapExportUrl } from './heatmapLogic'
+import { isValidPageUrl, resolveHeatmapExportUrl } from './heatmapLogic'
+
+describe('isValidPageUrl', () => {
+    it.each([
+        ['empty is valid (nothing entered yet)', null, true],
+        ['a plain absolute URL', 'https://example.com/pricing', true],
+        // The reported bug: a query string was misread as a wildcard and rejected.
+        ['an absolute URL with a query string', 'https://example.com/pricing?plan=business', true],
+        ['an absolute URL with multiple query params', 'https://example.com/login?next=%2Fapp&ref=nav', true],
+        // A bare domain used to throw in new URL(); it is now accepted as https.
+        ['a bare domain', 'example.com', true],
+        ['a wildcard page URL', 'https://example.com/*', false],
+        ['gibberish', 'not a url', false],
+    ])('%s', (_case, url, expected) => {
+        expect(isValidPageUrl(url)).toBe(expected)
+    })
+})
 
 describe('resolveHeatmapExportUrl', () => {
     const origin = 'https://us.posthog.com'

@@ -20,7 +20,7 @@ describe('heatmapCreationLogic', () => {
 
     it.each([
         ['missing page URL', null, true, null, true, 'Enter a page URL to continue'],
-        ['invalid page URL', 'example.com', false, null, true, 'Enter a valid page URL to continue'],
+        ['invalid page URL', 'not a url', false, null, true, 'Enter a valid page URL to continue'],
         [
             'invalid data URL',
             'https://example.com',

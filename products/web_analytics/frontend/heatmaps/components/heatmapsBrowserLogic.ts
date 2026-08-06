@@ -94,9 +94,21 @@ export function preflightBannerMessage(preflight: PagePreflight | null): string 
     return null
 }
 
-// Helper function to detect if a URL contains regex pattern characters
+// A heatmap URL is a pattern only when it uses the `*` wildcard — the sole placeholder
+// heatmapUrlPatternToRegex expands. Everything else (notably `?` and `&` in a query string)
+// is ordinary URL syntax, so treating those as pattern characters wrongly rejects real pages.
 export const isUrlPattern = (url: string): boolean => {
-    return /[*+?^${}()|[\]\\]/.test(url)
+    return url.includes('*')
+}
+
+// A page URL renders one concrete page, so it needs a scheme to load and to pass backend
+// validation. Assume https for a bare domain a person typed or picked from suggestions.
+export const ensureUrlScheme = (url: string): string => {
+    const trimmed = url.trim()
+    if (!trimmed || /^[a-zA-Z][\w+.-]*:\/\//.test(trimmed)) {
+        return trimmed
+    }
+    return `https://${trimmed}`
 }
 
 const normalizeUrlPath = (urlObj: URL): string => {
@@ -452,12 +464,16 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             null as { url: string; count: number }[] | null,
             {
                 loadTopUrls: async () => {
+                    // Only suggest URLs the page-URL field can actually accept: real http(s) pages,
+                    // never NULLs or scheme-less values like `about:srcdoc`.
                     const query = hogql`
                         SELECT properties.$current_url AS url, count() as count
                         FROM events
                         WHERE timestamp >= now() - INTERVAL 7 DAY
                         AND event in ('$pageview', '$autocapture')
                         AND timestamp <= now()
+                        AND properties.$current_url IS NOT NULL
+                        AND (properties.$current_url LIKE 'http://%' OR properties.$current_url LIKE 'https://%')
                         GROUP BY properties.$current_url
                         ORDER BY count DESC
                         LIMIT 10`

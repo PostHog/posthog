@@ -20,7 +20,7 @@ import { AccessControlLevel, AccessControlResourceType, HeatmapType } from '~/ty
 import { HeatmapAdvancedSettings } from '../../components/HeatmapAdvancedSettings'
 import { HeatmapRecording } from '../../components/HeatmapRecording'
 import { HeatmapRecordingFallback } from '../../components/HeatmapRecordingFallback'
-import { heatmapsBrowserLogic, isUrlPattern } from '../../components/heatmapsBrowserLogic'
+import { ensureUrlScheme, heatmapsBrowserLogic, isUrlPattern } from '../../components/heatmapsBrowserLogic'
 import { HeatmapsEnableCapture } from '../../components/HeatmapsEnableCapture'
 import { HeatmapsInvalidURL } from '../../components/HeatmapsInvalidURL'
 import { HeatmapCreationStep, heatmapCreationLogic } from './heatmapCreationLogic'
@@ -196,7 +196,7 @@ function ChoosePageStep(): JSX.Element {
                         placeholder="https://www.example.com/pricing"
                         loading={topUrlsLoading}
                         value={displayUrl ? [displayUrl] : []}
-                        onChange={(next) => setDisplayUrl(next[0] ?? '')}
+                        onChange={(next) => setDisplayUrl(ensureUrlScheme(next[0] ?? ''))}
                         options={(topUrls ?? []).map(({ url }) => ({
                             key: url,
                             label: url,
