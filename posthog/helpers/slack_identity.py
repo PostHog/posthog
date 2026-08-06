@@ -24,7 +24,7 @@ logger = structlog.get_logger(__name__)
 SLACK_USER_CACHE_TTL = 5 * 60  # 5 minutes
 SLACK_AVATAR_CACHE_TTL = 5 * 60  # 5 minutes
 
-_UNKNOWN_USER = MappingProxyType({"name": "Unknown", "email": None, "avatar": None})
+_UNKNOWN_USER = MappingProxyType({"name": "Unknown", "email": None, "avatar": None, "team_id": None})
 
 
 def _make_cache_key(prefix: str, *args: str) -> str:
@@ -106,6 +106,9 @@ def resolve_slack_user(client: WebClient, slack_user_id: str, *, workspace: str)
             "name": name,
             "email": profile.get("email"),
             "avatar": profile.get("image_72"),
+            # Slack workspace the user belongs to — lets callers tell workspace members apart
+            # from external (Slack Connect) participants before trusting the profile email.
+            "team_id": user_data.get("team_id"),
         }
         set_cached_slack_user(slack_user_id, result, workspace)
         return result

@@ -6003,9 +6003,9 @@ snapshots:
     scenes-app-feature-flags-new-feature-flag-menu--default--light:
         hash: v1.k794b7964.c58d12ddf9499563916bb71f41ff70dce9db471379ef2215c8b57a0ac88aa76c.jl03AgPo8iB46wC9k3xNkQwobb5SLJcSwYnOphJUt8Y
     scenes-app-features--features-list--dark:
-        hash: v1.k794b7964.2ff24ed72e9bf4edb6d09e52a3d8991eb066f76d1a3d0d4b51380991ee938de1.S_zLwHN-sBexiwsZTKzYUEUvxsgYXBBZr7-C2MI6yfs
+        hash: v1.k794b7964.1b1bbf79d9e0033065f8369f89f9b7abe8db7a7694c800718a664be79d6fb999.Zfs6DpPi2hNyE-n0iiT3GF9TR1lChLpRz9R_vxyhuAg
     scenes-app-features--features-list--light:
-        hash: v1.k794b7964.2674e373d1160fbbfdb9a19a9c58784d5844a82b63fc71d32a614036faecbe9d.q9GyBN3PQJc2iUmR8pSQyvrNDZEaNSoEN-3I0cUNDYk
+        hash: v1.k794b7964.7b36b974461d5ba35ed239b2042e95d3d694e0cd19c26bb536ea418a0597c8b7.1KBS0d3TygedJFATRHLHioFrBBMqD7EFnrejaF6FYJc
     scenes-app-features--new-feature-flag--dark:
         hash: v1.k794b7964.63525b4477e45f45dd5f6d3899ea40fbcddbe0740984e77ce85fdc30fda6889e.1ThZLV0EP8iSDYLCz1SRoPAAhA-vxBD8nY8Y-jL-2UA
     scenes-app-features--new-feature-flag--light:
@@ -7239,7 +7239,7 @@ snapshots:
     scenes-app-support-threadreportentry--fix-proposed--light:
         hash: v1.k794b7964.c6c298530eeb24ccb24d03b4154c5bed13fe2c880f44c8c2f1b64c00de67d607.GL23s_Dpa4eOE1lQeklRM4jtk6sEaQ1FqSb8b5oPkvo
     scenes-app-support-threadreportentry--several-reports-across-states--dark:
-        hash: v1.k794b7964.4c731c34ab351c352581130456833a7c220bcd4c4e941798d3e4345fc40c463b.Z9eFNeKgXiA5Pc07ZqkMPLoc83WoFhfB2sf7_xHX-Kk
+        hash: v1.k794b7964.9a8c427062ed7bc3ded83b2ccb343c593cb6f3f1a45b7e110d1d3a316f62dc16.9csuq0SryVkPRVZot6IgvtXxR1j7452hPCWAUhsUBo0
     scenes-app-support-threadreportentry--several-reports-across-states--light:
         hash: v1.k794b7964.ec55e023b31b2a327072c0e9fe3b164f74d81a226aa3efae9d6fe79d98db5da6.R5v-7fBBPhhayu8hBAHgU6eyTieyIbMYD3ewFUeP_Vo
     scenes-app-surveys--new-multi-question-survey-section--dark:
@@ -7506,6 +7506,14 @@ snapshots:
         hash: v1.k794b7964.aabe99692a6a19e22aacc0cad741a2b20cc97e4a6561b9ff6813d8e51f4f77aa.qIcBPh1akofg3x6zWnlFcCCeKTUDIGR4WKYPL0aMvaM
     scenes-other-billing--billing-without-icon-keys--light:
         hash: v1.k794b7964.6cb8c47887a0fa3fd3f81379090febcc05c3be3610cde5873d507766c595c191.YbRefpyPdf31OQpgZ1GTQTwADlF14qzTEzsk3uGAXNo
+    scenes-other-billing-billinglinegraph--with-billing-period-marker--dark:
+        hash: v1.k794b7964.659ef2a9028cee6b7cce11fb4e474ec2150c73517c90bd58b2f52188a438f2d6.l9cj9-MUsCDWVTb3L3gnWa00mdyg6rS2skRWbP92TGY
+    scenes-other-billing-billinglinegraph--with-billing-period-marker--light:
+        hash: v1.k794b7964.39589e33115d9b6e977d464c2656b0fc2e132017c469f1ad31c2c13cd12c2260.-YE5Bgc3uP4iB9JuUSvQEmgzwDjNWImvSqJg1YgVLuw
+    scenes-other-billing-billinglinegraph--with-marker-at-range-start--dark:
+        hash: v1.k794b7964.5bcd95a5b7d58b483401ea42f0762bc1894ac406beebf5c8b45b89304b908ce9.Ox9Cw0TvU8tIvrVTgeAC92FRtCGjTaLnVOx8S9nRzCA
+    scenes-other-billing-billinglinegraph--with-marker-at-range-start--light:
+        hash: v1.k794b7964.5948fea6ef855d327f6d59f1ed10eb3fd55808540eda078bee5fed552523a4c0.FTXekbDFuL1YE5ad9VyyBtq5lOBiNalah41lHdISQOE
     scenes-other-billing-product--billing-product-inclusion-only-with-addon--dark:
         hash: v1.k794b7964.ce05ab37980f7fc148ea8681fee7b0eeb1f046266e8a7df22fbfc5cc8cefb8e7.hjk8pf9SicO_kBVjVXooUrPaBUj_76AzOPVXuwydGkE
     scenes-other-billing-product--billing-product-inclusion-only-with-addon--light:
