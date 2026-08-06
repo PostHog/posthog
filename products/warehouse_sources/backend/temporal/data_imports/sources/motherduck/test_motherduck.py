@@ -130,9 +130,20 @@ class TestMotherDuckTransport(SimpleTestCase):
         # `>=` re-reads the boundary row (merge dedupes on primary key) but drops older ones.
         self.assertEqual(sorted(combined.column("id").to_pylist()), [2, 3])
 
-    def test_translates_auth_errors(self):
-        message = translate_motherduck_error(Exception("UNAUTHENTICATED: jwt expired"))
-        self.assertIn("Invalid MotherDuck token", message)
+    @parameterized.expand(
+        [
+            ("auth", "UNAUTHENTICATED: jwt expired", "Invalid MotherDuck token"),
+            (
+                "compute_limit",
+                "Error: You've reached the daily compute limit for this plan. Upgrade to get more capacity.",
+                "reached its compute limit",
+            ),
+            # Unmapped errors surface their first line only (DuckDB appends candidate/hint blocks).
+            ("fallback_first_line", "Binder Error: column nope not found\nCandidate bindings: ...", "Binder Error"),
+        ]
+    )
+    def test_translates_errors(self, _name, raw, expected_fragment):
+        self.assertIn(expected_fragment, translate_motherduck_error(Exception(raw)))
 
 
 class TestMotherDuckColumnMapping(SimpleTestCase):

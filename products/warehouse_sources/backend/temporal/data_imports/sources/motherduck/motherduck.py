@@ -78,6 +78,11 @@ def translate_motherduck_error(error: Exception) -> str:
         return "Invalid MotherDuck token. Generate a new access token in MotherDuck settings and try again."
     if "database" in lowered and ("not found" in lowered or "does not exist" in lowered):
         return "Database not found. Check the database name, or leave it blank to connect to all databases."
+    if "compute limit" in lowered or "out of compute" in lowered:
+        return (
+            "Your MotherDuck plan has reached its compute limit. Queries may be slow or fail until the "
+            "limit resets. Upgrade your MotherDuck plan for more capacity."
+        )
     # First line only: DuckDB appends multi-line candidate/hint blocks.
     return message.splitlines()[0] if message.strip() else "Could not connect to MotherDuck."
 
