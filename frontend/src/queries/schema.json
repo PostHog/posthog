@@ -26591,7 +26591,7 @@
                 },
                 "filters": {
                     "$ref": "#/definitions/HogQLFilters",
-                    "description": "Extra filters applied to query via {filters}"
+                    "description": "Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder"
                 },
                 "globals": {
                     "description": "Extra globals for the query",
@@ -26735,7 +26735,8 @@
                     "type": "boolean"
                 },
                 "filters": {
-                    "$ref": "#/definitions/HogQLFilters"
+                    "$ref": "#/definitions/HogQLFilters",
+                    "description": "Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder"
                 },
                 "kind": {
                     "const": "HogQLQuery",
