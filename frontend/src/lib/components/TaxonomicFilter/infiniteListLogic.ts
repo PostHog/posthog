@@ -434,10 +434,10 @@ export interface infiniteListLogicActions {
     remoteItemsFetchFailedForQuery: (searchQuery: string) => {
         searchQuery: string
     }
-    retryRemoteItems: () => {
+    resetPinnedRowState: () => {
         value: true
     }
-    resetPinnedRowState: () => {
+    retryRemoteItems: () => {
         value: true
     }
     selectSelected: () => {
