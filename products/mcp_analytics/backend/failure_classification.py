@@ -21,7 +21,7 @@ from posthog.models.team.team import Team
 
 logger = structlog.get_logger(__name__)
 
-FAILURE_CLASS_MODEL = "gpt-4.1-mini"
+FAILURE_CLASS_MODEL = "gpt-5.6-luna"
 CLASSIFY_BATCH_SIZE = 25
 FINGERPRINT_MAX_CHARS = 200
 _QUOTED_VALUE_MAX_CHARS = 80
