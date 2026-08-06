@@ -133,10 +133,12 @@ describe('exportsLogic', () => {
                 expectsPanelOpen: true,
             },
             {
-                label: 'blocking export with content is downloaded and resolves to "Export complete!"',
+                // Resolves with no message of its own so the toast falls back to the success
+                // element, which carries the "can't find the download?" link.
+                label: 'blocking export with content is downloaded and resolves with no message',
                 response: asset({ id: 12, export_format: ExporterFormat.CSV, has_content: true }),
                 format: ExporterFormat.CSV,
-                settles: { resolved: 'Export complete!' },
+                settles: { resolved: '' },
                 expectsDownload: true,
                 freshIds: [],
                 expectsViewExportsButton: false,
@@ -210,6 +212,47 @@ describe('exportsLogic', () => {
                 ).toBe(expectsPanelOpen)
             }
         )
+
+        it('points a completed export back at the exports panel', async () => {
+            // A synchronous export downloads itself, which is easy to miss in the browser's own
+            // download UI — the completion message has to offer a way to reach the file.
+            jest.spyOn(api.exports, 'create').mockResolvedValue(
+                asset({ id: 16, export_format: ExporterFormat.CSV, has_content: true })
+            )
+
+            logic.actions.createExport({ exportData: { export_format: ExporterFormat.CSV } })
+            await flush()
+
+            const messages = jest.mocked(lemonToast.promise).mock.calls[0][1]
+            expect(typeof messages.success).not.toBe('string')
+        })
+
+        it.each([
+            ['a dashboard export', 7, [[7]]],
+            ['an insight export', undefined, []],
+        ])('considers the subscribe nudge after %s completes', async (_label, dashboard, expected) => {
+            jest.spyOn(api.exports, 'create').mockResolvedValue(
+                asset({ id: 17, export_format: ExporterFormat.PNG, has_content: true, dashboard })
+            )
+            const considerSpy = jest.spyOn(logic.actions, 'considerExportNudge')
+
+            logic.actions.createExport({ exportData: { export_format: ExporterFormat.PNG, dashboard } })
+            await flush()
+
+            expect(considerSpy.mock.calls).toEqual(expected)
+        })
+
+        it('considers the subscribe nudge when a polled dashboard export completes', async () => {
+            const pending = asset({ id: 18, export_format: ExporterFormat.PNG, dashboard: 8 })
+            const finished = asset({ id: 18, export_format: ExporterFormat.PNG, has_content: true, dashboard: 8 })
+            const considerSpy = jest.spyOn(logic.actions, 'considerExportNudge')
+
+            logic.actions.addFresh(pending)
+            logic.actions.loadExportsSuccess([finished])
+            await flush()
+
+            expect(considerSpy.mock.calls).toEqual([[8]])
+        })
 
         it('offers a Download button when the create call outlived the user gesture', async () => {
             // A slow synchronous render outlives Safari's user-activation window, so an auto-download

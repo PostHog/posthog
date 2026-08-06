@@ -41,7 +41,15 @@ export const SUBSCRIPTION_PREFILL_PARAMS = {
     viaParam: 'via',
     viaToast: 'toast',
     viaNotification: 'notification',
+    viaExport: 'export',
 } as const
+
+/** Surfaces that deep-link into the prefilled form, so the readout can compare them. */
+export const SUBSCRIPTION_PREFILL_VIA_VALUES: readonly string[] = [
+    SUBSCRIPTION_PREFILL_PARAMS.viaToast,
+    SUBSCRIPTION_PREFILL_PARAMS.viaNotification,
+    SUBSCRIPTION_PREFILL_PARAMS.viaExport,
+]
 
 export const urlForSubscription = (
     id: number | 'new',

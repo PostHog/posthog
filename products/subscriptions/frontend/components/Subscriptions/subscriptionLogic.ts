@@ -27,6 +27,7 @@ import {
     ALL_DAYS,
     AI_PROMPT_MAX_LENGTH,
     SUBSCRIPTION_PREFILL_PARAMS,
+    SUBSCRIPTION_PREFILL_VIA_VALUES,
     SubscriptionBaseProps,
     urlForSubscription,
 } from './utils'
@@ -767,15 +768,22 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 // default, so "Create subscription" doesn't require an extra no-op edit to enable.
                 actions.setSubscriptionValues(prefill)
                 cache.prefillBaseline = { ...NEW_SUBSCRIPTION, ...prefill }
-                // Both toast and notification links enter the nudge flow through this route.
-                posthog.capture('dashboard subscribe nudge clicked', {
-                    dashboard_id: props.dashboardId,
-                    prefilled: !!values.user?.email,
-                    via:
-                        searchParams[SUBSCRIPTION_PREFILL_PARAMS.viaParam] === SUBSCRIPTION_PREFILL_PARAMS.viaToast
-                            ? SUBSCRIPTION_PREFILL_PARAMS.viaToast
+                // Every nudge surface — repeat-view toast, notification, export toast — enters the
+                // flow through this route. The export nudge is its own experiment, so it reports a
+                // separate event rather than another `via` value on the repeat-view one.
+                const via = searchParams[SUBSCRIPTION_PREFILL_PARAMS.viaParam]
+                posthog.capture(
+                    via === SUBSCRIPTION_PREFILL_PARAMS.viaExport
+                        ? 'dashboard export nudge clicked'
+                        : 'dashboard subscribe nudge clicked',
+                    {
+                        dashboard_id: props.dashboardId,
+                        prefilled: !!values.user?.email,
+                        via: SUBSCRIPTION_PREFILL_VIA_VALUES.includes(via)
+                            ? via
                             : SUBSCRIPTION_PREFILL_PARAMS.viaNotification,
-                })
+                    }
+                )
             }
             if (searchParams.target_type) {
                 actions.setSubscriptionValue('target_type', searchParams.target_type)
