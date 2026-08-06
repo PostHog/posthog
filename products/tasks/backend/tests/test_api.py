@@ -7659,7 +7659,7 @@ class TestTaskRunArtifactDismissAPI(BaseTaskAPITest):
 
         self.assertEqual(self._dismiss(task, run, ["artifact-1", "artifact-2"], False).status_code, status.HTTP_200_OK)
         run.refresh_from_db()
-        self.assertTrue(all(artifact.get("dismissed_at") is None for artifact in run.artifacts))
+        self.assertTrue(all("dismissed_at" not in artifact for artifact in run.artifacts))
 
     def test_dismiss_unknown_artifact_leaves_the_manifest_alone(self):
         task, run = self._create_run_with_artifacts()
