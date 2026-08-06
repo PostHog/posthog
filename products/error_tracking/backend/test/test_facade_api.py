@@ -219,6 +219,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         [
             ("missing_number", {"repository": "posthog"}),
             ("boolean_number", {"repository": "posthog", "number": False}),
+            ("zero_number", {"repository": "posthog", "number": 0}),
             ("list_number", {"repository": "posthog", "number": [42]}),
             ("blank_repository", {"repository": "   ", "number": 42}),
         ]

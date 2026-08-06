@@ -175,7 +175,12 @@ def _clean_existing_external_context(integration: Integration, external_context:
         # interpolates these into URLs, so anything else would persist a broken reference.
         if isinstance(value, str):
             value = value.strip()
-        if isinstance(value, bool) or not isinstance(value, str | int) or value == "":
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, str | int)
+            or value == ""
+            or (isinstance(value, int) and value <= 0)
+        ):
             raise ErrorTrackingExternalReferenceValidationError(
                 f"Missing required external context fields for {integration.kind}: {', '.join(required_fields)}."
             )

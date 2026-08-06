@@ -130,8 +130,8 @@ class ErrorTrackingExternalIssueSearchResponseSerializer(serializers.Serializer)
 class ErrorTrackingExternalReferenceViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
     scope_object = "error_tracking"
     # Custom actions aren't in the default action->scope mapping, so API keys would be
-    # rejected outright without these.
-    scope_object_read_actions = ["list", "retrieve", "search_issues"]
+    # rejected outright without these. search_issues declares its own scopes on the action.
+    scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["create", "link_issue"]
     serializer_class = ErrorTrackingExternalReferenceSerializer
 
@@ -215,7 +215,15 @@ class ErrorTrackingExternalReferenceViewSet(TeamAndOrgViewSetMixin, ForbidDestro
         parameters=[ErrorTrackingExternalIssueSearchQuerySerializer],
         responses={200: ErrorTrackingExternalIssueSearchResponseSerializer},
     )
-    @action(methods=["GET"], detail=False, url_path="search_issues", pagination_class=None)
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="search_issues",
+        pagination_class=None,
+        # Searching exposes provider data well beyond error tracking, so a token also
+        # needs read access to integrations.
+        required_scopes=["error_tracking:read", "integration:read"],
+    )
     def search_issues(self, request: Request, *args, **kwargs) -> Response:
         """Search a connected provider for existing issues to link an error to."""
         query_serializer = ErrorTrackingExternalIssueSearchQuerySerializer(data=request.query_params)

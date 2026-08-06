@@ -418,6 +418,11 @@ function ExistingIssueSelect({
         if (requiresRepository && !repository) {
             return
         }
+        // The search endpoint rejects blank queries, and LemonInputSelect emits an empty
+        // input on blur/selection - keep whatever results are already shown.
+        if (!query.trim()) {
+            return
+        }
         if (debounceRef.current) {
             clearTimeout(debounceRef.current)
         }
@@ -444,18 +449,13 @@ function ExistingIssueSelect({
         }, 300)
     }
 
-    // Populate an initial list (and refresh it when the GitHub repository changes) without waiting for input.
     useEffect(() => {
-        if (!requiresRepository || repository) {
-            runSearch('')
-        }
         return () => {
             if (debounceRef.current) {
                 clearTimeout(debounceRef.current)
             }
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [repository])
+    }, [])
 
     const optionKey = (result: ExternalIssueSearchResult): string => result.url || `${result.id}`
     const options = results.map((result) => ({

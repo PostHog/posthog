@@ -2148,6 +2148,13 @@ class TestGitHubIntegrationModel(BaseTest):
                     "html_url": "https://github.com/PostHog/other/issues/2",
                     "repository_url": "https://api.github.com/repos/PostHog/other",
                 },
+                {
+                    "number": 3,
+                    "title": "A pull request",
+                    "html_url": "https://github.com/PostHog/posthog/pull/3",
+                    "repository_url": "https://api.github.com/repos/PostHog/posthog",
+                    "pull_request": {"url": "https://api.github.com/repos/PostHog/posthog/pulls/3"},
+                },
             ]
         }
         with patch.object(github, "api_request", return_value=mock_response):

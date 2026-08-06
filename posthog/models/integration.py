@@ -3676,6 +3676,9 @@ class GitHubIntegration(GitHubIntegrationBase):
             number = issue.get("number")
             if number is None:
                 continue
+            # The issues search API returns pull requests too; those aren't linkable issues.
+            if issue.get("pull_request"):
+                continue
             # Search-syntax operators in the user's query (e.g. "foo OR bar") can escape the
             # repo: qualifier, so drop anything that isn't actually from the chosen repository.
             repository_url = issue.get("repository_url") or ""
