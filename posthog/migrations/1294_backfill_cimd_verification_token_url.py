@@ -1,4 +1,3 @@
-from datetime import datetime
 from urllib.parse import urlparse
 
 from django.db import migrations
@@ -50,13 +49,16 @@ def backfill_cimd_url(apps, schema_editor):
       two genuinely different URLs are ambiguous);
     - that URL normalizes to a real value;
     - the organization has exactly one token that isn't already bound;
-    - that token has actually verified something before (last_used_at is set);
-    - that token predates the app it would be bound to (created_at <= the app's
-      created), since the app can only embed a token that already existed.
+    - that token has actually verified something before (last_used_at is set).
+
+    Deliberately not required: that the token predate the app. A CIMD app self-registers
+    on its first /authorize, and the admin issues a token and republishes the document
+    afterwards, so a token newer than its app is the ordinary sequence rather than a
+    suspicious one. Rejecting it skipped live partners while corroborating nothing that
+    last_used_at does not already cover.
 
     Anything else is left null, which fails closed - those partners reissue a token
-    against an explicit URL. That includes legitimate cases this can't distinguish
-    from a spoofed one, such as an app self-registering before its token existed.
+    against an explicit URL, or bind the existing one from the settings page.
     """
     CIMDVerificationToken = apps.get_model("posthog", "CIMDVerificationToken")
     OAuthApplication = apps.get_model("posthog", "OAuthApplication")
@@ -76,38 +78,34 @@ def backfill_cimd_url(apps, schema_editor):
             cimd_metadata_url__isnull=False,
         )
         .exclude(cimd_metadata_url="")
-        .values_list("organization_id", "cimd_metadata_url", "created")
+        .values_list("organization_id", "cimd_metadata_url")
         .iterator()
     )
 
-    app_rows_by_org: dict[str, list[tuple[str, datetime]]] = {}
-    for org_id, url, created in verified_apps:
-        app_rows_by_org.setdefault(str(org_id), []).append((url, created))
+    # Normalized before grouping, not compared as raw strings: cimd_metadata_url is unique,
+    # so two apps can only ever "share" a document by spelling it differently (host case,
+    # an explicit :443, a trailing slash). Those are one document, not ambiguity.
+    normalized_urls_by_org: dict[str, set[str]] = {}
+    for org_id, url in verified_apps:
+        normalized_urls_by_org.setdefault(str(org_id), set()).add(_normalize_cimd_url(url))
 
     skipped_ambiguous_url = 0
     skipped_unnormalizable_url = 0
     candidate_urls_by_org: dict[str, str] = {}
-    earliest_app_created_by_org: dict[str, datetime] = {}
-    for org_id, rows in app_rows_by_org.items():
-        # Compared after normalizing, not on the raw strings: cimd_metadata_url is unique,
-        # so two apps can only ever "share" a document by spelling it differently (host
-        # case, an explicit :443, a trailing slash). Those are one document, not ambiguity.
-        normalized_urls = {_normalize_cimd_url(url) for url, _ in rows}
+    for org_id, normalized_urls in normalized_urls_by_org.items():
         if _UNNORMALIZABLE_URL in normalized_urls:
             skipped_unnormalizable_url += 1
             continue
         if len(normalized_urls) != 1:
             skipped_ambiguous_url += 1
             continue
-        (normalized_url,) = normalized_urls
-        candidate_urls_by_org[org_id] = normalized_url
-        earliest_app_created_by_org[org_id] = min(created for _, created in rows)
+        (candidate_urls_by_org[org_id],) = normalized_urls
 
     tokens_by_org: dict[str, list] = {}
     candidate_tokens = (
         CIMDVerificationToken.objects.using(db_alias)
         .filter(organization_id__in=candidate_urls_by_org.keys(), cimd_url__isnull=True)
-        .only("id", "organization_id", "created_at", "last_used_at")
+        .only("id", "organization_id", "last_used_at")
         .iterator()
     )
     for token in candidate_tokens:
@@ -115,7 +113,6 @@ def backfill_cimd_url(apps, schema_editor):
 
     skipped_no_single_eligible_token = 0
     skipped_token_never_used = 0
-    skipped_token_created_after_app = 0
     to_update = []
     written = []
     for org_id, normalized_url in candidate_urls_by_org.items():
@@ -126,9 +123,6 @@ def backfill_cimd_url(apps, schema_editor):
         token = tokens[0]
         if token.last_used_at is None:
             skipped_token_never_used += 1
-            continue
-        if token.created_at > earliest_app_created_by_org[org_id]:
-            skipped_token_created_after_app += 1
             continue
         token.cimd_url = normalized_url
         to_update.append(token)
@@ -145,7 +139,6 @@ def backfill_cimd_url(apps, schema_editor):
         unnormalizable_url=skipped_unnormalizable_url,
         no_single_eligible_token=skipped_no_single_eligible_token,
         token_never_used=skipped_token_never_used,
-        token_created_after_app=skipped_token_created_after_app,
     )
 
 

@@ -93,7 +93,8 @@ class BackfillCimdVerificationTokenUrlMigrationTest(TestMigrations):
         make_app("never-used", org_never_used, "https://never-used.example.com/.well-known/oauth-client-metadata.json")
         self.tokens["never_used"] = make_token("never-used", org_never_used, last_used_at=None)
 
-        # Token issued after the app: the app couldn't have embedded it.
+        # Token issued after the app self-registered, which is the ordinary sequence and
+        # must still backfill.
         org_created_after = make_org("created-after")
         make_app(
             "created-after",
@@ -138,7 +139,7 @@ class BackfillCimdVerificationTokenUrlMigrationTest(TestMigrations):
             ("diff_urls", None),
             ("same_url", "https://same-url.example.com/.well-known/oauth-client-metadata.json"),
             ("never_used", None),
-            ("created_after_app", None),
+            ("created_after_app", "https://created-after.example.com/.well-known/oauth-client-metadata.json"),
             ("already_bound", "https://already-bound.example.com/manual"),
             ("port_443", "https://port-443.example.com/.well-known/oauth-client-metadata.json"),
             ("trailing_slash", "https://trailing-slash.example.com/.well-known/oauth-client-metadata.json"),
