@@ -13,6 +13,7 @@ import { useEffect } from "react";
 import { AnnouncementHero } from "./AnnouncementHero";
 import { AnnouncementMarkdown } from "./AnnouncementMarkdown";
 import { UpdateAction } from "./UpdateAction";
+import { useBlockingKeyboardIsolation } from "./useBlockingKeyboardIsolation";
 
 type RequiredUpdate = Extract<Announcement, { kind: "required-update" }>;
 
@@ -35,6 +36,10 @@ export function RequiredUpdateModal({
       announcement_style: "modal",
     });
   }, [announcement.id, announcement.kind]);
+
+  // Blocking means the whole app: the overlay stops the pointer, this stops
+  // the app's keyboard shortcuts from operating the app behind the modal.
+  useBlockingKeyboardIsolation(true);
 
   return (
     <Dialog open>

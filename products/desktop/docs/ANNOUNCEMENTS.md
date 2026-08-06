@@ -50,7 +50,10 @@ and the update modals.
   action (`UpdateAction`) in place of the `cta`; apps at or above it get the
   `cta`. Dismissible unless `requiresAck`.
   - `requiresAck: true` (modal only — the schema rejects banners) blocks
-    until the user explicitly acts: no dismiss, no Esc. Up-to-date users get
+    until the user explicitly acts: no dismiss, no Esc, and the app's
+    keyboard shortcuts are suspended while it is on stage
+    (`useBlockingKeyboardIsolation` — `required-update` gets the same
+    isolation). Up-to-date users get
     the ack button (`ackLabel`, default "OK"); users below `minVersion` get
     the update action instead, and **updating counts as acknowledging** — the
     ack records when the restart-to-install handoff begins, so a failed or

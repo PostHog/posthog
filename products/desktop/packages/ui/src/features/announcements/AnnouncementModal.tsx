@@ -19,6 +19,7 @@ import { AnnouncementMarkdown } from "./AnnouncementMarkdown";
 import { openAnnouncementCta } from "./announcementCta";
 import { useAnnouncementsStore } from "./announcementsStore";
 import { UpdateAction } from "./UpdateAction";
+import { useBlockingKeyboardIsolation } from "./useBlockingKeyboardIsolation";
 
 type ModalAnnouncement = Extract<Announcement, { kind: "announcement" }>;
 
@@ -68,6 +69,9 @@ export function AnnouncementModal({
   };
 
   const blocking = announcement.requiresAck;
+  // Blocking means the whole app: the overlay stops the pointer, this stops
+  // the app's keyboard shortcuts from operating the app behind the modal.
+  useBlockingKeyboardIsolation(blocking);
 
   return (
     <Dialog
