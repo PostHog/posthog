@@ -240,50 +240,27 @@ class _ResolvedObjectName:
 
 
 def _resolve_object_names(resource: str, resource_ids: list[str], team_id: int) -> dict[str, _ResolvedObjectName]:
-    """Map {resource_id -> display info} for one resource type. Best-effort: on any failure returns {}.
+    """Map {resource_id -> display info} for one resource type, empty when we can't name its objects.
 
-    Models and display fields come from universal search's ENTITY_MAP, whose keys match
-    access-control resources, with a small supplement for resources search doesn't index.
-
-    Queries through _base_manager so rules pointing at soft-deleted objects still resolve —
-    those are exactly the rows someone opens this page to clean up. Tenant isolation holds
-    via the explicit team_id filter.
+    Queries through _base_manager so rules pointing at soft-deleted objects still resolve: those are
+    exactly the rows someone opens this page to clean up. Tenant isolation holds via team_id.
     """
-    from posthog.api.search import (
-        ENTITY_MAP,  # noqa: PLC0415 — imports every searchable product model, keep it off this module's import path
-    )
-
-    if not resource_ids:
-        return {}
-    entity = ENTITY_MAP.get(resource)
-    if entity is not None:
-        model = entity["klass"]
-        # The primary display field is the one search ranks highest (name / key / title)
-        name_field = next((field for field, rank in entity["search_fields"].items() if rank == "A"), None)
-        if name_field is None:
-            return {}
-        try:
-            qs = model._base_manager.filter(team_id=team_id, pk__in=resource_ids)
-            if resource == "insight":
-                # Insight.name is nullable and saved insights often carry only derived_name
-                return {
-                    str(pk): _ResolvedObjectName(name=name or derived_name, short_id=short_id)
-                    for pk, name, derived_name, short_id in qs.values_list("pk", "name", "derived_name", "short_id")
-                }
-            return {str(pk): _ResolvedObjectName(name=name) for pk, name in qs.values_list("pk", name_field)}
-        except Exception as e:
-            # The rules list falls back to raw ids, but report the error: it likely affects the whole resource type
-            capture_exception(e, {"resource": resource})
-            return {}
-    registry = _MODELS_NOT_IN_ENTITY_MAP.get(resource)
-    if not registry:
+    display = _display_model(resource) if resource_ids else None
+    if display is None:
         return {}
     try:
-        model = apps.get_model(registry.app_label, registry.model_name)
-        rows = model._base_manager.filter(team_id=team_id, pk__in=resource_ids).values_list("pk", registry.name_field)
-        return {str(pk): _ResolvedObjectName(name=name) for pk, name in rows}
+        rows = display.model._base_manager.filter(team_id=team_id, pk__in=resource_ids)
+        if resource == "insight":
+            # Insight.name is nullable and saved insights often carry only derived_name, and insight
+            # URLs address short_ids rather than the pk rules store
+            return {
+                str(pk): _ResolvedObjectName(name=name or derived_name, short_id=short_id)
+                for pk, name, derived_name, short_id in rows.values_list("pk", "name", "derived_name", "short_id")
+            }
+        return {str(pk): _ResolvedObjectName(name=name) for pk, name in rows.values_list("pk", display.name_field)}
     except Exception as e:
-        # Type mismatch on pk (e.g. non-numeric id for an int pk), missing model, or missing team_id column
+        # A resource_id of the wrong shape for the model's pk, or a model that moved. The rules list
+        # falls back to raw ids, but report it: one failure usually breaks the whole resource type
         capture_exception(e, {"resource": resource})
         return {}
 
@@ -294,12 +271,14 @@ _OBJECT_RULE_EXCLUDED_SCOPES: frozenset[str] = frozenset({"project"})
 
 
 @cache
-def _object_access_viewset_models() -> dict[APIScopeObject, frozenset[type[Model]]]:
-    """The models behind each resource that supports object-level access controls.
+def resources_with_object_access_controls() -> dict[APIScopeObject, frozenset[type[Model]]]:
+    """Resources that support object-level access controls, mapped to the models behind them.
 
-    A viewset opts into object-level access control by mixing in AccessControlViewSetMixin, so the
-    registered routes are the source of truth and this mapping cannot drift from the code. A scope
-    served by several viewsets maps to several models.
+    A viewset opts in by mixing in AccessControlViewSetMixin, so the registered routes are the
+    source of truth and this cannot drift from the code; adding the mixin also puts the resource in
+    the settings picker. A scope served by several viewsets maps to several models. The snapshot
+    test in test_access_control.py records the resources; regenerate it with `pytest
+    --snapshot-update`.
     """
     found: dict[APIScopeObject, set[type[Model]]] = {}
 
@@ -327,17 +306,6 @@ def _object_access_viewset_models() -> dict[APIScopeObject, frozenset[type[Model
     return {scope: frozenset(models) for scope, models in found.items()}
 
 
-@cache
-def resources_with_object_access_controls() -> frozenset[APIScopeObject]:
-    """Resources whose viewsets expose per-object access controls, derived from the registered routes.
-
-    Mixing AccessControlViewSetMixin into a registered viewset adds its scope here automatically,
-    which also puts the resource in the settings picker. The snapshot test in
-    test_access_control.py records the set; regenerate it with `pytest --snapshot-update`.
-    """
-    return frozenset(_object_access_viewset_models())
-
-
 # Display fields tried, in order, for resources neither search nor _MODELS_NOT_IN_ENTITY_MAP knows
 _GENERIC_NAME_FIELDS = ("name", "title", "key")
 
@@ -353,18 +321,23 @@ def _model_has_field(model: type[Model], field: str) -> bool:
 
 
 @dataclass(frozen=True, kw_only=True)
-class _ObjectSearchConfig:
+class _DisplayModel:
+    """Where a resource's objects live and which field names them."""
+
     model: type[Model]
     name_field: str
 
 
 @cache
-def _object_search_config(resource: str) -> _ObjectSearchConfig | None:
-    """How the settings picker searches one resource type: its model and display field.
+def _display_model(resource: str) -> _DisplayModel | None:
+    """Resolve a resource to its model and display field. None means the settings UI cannot work
+    with the resource's objects: search returns 400, rule writes return 400, existing rules show
+    raw ids.
 
-    Display knowledge comes from search's ENTITY_MAP, then _MODELS_NOT_IN_ENTITY_MAP, then any
-    resource whose routes expose exactly one team-scoped model with a recognizable name field.
-    None means the picker cannot offer the type.
+    A resource qualifies when its viewsets carry object-level access controls and we can name its
+    objects, tried in order: search's ENTITY_MAP (its rank-A field is the display name), the
+    supplement for resources search doesn't index, and finally a resource whose routes expose
+    exactly one model carrying a recognizable name field.
     """
     from posthog.api.search import (
         ENTITY_MAP,  # noqa: PLC0415 — imports every searchable product model, keep it off this module's import path
@@ -376,22 +349,22 @@ def _object_search_config(resource: str) -> _ObjectSearchConfig | None:
     model: type[Model] | None = None
     name_field: str | None = None
     entity = ENTITY_MAP.get(resource)
-    registry = _MODELS_NOT_IN_ENTITY_MAP.get(resource)
+    supplement = _MODELS_NOT_IN_ENTITY_MAP.get(resource)
     if entity is not None:
         model = entity["klass"]
         name_field = next((field for field, rank in entity["search_fields"].items() if rank == "A"), None)
-    elif registry is not None:
-        model = apps.get_model(registry.app_label, registry.model_name)
-        name_field = registry.name_field
+    elif supplement is not None:
+        model = apps.get_model(supplement.app_label, supplement.model_name)
+        name_field = supplement.name_field
     else:
-        models = _object_access_viewset_models().get(resource) or frozenset()
+        models = resources_with_object_access_controls().get(cast(APIScopeObject, resource)) or frozenset()
         if len(models) == 1:
             model = next(iter(models))
             name_field = next((field for field in _GENERIC_NAME_FIELDS if _model_has_field(model, field)), None)
 
     if model is None or name_field is None or not _model_has_field(model, "team"):
         return None
-    return _ObjectSearchConfig(model=model, name_field=name_field)
+    return _DisplayModel(model=model, name_field=name_field)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -757,7 +730,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 # The resources the settings UI can search and rule on; every entry works with
                 # access_control_object_search and access_control_object_rules
                 "object_rule_resources": sorted(
-                    r for r in resources_with_object_access_controls() if _object_search_config(r) is not None
+                    r for r in resources_with_object_access_controls() if _display_model(r) is not None
                 ),
             }
         )
@@ -1174,20 +1147,20 @@ class AccessControlViewSetMixin(_GenericViewSet):
         team = cast(Team, self.team)  # type: ignore
         user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
         resource = request.query_params.get("resource") or ""
-        config = _object_search_config(resource)
-        if config is None:
+        display = _display_model(resource)
+        if display is None:
             raise exceptions.ValidationError("resource does not support object access rules")
 
         search = request.query_params.get("search") or ""
         lookup = request.query_params.get("id") or ""
-        qs = config.model._default_manager.filter(team_id=team.id)
+        qs = display.model._default_manager.filter(team_id=team.id)
         # Objects the requester cannot see are not theirs to find or configure. Org admins see
         # everything, matching how they can already configure access anywhere
         qs = user_access_control.filter_queryset_by_access_level(qs, include_all_if_admin=True)
         # Objects mid-deletion or never saved are not sensible rule targets
-        if _model_has_field(config.model, "deleted"):
+        if _model_has_field(display.model, "deleted"):
             qs = qs.filter(deleted=False)
-        if _model_has_field(config.model, "saved"):
+        if _model_has_field(display.model, "saved"):
             qs = qs.filter(saved=True)
 
         try:
@@ -1202,8 +1175,8 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 if lookup:
                     qs = qs.filter(pk=lookup)
                 elif search:
-                    qs = qs.filter(**{f"{config.name_field}__icontains": search})
-                rows = qs.order_by(config.name_field).values_list("pk", config.name_field)[:_PICKER_LIMIT]
+                    qs = qs.filter(**{f"{display.name_field}__icontains": search})
+                rows = qs.order_by(display.name_field).values_list("pk", display.name_field)[:_PICKER_LIMIT]
                 results = [{"id": str(pk), "name": str(name) if name else str(pk)} for pk, name in rows]
         except (ValueError, DjangoValidationError):
             # A lookup id of the wrong shape for the model's pk matches nothing
@@ -1225,13 +1198,13 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
         resource = str(request.data.get("resource") or "")
         resource_id = str(request.data.get("resource_id") or "")
-        config = _object_search_config(resource)
-        if config is None:
+        display = _display_model(resource)
+        if display is None:
             raise exceptions.ValidationError("resource does not support object access rules")
         if not resource_id:
             raise exceptions.ValidationError("resource_id is required")
         visible = user_access_control.filter_queryset_by_access_level(
-            config.model._default_manager.filter(team_id=team.id), include_all_if_admin=True
+            display.model._default_manager.filter(team_id=team.id), include_all_if_admin=True
         )
         # An object the requester cannot see is not theirs to configure; 404 rather than 403 so the
         # endpoint doesn't confirm it exists
