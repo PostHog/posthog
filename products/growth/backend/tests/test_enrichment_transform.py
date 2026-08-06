@@ -1,3 +1,8 @@
+from datetime import timedelta
+
+from django.utils import timezone
+
+from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 
 from products.growth.backend.enrichment.transform import MAX_INVESTORS, transform_harmonic_company
@@ -44,6 +49,7 @@ def test_transform_maps_all_registry_fields():
         "investors": ["Y Combinator"],
         "is_yc_company": True,
         # is_ai_native stays unset: tagsV2 is empty, which is absence of tag data
+        "top_tier_recent_round": False,  # Y Combinator is top-tier, but the 2024 round is >12mo old
     }
 
 
@@ -127,3 +133,56 @@ def test_partial_payload_leaves_missing_fields_unset():
     fields = transform_harmonic_company({"companyType": "ENTERPRISE"})
     assert fields is not None
     assert fields.to_dict() == {"company_type": "ENTERPRISE", "is_yc_company": False}
+
+
+def _funding_at(dt) -> str:
+    return dt.strftime("%Y-%m-%dT00:00:00Z")
+
+
+def test_top_tier_recent_round_true_within_window_with_top_tier_investor():
+    recent = _funding_at(timezone.now() - timedelta(days=30))
+    fields = transform_harmonic_company(
+        _company(funding={"lastFundingAt": recent, "investors": [{"name": "Sequoia Capital"}]})
+    )
+    assert fields is not None
+    assert fields.top_tier_recent_round is True
+
+
+def test_top_tier_recent_round_false_when_round_is_older_than_window():
+    old = _funding_at(timezone.now() - relativedelta(months=13))
+    fields = transform_harmonic_company(
+        _company(funding={"lastFundingAt": old, "investors": [{"name": "Sequoia Capital"}]})
+    )
+    assert fields is not None
+    assert fields.top_tier_recent_round is False
+
+
+def test_top_tier_recent_round_false_when_investors_are_not_top_tier():
+    recent = _funding_at(timezone.now() - timedelta(days=30))
+    fields = transform_harmonic_company(
+        _company(funding={"lastFundingAt": recent, "investors": [{"name": "Acme Ventures"}]})
+    )
+    assert fields is not None
+    assert fields.top_tier_recent_round is False
+
+
+def test_top_tier_recent_round_unset_when_no_funding_data():
+    fields = transform_harmonic_company(_company(funding={}))
+    assert fields is not None
+    assert fields.top_tier_recent_round is None
+    assert "top_tier_recent_round" not in fields.to_dict()
+
+
+@parameterized.expand(
+    [
+        ("canonical_name", "Andreessen Horowitz"),
+        ("common_alias", "a16z"),
+    ]
+)
+def test_top_tier_recent_round_matches_investor_via_alias(_name, investor_name):
+    recent = _funding_at(timezone.now() - timedelta(days=30))
+    fields = transform_harmonic_company(
+        _company(funding={"lastFundingAt": recent, "investors": [{"name": investor_name}]})
+    )
+    assert fields is not None
+    assert fields.top_tier_recent_round is True

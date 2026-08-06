@@ -4,10 +4,16 @@ Tag/YC/safe-cast heuristics are shared with the Salesforce enrichment transforms
 ee/billing/salesforce_enrichment/enrichment.py and imported from there rather than copied.
 """
 
+from datetime import date
 from typing import Any, Optional
+
+from django.utils import timezone
+
+from dateutil.relativedelta import relativedelta
 
 from products.growth.backend.enrichment.countries import country_name_to_iso_code
 from products.growth.backend.enrichment.fields import EnrichmentFields
+from products.growth.backend.enrichment.top_tier_investors import is_top_tier_investor
 
 from ee.billing.salesforce_enrichment.enrichment import _extract_primary_tag, _is_yc_funded, _safe_dict, _safe_list
 
@@ -38,20 +44,23 @@ def _funding_date(value: Any) -> Optional[str]:
     return None
 
 
+def _investor_name_strings(investors: Any) -> list[str]:
+    # Company entries carry `name`, Person (angel) entries carry `fullName`; keep both.
+    if not isinstance(investors, list):
+        return []
+    return [
+        name
+        for investor in investors
+        if isinstance(investor, dict) and isinstance(name := investor.get("name") or investor.get("fullName"), str)
+    ]
+
+
 # Bound the passthrough so the group property can't grow unboundedly for a heavily-funded company.
 MAX_INVESTORS = 25
 
 
 def _investor_names(investors: Any) -> Optional[list[str]]:
-    # Company entries carry `name`, Person (angel) entries carry `fullName`; keep both.
-    if not isinstance(investors, list):
-        return None
-    names = [
-        name
-        for investor in investors
-        if isinstance(investor, dict) and isinstance(name := investor.get("name") or investor.get("fullName"), str)
-    ]
-    return names[:MAX_INVESTORS] or None
+    return _investor_name_strings(investors)[:MAX_INVESTORS] or None
 
 
 # Harmonic's own tagsV2 taxonomy spells these out; match conservatively on the phrases
@@ -68,6 +77,23 @@ def _is_ai_native(tags_v2: list[Any]) -> Optional[bool]:
         if isinstance(display, str) and any(marker in display.lower() for marker in AI_NATIVE_TAG_MARKERS):
             return True
     return False
+
+
+# How recent "recent round" means for the top-tier signal.
+TOP_TIER_ROUND_WINDOW_MONTHS = 12
+
+
+def _is_top_tier_recent_round(last_round_date: Optional[str], investors: Any) -> Optional[bool]:
+    # None (not False) when there's no last-round date at all: absence of round data isn't
+    # evidence the round wasn't top-tier, and downstream needs to tell the two apart.
+    if last_round_date is None:
+        return None
+    is_recent = (
+        date.fromisoformat(last_round_date)
+        >= (timezone.now() - relativedelta(months=TOP_TIER_ROUND_WINDOW_MONTHS)).date()
+    )
+    has_top_tier_investor = any(is_top_tier_investor(name) for name in _investor_name_strings(investors))
+    return is_recent and has_top_tier_investor
 
 
 def transform_harmonic_company(company: Optional[dict[str, Any]]) -> Optional[EnrichmentFields]:
@@ -88,6 +114,8 @@ def transform_harmonic_company(company: Optional[dict[str, Any]]) -> Optional[En
         headcount = int(company["headcount"])
 
     tags_v2 = _safe_list(company.get("tagsV2"))
+    last_round_date = _funding_date(funding.get("lastFundingAt"))
+    investors = funding.get("investors")
 
     return EnrichmentFields(
         company_type=company.get("companyType"),
@@ -100,8 +128,9 @@ def transform_harmonic_company(company: Optional[dict[str, Any]]) -> Optional[En
         funding_stage=funding.get("fundingStage"),
         total_raised=_funding_amount(funding.get("fundingTotal")),
         last_round_size=_funding_amount(funding.get("lastFundingTotal")),
-        last_round_date=_funding_date(funding.get("lastFundingAt")),
-        investors=_investor_names(funding.get("investors")),
-        is_yc_company=_is_yc_funded(funding.get("investors")),
+        last_round_date=last_round_date,
+        investors=_investor_names(investors),
+        is_yc_company=_is_yc_funded(investors),
         is_ai_native=_is_ai_native(tags_v2),
+        top_tier_recent_round=_is_top_tier_recent_round(last_round_date, investors),
     )
