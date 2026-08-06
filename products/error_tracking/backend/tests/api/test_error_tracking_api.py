@@ -860,14 +860,10 @@ class TestErrorTracking(APIBaseTest):
         assert new_symbol_set.last_used is None
         assert id_map[str(new_chunk_id)]["symbol_set_id"] == str(new_symbol_set.id)
 
-        assert patched_capture.call_args.args[0] == "error_tracking_symbol_set_upload_started"
+        assert patched_capture.call_args.args[0] == "error_tracking_symbol_set_upload_chunk_stats"
         assert patched_capture.call_args.kwargs["properties"] == {
             "team_id": self.team.id,
-            "endpoint": "bulk_start_upload",
-            "force": False,
-            "skip_on_conflict": False,
             "total_chunks": 2,
-            "chunks_to_upload": 1,
             "chunks_skipped": 1,
         }
 
