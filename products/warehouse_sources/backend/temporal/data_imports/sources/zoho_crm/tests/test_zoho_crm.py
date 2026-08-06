@@ -359,9 +359,7 @@ class TestDiscoverColumns:
         assert logger.warning.call_count == 1
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_a_module_with_no_readable_fields_is_omitted_from_the_catalog(
-        self, make_session: mock.MagicMock
-    ) -> None:
+    def test_a_module_with_no_readable_fields_is_omitted_from_the_catalog(self, make_session: mock.MagicMock) -> None:
         # A module whose metadata lists nothing readable must be left out entirely — an id-only
         # entry would mask the picker's fallback to the columns a sync actually returned.
         make_session.return_value = _session(
