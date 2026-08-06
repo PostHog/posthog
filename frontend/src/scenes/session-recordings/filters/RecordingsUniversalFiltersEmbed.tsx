@@ -23,6 +23,7 @@ import {
     LemonButton,
     LemonDivider,
     LemonInput,
+    LemonInputSelect,
     LemonModal,
     LemonTab,
     LemonTabs,
@@ -32,6 +33,7 @@ import {
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { SettingsMenu } from 'lib/components/PanelSettings/PanelSettings'
+import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { CategoryDropdown } from 'lib/components/TaxonomicFilter/CategoryDropdown'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
@@ -59,6 +61,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { NodeKind, RecordingsQuery } from '~/queries/schema/schema-general'
 import {
+    PropertyFilterType,
     PropertyOperator,
     RecordingUniversalFilters,
     SessionRecordingPlaylistType,
@@ -675,6 +678,49 @@ export function RecordingsUniversalFilterAddFilterPopover({
     )
 }
 
+const SessionIdsFilterChip = ({
+    sessionIds,
+    setFilters,
+}: {
+    sessionIds: string[]
+    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
+}): JSX.Element => {
+    const [isEditPopoverVisible, setIsEditPopoverVisible] = useState(false)
+
+    return (
+        <Popover
+            visible={isEditPopoverVisible}
+            onClickOutside={() => setIsEditPopoverVisible(false)}
+            placement="bottom-start"
+            overlay={
+                <div className="p-2 w-100">
+                    <LemonInputSelect
+                        mode="multiple"
+                        allowCustomValues
+                        value={sessionIds}
+                        onChange={(ids) => setFilters({ session_ids: ids.length ? ids : undefined })}
+                        placeholder="Enter a session ID"
+                        data-attr="replay-filters-session-ids-input"
+                    />
+                </div>
+            }
+        >
+            <span data-attr="replay-filters-session-ids-tag">
+                <PropertyFilterButton
+                    item={{
+                        type: PropertyFilterType.Event,
+                        key: '$session_id',
+                        value: sessionIds,
+                        operator: PropertyOperator.Exact,
+                    }}
+                    onClick={() => setIsEditPopoverVisible(!isEditPopoverVisible)}
+                    onClose={() => setFilters({ session_ids: undefined })}
+                />
+            </span>
+        </Popover>
+    )
+}
+
 export const ReplayFiltersTab = ({
     filters,
     setFilters,
@@ -957,6 +1003,9 @@ export const ReplayFiltersTab = ({
                             size="small"
                         />
                         <RecordingsUniversalFilterGroup hideAddFilterButton={true} pinnedFilters={pinnedFilters} />
+                        {!!filters.session_ids?.length && (
+                            <SessionIdsFilterChip sessionIds={filters.session_ids} setFilters={setFilters} />
+                        )}
                     </div>
                 </div>
             </UniversalFilters>
