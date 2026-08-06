@@ -9,6 +9,7 @@ from posthog.temporal.common.logger import get_logger
 
 from ...facade.enums import CheckRunStatus, CheckSeverity
 from ...logic.runner import run_check
+from ...logic.staged_audit import build_staged_database
 from ...models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from ..contracts import BatchOutcome, RunCheckBatchInputs
 
@@ -32,11 +33,17 @@ def _run_batch(inputs: RunCheckBatchInputs) -> BatchOutcome:
         suite_run=suite_run, quality_check_id__in=inputs.check_ids
     ).delete()
 
+    staged_database = None
+    if inputs.staged_queryable_folder and inputs.staged_saved_query_id:
+        staged_database = build_staged_database(team, inputs.staged_saved_query_id, inputs.staged_queryable_folder)
+
     counts: Counter[str] = Counter()
     failed_blocking = 0
     newly_failing: list[str] = []
     for check in checks:
-        result = run_check(check, suite_run, team)
+        # run_check records a compile or query failure as an errored run rather than raising: one
+        # broken check must not fail the activity and take its whole batch down with it.
+        result = run_check(check, suite_run, team, database=staged_database)
         counts[result.status] += 1
         if result.status is CheckRunStatus.FAILED and check.severity == CheckSeverity.ERROR:
             failed_blocking += 1

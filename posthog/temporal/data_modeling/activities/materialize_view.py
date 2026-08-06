@@ -33,6 +33,7 @@ from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_l
 
 from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
+from products.data_quality.backend.facade import api as data_quality_facade
 from products.data_warehouse.backend.facade.api import ensure_bucket_exists, get_s3_client
 from products.endpoints.backend.facade.temporal import prepare_executable_query
 
@@ -89,6 +90,9 @@ class MaterializeViewResult:
     table_uri: str
     file_uris: list[str]
     saved_query_id: str
+    # How the workflow should treat this view's data quality checks (see data_quality's
+    # facade contracts). The default routes in-flight pre-deploy runs down the old path.
+    quality_audit: str = "skip"
 
 
 def _build_model_table_uri(team_id: int, saved_query_id_hex: str, normalized_name: str) -> str:
@@ -570,6 +574,9 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                 empty_parquet_uri = await _write_empty_parquet_for_zero_rows(table_uri, pa_schema, logger)
                 file_uris = [empty_parquet_uri]
         await logger.ainfo(f"Materialized node {objects.node.name} with {row_count} rows")
+    quality_audit = await database_sync_to_async_pool(data_quality_facade.quality_audit_mode)(
+        inputs.team_id, str(objects.saved_query.id)
+    )
     return MaterializeViewResult(
         node_id=objects.node.id,
         node_name=objects.node.name,
@@ -577,4 +584,5 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         table_uri=table_uri,
         file_uris=file_uris,
         saved_query_id=str(objects.saved_query.id),
+        quality_audit=quality_audit,
     )

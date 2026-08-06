@@ -29,6 +29,9 @@ class RunCheckSuiteInputs:
     suite_run_id: str | None = None
     data_modeling_job_id: str | None = None
     created_by_id: int | None = None
+    # Write-audit-publish: audit this staged (unpublished) folder instead of the published table.
+    # Only meaningful with exactly one saved_query_id.
+    staged_queryable_folder: str | None = None
 
 
 @frozen
@@ -48,6 +51,8 @@ class RunCheckBatchInputs:
     team_id: int
     suite_run_id: str
     check_ids: list[str]
+    staged_queryable_folder: str | None = None
+    staged_saved_query_id: str | None = None
 
 
 @frozen
