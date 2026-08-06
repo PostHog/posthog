@@ -14,10 +14,10 @@ interface SpaceTreeState {
   expandedSpaceIds: Set<string>;
   searchFocusRequest: number;
   /**
-   * The row the keyboard is on, so a session row can show its card while you
-   * arrow past it. Not persisted, and deliberately not read by the list itself —
-   * only the rows subscribe, each on a boolean, so a keypress re-renders the two
-   * rows whose answer changed rather than the whole tree.
+   * The row the keyboard is on, so a session row can open its card as the
+   * highlight lands on it. Not persisted. Only the rows read it, each through a
+   * boolean selector, so a keypress re-renders the two rows whose answer
+   * changed instead of the whole list.
    */
   highlightedValue: string | undefined;
   toggleSpace: (spaceId: string) => void;

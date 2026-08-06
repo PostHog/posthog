@@ -63,7 +63,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useRecentSpaceTasks", () => ({
             task: null,
           }));
         // `total` is what the space holds, not what the tree shows — the tests
-        // that exercise "View more" set it above the row count.
+        // that exercise "View all" set it above the row count.
         return [
           spaceId,
           { items, total: mocks.totals[spaceId] ?? items.length },
@@ -454,14 +454,14 @@ describe("ChannelsList", () => {
 
     // The row after the last session: the keyboard has to know about it, or the
     // highlight index and the rendered options disagree from there down.
-    it("walks onto View more and opens the space from it", async () => {
+    it("walks onto View all and opens the space from it", async () => {
       const user = userEvent.setup();
       mocks.totals[ENG.id] = 7;
       renderList();
 
       await user.click(screen.getByLabelText("Search spaces"));
       await user.keyboard("{ArrowDown}{ArrowRight}");
-      expect(screen.getByText("View more")).toBeTruthy();
+      expect(screen.getByText("View all")).toBeTruthy();
 
       // Past both sessions and onto the row below them.
       await user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{Enter}");

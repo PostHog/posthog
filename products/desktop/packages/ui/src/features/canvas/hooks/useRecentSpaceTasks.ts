@@ -40,9 +40,7 @@ interface SpaceTaskPage {
 
 const NO_PAGE: SpaceTaskPage = { tasks: [], count: 0 };
 
-/**
- * A space's rows: the newest few, and how many sessions the space holds in all.
- */
+/** A space's rows: the newest few, and how many sessions it holds in all. */
 export interface SpaceTasks {
   items: ChannelItemModel[];
   /** Everything in the space, not just the rows shown. */
@@ -56,11 +54,11 @@ export interface SpaceTasks {
 export const NO_TASKS: SpaceTasks = { items: [], total: 0 };
 
 /** What a space's rows were built from, so they can be reused unchanged. */
-interface CachedItems {
+interface CachedSpaceTasks {
   page: SpaceTaskPage;
   archivedTaskIds: ReadonlySet<string>;
   pinnedTaskIds: ReadonlySet<string>;
-  tasks: SpaceTasks;
+  built: SpaceTasks;
 }
 
 /**
@@ -118,7 +116,7 @@ export function useRecentSpaceTasks(
   // the id list, and rebuilding every space's items from that would hand each
   // already-open row a new array — enough to re-render every session row in the
   // tree on every expand.
-  const cache = useRef(new Map<string, CachedItems>());
+  const cache = useRef(new Map<string, CachedSpaceTasks>());
 
   return useMemo(() => {
     const bySpace = new Map<string, SpaceTasks>();
@@ -131,7 +129,7 @@ export function useRecentSpaceTasks(
         cached.archivedTaskIds === archivedTaskIds &&
         cached.pinnedTaskIds === pinnedTaskIds
       ) {
-        bySpace.set(spaceId, cached.tasks);
+        bySpace.set(spaceId, cached.built);
         return;
       }
       // Canvases are the space's own list to show; the tree answers "what has
@@ -146,7 +144,7 @@ export function useRecentSpaceTasks(
       // A page that came back short is the whole space, so the count is exact
       // once the archived ones are dropped. A full page falls back to the
       // server's total, which still counts anything archived in it.
-      const tasks: SpaceTasks = {
+      const built: SpaceTasks = {
         items: available.slice(0, RECENT_TASKS_PER_SPACE),
         total:
           page.tasks.length < TREE_FETCH_LIMIT ? available.length : page.count,
@@ -155,9 +153,9 @@ export function useRecentSpaceTasks(
         page,
         archivedTaskIds,
         pinnedTaskIds,
-        tasks,
+        built,
       });
-      bySpace.set(spaceId, tasks);
+      bySpace.set(spaceId, built);
     });
     return bySpace;
   }, [spaceIds, pagePerSpace, archivedTaskIds, pinnedTaskIds]);

@@ -57,36 +57,47 @@ The root `AGENTS.md` architecture rules still apply.
   named on its own (the back row, the breadcrumb). The alpha's more deeply
   indented Channels tree and hash glyphs are unchanged.
 - **The list is a tree.** Each space has a disclosure caret that opens it onto
-  its most recent sessions (`useRecentSpaceTasks` — one channel-feed query per
-  open space, sharing the feed's query key and polling slower; expansion lives
-  in `spaceTreeStore` and persists). Session rows wear the space's own session
+  its most recent sessions (`useRecentSpaceTasks` — one task query per open
+  space, polling slower than the channel feed; expansion lives in
+  `spaceTreeStore` and persists). Session rows wear the space's own session
   vocabulary (`TaskStatusDot` + `TaskBadgeStack`) but are hand-built rather than
   `ChannelItemRow`: a row has to be an `AutocompleteItem` to stay on the
   keyboard's path, and that row is a `SidebarItem` button.
-- **An open space says how many sessions it holds, and offers the rest.** The
-  count sits beside the name in `text-muted-foreground/50`, and a "View more"
-  leaf closes the list of sessions with what's left over; it opens the space,
-  and it is a keyboard node like any other row, so ⏎ lands on it and ← closes
-  the space from it. Both numbers come from `getTasksPage`, which returns the
-  page's total alongside its rows: a page that came back under the fetch limit
-  is the whole space (exact once archived ones are dropped), a full one falls
-  back to the server's count. A collapsed space shows no number — nothing has
-  been fetched for it, and counts appearing space by space as you opened them
-  would read worse than none.
+- **An open space offers the sessions it isn't showing.** A "View all" leaf
+  closes the list with what's left over and opens the space.
+  Its number comes from `getTasksPage`, which returns the page's total alongside
+  its rows: a page that came back under the fetch limit is the whole space
+  (exact once archived ones are dropped), a full one falls back to the server's
+  count, which still counts archived tasks.
+  `hasViewAllRow` decides whether that leaf exists, and both the rendered list
+  and the keyboard's flat node list have to call it: a row the keyboard doesn't
+  know about throws the highlight index off from there down.
 - **A session row carries the same card and menu as the space's own list.**
   Both surfaces render `ChannelItemHoverCard` and `TaskRowContextMenu` from one
-  `TaskRowMenuProps`, so the facts and the actions can't drift; rename is the one
-  item the tree drops, because it edits in place and there is no inline editor on
-  a row the keyboard is walking. The card also opens on the *keyboard's*
-  highlight, 350ms after it lands, so arrowing the list shows what pointing at it
-  would. The rows read that highlight from `spaceTreeStore` as a boolean
-  (`highlightedValue === item.key`), and the list keeps writing it to a ref too —
-  the arrow handlers read it during the event, before any render. Only a
-  `reason: "keyboard"` highlight is stored: a pointer one is the row's own hover,
-  and `keepHighlight` would otherwise strand a card open after the pointer left
-  the list. The actions behind the menu (`useSpaceTaskActions`) are built once
-  for the whole list and passed by context — one pin mutation and one archive
-  mutation, not one per row — which also keeps them out of the memo comparisons.
+  `TaskRowMenuProps`, so the facts and the actions can't drift.
+  Rename is the one item the tree drops, because it edits in place and there is
+  no inline editor on a row the keyboard is walking.
+  The card also opens on the keyboard's highlight, 350ms after it lands.
+  Rows read that highlight from `spaceTreeStore` as a boolean
+  (`highlightedValue === item.key`) so a keypress re-renders two rows, and the
+  list still writes it to a ref as well, because the arrow handlers read the
+  highlight during the event, before any render.
+  Only a `reason: "keyboard"` highlight is stored: a pointer one is the row's
+  own hover, and `keepHighlight` would otherwise strand a card open after the
+  pointer left the list.
+  The actions behind the menu (`useSpaceTaskActions`) are built once for the
+  whole list and passed through `SpaceTaskActionsProvider`, which keeps one pin
+  and one archive mutation for the tree instead of one per row and keeps them
+  out of the memo comparisons.
+- **A row's own colour utilities outrank quill's highlight styling.** quill
+  brings a highlighted option's contents to `--foreground` with
+  `.quill-autocomplete__item[data-highlighted] *`, but that rule lives in the
+  components layer, so anything carrying a colour utility of its own wins and
+  keeps its resting colour under the keyboard.
+  Row labels therefore state the highlight themselves (`ROW_LABEL_TONE`), and
+  the disclosure caret, which must stay dim while its row is highlighted, needs
+  `!` on a rule aimed at the glyph's descendants, because the `*` reaches the
+  icon's `<path>` where `fill: currentColor` resolves.
 - **The tree's rows are memoized, and have to stay that way.** A space row
   carries a context menu, two dropdowns, a tooltip and two dialogs, and there
   are dozens of them; before `ChannelSection`/`PersonalChannelRow`/`SpaceTaskRow`

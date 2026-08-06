@@ -51,16 +51,14 @@ function authorLabel(item: ChannelItemModel): string | null {
 
 /**
  * How long the keyboard has to rest on a row before its card opens. Long enough
- * that arrowing from one end of the list to the other doesn't strobe cards on
- * the way past, short enough that stopping on a row feels like pointing at it.
+ * that arrowing through the list doesn't flash a card on every row it passes.
  */
 const KEYBOARD_OPEN_DELAY_MS = 350;
 
 /**
  * The row's hover card: what the thing is, who made it, and what you can do to
- * it. Shared by every surface that lists channel items — the channel sidebar's
- * rows and the space tree's session rows — so the two can't drift into showing
- * different facts or different actions for the same task.
+ * it. Shared by the channel sidebar's rows and the space tree's session rows so
+ * the two can't drift into showing different facts or actions for one task.
  *
  * `children` is the row itself, handed to the trigger.
  */
@@ -72,11 +70,7 @@ export function ChannelItemHoverCard({
 }: {
   item: ChannelItemModel;
   menu: TaskRowMenuProps;
-  /**
-   * The keyboard is on this row. It opens the card too — arrowing through a list
-   * is the same question pointing at it asks, and the card is the only place the
-   * row's actions live.
-   */
+  /** The keyboard is on this row, which opens the card as hovering does. */
   highlighted?: boolean;
   children: ReactNode;
 }) {
@@ -89,8 +83,8 @@ export function ChannelItemHoverCard({
   const statusLabel = runStatusLabel(item.rawStatus);
   const author = authorLabel(item);
 
-  // Closing is immediate — the highlight has already moved on, and a card left
-  // behind would point at the wrong row.
+  // Closing is immediate: once the highlight has moved, a card still open
+  // points at the wrong row.
   useEffect(() => {
     if (!highlighted) {
       setKeyboardOpen(false);

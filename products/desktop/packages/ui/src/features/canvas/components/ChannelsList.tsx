@@ -74,7 +74,7 @@ import {
   useRecentSpaceTasks,
 } from "@posthog/ui/features/canvas/hooks/useRecentSpaceTasks";
 import {
-  SpaceTaskActionsContext,
+  SpaceTaskActionsProvider,
   useSpaceTaskActions,
   useSpaceTaskActionsContext,
 } from "@posthog/ui/features/canvas/hooks/useSpaceTaskActions";
@@ -172,8 +172,10 @@ function SpaceRowSurface({
         "w-full min-w-0 pr-1 data-selected:bg-fill-selected data-selected:text-foreground",
         // quill wraps an option's children in its own flex row; widening it is
         // what keeps the shortcut hint at the row's right edge and lets the
-        // name truncate, exactly as they do in the button above.
-        "[&>span]:w-full [&>span]:gap-2",
+        // name truncate, exactly as they do in the button above. Its `truncate`
+        // also clips, which would cut off the disclosure's hit box where that
+        // hangs past the wrapper; every child that needs clipping does its own.
+        "[&>span]:w-full [&>span]:gap-2 [&>span]:overflow-visible",
         // quill highlights an option with an offset focus ring, which suits a
         // popup listbox but reads as a stray outline on a sidebar row — and at
         // dark-theme contrast it outshouts the selected row it sits next to.
@@ -202,6 +204,19 @@ type SpaceTreeNode =
 
 /** How long the pointer has to rest on a space before its sessions are warmed. */
 const SESSION_PREFETCH_DELAY_MS = 250;
+
+/**
+ * A row label's resting colour and the two states that bring it up to full
+ * contrast: the pointer on the row, and the keyboard's highlight on it.
+ *
+ * The highlight needs saying here. quill brings a highlighted option's contents
+ * to `--foreground` with `.quill-autocomplete__item[data-highlighted] *`, but
+ * that rule is in the components layer, so any label carrying a colour utility
+ * of its own outranks it and stays muted under the keyboard while brightening
+ * under the pointer.
+ */
+const ROW_LABEL_TONE =
+  "text-muted-foreground group-hover/button:text-foreground group-data-highlighted/button:text-foreground";
 
 /**
  * Hand the pane's keyboard to the search box: focus it, send the highlight back
@@ -279,22 +294,23 @@ function SpaceDisclosure({
       }}
       className={cn(
         "relative flex size-3.5 shrink-0 items-center justify-center",
-        // Half-lit at rest, open or closed: a column of carets down the whole
-        // list would out-draw the names beside it, and an open space already
-        // says so with the rows under it. It brightens for its own hover only —
-        // riding the row's would say it is part of the row, and it is the one
-        // thing in there that opens the tree instead of the space.
+        // Half-lit at rest, open or closed, because a column of carets down the
+        // list would out-draw the names beside it. It brightens for its own
+        // hover only, which is what says it opens the tree rather than the row's
+        // space.
         //
-        // Aimed at the glyph and forced, because quill repaints a highlighted
-        // option's contents outright:
-        // `.quill-autocomplete__item[data-highlighted] * { color: var(--foreground) }`.
-        // That rule hits the icon directly, so a colour on this span alone never
-        // reaches it, and only `!` outranks it.
-        "[&_svg]:text-muted-foreground/50! hover:[&_svg]:text-foreground!",
-        // A 28px hit target on a 14px mark. The padding is an overlay rather
-        // than real box size, so the caret keeps its slot and nothing in the row
-        // moves; it reaches to the name's edge and no further.
-        "before:-inset-[7px] before:absolute before:content-['']",
+        // Forced, and aimed at the glyph's descendants, because quill repaints
+        // a highlighted option's contents (see `ROW_LABEL_TONE`) and that rule's
+        // `*` reaches the icon's `<path>`, which is what `fill: currentColor`
+        // resolves against, so a colour on this span or on the `<svg>` still
+        // leaves the mark drawn in the row's colour.
+        "**:text-muted-foreground/50! hover:**:text-foreground!",
+        // A 24px hit target on a 14px mark, hung off the caret's left so it
+        // reaches the row's edge and stops before the name. Absolute rather than
+        // padding, so the caret keeps its slot and nothing in the row moves.
+        "before:-left-1.5 before:absolute before:inset-auto before:size-6 before:content-['']",
+        "before:-translate-y-1/2 before:top-1/2 before:rounded-[calc(var(--radius)-5px)]",
+        "hover:before:bg-fill-hover",
       )}
     >
       {expanded ? <CaretDownIcon size={10} /> : <CaretRightIcon size={10} />}
@@ -327,13 +343,13 @@ function useOpenSpaceTask(): (spaceId: string, taskId: string) => void {
 }
 
 /**
- * One session under an expanded space — a leaf of the tree.
+ * One session under an expanded space, a leaf of the tree.
  *
  * Wears the space's own session list vocabulary: the state dot on the left, the
- * identity badges on the right, the hover card and right-click menu the space's
+ * identity badges on the right, and the hover card and right-click menu that
  * list gives the same task. The row itself is hand-built rather than
- * `ChannelItemRow`, which is a `SidebarItem` button and so can't be an
- * Autocomplete option — and being one is what keeps ↑/↓/⏎ walking the tree.
+ * `ChannelItemRow`, which is a `SidebarItem` button and so cannot be an
+ * Autocomplete option, and being one is what keeps ↑/↓/⏎ walking the tree.
  */
 const SpaceTaskRow = memo(function SpaceTaskRow({
   item,
@@ -350,14 +366,27 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
   // a dozen spaces' worth of rows at once.
   const status = useChannelTaskStatus(item, { withPrStatus: false });
   const isActive = pathname.endsWith(`/tasks/${item.id}`);
-  // One object for the whole list; a row that somehow renders outside it drops
-  // to the plain row rather than a menu whose items do nothing.
   const actions = useSpaceTaskActionsContext();
-  // A boolean, not the highlighted value: subscribing to the value would re-run
-  // this selector's consumers on every ↑/↓, and only two rows' answers change.
+  // A boolean rather than the value itself, so a keypress re-renders only the
+  // two rows whose answer changed.
   const isHighlighted = useSpaceTreeStore(
     (s) => s.highlightedValue === item.key,
   );
+
+  // The tree only lists sessions, so this is always the task menu. Rename is
+  // the one item the space's own list has and this doesn't, because it edits in
+  // place and there is no inline editor on a row the keyboard is walking.
+  const menu: TaskRowMenuProps = {
+    kind: "task",
+    id: item.id,
+    title: item.title,
+    isPinned: item.pinned,
+    // Ticks the space the session is already in, inside "File to…".
+    channelId: spaceId,
+    onAddToCommandCenter: actions.commandCenterAssigner(item.id),
+    onTogglePin: () => actions.togglePin(item),
+    onArchive: () => actions.archive(item),
+  };
 
   const row = (
     <SpaceRowSurface
@@ -367,7 +396,7 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
       onClick={() => openTask(spaceId, item.id)}
       // A step in from its space's name, so the depth reads off that column
       // without a guide line to draw it.
-      className="pl-12"
+      className="pl-10"
     >
       {/* The dot belongs to the title, not to the row: its own tighter gap
           keeps them one mark rather than two columns. */}
@@ -376,9 +405,7 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
         <span
           className={cn(
             "truncate text-[13px]",
-            isActive
-              ? "text-foreground"
-              : "text-muted-foreground group-hover/button:text-foreground",
+            isActive ? "text-foreground" : ROW_LABEL_TONE,
           )}
         >
           {item.title}
@@ -391,23 +418,6 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
       )}
     </SpaceRowSurface>
   );
-
-  if (!actions) return row;
-
-  // The tree only ever lists sessions, so this is always the task menu. Rename
-  // is the one item the space's own list has and this doesn't: it edits in
-  // place, and there is no inline editor on a row the keyboard is walking.
-  const menu: TaskRowMenuProps = {
-    kind: "task",
-    id: item.id,
-    title: item.title,
-    isPinned: item.pinned,
-    // Ticks the space the session is already in, inside "File to…".
-    channelId: spaceId,
-    onAddToCommandCenter: actions.commandCenterAssigner(item.id),
-    onTogglePin: () => actions.togglePin(item),
-    onArchive: () => actions.archive(item),
-  };
 
   return (
     <TaskRowContextMenu menu={menu}>
@@ -426,19 +436,26 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
   );
 });
 
-/**
- * The value the "View more" row is known by, to the keyboard and to itself. A
- * space's own id is already the value of its space row.
- */
-const viewMoreValue = (spaceId: string) => `more:${spaceId}`;
+/** How the keyboard and the row itself name the "View all" leaf. */
+const viewAllValue = (spaceId: string) => `view-all:${spaceId}`;
 
 /**
- * The last leaf under an expanded space: the sessions the tree isn't showing,
- * and the way into the space that has them. Quieter than a session row at rest —
- * it is a way out of the tree, not another thing in it — and it comes up to full
- * contrast under the pointer or the keyboard.
+ * Whether a space has sessions the tree isn't showing. The list and the
+ * keyboard's flat node list both ask, and they have to agree: a "View all" row
+ * the keyboard doesn't know about throws the highlight index off from there
+ * down.
  */
-function ViewMoreRow({
+function hasViewAllRow(tasks: SpaceTasks): boolean {
+  return tasks.items.length > 0 && tasks.total > tasks.items.length;
+}
+
+/**
+ * The last leaf under an expanded space: how many sessions the tree isn't
+ * showing, and the way into the space that has them. Quieter than a session row
+ * at rest, because it leads out of the tree rather than being another thing in
+ * it, and it comes up to full contrast under the pointer or the keyboard.
+ */
+function ViewAllRow({
   spaceId,
   remaining,
   asOption,
@@ -452,9 +469,9 @@ function ViewMoreRow({
   return (
     <SpaceRowSurface
       asOption={asOption}
-      optionValue={viewMoreValue(spaceId)}
+      optionValue={viewAllValue(spaceId)}
       onClick={onOpenSpace}
-      className="pl-12 text-[13px] text-muted-foreground/80 group-hover/button:text-foreground"
+      className={cn("pl-12 text-[13px]", ROW_LABEL_TONE)}
     >
       {/* An empty slot the width of a session's status dot, so the label starts
           in the same column as the titles above it. */}
@@ -483,7 +500,7 @@ function SpaceTaskRows({
   spaceId: string;
   tasks: SpaceTasks;
   asOption: boolean;
-  /** Where "View more" goes: the space itself, in the sidebar. */
+  /** Where "View all" goes: the space itself, in the sidebar. */
   onOpenSpace: () => void;
 }) {
   if (tasks.items.length === 0) {
@@ -493,7 +510,6 @@ function SpaceTaskRows({
       </div>
     );
   }
-  const remaining = tasks.total - tasks.items.length;
   return (
     <>
       {tasks.items.map((item) => (
@@ -504,10 +520,10 @@ function SpaceTaskRows({
           asOption={asOption}
         />
       ))}
-      {remaining > 0 && (
-        <ViewMoreRow
+      {hasViewAllRow(tasks) && (
+        <ViewAllRow
           spaceId={spaceId}
-          remaining={remaining}
+          remaining={tasks.total - tasks.items.length}
           asOption={asOption}
           onOpenSpace={onOpenSpace}
         />
@@ -775,10 +791,6 @@ const ChannelSection = memo(
     const noun = spacesLayout ? "space" : "channel";
     const pathname = useRouterState({ select: (s) => s.location.pathname });
     const openChannel = useOpenChannel();
-    // Only an open space has been counted — the tree fetches a space's sessions
-    // when it expands, and a number that appeared row by row as you opened them
-    // would be worse than none.
-    const sessionCount = expanded && tasks?.total ? tasks.total : undefined;
     const base = `/website/${channel.id}`;
     // Highlight the row whenever any of the channel's routes is open.
     const isActive = pathname === base || pathname.startsWith(`${base}/`);
@@ -871,41 +883,23 @@ const ChannelSection = memo(
                     className={cn(
                       "text-[13px]",
                       // mr-11 clears the two icon-xs hover buttons pinned at
-                      // right-1. With a count beside it that margin belongs to
-                      // the count — it is the rightmost of the two, and the name
-                      // is the one that truncates.
-                      sessionCount == null && "group-hover/chan:mr-11",
+                      // right-1. With a count beside it, that margin moves to
+                      // the count, which is the one nearer the buttons.
+                      "group-hover/chan:mr-11",
                       // Bold is unread's alone; full contrast is shared with the
                       // channel you're in. Either way there's no hover brighten
                       // left to do, so those rows skip it.
                       isUnread ? "font-bold" : "font-medium",
-                      isUnread || isActive
-                        ? "text-foreground"
-                        : "text-muted-foreground group-hover/button:text-foreground",
-                      sessionCount == null && menuOpen && "mr-11",
+                      isUnread || isActive ? "text-foreground" : ROW_LABEL_TONE,
+                      menuOpen && "mr-11",
                     )}
                   >
                     {channel.name}
                   </OverflowTickerText>
-                  {/* How many sessions the space holds, once it's open enough to
-                      know. Faint on purpose: it is a fact about the name, not a
-                      second thing to read. */}
-                  {sessionCount != null && (
-                    <span
-                      className={cn(
-                        "shrink-0 text-muted-foreground/50 text-xxs",
-                        "group-hover/chan:mr-11",
-                        menuOpen && "mr-11",
-                      )}
-                    >
-                      {sessionCount}
-                    </span>
-                  )}
                   {/* `!mr-0` undoes quill's `.quill-button kbd { margin-right: -4px }`,
                   which is meant to let a shortcut hang into a button's own
-                  padding. Here the row's inner span is `truncate` (overflow
-                  hidden) and `ml-auto` eats every pixel of slack, so the hang
-                  had nowhere to go and the last 4px of the hint was cut off. */}
+                  padding. Here `ml-auto` takes every pixel of slack, so the
+                  hang had nowhere to go and cut off the last 4px of the hint. */}
                   {hotkeySlot != null && (
                     <Kbd className="!mr-0 ml-auto shrink-0 opacity-50 group-hover/chan:opacity-0">
                       {formatHotkey(`mod+${hotkeySlot}`)}
@@ -1156,9 +1150,6 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { channels } = useChannels();
   const { ensureChannelId, openPersonalChannel } = useOpenPersonalChannel();
-  // Same rule as a shared space: the number only exists once the space is open
-  // and its sessions have been fetched.
-  const sessionCount = expanded && tasks?.total ? tasks.total : undefined;
   // The "+" dropdown (New task / New canvas), mirroring a shared channel row.
   const [newMenuOpen, setNewMenuOpen] = useState(false);
 
@@ -1239,18 +1230,11 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
             className={cn(
               "truncate text-[13px]",
               isUnread ? "font-bold" : "font-medium",
-              isUnread || isActive
-                ? "text-foreground"
-                : "text-muted-foreground group-hover/button:text-foreground",
+              isUnread || isActive ? "text-foreground" : ROW_LABEL_TONE,
             )}
           >
             {PERSONAL_CHANNEL_NAME}
           </span>
-          {sessionCount != null && (
-            <span className="shrink-0 text-muted-foreground/50 text-xxs">
-              {sessionCount}
-            </span>
-          )}
           {hotkeySlot != null && (
             <Kbd className="!mr-0 ml-auto shrink-0 opacity-50 group-hover/chan:opacity-0">
               {formatHotkey(`mod+${hotkeySlot}`)}
@@ -1461,9 +1445,8 @@ export function ChannelsList() {
     [allChannels, expandedSpaceIds, treeOn],
   );
   const tasksBySpace = useRecentSpaceTasks(openSpaceIds);
-  // Pin / archive / command centre for every session row, built once here: each
-  // is a mutation or a store subscription, and a row-level copy would be one per
-  // session in every open space.
+  // Pin / archive / command centre for every session row, built once here
+  // rather than once per row.
   const spaceTaskActions = useSpaceTaskActions();
   const tasksOf = (spaceId: string | undefined): SpaceTasks =>
     (spaceId && tasksBySpace.get(spaceId)) || NO_TASKS;
@@ -1483,10 +1466,10 @@ export function ChannelsList() {
   ): SpaceTreeNode[] => {
     const space: SpaceTreeNode = { kind: "space", value, spaceId };
     if (!isExpanded(spaceId) || !spaceId) return [space];
-    const { items, total } = tasksOf(spaceId);
+    const tasks = tasksOf(spaceId);
     return [
       space,
-      ...items.map(
+      ...tasks.items.map(
         (item): SpaceTreeNode => ({
           kind: "task",
           value: item.key,
@@ -1494,13 +1477,13 @@ export function ChannelsList() {
           parentValue: value,
         }),
       ),
-      // The "View more" row is a leaf like any other: ⏎ lands on it, and ← from
-      // it closes the space the way it does from a session.
-      ...(items.length > 0 && total > items.length
+      // "View all" is a leaf like any other, so ⏎ lands on it and ← from it
+      // closes the space the way it does from a session.
+      ...(hasViewAllRow(tasks)
         ? [
             {
               kind: "task" as const,
-              value: viewMoreValue(spaceId),
+              value: viewAllValue(spaceId),
               spaceId,
               parentValue: value,
             },
@@ -1690,7 +1673,7 @@ export function ChannelsList() {
   // Bottom padding clears the floating create button (ChannelsFab), so the last
   // channel stays reachable at full scroll.
   const scrollClass =
-    "scroll-mask-4 min-h-0 flex-1 overflow-y-auto px-2 pt-2 pb-16";
+    "scroll-mask-8 min-h-0 flex-1 overflow-y-auto px-2 pt-2 pb-16";
   // quill sizes its list as a popup — a ~250px cap and its own 4px padding —
   // and ships it unlayered, so plain utilities lose to it however they're
   // ordered. Here the list *is* the pane, so the cap has to go and the pane's
@@ -1758,7 +1741,7 @@ export function ChannelsList() {
     // One shared provider groups every row tooltip so that once one shows,
     // moving to the next row reveals its tooltip instantly (no re-delay).
     <TooltipProvider delay={600}>
-      <SpaceTaskActionsContext.Provider value={spaceTaskActions}>
+      <SpaceTaskActionsProvider value={spaceTaskActions}>
         {channelsLayout ? (
           // The rows render as elements — they're a tree of collapsible groups,
           // not a flat collection — so `items` carries their values alone, in the
@@ -1785,16 +1768,12 @@ export function ChannelsList() {
             // is the only way to know which one that is.
             onItemHighlighted={(value, eventDetails) => {
               highlightedValue.current = value;
-              // The rows read this one, so the session the keyboard lands on
-              // opens its card the way a pointed-at one does. Kept beside the
-              // ref rather than replacing it: the arrow handlers read the
+              // The store copy is what opens a session's card under the
+              // keyboard; the ref stays because the arrow handlers read the
               // highlight during the event, before any render has happened.
-              //
-              // Only the keyboard's highlight: a pointer one is the row's own
-              // hover, which already opens the card and closes it on the way
-              // out. Left set, it would strand a card open after the pointer
-              // had left the list entirely — `keepHighlight` means the row
-              // stays highlighted.
+              // Only a keyboard highlight is stored: a pointer one is the row's
+              // own hover, and `keepHighlight` keeps it set after the pointer
+              // has left the list, which would strand that card open.
               setHighlightedValue(
                 eventDetails.reason === "keyboard" ? value : undefined,
               );
@@ -1811,7 +1790,7 @@ export function ChannelsList() {
         ) : (
           body
         )}
-      </SpaceTaskActionsContext.Provider>
+      </SpaceTaskActionsProvider>
     </TooltipProvider>
   );
 }

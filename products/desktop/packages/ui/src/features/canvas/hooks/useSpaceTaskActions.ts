@@ -8,24 +8,24 @@ import { createContext, useContext, useMemo, useRef } from "react";
 
 /**
  * What a session row in the space tree can do to its task, from its hover card
- * and its right-click menu. The same actions the space's own list offers, minus
- * the ones that need the list around them (inline rename), and minus canvases,
- * which the tree doesn't show.
+ * and its right-click menu. The same actions the space's own list offers,
+ * without the ones that need the list around them (inline rename) and without
+ * canvases, which the tree doesn't show.
  */
 export interface SpaceTaskActions {
   togglePin: (item: ChannelItemModel) => void;
   archive: (item: ChannelItemModel) => void;
   /**
-   * The handler for "Add to Command Center", or nothing when there's no free
-   * cell or the task already holds one — which is what greys the item out.
+   * The handler for "Add to Command Center", or nothing when every cell is
+   * taken or this task already holds one, which is what greys the item out.
    */
   commandCenterAssigner: (taskId: string) => (() => void) | undefined;
 }
 
 /**
- * Built once for the whole list rather than per row. Each of these hooks is a
- * mutation or a store subscription, and the tree can show dozens of session rows
- * at once; the object is also handed to memoized rows, so its identity has to
+ * Built once for the whole list rather than per row: each of these hooks is a
+ * mutation or a store subscription, and the tree can show dozens of session
+ * rows at once. The object is handed to memoized rows, so its identity has to
  * survive the list's own re-renders.
  */
 export function useSpaceTaskActions(): SpaceTaskActions {
@@ -34,8 +34,8 @@ export function useSpaceTaskActions(): SpaceTaskActions {
   const cells = useCommandCenterStore((state) => state.cells);
   const assignTask = useCommandCenterStore((state) => state.assignTask);
 
-  // `archiveTask` is rebuilt every render; going through a ref is what keeps the
-  // actions object below stable while still calling the current one.
+  // `archiveTask` is a new function every render, so it goes through a ref to
+  // keep the object below stable while still calling the current one.
   const archiveRef = useRef(archiveTask);
   archiveRef.current = archiveTask;
 
@@ -64,14 +64,18 @@ export function useSpaceTaskActions(): SpaceTaskActions {
 }
 
 /**
- * The list hands its rows one actions object through context rather than a prop:
- * the rows are memoized on their props, and threading this through the space
- * rows between them would put it in every one of those comparisons.
+ * The list hands its rows one actions object through context rather than a
+ * prop, because the rows are memoized on their props and threading it through
+ * the space rows between them would put it in every one of those comparisons.
  */
-export const SpaceTaskActionsContext = createContext<SpaceTaskActions | null>(
-  null,
-);
+const SpaceTaskActionsContext = createContext<SpaceTaskActions | null>(null);
 
-export function useSpaceTaskActionsContext(): SpaceTaskActions | null {
-  return useContext(SpaceTaskActionsContext);
+export const SpaceTaskActionsProvider = SpaceTaskActionsContext.Provider;
+
+export function useSpaceTaskActionsContext(): SpaceTaskActions {
+  const actions = useContext(SpaceTaskActionsContext);
+  if (!actions) {
+    throw new Error("Space task rows must render inside ChannelsList");
+  }
+  return actions;
 }
