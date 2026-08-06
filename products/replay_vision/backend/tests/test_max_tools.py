@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 from django.utils import timezone
 
@@ -31,6 +31,7 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.vision_action import VisionAction
+from products.replay_vision.backend.scanner_config import MAX_PROMPT_LENGTH
 from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN
 from products.replay_vision.backend.tags import slugify_tag
 
@@ -713,3 +714,81 @@ class TestCreateReplayVisionActionTool(BaseTest):
             _, artifact = await self._tool()._arun_impl(scanner_id=str(scanner.id), name="cross-team")
 
         assert artifact["error"] == "not_found"
+
+
+class TestReplayVisionToolAuthorization(BaseTest):
+    """Both the preview and the execution path have to refuse; the preview is what leaks."""
+
+    def _tool(self, tool_cls):
+        config: RunnableConfig = {"configurable": {"team": self.team, "user": self.user}}
+        return tool_cls(team=self.team, user=self.user, config=config)
+
+    def _scanner(self) -> ReplayScanner:
+        return ReplayScanner.objects.create(
+            team=self.team,
+            name="secret-scanner",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_6_FLASH,
+        )
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_scan_preview_does_not_name_a_scanner_the_user_cannot_edit(self):
+        # The preview renders before execution, so without its own check it discloses the name and the
+        # model-derived cost of a scanner RBAC hides. Denial is forced at the access-control boundary
+        # rather than through fixtures, since the test user is an org admin by default.
+        scanner = await sync_to_async(self._scanner)()
+        tool = self._tool(ScanReplayVisionSessionsTool)
+
+        with patch.object(type(tool), "user_access_control", new_callable=PropertyMock) as uac:
+            uac.return_value = MagicMock(check_access_level_for_object=MagicMock(return_value=False))
+            preview = await tool.format_dangerous_operation_preview(session_ids=["s1"], scanner_id=str(scanner.id))
+
+        assert "secret-scanner" not in preview
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_scan_refuses_a_scanner_the_user_cannot_edit(self):
+        scanner = await sync_to_async(self._scanner)()
+        tool = self._tool(ScanReplayVisionSessionsTool)
+
+        with (
+            patch(_FLAG_PATH, return_value=True),
+            patch.object(type(tool), "user_access_control", new_callable=PropertyMock) as uac,
+        ):
+            uac.return_value = MagicMock(check_access_level_for_object=MagicMock(return_value=False))
+            _, artifact = await tool._arun_impl(session_ids=["s1"], scanner_id=str(scanner.id))
+
+        assert artifact["error"] == "not_found"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_scan_refuses_a_scanner_from_another_team(self):
+        other_team = await sync_to_async(Team.objects.create)(organization=self.organization, name="other")
+        scanner = await sync_to_async(ReplayScanner.objects.create)(
+            team=other_team,
+            name="theirs",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_6_FLASH,
+        )
+
+        with patch(_FLAG_PATH, return_value=True):
+            _, artifact = await self._tool(ScanReplayVisionSessionsTool)._arun_impl(
+                session_ids=["s1"], scanner_id=str(scanner.id)
+            )
+
+        assert artifact["error"] == "not_found"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_scan_rejects_an_oversized_prompt(self):
+        # The prompt persists on the inline scanner and is copied into every observation snapshot, so
+        # the cap belongs on this path too, not only on the DRF serializer.
+        with patch(_FLAG_PATH, return_value=True):
+            _, artifact = await self._tool(ScanReplayVisionSessionsTool)._arun_impl(
+                session_ids=["s1"], prompt="x" * (MAX_PROMPT_LENGTH + 1)
+            )
+
+        assert artifact["error"] == "invalid_config"

@@ -40,6 +40,7 @@ from products.replay_vision.backend.scanner_access import (
     scanner_for_reading_observations,
     scanners_for_reading_observations,
 )
+from products.replay_vision.backend.scanner_config import scanner_config_error
 from products.replay_vision.backend.scanning import (
     MAX_SESSIONS_PER_SCAN,
     RetryOutcome,
@@ -779,12 +780,27 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
         model: str = DEFAULT_SCAN_MODEL
         what = f'the question "{_truncate(prompt or "")}"'
         if scanner_id:
-            scanner = scanner_for_reading_observations(self._team.id, scanner_id)
+            # The same gate the execution path applies. Without it, anyone who can use the tool could
+            # pass a scanner id they can't read and see its name and cost in their own approval prompt.
+            scanner = self._editable_scanner(scanner_id)
             model = scanner.model if scanner else DEFAULT_SCAN_MODEL
             # The scanner name is user-editable, so it stays out of model-visible tool output; this
             # preview is rendered to the user who owns it, not fed back to the model.
             what = f"the saved scanner '{scanner.name}'" if scanner else f"the saved scanner (id {scanner_id})"
         return f"**Scan {len(sessions)} session(s)** with {what}. This spends {_spend_sentence(self._team, model, len(sessions))}"
+
+    def _editable_scanner(self, scanner_id: str) -> ReplayScanner | None:
+        """A saved scanner this user may run.
+
+        Configured only: an inline scan's scanner is a throwaway the reaper may collect, so re-targeting
+        one would point a scan at a row that can vanish underneath it.
+        """
+        if not is_uuid(scanner_id):
+            return None
+        scanner = ReplayScanner.objects.filter(team_id=self._team.id, id=scanner_id).first()
+        if scanner is None or not self.user_access_control.check_access_level_for_object(scanner, "editor"):
+            return None
+        return scanner
 
     async def _arun_impl(
         self,
@@ -814,8 +830,8 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
         self, sessions: list[str], prompt: str | None, scanner_id: str | None, scanner_type: str
     ) -> tuple[str, dict[str, Any]]:
         if scanner_id:
-            scanner = scanner_for_reading_observations(self._team.id, scanner_id)
-            if scanner is None or not self.user_access_control.check_access_level_for_object(scanner, "editor"):
+            scanner = self._editable_scanner(scanner_id)
+            if scanner is None:
                 return f"Scanner {scanner_id} not found.", {"error": "not_found"}
             started, results = scan_existing_scanner(scanner=scanner, session_ids=sessions, user=self._user)
             return _scan_summary(started, results), {"scan_id": str(scanner.id), "results": results}
@@ -826,12 +842,18 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
         # a scale, which this tool's schema deliberately doesn't take, and would fail validation with a
         # message about a field the model was never offered.
         resolved_type = scanner_type if scanner_type in _INLINE_SCAN_TYPES else ScannerType.MONITOR
+        config = {"prompt": prompt.strip()}
+        # Length and shape, through the validator the API uses. This config persists on the scanner and
+        # is copied into every observation snapshot, so an unbounded prompt would live on both.
+        message = scanner_config_error(ScannerType(resolved_type), config)
+        if message is not None:
+            return message, {"error": "invalid_config"}
         scan = run_inline_scan(
             team=self._team,
             user=self._user,
             session_ids=sessions,
             scanner_type=ScannerType(resolved_type),
-            scanner_config={"prompt": prompt.strip()},
+            scanner_config=config,
             model=DEFAULT_SCAN_MODEL,
         )
         if scan.scanner is None:
@@ -930,15 +952,27 @@ class RetryReplayVisionObservationTool(ReplayVisionGatesMixin, MaxTool):
     @database_sync_to_async
     def _preview(self, observation_id: str) -> str:
         """One hop: the observation lookup and the credit sentence share a connection."""
-        if not is_uuid(observation_id):
-            return f"Retry observation {observation_id}"
-        observation = (
-            ReplayObservation.objects.filter(team_id=self._team.id, id=observation_id).select_related("scanner").first()
-        )
+        # Access-checked before anything is rendered: the preview would otherwise disclose the recording
+        # id and cost of an observation whose scanner the caller can't read.
+        observation = self._editable_observation(observation_id)
         if observation is None:
             return f"Retry observation {observation_id}"
         spend = _spend_sentence(self._team, observation.scanner.model, 1)
         return f"**Scan recording {observation.session_id} again**, replacing the failed result. This spends {spend}"
+
+    def _editable_observation(self, observation_id: str) -> ReplayObservation | None:
+        """An observation this user may retry. Observations inherit their scanner's RBAC, and both the
+        preview and the execution path need the same answer."""
+        if not is_uuid(observation_id):
+            return None
+        observation = (
+            ReplayObservation.objects.filter(team_id=self._team.id, id=observation_id).select_related("scanner").first()
+        )
+        if observation is None or not self.user_access_control.check_access_level_for_object(
+            observation.scanner, "editor"
+        ):
+            return None
+        return observation
 
     async def _arun_impl(self, observation_id: str) -> tuple[str, dict[str, Any]]:
         enabled, consent = await self._gates()
@@ -950,17 +984,11 @@ class RetryReplayVisionObservationTool(ReplayVisionGatesMixin, MaxTool):
 
     @database_sync_to_async
     def _retry(self, observation_id: str) -> tuple[str, dict[str, Any]]:
-        if not is_uuid(observation_id):
-            return f"Observation {observation_id} not found.", {"error": "not_found"}
-        observation = (
-            ReplayObservation.objects.filter(team_id=self._team.id, id=observation_id).select_related("scanner").first()
-        )
-        if observation is None or not self.user_access_control.check_access_level_for_object(
-            observation.scanner, "editor"
-        ):
+        observation = self._editable_observation(observation_id)
+        if observation is None:
             return f"Observation {observation_id} not found.", {"error": "not_found"}
         try:
-            outcome = retry_observation(observation=observation, user=self._user)
+            outcome, _ = retry_observation(observation=observation, user=self._user)
         except QuotaLimitExceeded:
             return (
                 "Not retried: this project's monthly Replay Vision credits are used up.",
@@ -973,8 +1001,18 @@ class RetryReplayVisionObservationTool(ReplayVisionGatesMixin, MaxTool):
             )
         if outcome is RetryOutcome.NOT_RETRYABLE:
             return (
-                f"That observation is {observation.status}, and only failed or ineligible ones can be retried.",
+                "Only failed or ineligible observations can be retried.",
                 {"error": "not_retryable"},
+            )
+        if outcome is RetryOutcome.ALREADY_RUNNING:
+            return (
+                "The previous run for that recording is still finishing. Try again in a moment.",
+                {"error": "already_running"},
+            )
+        if outcome is RetryOutcome.CAPPED:
+            return (
+                "Too many scans are already running for this project. Try again in a few minutes.",
+                {"error": "capped"},
             )
         if outcome is not RetryOutcome.STARTED:
             return "Couldn't start the retry. Try again in a moment.", {"error": "start_failed"}
@@ -991,7 +1029,8 @@ def _first_error(errors: Any) -> str:
             return _first_error(value)
     if isinstance(errors, list) and errors:
         return _first_error(errors[0])
-    return str(errors)
+    # Neutralized: a uniqueness message echoes a user-editable name straight back into model context.
+    return neutralize_markup(str(errors))
 
 
 def _scanner_config_for(
@@ -1132,7 +1171,9 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         is_on, consent = await self._gates()
         if not is_on:
             return self._not_enabled()
-        if enabled and not consent:
+        # Not gated on `enabled`: the serializer refuses to create either kind without consent, so
+        # checking only for enabled ones turned the disabled path into an unhandled exception.
+        if not consent:
             return self._no_ai_consent()
         return await self._create(
             name, prompt, scanner_type, sampling_rate, enabled, tags, scale_min, scale_max, length
@@ -1181,7 +1222,10 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
             if enabled
             else "It's turned off for now, so it isn't scanning or spending anything. Enable it when you're ready."
         )
-        return f"Created the {resolved_type} scanner '{scanner.name}'. {state}", {
+        # The name stays out of `content`, which the model reads: it's user-editable from here on, and
+        # the file's own rule keeps it outside the data fence. The artifact goes to the frontend.
+        return f"Created the {resolved_type} scanner. {state}", {
+            "scanner_name": scanner.name,
             "scanner_id": str(scanner.id),
             "enabled": enabled,
         }
