@@ -385,6 +385,52 @@ class TestFlagDependencyVersionSync(BaseTest):
         assert dependent.version == 2
         assert len(_updated_entries(dependent)) == 1
 
+    def test_restoring_a_soft_deleted_flag_bumps_its_dependents(self):
+        base, dependent, _ = self._create_chain()
+
+        base.deleted = True
+        base.save(update_fields=["deleted"])
+        dependent.refresh_from_db()
+        assert dependent.version == 2
+
+        # A restored base re-enters the local-evaluation payload, so its dependents are
+        # stale again. Snapshotting through objects_including_soft_deleted is what makes
+        # this read as deleted True -> False; the default manager hides the row, so the
+        # snapshot would come back empty and the restore would bump nothing.
+        base.deleted = False
+        base.save(update_fields=["deleted"])
+
+        dependent.refresh_from_db()
+        assert dependent.version == 3
+        # Both bumps are logged with contiguous versions, which is what
+        # reconstruct_flag_at_version walks. ActivityLog has no default ordering.
+        transitions = []
+        for entry in _updated_entries(dependent):
+            detail = entry.detail
+            assert detail is not None
+            change = detail["changes"][0]
+            transitions.append((change["before"], change["after"]))
+        assert sorted(transitions) == [(1, 2), (2, 3)]
+
+    def test_sibling_flag_with_non_dict_filters_does_not_block_save_or_bump(self):
+        base, dependent, _ = self._create_chain()
+        # filters is a JSONField with no shape validation, so a row can hold a non-dict;
+        # FeatureFlag.conditions calls .get() on it and raises. That must not abort the
+        # save being made to an unrelated flag. The malformed-key case in the chain test
+        # can't reach this: a bad key inside a well-shaped dict is caught further in.
+        broken = self._create_flag("broken", _flag_dependency_filters(base.pk))
+        FeatureFlag.objects.filter(pk=broken.pk).update(filters=[{"properties": []}, {"type": "flag"}])
+
+        base.filters = {"groups": [{"properties": [], "rollout_percentage": 25}]}
+        base.save()
+
+        dependent.refresh_from_db()
+        assert dependent.version == 2
+        # The unparseable flag is skipped rather than bumped: its dependencies can't be
+        # read, so it is not known to depend on anything.
+        broken.refresh_from_db()
+        assert broken.version == 1
+
     def test_dependency_driven_bump_is_attributed_and_reconstructable(self):
         base, dependent, _ = self._create_chain()
         original_filters = dependent.get_filters()
