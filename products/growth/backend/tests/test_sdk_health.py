@@ -247,7 +247,9 @@ class TestAssessReleaseCurrentOrNewer(SimpleTestCase):
         assert result.is_current_or_newer is True
 
     def test_ahead_of_cached_latest_not_outdated(self):
-        entry = _entry("1.6.0", 100)
+        # The release date is past the single-version grace period on purpose: a version newer
+        # than a stale cached "latest" must not fall into the single-version outdatedness rule
+        entry = _entry("1.6.0", 100, days_ago=SINGLE_VERSION_GRACE_PERIOD_DAYS + 10)
         result = assess_release(
             "posthog-node",
             entry,
@@ -257,6 +259,22 @@ class TestAssessReleaseCurrentOrNewer(SimpleTestCase):
         )
         assert result.is_outdated is False
         assert result.is_current_or_newer is True
+
+
+class TestAssessSdkReason(SimpleTestCase):
+    def test_reason_when_matching_latest(self):
+        sdk = assess_sdk("posthog-node", "1.5.0", [_entry("1.5.0", 100, is_latest=True)], now=NOW)
+        assert sdk is not None
+        assert "matches or exceeds latest 1.5.0" in sdk.reason
+
+    def test_reason_when_behind_within_tolerance_does_not_claim_latest(self):
+        # Patch-level differences are never flagged, but the healthy reason must not
+        # tell the user they match latest when they are versions behind it
+        sdk = assess_sdk("posthog-node", "1.5.9", [_entry("1.5.0", 100, days_ago=100)], now=NOW)
+        assert sdk is not None
+        assert sdk.needs_updating is False
+        assert "matches or exceeds" not in sdk.reason
+        assert "behind latest 1.5.9" in sdk.reason
 
 
 class TestAssessReleaseIsOld(SimpleTestCase):

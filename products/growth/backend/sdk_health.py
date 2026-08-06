@@ -21,8 +21,11 @@ from typing import Any, Literal, NamedTuple, Optional
 from urllib.parse import quote
 
 import humanize
+import structlog
 
 from products.growth.backend.constants import LEGACY_JAVA_SDK, SdkVersionEntry
+
+logger = structlog.get_logger(__name__)
 
 # --- SDK classification --------------------
 
@@ -596,7 +599,15 @@ def assess_release(
 
     is_outdated = False
 
-    if is_single_version and diff is not None and diff.kind != "patch" and days_since_release is not None:
+    if (
+        is_single_version
+        and diff is not None
+        and diff.diff > 0
+        and diff.kind != "patch"
+        and days_since_release is not None
+    ):
+        # diff.diff > 0 matters: a stale cached "latest" can be behind the version actually in
+        # use, and a version newer than (or equal to) latest must never be flagged as outdated
         is_outdated = days_since_release > SINGLE_VERSION_GRACE_PERIOD_DAYS
     elif is_recent_release:
         is_outdated = False
@@ -659,7 +670,11 @@ def _build_reason(
     latest = _safe_version_display(latest_version)
 
     if not current_release.needs_updating and not outdated_traffic_alerts:
-        return f"{name} is on {current_version} which matches or exceeds latest {latest}."
+        if current_release.is_current_or_newer:
+            return f"{name} is on {current_version} which matches or exceeds latest {latest}."
+        # Behind latest but within the grace rules (e.g. patch-level or a fresh release):
+        # claiming it "matches latest" here would be wrong
+        return f"{name} is on {current_version}, behind latest {latest}. Upgrading is not urgent yet."
 
     pieces: list[str] = []
     if current_release.is_outdated:
@@ -744,6 +759,14 @@ def assess_sdk(
     try:
         latest = parse_version(latest_version_str)
     except ValueError:
+        # A "latest" that doesn't parse means the GitHub fetcher's tag matching is broken for
+        # this SDK. The SDK still has to be dropped (there is nothing to compare against), but
+        # dropping it silently hides the pipeline breakage from everyone, so leave a trail.
+        logger.warning(
+            "sdk_health_unparseable_latest_version",
+            sdk_type=sdk_type,
+            latest_version=latest_version_str,
+        )
         return None
 
     is_single_version = len(usage) == 1
