@@ -1661,12 +1661,15 @@ impl FeatureFlagMatcher {
                     let props = property_context.resolve_for_filter(filter);
                     // Person properties that were never fetched (DB prep didn't run for this
                     // evaluation, e.g. a transient failure elsewhere in the batch) must not be
-                    // treated as "person has no properties" — an absent key would otherwise
-                    // make negative operators (is_not, not_icontains, ...) match by accident.
-                    // partial_props forces match_property to report missing keys as
-                    // inconclusive rather than matching, so the condition fails closed.
-                    // Skipped (overrides cover every needed key) stays exempt since the
-                    // override merge already guarantees the key is present.
+                    // treated as "person has no properties", because an absent key would then
+                    // make negative operators (is_not, not_icontains, ...) and is_not_set match
+                    // by accident. partial_props makes match_property error on a missing key
+                    // instead of matching it; the unwrap_or(false) below turns that error into
+                    // no-match, so the condition fails closed. Only Pending gets this: Skipped
+                    // and Fetched property maps are authoritative, so an absent key there
+                    // genuinely means the person lacks the property. Cohort filters (evaluated
+                    // separately below) don't get this guard; under Pending they're currently
+                    // safe only because cohorts are never loaded when person prep hasn't run.
                     let partial_props = filter.prop_type != PropertyType::Group
                         && self.flag_evaluation_state.person_properties_pending();
                     if !match_property(filter, props, partial_props, self.timezone).unwrap_or(false)
