@@ -44,8 +44,9 @@ current focus is productionizing the reviewer-topology eval and tightening the f
 (validator strictness, fewer junk candidates, the coverage gap); the **loop** — a living, multi-turn review that
 re-checks on new commits/comments and implements fixes — is designed but not built. The single-turn pipeline
 below is its per-turn body. The **resolution stage** — a post-review, standalone-capable stage that triages every
-unresolved review thread and implements the worth-and-safe ones directly on the PR branch — is **built (first
-cut), pending live e2e**: `ResolvePRWorkflow` (`backend/temporal/resolution.py`) drives one warm writable sandbox
+unresolved review thread and implements the worth-and-safe ones directly on the PR branch — is **built and
+live-qualified** (e2e on its own PR #72074, 2026-07-18 — verdicts, findings, and the GO call in
+`eval/experiments/2026-07-resolution-e2e/FINAL_REPORT.md`): `ResolvePRWorkflow` (`backend/temporal/resolution.py`) drives one warm writable sandbox
 session per PR (one thread per turn, humans → ReviewHog → other bots), persists per-thread `thread_verdict`
 artefacts on the living report, replies/resolves server-side from verdicts (bot threads only; humans keep the
 final word). **Reviewing includes resolving**: a published review chains into the stage when the acting user's
@@ -55,6 +56,17 @@ review-without-resolving / resolve-only side actions). Standalone entry: `POST /
 `run_resolution` command, or the UI's resolve-only action. Design + decision record: DECISIONS.md Stage 7;
 vocabulary: CONTEXT.md; the live-e2e qualification plan (the resolver fixes its own PR):
 `eval/experiments/2026-07-resolution-e2e/PLAN.md`.
+
+**TODO — check whether the reviewers sweep too wide, and how to move them closer to the validation bar.**
+The resolution e2e's review leg found 55 raw issues, dedup kept 48, and the validator kept **12** — a 75% kill
+rate, with every raw `must_fix` downgraded on the way through. Either the finders are paying for breadth the
+validator just throws away (wasted sandbox spend + validation load), or wide-then-strict is the correct division
+of labor and the funnel is healthy. Decide with data, not taste: measure per-perspective precision (share of a
+perspective's finds that survive validation — the e2e run splits 12 survivors as security 4 / logic 3 /
+blind-spot 3 / performance 2), then try pulling the validation-criteria bar into the perspective skills
+themselves (the reviewer reads the same skill the validator applies, so it self-filters before emitting) and
+compare survivor count, coverage, and cost against the wide baseline. Ties into the topology-experiment
+conclusion that skill content + validator strictness — not topology — is the binding constraint.
 
 The full roadmap — every open thread with its reasoning, the loop design, the grounded implementation maps, and
 the experiment backlog — is in [DECISIONS.md](./DECISIONS.md) (start at its "🎯 NEXT" section) and `eval/`
