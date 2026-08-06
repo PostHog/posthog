@@ -57,7 +57,7 @@ const CONNECTION_STRING_FIELD: SourceFieldInputConfig = {
     name: 'connection_string',
     label: 'Connection String',
     required: true,
-    placeholder: 'mongodb://…',
+    placeholder: 'mongodb://host:port/db?tls=true',
     secret: true,
 }
 
