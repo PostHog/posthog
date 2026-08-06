@@ -1,6 +1,6 @@
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ErrorTrackingQuery, ProductKey } from '~/queries/schema/schema-general'
 
-import { FilterLogicalOperator } from '../../../frontend/src/types'
+import { FilterLogicalOperator, PropertyOperator, UniversalFilterValue } from '../../../frontend/src/types'
 import { errorTrackingIssueBreakdownQuery, errorTrackingIssueEventsQuery, errorTrackingQuery } from './queries'
 
 describe('queries', () => {
@@ -26,6 +26,44 @@ describe('queries', () => {
                     personId: undefined,
                 })
                 expect(actual).toMatchSnapshot()
+            })
+        })
+
+        it('omits a filter the user has not finished writing', () => {
+            const actual = errorTrackingQuery({
+                orderBy: 'users',
+                dateRange: { date_from: '-7d', date_to: null },
+                filterTestAccounts: false,
+                filterGroup: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                { key: 'url', value: null, operator: PropertyOperator.Exact, type: 'event' },
+                                {
+                                    key: '$browser',
+                                    value: ['Chrome'],
+                                    operator: PropertyOperator.Exact,
+                                    type: 'event',
+                                },
+                            ] as UniversalFilterValue[],
+                        },
+                    ],
+                },
+                columns: ['error', 'users', 'occurrences'],
+            })
+
+            expect((actual.source as ErrorTrackingQuery).filterGroup).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            { key: '$browser', value: ['Chrome'], operator: PropertyOperator.Exact, type: 'event' },
+                        ],
+                    },
+                ],
             })
         })
     })

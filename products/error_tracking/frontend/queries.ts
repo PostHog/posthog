@@ -27,6 +27,7 @@ import {
     ERROR_TRACKING_DETAILS_RESOLUTION,
     ERROR_TRACKING_LISTING_RESOLUTION,
     SEARCHABLE_EXCEPTION_PROPERTIES,
+    withFiltersReadyToQuery,
 } from './utils'
 
 export const errorTrackingQuery = ({
@@ -73,7 +74,7 @@ export const errorTrackingQuery = ({
             dateRange,
             assignee,
             volumeResolution,
-            filterGroup: filterGroup as PropertyGroupFilter,
+            filterGroup: withFiltersReadyToQuery(filterGroup) as PropertyGroupFilter,
             filterTestAccounts: filterTestAccounts,
             searchQuery: searchQuery,
             limit: limit,
@@ -122,7 +123,7 @@ export const errorTrackingIssueQuery = ({
         kind: NodeKind.ErrorTrackingQuery,
         issueId,
         dateRange,
-        filterGroup: filterGroup as PropertyGroupFilter,
+        filterGroup: withFiltersReadyToQuery(filterGroup) as PropertyGroupFilter,
         orderBy: 'last_seen',
         filterTestAccounts,
         searchQuery,

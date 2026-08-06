@@ -1,8 +1,17 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
 
 import { ErrorTrackingIssue, ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
+import {
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyFilterValue,
+    PropertyOperator,
+    UniversalFilterValue,
+    UniversalFiltersGroup,
+    UniversalFiltersGroupValue,
+} from '~/types'
 
-import { generateDateRangeLabel, mergeIssues, sourceDisplay } from './utils'
+import { generateDateRangeLabel, mergeIssues, sourceDisplay, withFiltersReadyToQuery } from './utils'
 
 function wrapVolumeBuckets(
     initialDate: Dayjs,
@@ -188,5 +197,67 @@ describe('sourceDisplay', () => {
                 '../../node_modules/.pnpm/kea-loaders@3.0.0_kea@3.1.5_react@18.2.0_/node_modules/kea-loaders/src/index.ts'
             )
         ).toEqual('kea-loaders.src.index')
+    })
+})
+
+describe('withFiltersReadyToQuery', () => {
+    const group = (...values: UniversalFiltersGroupValue[]): UniversalFiltersGroup => ({
+        type: FilterLogicalOperator.And,
+        values,
+    })
+    const filter = (value: PropertyFilterValue): UniversalFilterValue =>
+        ({
+            key: 'error_source',
+            value,
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Event,
+        }) as UniversalFilterValue
+
+    it.each([
+        ['a null value', null],
+        ['an undefined value', undefined],
+        ['an empty array value', []],
+        ['an empty string value', ''],
+    ])('drops a filter with %s', (_name, value) => {
+        expect(withFiltersReadyToQuery(group(filter(value as PropertyFilterValue)))).toEqual(group())
+    })
+
+    it.each([
+        ['a populated array', ['sentry']],
+        ['a plain string', 'sentry'],
+        ['a boolean false', false],
+        ['a zero', 0],
+    ])('keeps a filter with %s', (_name, value) => {
+        const filterGroup = group(filter(value as PropertyFilterValue))
+        expect(withFiltersReadyToQuery(filterGroup)).toEqual(filterGroup)
+    })
+
+    it('keeps a valueless filter whose operator needs no value', () => {
+        const filterGroup = group({
+            key: 'error_source',
+            value: null,
+            operator: PropertyOperator.IsSet,
+            type: PropertyFilterType.Event,
+        } as UniversalFilterValue)
+        expect(withFiltersReadyToQuery(filterGroup)).toEqual(filterGroup)
+    })
+
+    it('keeps a HogQL filter, which holds its expression in the key', () => {
+        const filterGroup = group({
+            type: PropertyFilterType.HogQL,
+            key: "properties.$lib = 'posthog-python'",
+            value: null,
+        } as UniversalFilterValue)
+        expect(withFiltersReadyToQuery(filterGroup)).toEqual(filterGroup)
+    })
+
+    it('passes through an absent filter group', () => {
+        expect(withFiltersReadyToQuery(undefined)).toBeUndefined()
+    })
+
+    it('drops half-written filters nested inside a group', () => {
+        expect(withFiltersReadyToQuery(group(group(filter(null), filter(['sentry']))))).toEqual(
+            group(group(filter(['sentry'])))
+        )
     })
 })

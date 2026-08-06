@@ -4,13 +4,23 @@ import { routerType } from 'kea-router/lib/routerType'
 import { MouseEvent } from 'react'
 
 import { ErrorTrackingException } from 'lib/components/Errors/types'
+import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { componentsToDayJs, dateStringToComponents, dateStringToDayJs, isStringDateRegex } from 'lib/utils/dateFilters'
+import { isOperatorFlag } from 'lib/utils/operators'
 import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    PropertyFilterType,
+    PropertyOperator,
+    UniversalFilterValue,
+    UniversalFiltersGroup,
+    UniversalFiltersGroupValue,
+} from '~/types'
 
 /** Reason error tracking write actions are disabled, or null when the user has editor access. */
 export function errorTrackingEditAccessDisabledReason(): string | null {
@@ -168,6 +178,44 @@ export function updateSearchParams<T>(searchParams: Params, key: string, value: 
         searchParams[key] = value
     } else {
         delete searchParams[key]
+    }
+}
+
+function isFilterReadyToQuery(filter: UniversalFilterValue): boolean {
+    if (!('type' in filter) || filter.type === PropertyFilterType.HogQL) {
+        // A HogQL filter carries its expression in `key` and never holds a value.
+        return !('key' in filter) || !!filter.key
+    }
+    // Cast is safe because isOperatorFlag is a membership test: a logical operator just isn't a member.
+    const operator = 'operator' in filter ? (filter.operator as PropertyOperator | undefined) : undefined
+    if (operator && isOperatorFlag(operator)) {
+        return true
+    }
+    if (!('value' in filter)) {
+        return true
+    }
+    const { value } = filter
+    return Array.isArray(value) ? value.length > 0 : value !== null && value !== undefined && value !== ''
+}
+
+/**
+ * Picking a property commits a filter before the user has typed a value into it. Sending that
+ * half-written filter fails the whole query, so the list dead-ends between the two clicks it
+ * takes to add a filter. Leave such filters in place in the UI and just omit them from the query.
+ */
+export function withFiltersReadyToQuery(filterGroup?: UniversalFiltersGroup): UniversalFiltersGroup | undefined {
+    return filterGroup ? filterGroupReadyToQuery(filterGroup) : filterGroup
+}
+
+function filterGroupReadyToQuery(filterGroup: UniversalFiltersGroup): UniversalFiltersGroup {
+    return {
+        ...filterGroup,
+        values: filterGroup.values.flatMap((value: UniversalFiltersGroupValue): UniversalFiltersGroupValue[] => {
+            if (isUniversalGroupFilterLike(value)) {
+                return [filterGroupReadyToQuery(value)]
+            }
+            return isFilterReadyToQuery(value) ? [value] : []
+        }),
     }
 }
 
