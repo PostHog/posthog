@@ -831,6 +831,15 @@ class SharingTokenReplayThrottle(SimpleRateThrottle):
         return False
 
 
+class RecordingBlocksUnavailable(exceptions.APIException):
+    # Raised when every block in a snapshots batch failed to fetch, so there is nothing to play.
+    # A stable code lets the player tell this apart from a transient 500 and stop retrying into an
+    # infinite buffer, instead of resetting its retry budget on every reseek.
+    status_code = status.HTTP_502_BAD_GATEWAY
+    default_code = "recording_blocks_unavailable"
+    default_detail = "Couldn't load this recording's data. Try again, and if it keeps happening contact support."
+
+
 def _length_prefix_blocks(blocks: list[bytes]) -> bytes:
     chunks = []
     for block in blocks:
@@ -1472,6 +1481,10 @@ class SessionRecordingViewSet(
             return response
         except NotFound:
             raise
+        except RecordingBlocksUnavailable:
+            # Let DRF render this with its stable code so the player can route it to a terminal error
+            # instead of the generic-500 branch below, which the player treats as retryable.
+            raise
         except RecordingDeletedError as e:
             logger.info(
                 "recording_permanently_deleted",
@@ -1885,8 +1898,21 @@ class SessionRecordingViewSet(
             else:
                 blocks_data.append(content)
 
+        if block_errors and not blocks_data:
+            # Every block failed, so there is nothing to render. Signal a distinct, client-recognisable
+            # error rather than a generic 500 the player would keep retrying into an infinite buffer.
+            raise RecordingBlocksUnavailable()
+
         if block_errors:
-            raise exceptions.APIException("Failed to load recording block")
+            # Some blocks failed but others loaded. Keep the good ones so the player can render partial
+            # playback instead of discarding the whole batch — partial playback beats no playback.
+            logger.warning(
+                "fetch_blocks_partial_failure",
+                recording_id=recording.session_id,
+                team_id=self.team.id,
+                failed_block_indexes=block_errors,
+                loaded_block_count=len(blocks_data),
+            )
 
         return blocks_data
 

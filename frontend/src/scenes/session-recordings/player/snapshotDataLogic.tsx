@@ -54,6 +54,7 @@ export interface snapshotDataLogicValues {
     isLoadingSnapshots: boolean
     isPolling: boolean
     isRecordingDeleted: boolean
+    isSnapshotBlocksUnavailable: boolean
     isSnapshotUnauthorized: boolean
     loadAllMode: boolean
     loadingSources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'end_timestamp' | 'source' | 'start_timestamp'>[]
@@ -221,6 +222,7 @@ export interface snapshotDataLogicMeta {
         recordingDeletedAt: (snapshotLoadError: Error | null) => number | null
         recordingDeletedBy: (snapshotLoadError: Error | null) => string | null
         isSnapshotUnauthorized: (snapshotLoadError: Error | null) => boolean
+        isSnapshotBlocksUnavailable: (snapshotLoadError: Error | null) => boolean
     }
 }
 
@@ -440,9 +442,9 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             const previousTarget = selectors.seekTarget(previousState)
             const targetChanged = previousTarget?.timestamp !== timestamp || previousTarget?.windowId !== windowId
             // A genuinely new target grants fresh retries after the permanent-failure cap, unless the
-            // failure is a 401. Reseeking can never fix that, so it must keep counting toward the cap,
-            // otherwise a permanently-unauthorized source buffers forever.
-            if (targetChanged && !values.isSnapshotUnauthorized) {
+            // failure can't be fixed by reseeking — a 401, or a range whose blocks the server couldn't
+            // fetch at all. Those must keep counting toward the cap, otherwise the source buffers forever.
+            if (targetChanged && !values.isSnapshotUnauthorized && !values.isSnapshotBlocksUnavailable) {
                 cache.loadFailureCount = 0
             }
             actions.loadNextSnapshotSource()
@@ -740,6 +742,18 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             (s) => [s.snapshotLoadError],
             (snapshotLoadError: Error | null): boolean => {
                 return snapshotLoadError instanceof ApiError && snapshotLoadError.status === 401
+            },
+        ],
+
+        // The server couldn't fetch any block for this range. Refetching the same range won't help, so
+        // like the unauthorized case this must keep counting toward the retry cap and reach a terminal
+        // error instead of buffering forever.
+        isSnapshotBlocksUnavailable: [
+            (s) => [s.snapshotLoadError],
+            (snapshotLoadError: Error | null): boolean => {
+                return (
+                    snapshotLoadError instanceof ApiError && snapshotLoadError.code === 'recording_blocks_unavailable'
+                )
             },
         ],
     })),

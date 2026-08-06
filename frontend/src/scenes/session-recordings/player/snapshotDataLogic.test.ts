@@ -101,6 +101,44 @@ describe('snapshotDataLogic', () => {
             }).toDispatchActions(['snapshotSourceLoadExhausted'])
             consoleError.mockRestore()
         })
+
+        it('does not grant a blocks-unavailable source a fresh retry budget on a new seek target', async () => {
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            const error = new ApiError('Blocks unavailable', 502, undefined, { code: 'recording_blocks_unavailable' })
+            logic.actions.loadSnapshotsForSourceFailure('Blocks unavailable', error)
+            logic.actions.loadSnapshotsForSourceFailure('Blocks unavailable', error)
+            logic.actions.loadSnapshotsForSourceFailure('Blocks unavailable', error)
+
+            // Refetching the same range can't fix a server-side block-fetch failure, so a new seek target
+            // must not reset the retry budget — otherwise the source buffers forever instead of erroring.
+            logic.actions.setTargetTimestamp(123456, 1)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotsForSourceFailure('Blocks unavailable', error)
+            }).toDispatchActions(['snapshotSourceLoadExhausted'])
+            consoleError.mockRestore()
+        })
+    })
+
+    describe('isSnapshotBlocksUnavailable', () => {
+        it('is false when no error', () => {
+            expect(logic.values.isSnapshotBlocksUnavailable).toBe(false)
+        })
+
+        it('is true for the recording_blocks_unavailable code', () => {
+            logic.actions.loadSnapshotsForSourceFailure(
+                'Blocks unavailable',
+                new ApiError('Blocks unavailable', 502, undefined, { code: 'recording_blocks_unavailable' })
+            )
+
+            expect(logic.values.isSnapshotBlocksUnavailable).toBe(true)
+        })
+
+        it('is false for a generic server error', () => {
+            logic.actions.loadSnapshotsForSourceFailure('Server error', new ApiError('Server error', 500))
+
+            expect(logic.values.isSnapshotBlocksUnavailable).toBe(false)
+        })
     })
 
     describe('isSnapshotUnauthorized', () => {
