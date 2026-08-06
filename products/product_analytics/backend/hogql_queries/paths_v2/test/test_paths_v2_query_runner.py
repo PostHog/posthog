@@ -825,6 +825,34 @@ class TestPathsV2AnchoredMode(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
+    def test_prefixes_carry_only_displayed_chains(self):
+        journeys_for(
+            team=self.team,
+            events_by_person={
+                **_timeline("p1", "a", "b"),
+                **_timeline("p2", "a", "b"),
+                **_timeline("p3", "a", "b"),
+                **_timeline("p4", "a", "x"),
+            },
+        )
+
+        query = PathsV2Query(
+            dateRange=DATE_RANGE,
+            pathsV2Filter=PathsV2Filter(stepSources=_sources("a", "b", "x"), anchor=_anchor("a"), maxRowsPerStep=1),
+        )
+        results = self._run(query)
+
+        # x lands in step 1's other row, so its label must not ship in the prefixes either: a shared
+        # insight exposes the raw response, and the hover preview skips other-bucket chains anyway.
+        self.assertEqual(
+            self._steps(results),
+            [(0, [_row("a", 4)], 0, 0), (1, [_row("b", 3)], 1, 4)],
+        )
+        self.assertEqual(
+            self._prefixes(results),
+            {_prefix([("a", None)], 4), _prefix([("a", None), ("b", None)], 3)},
+        )
+
     def test_anchored_prefilter_bounds_actors_to_the_window(self):
         journeys_for(
             team=self.team,
