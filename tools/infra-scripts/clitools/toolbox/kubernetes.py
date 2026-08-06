@@ -185,9 +185,16 @@ def login_to_sso(profile: str, *, timeout: float) -> bool:
     """Run the AWS CLI's interactive SSO login for a kubeconfig-derived profile."""
     print(f"🔐 Your AWS SSO session needs refreshing. Logging in with profile '{profile}'...")  # noqa: T201
     try:
+        # Force the device-authorization grant. Since AWS CLI v2.22.0 the default is the PKCE
+        # authorization-code flow, which only completes if the browser can reach an OAuth
+        # callback server the CLI spins up on localhost. When it can't (remote/SSH/container
+        # sessions, some corporate browsers), the user sees a green success page in the browser
+        # but `aws sso login` hangs until our access deadline. The device-code flow polls AWS
+        # for the token instead of waiting for a callback, so it completes regardless of where
+        # the browser runs.
         return (
             subprocess.run(
-                ["aws", "sso", "login", "--profile", profile],
+                ["aws", "sso", "login", "--profile", profile, "--use-device-code"],
                 check=False,
                 timeout=max(1, timeout),
             ).returncode
@@ -241,7 +248,8 @@ def wait_for_context_access(context: str, namespace: str, *, initial_diagnostic:
         sso_login_attempted = True
         if not login_to_sso(profile, timeout=deadline - time.monotonic()):
             print(  # noqa: T201
-                f"❌ AWS SSO login failed. Try `aws sso login --profile {profile}` and rerun the toolbox."
+                f"❌ AWS SSO login failed. Try `aws sso login --profile {profile} --use-device-code` "
+                "and rerun the toolbox."
             )
             return False
 
@@ -283,7 +291,7 @@ def wait_for_context_access(context: str, namespace: str, *, initial_diagnostic:
 
     print(  # noqa: T201
         "❌ Access was not available after 10 minutes. "
-        f"After approval, rerun or use `aws sso login --profile {profile}`."
+        f"After approval, rerun or use `aws sso login --profile {profile} --use-device-code`."
     )
     return False
 

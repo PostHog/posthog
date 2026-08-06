@@ -16,6 +16,7 @@ from toolbox.kubernetes import (
     get_context_profile,
     get_current_context,
     kubectl_cmd,
+    login_to_sso,
     reset_sso,
     select_context,
     select_environment,
@@ -874,6 +875,16 @@ class TestToolbox(unittest.TestCase):
         self.assertTrue(reset_sso("prod-eu-eks", deadline=610))
         mock_run.assert_called_once_with(["aws", "sso", "logout"], check=False, timeout=600)
         mock_login.assert_called_once_with("prod-eu-eks", timeout=600)
+
+    @patch("subprocess.run")
+    def test_login_to_sso_forces_device_code_flow(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0)
+        self.assertTrue(login_to_sso("prod-us-eks", timeout=600))
+        mock_run.assert_called_once_with(
+            ["aws", "sso", "login", "--profile", "prod-us-eks", "--use-device-code"],
+            check=False,
+            timeout=600,
+        )
 
     @patch("toolbox.kubernetes.login_to_sso", return_value=True)
     @patch("toolbox.kubernetes.check_context_access", return_value=(True, ""))
