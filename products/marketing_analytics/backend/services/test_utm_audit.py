@@ -238,9 +238,8 @@ class TestCrossReferenceIssueKinds:
         assert issue.suggested_actions == [SuggestedAction.FIX_PLATFORM_URLS]
 
     def test_not_linked_offers_the_typo_mapping_when_one_exists(self):
-        # The audit can see a campaign has no pageviews but not why, so its only advice was
-        # "fix your ad URLs". The fuzzy suggester holds the other half — a typo'd value with
-        # real traffic pointing at it — and both facts sat in separate services.
+        # The audit sees no pageviews; the suggester holds the other half, the typo'd value
+        # with real traffic on it.
         campaigns = [Campaign("spring_sale_2024", "456", "google", 500.0, 100, 5000)]
         utm_events = {("sprng_sale_2024", "google"): 1340}
 
@@ -256,10 +255,8 @@ class TestCrossReferenceIssueKinds:
         ]
 
     def test_candidate_stays_on_the_platform_the_suggester_named(self):
-        # A campaign name is only unique within a platform. Both of these are unlinked, so both
-        # get NOT_LINKED, and the typo'd traffic is tagged google — so google's row is explained
-        # and meta's is not. Keying the candidate on the name alone told the user that meta's
-        # unlinked campaign was explained by traffic attributed to google's.
+        # A campaign name is unique only within a platform, and the traffic is tagged google.
+        # Keying on the name alone explained meta's row with google's traffic.
         campaigns = [
             Campaign("brand", "1", "google", 9000.0, 100, 5000),
             Campaign("brand", "2", "meta", 4000.0, 100, 5000),
@@ -275,8 +272,7 @@ class TestCrossReferenceIssueKinds:
         assert SuggestedAction.ADD_CAMPAIGN_NAME_MAPPING not in meta.issues[0].suggested_actions
 
     def test_not_linked_offers_nothing_when_the_match_is_ambiguous(self):
-        # A near-tie is exactly what the suggester refuses to guess at, so the audit must not
-        # launder that refusal into a confident-looking suggestion.
+        # The audit must not launder the suggester's refusal into a confident suggestion.
         campaigns = [
             Campaign("uk_uss", "1", "google", 5000.0, 10, 100),
             Campaign("email_uk", "2", "google", 4000.0, 10, 100),
@@ -292,9 +288,8 @@ class TestCrossReferenceIssueKinds:
 
     @patch("products.marketing_analytics.backend.services.utm_audit.suggest_campaign_name_mappings")
     def test_audit_survives_a_broken_suggester(self, mock_suggester):
-        # The candidate is advisory decoration on an audit people rely on, so its failure is
-        # contained. Asserted rather than left to the docstring: the `except` is the only thing
-        # standing between a bug in the suggester and the whole audit 500ing.
+        # The candidate is advisory; the `except` is all that keeps a suggester bug from
+        # 500ing the audit.
         mock_suggester.side_effect = RuntimeError("boom")
         campaigns = [Campaign("spring_sale_2024", "456", "google", 500.0, 100, 5000)]
         utm_events = {("sprng_sale_2024", "google"): 1340}
