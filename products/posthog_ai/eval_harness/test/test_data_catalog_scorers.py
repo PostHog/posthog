@@ -473,7 +473,7 @@ def test_metric_description_concise(
 
 def test_metric_description_quality_judges_the_stored_description() -> None:
     narrating_update = "First it sums amount_usd, then it filters to the last 30 days, then it groups by plan."
-    calls = [
+    calls: list[tuple[str, dict[str, Any], str]] = [
         (
             METRIC_CREATE_TOOL,
             {"name": "mrr", "description": _SHORT_DESCRIPTION, "definition": {"kind": "HogQLQuery"}},
