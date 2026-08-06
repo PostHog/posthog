@@ -580,6 +580,9 @@ function SlackDelivery({ noun }: { noun: string }): JSX.Element {
             <IntegrationChoice
                 integration="slack"
                 value={integration_id ?? undefined}
+                // Carry the current scanner editor URL through the OAuth round-trip so a successful
+                // connect returns here instead of dropping the user on the project settings page.
+                redirectUrl={`${window.location.pathname}${window.location.search}${window.location.hash}`}
                 onChange={(value) => {
                     setActionFormValue('integration_id', value)
                     setActionFormValue('channel', '')

@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
@@ -945,11 +946,31 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return
             }
 
-            // The CSRF state cookie only lives for a few minutes (see ph_oauth_state max_age). If the
-            // authorization round-trip outlived it, or the browser dropped the cookie, the token won't
-            // match. That's recoverable by simply retrying, so say so instead of surfacing the generic
-            // "Something went wrong" that a thrown error would fall back to.
+            // A callback state with no token at all can't be one we minted — /integrations/authorize
+            // always attaches a token. It came from a stale or externally minted link, so retrying it
+            // will never succeed. Tell the user to start the connection from PostHog instead of claiming
+            // it expired (which would send them back to the same dead link). getCookie returns null when
+            // the cookie is absent, which the missing token would spuriously "match", so check this first.
+            if (!token) {
+                posthog.capture('integration_oauth_callback_rejected', {
+                    integration_kind: resolvedKind,
+                    reason: 'missing_token',
+                })
+                lemonToast.error(
+                    'This connection link is missing information we need. Start the connection from PostHog and try again.'
+                )
+                router.actions.replace(replaceUrl)
+                return
+            }
+
+            // The CSRF state cookie (ph_oauth_state) expired mid-flow, or the browser dropped it, so the
+            // token no longer matches. That's recoverable by simply retrying, so say so instead of
+            // surfacing the generic "Something went wrong" that a thrown error would fall back to.
             if (token !== getCookie('ph_oauth_state')) {
+                posthog.capture('integration_oauth_callback_rejected', {
+                    integration_kind: resolvedKind,
+                    reason: 'state_mismatch',
+                })
                 lemonToast.error('This connection attempt expired before it could finish. Please try connecting again.')
                 router.actions.replace(replaceUrl)
                 return

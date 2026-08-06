@@ -85,6 +85,20 @@ describe('integrationsLogic — handleOauthCallback', () => {
         document.cookie = 'ph_oauth_state=; expires=Thu, 01 Jan 1970 00:00:00 GMT'
     })
 
+    it('does not create the integration when the OAuth state carries no token', async () => {
+        // A callback state with no token can't be one we minted (authorize always attaches one), and
+        // getCookie returns null when the cookie is absent — which a missing token would spuriously
+        // "match". This must be rejected before the mismatch check rather than POSTing a create.
+        const state = 'next=%2Fproject%2F228502%2Fsettings%2Fproject-integrations'
+
+        await expectLogic(logic, () => {
+            logic.actions.handleOauthCallback('slack' as IntegrationKind, { state, code: 'oauth-code' })
+        }).toFinishAllListeners()
+
+        expect(createSpy).not.toHaveBeenCalled()
+        expect(router.values.location.pathname).toBe('/project/228502/settings/project-integrations')
+    })
+
     describe('integration create team scoping', () => {
         let requestedTeamIds: string[]
 

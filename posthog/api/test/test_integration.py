@@ -5329,6 +5329,9 @@ class TestPosthogConnectAuthorize:
         assert response.status_code == status.HTTP_302_FOUND
         assert response.headers["Location"].startswith("https://eu.posthog.com/oauth/authorize?")
         assert client.cookies.get("ph_oauth_state") is not None
+        # The cookie must outlive a full third-party consent round-trip, so keep a generous window
+        # rather than the old 5 minutes that failed legitimate callbacks.
+        assert client.cookies["ph_oauth_state"]["max-age"] == 60 * 30
 
     @override_settings(
         POSTHOG_CONNECT_BASE_URL_EU="https://eu.posthog.com",

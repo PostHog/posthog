@@ -1188,8 +1188,11 @@ class IntegrationViewSet(
                     kind, next=next, token=token, region=region, scopes=scopes, team_id=self.team_id
                 )
                 response = redirect(auth_url)
+                # The cookie has to outlive a full third-party consent round-trip (sign-in, MFA,
+                # picking an account/portal), so 5 minutes was too tight and legitimate callbacks
+                # failed the state check. 30 minutes is still a fine CSRF window.
                 # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
-                response.set_cookie("ph_oauth_state", token, max_age=60 * 5)
+                response.set_cookie("ph_oauth_state", token, max_age=60 * 30)
 
                 return response
             except NotImplementedError:
