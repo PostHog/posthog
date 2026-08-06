@@ -414,6 +414,35 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
     @parameterized.expand(
         [
+            (
+                "single_missing_key_keeps_the_familiar_message",
+                {"to": "a@b.com", "subject": "hi", "html": "<p>hi</p>"},
+                "Missing value for 'from'.",
+            ),
+            (
+                "multiple_missing_keys_reported_at_once",
+                {"to": "a@b.com"},
+                "Missing values for 'from', 'subject', either 'text' or 'html'.",
+            ),
+            (
+                "body_alternatives_named_together",
+                {"from": "hi@posthog.com", "to": "a@b.com", "subject": "hi"},
+                "Missing value for either 'text' or 'html'.",
+            ),
+        ]
+    )
+    def test_email_input_reports_all_missing_keys_in_one_error(self, _name, value, expected):
+        # Email objects are typically authored programmatically; raising on the first absent
+        # key forces a validate round trip per key, so every missing key is named at once.
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True}]
+        inputs = {"email": {"value": value}}
+
+        with pytest.raises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, inputs)
+        assert expected in str(ctx.value.detail)
+
+    @parameterized.expand(
+        [
             ("person", "{person?.id}"),
             ("groups", "{groups.organization.id}"),
             ("source", "{source.name}"),
