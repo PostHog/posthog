@@ -97,10 +97,10 @@ export function EventsTable({ query, queryKey, onEventSelect, selectedEvent }: E
 
     function getRowTimelineIndicatorColor(record: ErrorEventType): string {
         return record.uuid === summary?.first_event_uuid
-            ? 'border-l-brand-blue'
+            ? 'bg-brand-blue'
             : record.uuid === summary?.last_event_uuid
-              ? 'border-l-brand-red'
-              : 'border-l-brand-yellow'
+              ? 'bg-brand-red'
+              : 'bg-brand-yellow'
     }
 
     return (
@@ -124,14 +124,16 @@ export function EventsTable({ query, queryKey, onEventSelect, selectedEvent }: E
                                 )}
                                 onClick={() => onEventSelect(record)}
                             >
-                                <TableCell
-                                    className={cn(
-                                        'w-1 border-l-4 p-0',
-                                        isEventSelected(record)
-                                            ? getRowTimelineIndicatorColor(record)
-                                            : 'border-l-transparent'
-                                    )}
-                                />
+                                <TableCell className="relative w-1 p-0">
+                                    <div
+                                        className={cn(
+                                            'absolute inset-y-0 left-0 w-1',
+                                            isEventSelected(record)
+                                                ? getRowTimelineIndicatorColor(record)
+                                                : 'bg-transparent'
+                                        )}
+                                    />
+                                </TableCell>
                                 <TableCell className="min-w-0 overflow-hidden p-0">
                                     <div className="flex w-full min-w-0 items-center">
                                         <div className="min-w-0 flex-1 overflow-hidden px-3 py-2">
