@@ -419,9 +419,20 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         nested.is_valid(raise_exception=True)
         data = dict(nested.validated_data)
         # Scoped like a foreign key even though it's JSON: accepting a cross-team id would hand
-        # every later consumer of the field an experiment the caller can't access.
+        # every later consumer of the field an experiment the caller can't access. Filtered by the
+        # caller's experiment access, not just the team, so a scanner-editor can't confirm the
+        # existence of an experiment they can't view (the not-found response is the same either way).
         team = self.context["get_team"]()
-        if not Experiment.objects.filter(team=team, id=data["experiment_id"]).exists():
+        team_experiments = Experiment.objects.filter(team=team)
+        # Narrow to experiments the caller can actually view when access control is in context, so
+        # a scanner-editor can't confirm the existence of an experiment they can't see. Without it
+        # (no request context), team scoping alone still prevents cross-team references.
+        accessible = (
+            self.user_access_control.filter_queryset_by_access_level(team_experiments)
+            if self.user_access_control
+            else team_experiments
+        )
+        if not accessible.filter(id=data["experiment_id"]).exists():
             raise serializers.ValidationError("Experiment not found in this project.")
         return data
 

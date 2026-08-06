@@ -6,7 +6,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
-from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
+from products.replay_vision.backend.tests.test_api import TestScannerExperimentTargeting, _VisionAPITestCase
 from products.replay_vision.backend.tests.test_vision_actions_api import _VisionActionAPITestCase
 
 try:
@@ -186,6 +186,32 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         )
         self.assertEqual(resp.status_code, 400, resp.json())
         self.assertEqual(resp.json()["attr"], "scanner_id")
+
+    def test_experiment_targeting_rejects_an_experiment_the_caller_cannot_view(self) -> None:
+        # A scanner-editor without experiment access must not be able to confirm an experiment's
+        # existence via the targeting validation response; a denied experiment reads as not-found.
+        experiment = TestScannerExperimentTargeting._create_experiment(self.team, "denied-flag")
+        self._set_resource_default("experiment", "none")
+        self._grant_object_access(self.other_user, "experiment", str(experiment.id), "none")
+
+        self.client.force_login(self.other_user)
+        resp = self.client.post(
+            self.scanners_url,
+            data={
+                "name": "targeting-denied",
+                "scanner_type": "monitor",
+                "scanner_config": {"prompt": "p"},
+                "model": "gemini-3.6-flash",
+                "experiment_targeting": {
+                    "experiment_id": experiment.id,
+                    "variant_keys": [],
+                    "use_exposure_fallback": False,
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "experiment_targeting")
 
 
 class TestVisionActionAccessControlInheritance(_VisionActionAPITestCase):
