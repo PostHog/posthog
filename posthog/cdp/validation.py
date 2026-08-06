@@ -1,6 +1,5 @@
 import re
 import json
-import uuid
 import logging
 from typing import Any, Optional
 
@@ -38,30 +37,31 @@ def build_html_wrap_design(html: str) -> dict:
 
     Emails authored programmatically (API/MCP) often carry html without a design, which the
     visual editor cannot open. Wrapping the html keeps the stored html byte-identical (sends
-    don't change) while giving the editor a design to load. Ids and _meta numbering mirror
-    what the Unlayer editor emits so id-addressed design operations keep working.
+    don't change) while giving the editor a design to load. _meta numbering mirrors what the
+    Unlayer editor emits so id-addressed design operations keep working. Ids are fixed so the
+    wrap is deterministic: callers that resend the same html-only value on every save would
+    otherwise produce a fresh design each time, and the content-equality checks behind
+    workflow revisions and hog function draft diffing would register a change on every no-op
+    resave.
     """
-
-    def _node_id() -> str:
-        return uuid.uuid4().hex[:10]
 
     return {
         "counters": {"u_row": 1, "u_column": 1, "u_content_html": 1},
         "schemaVersion": 16,
         "body": {
-            "id": _node_id(),
+            "id": "html-wrap-body",
             "headers": [],
             "footers": [],
             "rows": [
                 {
-                    "id": _node_id(),
+                    "id": "html-wrap-row",
                     "cells": [1],
                     "columns": [
                         {
-                            "id": _node_id(),
+                            "id": "html-wrap-column",
                             "contents": [
                                 {
-                                    "id": _node_id(),
+                                    "id": "html-wrap-content",
                                     "type": "html",
                                     "values": {
                                         "html": html,

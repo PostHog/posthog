@@ -108,24 +108,25 @@ type JSONTemplate = Parameters<Editor['loadDesign']>[0]
  * Mirrors build_html_wrap_design in posthog/cdp/validation.py.
  */
 export function buildHtmlWrapDesign(html: string): JSONTemplate {
-    const nodeId = (): string => Math.random().toString(36).slice(2, 12)
+    // Fixed ids keep the wrap deterministic: re-wrapping the same html yields an identical
+    // design, so backend content-equality checks (revisions, draft diffing) see no change.
     return {
         counters: { u_row: 1, u_column: 1, u_content_html: 1 },
         schemaVersion: 16,
         body: {
-            id: nodeId(),
+            id: 'html-wrap-body',
             headers: [],
             footers: [],
             rows: [
                 {
-                    id: nodeId(),
+                    id: 'html-wrap-row',
                     cells: [1],
                     columns: [
                         {
-                            id: nodeId(),
+                            id: 'html-wrap-column',
                             contents: [
                                 {
-                                    id: nodeId(),
+                                    id: 'html-wrap-content',
                                     type: 'html',
                                     values: {
                                         html,
@@ -540,6 +541,16 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                         new Promise<any>((res) => editor.exportPlainText(res)),
                     ])
 
+                // A save with no canvas edits keeps the stored html/text/design byte-identical
+                // instead of replacing them with the editor's re-render - the export wraps raw
+                // html emails in Unlayer chrome, so an unconditional overwrite would silently
+                // change what recipients receive on a no-op save. Meta field edits still apply.
+                if (objectsEqual(htmlData.design, cache.lastEditorDesign)) {
+                    props.onChange({ ...formValues })
+                    actions.setIsModalOpen(false)
+                    return
+                }
+
                 const finalValues: EmailTemplate = {
                     ...formValues,
                     html: ['native_email', 'native_email_template'].includes(props.type)
@@ -562,8 +573,10 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             // rebaselines - otherwise the load echo is indistinguishable from a user edit.
             if (props.layout === 'inline') {
                 values.emailEditorRef?.editor?.addEventListener('design:updated', () => actions.designUpdated())
-                values.emailEditorRef?.editor?.addEventListener('design:loaded', () => actions.designLoaded())
             }
+            // Both layouts rebaseline on load: the modal submit compares its export against the
+            // baseline to tell a no-op save from a real edit.
+            values.emailEditorRef?.editor?.addEventListener('design:loaded', () => actions.designLoaded())
             if (props.value?.design) {
                 cache.lastEditorDesign = props.value.design
                 values.emailEditorRef?.editor?.loadDesign(props.value.design)
@@ -579,7 +592,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             // (defaults, ids), so comparing raw stored designs against later exports would flag
             // every load echo as an edit and falsely dirty the parent form.
             const editor = values.emailEditorRef?.editor
-            if (!editor || props.layout !== 'inline') {
+            if (!editor) {
                 return
             }
             const htmlData: { design: JSONTemplate } = await new Promise<any>((res) => editor.exportHtml(res))

@@ -457,6 +457,17 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
         assert validated["email"]["value"].get("design") == expected_design
 
+    def test_html_only_email_wrap_is_deterministic(self):
+        # Callers resend the same html-only value on every save; a fresh design each time would
+        # register as a content change in revision and draft-diff equality checks.
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+        value = {"from": "hi@posthog.com", "to": "a@b.com", "subject": "hi", "html": "<p>Hello</p>"}
+
+        first = validate_inputs(inputs_schema, {"email": {"value": dict(value)}})["email"]["value"]["design"]
+        second = validate_inputs(inputs_schema, {"email": {"value": dict(value)}})["email"]["value"]["design"]
+
+        assert first == second
+
     @parameterized.expand(
         [
             (
