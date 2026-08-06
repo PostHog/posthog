@@ -153,6 +153,7 @@ const dashboardActionsMapping: Record<
     creation_mode: () => null,
     user_access_level: () => null,
     effective_privilege_level: () => null,
+    access_control_version: () => null,
     _highlight: () => null,
     last_refresh: () => null,
     tiles: () => null,
