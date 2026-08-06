@@ -97,24 +97,16 @@ pub fn make_person(team_id: i64, person_id: i64, version: i64) -> Person {
     }
 }
 
-/// A team id no other test shares — not within this run (a counter) and
-/// not with leftover rows from a failed earlier run (seconds-since-epoch
-/// salt). Rows in the shared table are keyed by team, so a unique team
-/// makes concurrent tests collision-free: one test's cleanup can never
-/// delete another's rows. Stays inside the team_id column's range.
+/// A team id no other test shares, however the tests are scheduled.
+/// Random rather than counter- or clock-derived: nextest runs each test
+/// in its own process, so any per-process counter or seconds-based salt
+/// hands the same id to tests launched in the same second. Rows in the
+/// shared table are keyed by team, so a unique team makes concurrent
+/// tests collision-free: one test's cleanup can never delete another's
+/// rows. Stays inside the team_id column's range.
 #[allow(dead_code)]
 pub fn unique_team_id() -> i32 {
-    use std::sync::atomic::{AtomicI32, Ordering};
-    static NEXT: AtomicI32 = AtomicI32::new(0);
-    static BASE: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
-    let base = *BASE.get_or_init(|| {
-        let secs = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock before epoch")
-            .as_secs() as i64;
-        ((secs % 1_000_000) * 1_000) as i32
-    });
-    base + NEXT.fetch_add(1, Ordering::Relaxed)
+    (uuid::Uuid::new_v4().as_u128() % 900_000_000 + 100_000_000) as i32
 }
 
 /// Clean up test data from the personhog_person_tmp table for a given team.
