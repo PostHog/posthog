@@ -124,6 +124,7 @@ export enum NodeKind {
     FunnelsQuery = 'FunnelsQuery',
     RetentionQuery = 'RetentionQuery',
     PathsQuery = 'PathsQuery',
+    PathsV2Query = 'PathsV2Query',
     StickinessQuery = 'StickinessQuery',
     StickinessActorsQuery = 'StickinessActorsQuery',
     LifecycleQuery = 'LifecycleQuery',
@@ -348,6 +349,7 @@ export type QuerySchema =
     | FunnelsQuery
     | RetentionQuery
     | PathsQuery
+    | PathsV2Query
     | StickinessQuery
     | LifecycleQuery
     | FunnelCorrelationQuery
@@ -2033,6 +2035,120 @@ export interface PathsQuery extends InsightsQueryBase<PathsQueryResponse> {
     pathsFilter: PathsFilter
     /** Used for displaying paths in relation to funnel steps. */
     funnelPathsFilter?: FunnelPathsFilter
+}
+
+/** A step source defines which events can become path items in a paths v2 query. */
+export type PathsV2StepSource = {
+    /** Name of the event this source matches. */
+    event: string
+    /**
+     * Event property whose value labels the path item, e.g. `$pathname` for pageviews.
+     * Team path cleaning rules are applied to the value. Without a naming property,
+     * the event itself is the path item.
+     */
+    namingProperty?: string
+}
+
+/** Identity of a journey grid node: the step source's event plus the label value. */
+export type PathsV2Item = {
+    /** Event of the step source this item belongs to. */
+    event: string
+    /**
+     * Label value from the source's naming property, after path cleaning. An empty string when
+     * the property is missing on the event. Null for sources without a naming property.
+     */
+    label?: string | null
+}
+
+/** One row of a journey grid column: a path item and its unique-actor count. */
+export type PathsV2Row = {
+    item: PathsV2Item
+    /** Unique actors with a journey whose item at this step is this path item. */
+    count: number
+}
+
+/** One journey grid column: the top path items at a step, plus other-row and drop-off counts. */
+export type PathsV2Step = {
+    /** 0-based step index (column) in the journey grid. */
+    stepIndex: integer
+    /** Top path items at this step, ordered by unique-actor count descending. */
+    rows: PathsV2Row[]
+    /** Unique actors at this step whose path item is beyond the top rows. */
+    otherCount: number
+    /** Unique actors whose journey ends at this step. */
+    dropOffCount: number
+}
+
+/** A displayed transition between path items at adjacent journey grid columns. */
+export type PathsV2Edge = {
+    /** 0-based step index of the source column; the target sits at `stepIndex + 1`. */
+    stepIndex: integer
+    /** Source path item, or null for the source column's "other" row. */
+    source: PathsV2Item | null
+    /** Target path item, or null for the target column's "other" row. */
+    target: PathsV2Item | null
+    /** Unique actors with a journey that transitions from source to target between these steps. */
+    count: number
+}
+
+export type PathsV2Results = {
+    steps: PathsV2Step[]
+    edges: PathsV2Edge[]
+}
+
+export interface PathsV2QueryResponse extends AnalyticsQueryResponseBase {
+    results: PathsV2Results
+}
+
+export type CachedPathsV2QueryResponse = CachedQueryResponse<PathsV2QueryResponse>
+
+export type PathsV2Filter = {
+    /**
+     * Step sources defining which events can become path items. Defaults to the pageviews
+     * preset: `$pageview` named by `$pathname`.
+     * @minItems 1
+     * @maxItems 20
+     */
+    stepSources?: PathsV2StepSource[]
+    /**
+     * Number of journey steps (columns) shown.
+     * @asType integer
+     * @default 5
+     * @minimum 2
+     * @maximum 20
+     */
+    maxSteps?: number
+    /**
+     * Number of path item rows per step; items beyond this go into the "other" row.
+     * @asType integer
+     * @default 3
+     * @minimum 1
+     * @maximum 10
+     */
+    maxRowsPerStep?: number
+    /**
+     * Inactivity gap that splits an actor's events into journeys. Bounds per unit are validated
+     * server-side against CONVERSION_WINDOW_INTERVAL_BOUNDS, the funnel conversion window bounds.
+     * @asType integer
+     * @default 30
+     */
+    gapInterval?: number
+    /** @default minute */
+    gapIntervalUnit?: FunnelConversionWindowTimeUnit
+    /**
+     * Merge immediate repeats of the same path item within a journey.
+     * @default true
+     */
+    collapseRepeats?: boolean
+}
+
+export interface PathsV2Query extends Omit<
+    InsightsQueryBase<PathsV2QueryResponse>,
+    'samplingFactor' | 'aggregation_group_type_index'
+> {
+    kind: NodeKind.PathsV2Query
+    /** Properties specific to the paths v2 insight */
+    pathsV2Filter?: PathsV2Filter
 }
 
 /** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params  */

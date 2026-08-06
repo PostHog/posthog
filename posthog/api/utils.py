@@ -333,6 +333,7 @@ INSIGHT_KINDS = {
     "FunnelCorrelationQuery",
     "RetentionQuery",
     "PathsQuery",
+    "PathsV2Query",
     "StickinessQuery",
     "LifecycleQuery",
 }

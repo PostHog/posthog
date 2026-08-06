@@ -3216,6 +3216,7 @@ class NodeKind(StrEnum):
     FUNNELS_QUERY = "FunnelsQuery"
     RETENTION_QUERY = "RetentionQuery"
     PATHS_QUERY = "PathsQuery"
+    PATHS_V2_QUERY = "PathsV2Query"
     STICKINESS_QUERY = "StickinessQuery"
     STICKINESS_ACTORS_QUERY = "StickinessActorsQuery"
     LIFECYCLE_QUERY = "LifecycleQuery"
