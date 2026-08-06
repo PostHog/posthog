@@ -689,6 +689,9 @@ depends_on = [
     "products.cdp",
     "products.conversations",
     "products.dashboards",
+    # Facade-only (enforced by data_catalog's [[interfaces]] block): the scout harness gates
+    # its catalog-first prompt rule on the data catalog flag.
+    "products.data_catalog",
     "products.data_warehouse",
     "products.error_tracking",
     "products.experiments",

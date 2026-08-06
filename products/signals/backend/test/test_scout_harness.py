@@ -524,6 +524,33 @@ class TestPromptBuilder(BaseTest):
         )
         assert "Code-derived reviewer evidence" not in signal_prompt
 
+    def test_catalog_rule_gated_on_data_catalog_flag(self) -> None:
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-catalog-reports",
+            description="Report scout",
+            body="watch",
+            allowed_tools=["emit_report", "edit_report"],
+        )
+        LLMSkill.objects.create(team=self.team, name="signals-scout-catalog-plain", description="s", body="watch")
+        kwargs: dict = {
+            "run_id": "00000000-0000-0000-0000-000000000abc",
+            "team_id": self.team.id,
+            "started_at": datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        }
+        # The rule lives in the shared run-works head, so both channel tails must carry it.
+        for name in ("signals-scout-catalog-reports", "signals-scout-catalog-plain"):
+            loaded = load_skill_for_run(self.team, name)
+            enabled = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True)
+            assert "system.information_schema.metrics" in enabled, name
+            assert "data-catalog-metric-run" in enabled, name
+
+            # Default (flag off): the metrics table isn't registered for the team, so steering
+            # at it would burn the run's budget on failing queries.
+            disabled = build_run_prompt(loaded, **kwargs)
+            assert "information_schema.metrics" not in disabled, name
+            assert "data-catalog-metric-run" not in disabled, name
+
     def test_report_channel_renders_report_persona_and_guidance(self) -> None:
         LLMSkill.objects.create(
             team=self.team,

@@ -17,6 +17,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 
+from products.data_catalog.backend.facade.flags import is_data_catalog_enabled
 from products.signals.backend.agent_runtime import STEP_SCOUT, resolve_agent_runtime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
@@ -524,12 +525,14 @@ async def _spawn_and_run(
         runtime_adapter=runtime_adapter,
         reasoning_effort=reasoning_effort,
     )
+    data_catalog_enabled = await database_sync_to_async(is_data_catalog_enabled, thread_sensitive=False)(team)
     prompt = build_run_prompt(
         skill,
         run_id=str(run_id),
         team_id=team.id,
         started_at=started_at,
         github_read_access=github_guidance,
+        data_catalog_enabled=data_catalog_enabled,
         # Renders the structured-output section (schema + `scout-record-output` contract) only
         # when the config carries a schema AND emit is on — records land solely as project
         # events, so a dry-run scout must not be steered at a tool that fails closed.
