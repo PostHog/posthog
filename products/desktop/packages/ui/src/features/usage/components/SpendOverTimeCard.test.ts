@@ -1,6 +1,13 @@
 import type { SpendAnalysisFilledDay } from "@posthog/core/billing/spendAnalysisFormat";
-import { describe, expect, it } from "vitest";
-import { spendSeriesForDays } from "./spendSeries";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@posthog/quill-charts", () => ({
+  DefaultTooltip: () => null,
+  TimeSeriesComboChart: () => null,
+  useChartTheme: () => ({}),
+}));
+
+import { spendSeriesForDays } from "./SpendOverTimeCard";
 
 describe("spendSeriesForDays", () => {
   it("keeps daily spend separate from the cumulative total", () => {

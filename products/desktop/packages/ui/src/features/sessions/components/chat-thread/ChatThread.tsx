@@ -992,7 +992,7 @@ function ThreadScrollBody({
   rows: TurnRow[];
   renderItem: (item: ConversationItem) => ReactNode;
   /** Status row (duration / diff stats) pinned as the last item in the thread. */
-  footer?: ReactNode;
+  footer?: ReactElement;
   keyboardFocusedMessageId?: string | null;
   /** Clears keyboard-focused message state on any pointer interaction with the thread. */
   onUserInteract?: () => void;

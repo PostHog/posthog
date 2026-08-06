@@ -1,6 +1,6 @@
 import type { SpendAnalysisModelRow } from "@posthog/core/billing/spendAnalysisTypes";
 import { describe, expect, it } from "vitest";
-import { sortModelBreakdownRows } from "./modelBreakdownSort";
+import { sortModelBreakdownRows } from "./ModelBreakdownCards";
 
 describe("sortModelBreakdownRows", () => {
   const rows: SpendAnalysisModelRow[] = [

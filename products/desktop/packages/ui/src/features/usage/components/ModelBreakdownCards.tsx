@@ -14,11 +14,31 @@ import {
 } from "@posthog/quill";
 import type { ReactElement } from "react";
 import { useState } from "react";
-import {
-  type ModelBreakdownSort,
-  sortModelBreakdownRows,
-} from "./modelBreakdownSort";
 import { UsageCard } from "./UsageCard";
+
+export type ModelBreakdownSort = "cost" | "tokens";
+
+export function sortModelBreakdownRows(
+  rows: SpendAnalysisModelRow[],
+  sortBy: ModelBreakdownSort,
+): SpendAnalysisModelRow[] {
+  return [...rows].sort((first, second) => {
+    const firstValue =
+      sortBy === "cost"
+        ? first.cost_usd
+        : first.input_tokens + first.output_tokens;
+    const secondValue =
+      sortBy === "cost"
+        ? second.cost_usd
+        : second.input_tokens + second.output_tokens;
+
+    if (firstValue !== secondValue) return secondValue - firstValue;
+    if (first.cost_usd !== second.cost_usd)
+      return second.cost_usd - first.cost_usd;
+
+    return (first.model ?? "").localeCompare(second.model ?? "");
+  });
+}
 
 function ModelStat({
   label,

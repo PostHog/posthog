@@ -24,7 +24,6 @@ import type { ComponentType, ReactNode } from "react";
 
 const SETTINGS_PAGE_LAYOUT = {
   CONTAINED: "contained",
-  WIDE: "wide",
   FULL_BLEED: "full-bleed",
 } as const;
 
@@ -51,7 +50,7 @@ const SETTINGS_PAGES: Record<SettingsCategory, SettingsPageDefinition> = {
   "plan-usage": defineSettingsPage(
     "Plan & usage",
     PlanUsageSettings,
-    SETTINGS_PAGE_LAYOUT.WIDE,
+    SETTINGS_PAGE_LAYOUT.FULL_BLEED,
   ),
   workspaces: defineSettingsPage("Workspaces", WorkspacesSettings),
   worktrees: defineSettingsPage("Worktrees", WorktreesSettings),
@@ -157,30 +156,11 @@ function FullBleedSettingsPageLayout({
   );
 }
 
-function WideSettingsPageLayout({
-  children,
-  formMode,
-  icon,
-  title,
-}: SettingsPageLayoutProps) {
-  return (
-    <ScrollArea className="h-full w-full">
-      <Box p="6" mx="auto" className="relative z-[1] max-w-[1440px]">
-        <Flex direction="column" gap="4">
-          <SettingsPageHeader formMode={formMode} icon={icon} title={title} />
-          {children}
-        </Flex>
-      </Box>
-    </ScrollArea>
-  );
-}
-
 const SETTINGS_PAGE_LAYOUT_COMPONENTS: Record<
   SettingsPageLayout,
   ComponentType<SettingsPageLayoutProps>
 > = {
   [SETTINGS_PAGE_LAYOUT.CONTAINED]: ContainedSettingsPageLayout,
-  [SETTINGS_PAGE_LAYOUT.WIDE]: WideSettingsPageLayout,
   [SETTINGS_PAGE_LAYOUT.FULL_BLEED]: FullBleedSettingsPageLayout,
 };
 
