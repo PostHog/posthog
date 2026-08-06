@@ -135,15 +135,34 @@ message GetDistinctIdsForPersonsResponse {
 message UpdatePersonPropertiesRequest {
   int64 team_id = 1;
   int64 person_id = 2;
-  // The event name that triggered this update (e.g. "$set", "$identify", "$pageview").
-  // Used to determine filtering behavior (person events bypass property filtering).
+  // The event name that triggered this update (e.g. "$set", "$identify",
+  // "$pageview"). The leader checks it against a small denylist of events
+  // that must never write person properties and otherwise ignores it.
+  // Callers folding many events into one request filter denylisted
+  // events' ops at fold time and send a representative name.
   string event_name = 3;
   // JSON-encoded map of properties to set (overwrites existing values).
   bytes set_properties = 4;
   // JSON-encoded map of properties to set only if not already present.
+  // Resolved by the leader against authoritative state under the
+  // per-person lock — callers must not pre-resolve set_once against a
+  // fetched snapshot, or a concurrent writer's earlier value gets
+  // clobbered. When the same key appears here and in set_properties,
+  // set wins.
   bytes set_once_properties = 5;
   // Property keys to remove from the person.
   repeated string unset_properties = 6;
+  // OR-merged: true marks the person identified; false and absent are
+  // no-ops (identification never reverts through this RPC). The
+  // false→true transition counts as a change and produces a changelog
+  // record on its own.
+  optional bool is_identified = 7;
+  // Epoch milliseconds (matching Person.last_seen_at), max-merged: the stored
+  // value only ever advances. Deliberately not a change by itself — it
+  // rides along when the update otherwise produces a record, mirroring
+  // ingestion's behavior where a last-seen-only event does not write the
+  // person.
+  optional int64 last_seen_at = 8;
 }
 
 message UpdatePersonPropertiesResponse {
