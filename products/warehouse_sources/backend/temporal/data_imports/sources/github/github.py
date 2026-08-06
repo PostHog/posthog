@@ -68,12 +68,48 @@ class GithubEmptyRepositoryError(Exception):
     pass
 
 
-class GithubOrgNotFoundError(Exception):
+class GithubResourceUnavailableError(Exception):
+    """This endpoint holds nothing for this repository, and never will until the owner changes
+    something on GitHub's side. The repository itself is fine, so failing the schema would be wrong:
+    ``_fetch_page`` raises this and the caller syncs zero rows."""
+
+    pass
+
+
+class GithubOrgNotFoundError(GithubResourceUnavailableError):
     """GitHub returns 404 on the org-scoped endpoints (``/orgs/{org}/teams`` and the members
     fan-out) when the repository owner is a personal account rather than an organization, or the
-    token has no org access. There is nothing to sync in that case, so ``_fetch_page`` raises this on
-    org-scoped endpoints and the caller syncs zero rows — a benign skip, not a "repository not found"
-    that should fail the schema."""
+    token has no org access, and on the ``tolerate_not_found`` endpoints (issue types, repository
+    teams) whose resource simply does not exist for the repository. There is nothing to sync in
+    either case, so ``_fetch_page`` raises this for those endpoints and the caller syncs zero rows —
+    a benign skip, not a "repository not found" that should fail the schema."""
+
+    pass
+
+
+class GithubAccessDeniedError(Exception):
+    """GitHub refused the call with a 403 that is not a rate limit (``_fetch_page`` classifies rate
+    limits first) and not a switched-off repository feature. The connection is missing a permission,
+    or the organization has not approved it, so retrying cannot help — the message carries GitHub's
+    own explanation so the curated copy can name the cause."""
+
+    pass
+
+
+class GithubRepositoryNotFoundError(Exception):
+    """The repository itself does not resolve for this connection: an endpoint 404'd and a probe of
+    ``/repos/{owner}/{repo}`` 404'd too. A renamed or transferred repository still resolves (GitHub
+    answers 301 to the new location and we follow it), so this means the repository was deleted or
+    the connection lost access to it. Permanent until the source is reconfigured."""
+
+    pass
+
+
+class GithubRepositoryTooLargeError(Exception):
+    """GitHub's /stats/code_frequency permanently 422s once a repository passes 10,000 commits — a
+    documented limit of that specific endpoint (other stats endpoints keep working, just with
+    zeroed addition/deletion counts for large repos). Retrying can never succeed, so `_fetch_page`
+    raises this and the caller syncs zero rows instead of failing the schema forever."""
 
     pass
 
@@ -245,6 +281,20 @@ def _is_empty_repository_response(response: requests.Response) -> bool:
     return isinstance(message, str) and "repository is empty" in message.lower()
 
 
+def _is_repository_too_large_for_code_frequency(response: requests.Response) -> bool:
+    """GitHub returns 422 on /stats/code_frequency with a stable "must have fewer than 10000
+    commits" message once a repository crosses that commit count — a hard, permanent limit of this
+    one endpoint, not a transient or credential problem."""
+    if response.status_code != 422:
+        return False
+    try:
+        body = response.json()
+        message = body.get("message", "") if isinstance(body, dict) else ""
+    except (ValueError, TypeError):
+        message = response.text or ""
+    return isinstance(message, str) and "fewer than 10000 commits" in message.lower()
+
+
 def _as_utc(dt: datetime) -> datetime:
     """Treat naive datetimes as UTC so tz-aware values (GitHub returns ISO 8601
     with `Z`) can be safely compared against naive cutoffs from the DB."""
@@ -289,6 +339,17 @@ def validate_credentials(
     personal_access_token: str, repository: str, api_version: str = GITHUB_DEFAULT_API_VERSION
 ) -> tuple[bool, str | None]:
     """Validate GitHub API credentials by making a test request to the repository."""
+    # A pasted clone URL (github.com/owner/repo.git) or a bare owner name otherwise reaches the API
+    # as a nonsense path, 404s, and gets reported as "not found or not accessible" — which points the
+    # user at permissions rather than the real problem, the identifier format. Catch the wrong shape
+    # before the request so the message names the fix.
+    repo = repository.strip()
+    if repo.count("/") != 1 or not all(repo.split("/")):
+        return (
+            False,
+            "Enter the repository as owner/repo (for example, posthog/posthog), not a full URL or just the owner name.",
+        )
+
     url = f"{GITHUB_BASE_URL}/repos/{repository}"
     headers = _get_headers(personal_access_token, api_version=api_version)
 
@@ -552,6 +613,18 @@ def _rows_from_code_frequency(body: Any, repository: str) -> list[dict[str, Any]
     ]
 
 
+def _rows_from_punch_card(body: Any, repository: str) -> list[dict[str, Any]]:
+    """/stats/punch_card answers positional arrays ([day, hour, commits]) rather than objects, so
+    the columns are named here. day is 0-6 (Sunday to Saturday) and hour is 0-23."""
+    if not isinstance(body, list):
+        return []
+    return [
+        {"day": entry[0], "hour": entry[1], "commits": entry[2]}
+        for entry in body
+        if isinstance(entry, list | tuple) and len(entry) >= 3
+    ]
+
+
 def _rows_from_dependency_sbom(body: Any, repository: str) -> list[dict[str, Any]]:
     """/dependency-graph/sbom answers one SPDX document; its packages are the grain a dependency
     inventory is queried at. SPDXID is renamed so the column follows the rest of the source."""
@@ -579,6 +652,7 @@ _BODY_TRANSFORMS: dict[str, Callable[[Any, str], list[dict[str, Any]]]] = {
     "community_profile": _rows_from_community_profile,
     "participation_stats": _rows_from_participation_stats,
     "code_frequency_stats": _rows_from_code_frequency,
+    "punch_card_stats": _rows_from_punch_card,
     "dependency_sbom": _rows_from_dependency_sbom,
 }
 
@@ -604,6 +678,79 @@ _github_backoff_wait = wait_exponential_jitter(initial=1, max=30)
 # adapter retries off, _fetch_page sees every response/exception and our tenacity
 # layer is the single, rate-limit-aware retry authority.
 _NO_ADAPTER_RETRY = Retry(total=0)
+
+
+def _github_error_message(response: requests.Response) -> str:
+    """GitHub's own explanation for a failed call, from the standard ``{"message": ...}`` error body.
+    Empty when the body is missing or is not that shape (an HTML edge error page, say)."""
+    try:
+        body = response.json()
+    except ValueError:
+        return ""
+    if not isinstance(body, dict):
+        return ""
+    message = body.get("message")
+    return message if isinstance(message, str) else ""
+
+
+# GitHub answers 403 both for a real permission denial and for a repository feature the owner has
+# switched off — Dependabot alerts disabled, code scanning without Advanced Security, an archived
+# repository. A switched-off feature has nothing to sync now or on any later run, so it is a
+# zero-row skip rather than something to fail the schema over. Matched against GitHub's own message.
+_FEATURE_UNAVAILABLE_MARKERS = ("is disabled", "are disabled", "must be enabled", "not enabled", "is archived")
+
+
+def _is_feature_unavailable_denial(message: str) -> bool:
+    lowered = message.lower()
+    return any(marker in lowered for marker in _FEATURE_UNAVAILABLE_MARKERS)
+
+
+def _is_repository_scoped(page_url: str, repository: str) -> bool:
+    """Does this URL address the repository itself or something under it? Org-scoped endpoints
+    (``/orgs/{org}/...``) address a different resource, so the repository's state says nothing about
+    a 404 they return."""
+    marker = f"/repos/{repository.lower()}"
+    lowered = page_url.lower()
+    index = lowered.find(marker)
+    if index == -1:
+        return False
+    tail = lowered[index + len(marker) :]
+    return tail == "" or tail[0] in "/?#"
+
+
+def _repository_resolves(
+    repository: str,
+    headers: dict[str, str],
+    egress_identity: GithubEgressIdentity | None,
+) -> bool | None:
+    """Does ``/repos/{owner}/{repo}`` still resolve for this connection? ``None`` when we could not
+    tell (rate limit, 5xx, network error, shed by our own budget), so the caller keeps the cautious
+    behavior instead of acting on a guess.
+
+    This is what separates "the repository is gone" from "this table is not available for this
+    repository" when an endpoint 404s. A renamed or transferred repository resolves through GitHub's
+    301 to the new location, which the HTTP layer follows, so a 404 here is a deleted repository or
+    revoked access."""
+    installation_id = egress_identity.installation_id if egress_identity is not None else None
+    try:
+        response = github_request(
+            "GET",
+            f"{GITHUB_BASE_URL}/repos/{repository}",
+            source="warehouse",
+            headers=headers,
+            installation_id=installation_id,
+            priority=Priority.BATCH,
+            timeout=30,
+            session=make_tracked_session(retry=_NO_ADAPTER_RETRY),
+        )
+        raise_if_github_rate_limited(response)
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError, requests.RequestException):
+        return None
+    if response.status_code == 404:
+        return False
+    if response.ok:
+        return True
+    return None
 
 
 def _github_retry_wait(state: RetryCallState) -> float:
@@ -643,6 +790,7 @@ def _fetch_page(
     logger: FilteringBoundLogger,
     egress_identity: GithubEgressIdentity | None = None,
     skip_on_not_found: bool = False,
+    repository: str | None = None,
 ) -> requests.Response:
     # One gated + recorded GET through the shared egress client. The App path bills the shared
     # per-installation budget at BATCH (deferrable bulk); the PAT path (installation_id None) skips the
@@ -666,8 +814,9 @@ def _fetch_page(
         raise GithubRetryableError(f"Github API error (retryable): status={response.status_code}, url={page_url}")
 
     # Rate limited (secondary 429, or primary 403 with a rate-limit body): raise
-    # so we retry honoring the reset/Retry-After. A genuine permission 403 carries
-    # no rate-limit body and falls through to raise_for_status below, staying fatal.
+    # so we retry honoring the reset/Retry-After. Every 403 that survives this call
+    # is therefore a denial, not a rate limit, which is what lets the messages below
+    # name a cause instead of hedging between the two.
     raise_if_github_rate_limited(response)
 
     # An empty repository (no commits yet) returns 409 on the commits
@@ -676,11 +825,36 @@ def _fetch_page(
     if _is_empty_repository_response(response):
         raise GithubEmptyRepositoryError()
 
+    if _is_repository_too_large_for_code_frequency(response):
+        raise GithubRepositoryTooLargeError()
+
     # An org-scoped endpoint 404s when the repo owner is a user (no org) or the token lacks org
     # access. Signal it so the caller syncs zero rows rather than failing the schema — a benign skip
     # like an empty repository, not a real "repository not found".
     if skip_on_not_found and response.status_code == 404:
         raise GithubOrgNotFoundError()
+
+    if response.status_code == 403:
+        message = _github_error_message(response)
+        if _is_feature_unavailable_denial(message):
+            logger.info(f"Github: feature not available for this repository: url={page_url}, message={message}")
+            raise GithubResourceUnavailableError(message)
+        logger.error(f"Github API error: status=403, body={response.text}, url={page_url}")
+        raise GithubAccessDeniedError(f"GitHub denied access: {message or 'no reason given'} (url={page_url})")
+
+    # Only repository-scoped URLs, so an org-scoped 404 (a specific team's members, say) keeps its
+    # own handling — the repository resolving says nothing about whether that org resource exists.
+    if response.status_code == 404 and repository is not None and _is_repository_scoped(page_url, repository):
+        # A 404 on one endpoint says nothing about the repository on its own — plenty of endpoints
+        # 404 when the feature behind them was never turned on. Ask GitHub about the repository
+        # before blaming it, so only a genuinely gone repository fails the schema.
+        resolves = _repository_resolves(repository, headers, egress_identity)
+        if resolves is True:
+            logger.info(f"Github: endpoint not available for this repository, syncing zero rows: url={page_url}")
+            raise GithubResourceUnavailableError(_github_error_message(response))
+        if resolves is False:
+            logger.error(f"Github: repository does not resolve: repository={repository}, url={page_url}")
+            raise GithubRepositoryNotFoundError(f"GitHub repository is not accessible: {repository}")
 
     if not response.ok:
         logger.error(f"Github API error: status={response.status_code}, body={response.text}, url={page_url}")
@@ -698,6 +872,7 @@ def _iter_pages(
     page_cap_context: dict[str, Any] | None = None,
     egress_identity: GithubEgressIdentity | None = None,
     skip_on_not_found: bool = False,
+    repository: str | None = None,
 ) -> Iterator[tuple[list[dict[str, Any]], str]]:
     """Yield (items, page_url) for each page of a paginated GitHub list,
     unwrapping the envelope and following the Link header. Stops at ``max_pages``,
@@ -706,9 +881,21 @@ def _iter_pages(
     page_count = 0
     while True:
         try:
-            response = _fetch_page(url, headers, logger, egress_identity, skip_on_not_found=skip_on_not_found)
-        except GithubOrgNotFoundError:
-            logger.debug(f"Github: org-scoped endpoint not found, syncing zero rows: url={url}")
+            response = _fetch_page(
+                url,
+                headers,
+                logger,
+                egress_identity,
+                skip_on_not_found=skip_on_not_found,
+                repository=repository,
+            )
+        except GithubResourceUnavailableError:
+            logger.debug(f"Github: endpoint holds nothing for this repository, syncing zero rows: url={url}")
+            return
+        except GithubEmptyRepositoryError:
+            # `commits` is a fan_out_parent (check_runs, commit_statuses), so this walk can hit the
+            # same empty-repo 409 that get_rows handles directly for the non-fan-out `commits` read.
+            logger.debug(f"Github: repository has no commits (empty repository), syncing zero rows: url={url}")
             return
         data = response.json()
         if response_data_path and isinstance(data, dict):
@@ -763,6 +950,7 @@ def _iter_child_for_parent(
         max_pages=config.max_pages_per_parent,
         page_cap_context={"repository": repository, fan_out_param: parent_value},
         egress_identity=egress_identity,
+        repository=repository,
     ):
         for item in items:
             if item_filter and not item_filter(item):
@@ -890,6 +1078,7 @@ def _fan_out_get_rows(
         logger,
         egress_identity=egress_identity,
         skip_on_not_found=parent_org_scoped,
+        repository=repository,
     ):
         parents = [parent_mapper(parent) for parent in raw_parents] if parent_mapper else raw_parents
         stop_after_this_page = _should_stop_desc(parents, "desc", parent_cursor_field, parent_cutoff)
@@ -986,21 +1175,41 @@ def get_rows(
     else:
         url = _build_initial_url(config, repository, initial_params)
 
-    org_scoped = endpoint in ORG_SCOPED_ENDPOINTS
+    # A 404 is normally fatal (wrong repository, revoked access), but for the org-scoped tables and
+    # the endpoints flagged tolerate_not_found it just means the resource does not exist for this
+    # repository, so those sync zero rows instead of failing the schema.
+    skip_on_not_found = endpoint in ORG_SCOPED_ENDPOINTS or config.tolerate_not_found
     while True:
         try:
-            response = _fetch_page(url, headers, logger, egress_identity, skip_on_not_found=org_scoped)
+            response = _fetch_page(
+                url,
+                headers,
+                logger,
+                egress_identity,
+                skip_on_not_found=skip_on_not_found,
+                repository=repository,
+            )
         except GithubEmptyRepositoryError:
             logger.debug(f"Github: repository has no commits (empty repository), syncing zero rows: url={url}")
             break
-        except GithubOrgNotFoundError:
-            logger.debug(f"Github: no accessible org teams for {endpoint}, syncing zero rows: url={url}")
+        except GithubResourceUnavailableError:
+            logger.debug(f"Github: {endpoint} not available for this repository, syncing zero rows: url={url}")
+            break
+        except GithubRepositoryTooLargeError:
+            logger.debug(f"Github: repository too large for code frequency stats, syncing zero rows: url={url}")
             break
 
         # The /stats/* aggregates are computed asynchronously: GitHub answers 202 with no body
         # while a fresh computation runs. Nothing to sync this time; the next sync picks it up.
         if response.status_code == 202:
             logger.debug(f"Github: statistics not ready yet, syncing zero rows: url={url}")
+            break
+
+        # A 204 No Content has an empty body, which GitHub returns on the /stats/* endpoints for a
+        # repository with no commit activity. There is nothing to parse, so sync zero rows rather
+        # than crashing on response.json(), because an empty body raises a JSONDecodeError.
+        if response.status_code == 204:
+            logger.debug(f"Github: 204 no content, syncing zero rows: url={url}")
             break
 
         data = response.json()

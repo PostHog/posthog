@@ -2087,6 +2087,7 @@ async fn reconcile_advances_warming_with_pre_staged_warmed_ack() {
             pod_name: "writer-1".to_string(),
             partition: 6,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: String::new(),
         })
         .await
@@ -2206,6 +2207,7 @@ async fn draining_old_owner_blocks_phase_advance() {
             pod_name: "writer-draining".to_string(),
             partition: 7,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: String::new(),
         })
         .await
@@ -2270,7 +2272,7 @@ async fn draining_old_owner_does_not_trigger_cleanup() {
     store.put_handoff(&handoff).await.unwrap();
 
     // Start the coordinator and a real pod. The new pod registering
-    // triggers a pod-change event and runs `cleanup_stale_handoffs`,
+    // triggers a pod-change event and runs the dead-new-owner cancellation,
     // which must leave the handoff alone: the new owner is live, and the
     // old owner's state is not cleanup's concern.
     let strategy: Arc<dyn AssignmentStrategy> = Arc::new(StickyBalancedStrategy);
@@ -2412,7 +2414,7 @@ async fn freezing_blocks_until_routers_ack_before_draining() {
 
     store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
 
-    // Register both owner pods: the new owner so `cleanup_stale_handoffs`
+    // Register both owner pods: the new owner so the dead-new-owner cancellation
     // doesn't delete the injected handoff, the old owner so the scenario
     // matches a live in-flight handoff. They don't run real handlers — we
     // just need their etcd registrations to exist.
@@ -2484,6 +2486,7 @@ async fn freezing_blocks_until_routers_ack_before_draining() {
             router_name: "slow-router".to_string(),
             partition: 1,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: String::new(),
         })
         .await
@@ -2528,7 +2531,7 @@ async fn initial_assignment_skips_draining_phase() {
 
     store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
 
-    // Register the new_owner pod so `cleanup_stale_handoffs` doesn't
+    // Register the new_owner pod so the dead-new-owner cancellation doesn't
     // delete the injected handoff for missing-target reasons.
     let lease = store.grant_lease(60).await.unwrap();
     let new_pod = RegisteredPod {
@@ -2732,6 +2735,7 @@ async fn reconcile_advances_draining_with_pre_staged_drained_ack() {
             pod_name: "writer-old".to_string(),
             partition: 5,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: String::new(),
         })
         .await
@@ -3382,4 +3386,27 @@ async fn rebalance_never_writes_assignment_records() {
             );
         }
     }
+}
+
+/// The store stamps `acked_at_ms` at put time so span metrics can measure
+/// ack-to-advance lag; writers all pass zero and must get a real stamp back.
+#[tokio::test]
+async fn store_stamps_ack_millis_on_put() {
+    let store = test_store("ack-ms-stamp").await;
+    store
+        .put_freeze_ack(&personhog_coordination::types::RouterFreezeAck {
+            router_name: "router-0".to_string(),
+            partition: 3,
+            acked_at: 1_700_000_000,
+            acked_at_ms: 0,
+            handoff_id: "h-1".to_string(),
+        })
+        .await
+        .expect("put freeze ack");
+    let acks = store.list_freeze_acks(3).await.expect("list freeze acks");
+    assert_eq!(acks.len(), 1);
+    assert!(
+        acks[0].acked_at_ms > 0,
+        "store must stamp the millisecond clock on ack writes"
+    );
 }

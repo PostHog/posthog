@@ -48,7 +48,7 @@
         "postinstall": "git config --get blame.ignoreRevsFile > /dev/null 2>&1 || git config blame.ignoreRevsFile .git-blame-ignore-revs > /dev/null 2>&1 || true; [ ! -f bin/fix-rdkafka-paths ] || bin/fix-rdkafka-paths",
         "lint": "pnpm lint:js && pnpm lint:css",
         "lint:js": "oxlint --quiet",
-        "lint:css": "stylelint \"(frontend|products)/**/*.{css,scss}\"",
+        "lint:css": "stylelint \"(frontend|products)/**/*.{css,scss}\" --ignore-pattern \"products/desktop/**\"",
         "test:unit": "pnpm --filter=@posthog/frontend test"
     },
     "dependencies": {
@@ -100,6 +100,7 @@
             "bin/hogli format:js"
         ],
         "{playwright,frontend,products,common,ee,services,docs}/**/*.{js,jsx,mjs,mts,ts,tsx}": "bin/hogli format:js",
+        "products/desktop/**/*.{js,mjs,ts,tsx,json,jsonc,css}": "pnpm --dir products/desktop exec biome check --write --no-errors-on-unmatched --files-ignore-unknown=true",
         "nodejs/**/*.{js,jsx,mjs,mts,ts,tsx}": "bin/hogli format:nodejs",
         "funnel-udf/**/*.rs": "bin/hogli format:rust",
         "!(posthog/hogql/grammar/*|posthog/personhog_client/proto/generated/*|products/*/skills/*/scripts/*)*.{py,pyi}": [

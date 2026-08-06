@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from llm_gateway.cloudflare import CLOUDFLARE_ALLOWED_MODELS
+from llm_gateway.rate_limiting.cost_refresh import COST_ALIASES
 from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostService
 from llm_gateway.services.model_registry import (
     ModelInfo,
@@ -135,6 +136,7 @@ def create_mock_settings(
     fireworks: bool = False,
     cloudflare: bool = False,
     modal: bool = False,
+    baseten: bool = False,
 ) -> MagicMock:
     settings = MagicMock()
     settings.openai_api_key = "sk-test" if openai else None
@@ -150,6 +152,8 @@ def create_mock_settings(
     settings.modal_kimi_api_base = "https://kimi.modal.test/v1" if modal else None
     settings.modal_key = "wk-test" if modal else None
     settings.modal_secret = "ws-test" if modal else None
+    settings.baseten_api_base = "https://baseten.test/v1" if baseten else None
+    settings.baseten_api_key = "baseten-test" if baseten else None
     return settings
 
 
@@ -248,6 +252,16 @@ class TestGetAvailableModels:
     def test_returns_model_info_objects(self):
         models = get_available_models("llm_gateway")
         assert all(isinstance(m, ModelInfo) for m in models)
+
+    @pytest.mark.parametrize("alias", COST_ALIASES)
+    def test_excludes_internal_cost_aliases(self, alias: str) -> None:
+        with patch.dict(
+            MOCK_COST_DATA,
+            {alias: {"litellm_provider": "openai", "max_input_tokens": 128000, "mode": "chat"}},
+        ):
+            model_ids = {model.id for model in get_available_models("llm_gateway")}
+
+        assert alias not in model_ids
 
 
 class TestProviderFiltering:
@@ -364,6 +378,25 @@ class TestCloudflareModelAdvertising:
             return_value=create_mock_settings(cloudflare=False, modal=True),
         ):
             assert self._cf_ids("llm_gateway") == {"@cf/zai-org/glm-5.2"}
+
+
+class TestBasetenModelAdvertising:
+    def test_deepseek_is_available_to_code_and_review_hog(self):
+        with patch(
+            "llm_gateway.services.model_registry.get_settings",
+            return_value=create_mock_settings(baseten=True),
+        ):
+            assert is_model_available("deepseek-ai/deepseek-v4-flash-0731", "review_hog") is True
+            assert is_model_available("deepseek-ai/deepseek-v4-flash-0731", "posthog_code") is True
+            assert is_model_available("deepseek-ai/deepseek-v4-flash-0731", "llm_gateway") is False
+            assert is_model_available("deepseek-ai/deepseek-v4-flash-0731", "slack_app") is False
+            for product in ("review_hog", "posthog_code"):
+                model = next(
+                    model
+                    for model in ModelRegistryService.get_instance().get_available_models(product)
+                    if model.id == "deepseek-ai/deepseek-v4-flash-0731"
+                )
+                assert model.context_window == 1_048_000
 
 
 class TestModelMatchesAllowlist:

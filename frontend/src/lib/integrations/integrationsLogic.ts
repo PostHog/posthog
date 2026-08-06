@@ -17,10 +17,15 @@ import { urls } from 'scenes/urls'
 import { EmailIntegrationDomainGroupedType, IntegrationKind, IntegrationType } from '~/types'
 
 import {
+    integrationsGithubAvailableInstallationsRetrieve,
     integrationsGithubReposRetrieve,
     integrationsRequestAccessCreate,
 } from 'products/integrations/frontend/generated/api'
-import type { GitHubRepoApi, IntegrationKindEnumApi } from 'products/integrations/frontend/generated/api.schemas'
+import type {
+    GitHubAvailableInstallationApi,
+    GitHubRepoApi,
+    IntegrationKindEnumApi,
+} from 'products/integrations/frontend/generated/api.schemas'
 import { ChannelType } from 'products/workflows/frontend/Channels/MessageChannels'
 
 import type { AvailableSetupTaskIdsEnumApi } from '../../generated/core/api.schemas'
@@ -86,6 +91,8 @@ export interface integrationsLogicValues {
             | 'vercel'
         )[]
     ) => IntegrationType[]
+    githubAvailableInstallations: GitHubAvailableInstallationApi[] | null
+    githubAvailableInstallationsLoading: boolean
     githubIntegrations: IntegrationType[]
     githubRepositories: Record<number, GitHubRepoApi[]>
     githubRepositoriesLoading: boolean
@@ -162,7 +169,7 @@ export interface integrationsLogicActions {
             | 'vercel'
         searchParams: any
     }
-    linkExistingGithubInstallation: () => any
+    linkExistingGithubInstallation: (installationId?: string) => string
     linkExistingGithubInstallationFailure: (
         error: string,
         errorObject?: any
@@ -172,10 +179,10 @@ export interface integrationsLogicActions {
     }
     linkExistingGithubInstallationSuccess: (
         linkedGithubInstallation: IntegrationType,
-        payload?: any
+        payload?: string
     ) => {
         linkedGithubInstallation: IntegrationType
-        payload?: any
+        payload?: string
     }
     loadGitHubRepositories: (integrationId: number) => {
         integrationId: number
@@ -198,6 +205,21 @@ export interface integrationsLogicActions {
         hasMore: boolean
         integrationId: number
         repositories: GitHubRepoApi[]
+    }
+    loadGithubAvailableInstallations: () => any
+    loadGithubAvailableInstallationsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadGithubAvailableInstallationsSuccess: (
+        githubAvailableInstallations: GitHubAvailableInstallationApi[],
+        payload?: any
+    ) => {
+        githubAvailableInstallations: GitHubAvailableInstallationApi[]
+        payload?: any
     }
     loadIntegrations: () => any
     loadIntegrationsFailure: (
@@ -814,9 +836,13 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 // Reuse a GitHub App installation already connected to another project in the same
                 // org. A GitHub App installs once per org, so a second project can't reinstall; this
                 // links the existing install without the fragile GitHub setup redirect roundtrip.
-                linkExistingGithubInstallation: async () => {
+                // When the org has more than one installation the caller passes the chosen
+                // installationId, since the backend can't auto-resolve between them.
+                linkExistingGithubInstallation: async (installationId?: string) => {
                     try {
-                        const integration = await api.integrations.githubLinkExisting({})
+                        const integration = await api.integrations.githubLinkExisting(
+                            installationId ? { installation_id: installationId } : {}
+                        )
                         lemonToast.success('Linked the existing GitHub installation to this project.')
                         actions.loadIntegrations()
                         return integration
@@ -824,6 +850,19 @@ export const integrationsLogic = kea<integrationsLogicType>([
                         toastApiError(e)
                         throw e
                     }
+                },
+            },
+        ],
+        githubAvailableInstallations: [
+            null as GitHubAvailableInstallationApi[] | null,
+            {
+                // The org's other GitHub installations, so the UI can offer a picker when there's
+                // more than one, rather than failing the auto-resolve link as ambiguous.
+                loadGithubAvailableInstallations: async () => {
+                    const response = await integrationsGithubAvailableInstallationsRetrieve(
+                        String(values.currentProjectId)
+                    )
+                    return response.installations
                 },
             },
         ],
@@ -906,11 +945,17 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return
             }
 
-            try {
-                if (token !== getCookie('ph_oauth_state')) {
-                    throw new Error('Invalid state token')
-                }
+            // The CSRF state cookie only lives for a few minutes (see ph_oauth_state max_age). If the
+            // authorization round-trip outlived it, or the browser dropped the cookie, the token won't
+            // match. That's recoverable by simply retrying, so say so instead of surfacing the generic
+            // "Something went wrong" that a thrown error would fall back to.
+            if (token !== getCookie('ph_oauth_state')) {
+                lemonToast.error('This connection attempt expired before it could finish. Please try connecting again.')
+                router.actions.replace(replaceUrl)
+                return
+            }
 
+            try {
                 if (source === 'mcp_store') {
                     replaceUrl += `${replaceUrl.includes('?') ? '&' : '?'}code=${encodeURIComponent(code)}&server_id=${encodeURIComponent(server_id)}&state_token=${encodeURIComponent(token)}`
                     lemonToast.success('Authorization successful.')

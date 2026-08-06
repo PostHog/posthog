@@ -7,7 +7,7 @@ import {
 } from 'products/tracing/frontend/tracingFiltersLogic'
 
 import type { UniversalFiltersGroup } from '../../../../../frontend/src/types'
-import { FacetSource, toggleFacetFilter } from './facets'
+import { FacetSource, cycleFacetFilter } from './facets'
 
 export interface FacetRailLogicProps {
     id: string
@@ -111,13 +111,14 @@ export const facetRailLogic = kea<facetRailLogicType>([
                     actions.setServiceNames(toggleMembership(serviceNames, value))
                 } else {
                     // Rebuilt (not passed through) so control flow narrows the column literal past
-                    // 'service_name', matching toggleFacetFilter's FilterGroupFacetSource contract.
+                    // 'service_name', matching cycleFacetFilter's FilterGroupFacetSource contract.
+                    // A click cycles the value included → excluded → cleared.
                     actions.setFilterGroup(
-                        toggleFacetFilter(filterGroup, { type: 'column', column: source.column }, value)
+                        cycleFacetFilter(filterGroup, { type: 'column', column: source.column }, value)
                     )
                 }
             } else {
-                actions.setFilterGroup(toggleFacetFilter(filterGroup, source, value))
+                actions.setFilterGroup(cycleFacetFilter(filterGroup, source, value))
             }
         },
     })),
