@@ -168,8 +168,8 @@ class UpdateExternalDataJobStatusInputs:
     # Run id stamped on the job row by the create-job activity, so finalization can resolve this
     # run's own job when job_id never made it back. Optional for mixed-version workers mid-rollout.
     workflow_run_id: str | None = None
-    # Set when the run was cut short by something on our side (a worker shutdown), so its partial
-    # rows aren't charged — the retriggered run re-extracts them from scratch and bills them once.
+    # Set when the run was cut short by something on our side (a worker shutdown). Acted on only
+    # for a full refresh, which re-extracts from scratch on the retriggered run.
     mark_non_billable: bool = False
 
     @property
@@ -182,6 +182,14 @@ class UpdateExternalDataJobStatusInputs:
             "status": self.status,
             "workflow_run_id": self.workflow_run_id,
         }
+
+
+def _schema_is_full_refresh(schema_id: str, team_id: int) -> bool:
+    # Read as the inverse of the sync types that carry progress across runs, rather than as
+    # `sync_type == FULL_REFRESH`: thousands of live schemas carry no sync_type at all, and a
+    # handful carry the legacy `full`, and both replace the whole table on every run.
+    schema = ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id).first()
+    return schema is not None and not schema.table_row_count_is_cumulative
 
 
 @activity.defn
@@ -278,13 +286,20 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 logger.exception(friendly_errors[0])
                 inputs.latest_error = friendly_errors[0]
 
+    # A full refresh re-extracts everything on the retriggered run, so charging for the rows this
+    # one got through bills them twice. Every other sync type resumes from its watermark and keeps
+    # what it ingested, so those rows are extracted once and stay billable.
+    drop_charge = inputs.mark_non_billable and await database_sync_to_async_pool(_schema_is_full_refresh)(
+        schema_id=inputs.schema_id, team_id=inputs.team_id
+    )
+
     await database_sync_to_async_pool(update_external_job_status)(
         job_id=job_id,
         status=ExternalDataJob.Status(inputs.status),
         latest_error=inputs.latest_error,
         logger=logger,
         team_id=inputs.team_id,
-        billable=False if inputs.mark_non_billable else None,
+        billable=False if drop_charge else None,
     )
 
     logger.info(
@@ -832,9 +847,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 )
                 # This branch neither fails the run nor re-raises, so `update_inputs` keeps the
                 # COMPLETED it was built with and the finally block records the run as a success.
-                # The extraction was cut off mid-stream and the retriggered run starts it over, so
-                # charging for the rows it got through would bill the same rows twice — or, for a
-                # source that never gets to the loader, bill for rows the customer never receives.
+                # The extraction was cut off mid-stream, so flag it for the finalize activity, which
+                # decides from the sync type whether the retriggered run will re-extract these rows.
                 update_inputs.mark_non_billable = True
             elif (
                 isinstance(e.cause, exceptions.ApplicationError)

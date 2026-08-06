@@ -3267,8 +3267,8 @@ async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands
 
     assert run is not None
     assert run.status == ExternalDataJob.Status.COMPLETED
-    # The retriggered run re-extracts from scratch, so charging for this one bills the rows twice
-    assert run.billable is False
+    # This run resumes from its watermark and keeps what it ingested, so its rows are charged once
+    assert run.billable is True
 
 
 @pytest.mark.django_db(transaction=True)
