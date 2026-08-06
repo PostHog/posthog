@@ -1150,6 +1150,7 @@ doesn't conflict with concurrent PRs.
 - moneybird
 - mono
 - moodle
+- motion
 - moxie
 - mycase
 - nager_date
