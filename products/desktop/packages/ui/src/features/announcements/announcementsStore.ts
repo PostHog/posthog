@@ -15,6 +15,7 @@ interface AnnouncementsState {
   // flash for users whose persisted dismissals haven't been read back yet.
   _hasHydrated: boolean;
   dismiss: (id: string) => void;
+  undismiss: (id: string) => void;
   setHasHydrated: (hydrated: boolean) => void;
 }
 
@@ -31,6 +32,17 @@ export const useAnnouncementsStore = create<AnnouncementsState>()(
           dismissedIds: { ...state.dismissedIds, [id]: true },
           handledThisSession: true,
         }));
+        void flushRendererStateWrites();
+      },
+      // Reverts a dismissal committed at the update handoff when the install
+      // fails before the app quits — the blocking announcement must come
+      // back, this session included.
+      undismiss: (id) => {
+        set((state) => {
+          const dismissedIds = { ...state.dismissedIds };
+          delete dismissedIds[id];
+          return { dismissedIds, handledThisSession: false };
+        });
         void flushRendererStateWrites();
       },
       setHasHydrated: (hydrated) => set({ _hasHydrated: hydrated }),

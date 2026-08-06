@@ -24,6 +24,7 @@ export function UpdateAction({
   analytics,
   showProgress = false,
   onInstallHandoff,
+  onInstallFailed,
 }: {
   analytics: AnnouncementProperties;
   showProgress?: boolean;
@@ -36,6 +37,12 @@ export function UpdateAction({
    * retirement is left to the version gate after relaunch.
    */
   onInstallHandoff?: () => void;
+  /**
+   * The handoff's companion: fired when the install fails before the app
+   * quits, so state committed at the handoff (an acknowledgement) can be
+   * reverted. On success the app is gone before this could fire.
+   */
+  onInstallFailed?: () => void;
 }) {
   const { status, isEnabled, downloadPercent } = useUpdateView();
   const installUpdate = useInstallUpdate();
@@ -106,7 +113,9 @@ export function UpdateAction({
         onClick={() => {
           trackClick();
           onInstallHandoff?.();
-          void installUpdate();
+          void installUpdate().then((installed) => {
+            if (!installed) onInstallFailed?.();
+          });
         }}
       >
         Restart to update

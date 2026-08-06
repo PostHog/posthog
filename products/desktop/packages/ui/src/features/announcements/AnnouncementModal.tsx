@@ -16,7 +16,7 @@ import { track } from "@posthog/ui/shell/analytics";
 import { useEffect } from "react";
 import { AnnouncementHero } from "./AnnouncementHero";
 import { AnnouncementMarkdown } from "./AnnouncementMarkdown";
-import { openAnnouncementCta } from "./announcementCta";
+import { useOpenAnnouncementCta } from "./announcementCta";
 import { useAnnouncementsStore } from "./announcementsStore";
 import { UpdateAction } from "./UpdateAction";
 import { useBlockingKeyboardIsolation } from "./useBlockingKeyboardIsolation";
@@ -31,6 +31,8 @@ export function AnnouncementModal({
   needsUpdate: boolean;
 }) {
   const dismiss = useAnnouncementsStore((state) => state.dismiss);
+  const undismiss = useAnnouncementsStore((state) => state.undismiss);
+  const openCta = useOpenAnnouncementCta();
   const analytics: AnnouncementProperties = {
     announcement_id: announcement.id,
     announcement_kind: announcement.kind,
@@ -52,7 +54,7 @@ export function AnnouncementModal({
 
   // Engaging with the CTA retires the announcement the same way closing does.
   const handleCta = (url: string) => {
-    const ctaType = openAnnouncementCta(url);
+    const ctaType = openCta(url);
     track(ANALYTICS_EVENTS.ANNOUNCEMENT_CTA_CLICKED, {
       ...analytics,
       cta_type: ctaType,
@@ -113,6 +115,7 @@ export function AnnouncementModal({
                 analytics={analytics}
                 showProgress
                 onInstallHandoff={() => acknowledge("update")}
+                onInstallFailed={() => undismiss(announcement.id)}
               />
             ) : (
               <Button

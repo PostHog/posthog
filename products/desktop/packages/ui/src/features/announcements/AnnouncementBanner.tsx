@@ -8,7 +8,7 @@ import type { Announcement } from "@posthog/shared/announcements";
 import { track } from "@posthog/ui/shell/analytics";
 import { useEffect } from "react";
 import { AnnouncementInlineMarkdown } from "./AnnouncementMarkdown";
-import { openAnnouncementCta } from "./announcementCta";
+import { useOpenAnnouncementCta } from "./announcementCta";
 import { useAnnouncementsStore } from "./announcementsStore";
 import { UpdateAction } from "./UpdateAction";
 import { useActiveAnnouncement } from "./useActiveAnnouncement";
@@ -42,6 +42,7 @@ export function BannerRow({
   needsUpdate: boolean;
 }) {
   const dismiss = useAnnouncementsStore((state) => state.dismiss);
+  const openCta = useOpenAnnouncementCta();
   const analytics: AnnouncementProperties = {
     announcement_id: announcement.id,
     announcement_kind: announcement.kind,
@@ -62,7 +63,7 @@ export function BannerRow({
   };
 
   const handleCta = (url: string) => {
-    const ctaType = openAnnouncementCta(url);
+    const ctaType = openCta(url);
     track(ANALYTICS_EVENTS.ANNOUNCEMENT_CTA_CLICKED, {
       ...analytics,
       cta_type: ctaType,
