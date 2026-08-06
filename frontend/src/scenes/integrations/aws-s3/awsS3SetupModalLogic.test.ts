@@ -19,7 +19,7 @@ describe('awsS3SetupModalLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        logic = awsS3SetupModalLogic({ isOpen: true, onComplete: jest.fn(), onClose: jest.fn() })
+        logic = awsS3SetupModalLogic({ isOpen: true, onComplete: jest.fn() })
         logic.mount()
         createSpy = jest.spyOn(apiReal.integrations, 'create').mockResolvedValue({
             id: 42,
