@@ -139,7 +139,12 @@ async def prepare_s3_files_for_querying(
                     rf"(?:^|.+/){re.escape(normalized_table_name)}\_\_query\_(\d+)(?:_[0-9a-f]{{8}})?\/?$"
                 )
 
-                all_files = await s3._ls(s3_folder_for_job, detail=True)
+                try:
+                    all_files = await s3._ls(s3_folder_for_job, detail=True)
+                except FileNotFoundError:
+                    # First materialization for this table/model: the job folder has no
+                    # prior content in S3 yet, so there's nothing to clean up.
+                    all_files = []
                 all_file_values = all_files.values() if isinstance(all_files, dict) else all_files
                 directories = [f["Key"] for f in all_file_values if f["type"] == "directory"]
 
