@@ -84,7 +84,7 @@ export interface FlatThreadRow {
   isTrailingInTurn: boolean;
   /** Set on the last row of a completed turn; renders the turn's hover timestamp under it. */
   turnTimestamp?: number;
-  /** Set alongside {@link turnTimestamp}: the whole turn as plain text, for its copy button. */
+  /** Set alongside {@link turnTimestamp}: the agent response as plain text, for its copy button. */
   turnCopyText?: string;
 }
 
@@ -113,9 +113,7 @@ export function flattenTurnRows(rows: TurnRow[]): FlatThreadRow[] {
       const copyText =
         timestamp == null
           ? undefined
-          : (buildTurnCopyText(
-              row.prompt ? [row.prompt, ...row.items] : row.items,
-            ) ?? undefined);
+          : (buildTurnCopyText(row.items) ?? undefined);
       for (let i = 0; i < row.items.length; i++) {
         const item = row.items[i];
         const isTrailing = i === row.items.length - 1;
