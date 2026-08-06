@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.settings import (
+    MAIN_KEY_ONLY_ENDPOINTS,
     TWILIO_ENDPOINTS,
     TwilioEndpointConfig,
 )
@@ -27,6 +28,40 @@ TWILIO_API_VERSION = "2010-04-01"
 DEFAULT_PAGE_SIZE = 1000
 
 TwilioAuth = tuple[str, str]
+
+# Candidates probed in order at source-create time, when no table has been picked yet. Each one is a
+# data resource under /Accounts/{SID}/ rather than /Accounts/{SID}.json itself, because Twilio denies
+# the Accounts resource to Standard and Restricted API keys with a 401 (error 20003), and a Standard
+# key is the credential this source recommends. Probing the account resource therefore rejected the
+# credential type our own caption tells users to create. The three candidates cover one Restricted-key
+# permission area each (Messaging, Voice, Phone Numbers), which is what a Restricted key scoped to this
+# catalog's high-volume tables can read. Twilio scopes the rest of the catalog separately though, so a
+# Restricted key granted only Recordings, say, is denied every candidate and fails here even though the
+# table it wants is readable. TWILIO_INVALID_CREDENTIALS_MESSAGE names that as a cause. Widening the
+# ladder to cover all 11 tables would make the all-denied path cost 11 sequential requests, so the
+# message carries it instead. An account that has never sent a message returns 200 with an empty list,
+# so probing real data does not penalize an unused account.
+CREDENTIAL_PROBE_ENDPOINTS: tuple[str, ...] = ("messages", "calls", "incoming_phone_numbers")
+
+TWILIO_INVALID_CREDENTIALS_MESSAGE = (
+    "Twilio rejected these credentials. Check that the Account SID and secret are correct and have no "
+    "extra spaces, and that the API key was created in the same Twilio account as that Account SID. "
+    "PostHog connects to api.twilio.com, so a key created in another Twilio region will not work. A "
+    "Restricted API key also needs read access to Messages, Calls, or Phone Numbers, which is how "
+    "PostHog checks the credential before you pick a table."
+)
+TWILIO_ACCOUNT_NOT_FOUND_MESSAGE = (
+    "Twilio has no account with that Account SID. Copy the Account SID from your Twilio Console "
+    "dashboard. It starts with AC."
+)
+TWILIO_MAIN_KEY_REQUIRED_MESSAGE = (
+    "Twilio's Keys resource needs your Auth Token or a Main API key. Standard and Restricted API keys cannot read it."
+)
+# The schema picker interpolates a reason into its own sentence ("Source credentials cannot read this
+# table: {reason}. Grant the missing scope..."), so this has to be a fragment rather than the sentence
+# above, and it has to lead with the fix, since no scope grant makes a Standard key work here.
+TWILIO_MAIN_KEY_REQUIRED_REASON = "Twilio grants this resource only to your Auth Token or a Main API key"
+TWILIO_UNREACHABLE_MESSAGE = "Could not reach Twilio to validate credentials."
 
 
 @dataclasses.dataclass
@@ -100,36 +135,79 @@ def _build_resource_path(config: TwilioEndpointConfig, account_sid: str) -> str:
     return f"/{TWILIO_API_VERSION}/Accounts/{account_sid}/{config.path}"
 
 
-def validate_credentials(
-    auth: TwilioAuth, account_sid: str, schema_name: Optional[str] = None
-) -> tuple[bool, str | None]:
-    if schema_name is not None and schema_name in TWILIO_ENDPOINTS:
-        config = TWILIO_ENDPOINTS[schema_name]
-        url = f"{TWILIO_BASE_URL}{_build_resource_path(config, account_sid)}?PageSize=1"
-    else:
-        url = f"{TWILIO_BASE_URL}/{TWILIO_API_VERSION}/Accounts/{account_sid}.json"
+def _unexpected_status_message(status: int) -> str:
+    return f"Twilio returned an unexpected status ({status}) while validating credentials."
 
+
+def _endpoint_denied_message(schema_name: str) -> str:
+    if schema_name in MAIN_KEY_ONLY_ENDPOINTS:
+        return TWILIO_MAIN_KEY_REQUIRED_MESSAGE
+    return (
+        f"Twilio rejected these credentials for {schema_name}. Check that the Account SID and secret are "
+        f"correct, and if this is a Restricted API key, give it read access to {schema_name}."
+    )
+
+
+def _probe_status(auth: TwilioAuth, account_sid: str, schema_name: str) -> int | None:
+    """GET one list resource with PageSize=1 and report the HTTP status, or None on transport failure."""
+    config = TWILIO_ENDPOINTS[schema_name]
+    url = f"{TWILIO_BASE_URL}{_build_resource_path(config, account_sid)}?PageSize=1"
     _ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(auth[1],)),
         url,
         auth=HTTPBasicAuth(*auth),
     )
+    return status
 
-    if status == 200:
-        return True, None
 
-    if status == 401:
-        return False, "Invalid Twilio credentials. Check your Account SID and Auth Token (or API key SID and secret)."
+def validate_credentials(
+    auth: TwilioAuth, account_sid: str, schema_name: Optional[str] = None
+) -> tuple[bool, str | None]:
+    if schema_name is not None and schema_name in TWILIO_ENDPOINTS:
+        status = _probe_status(auth, account_sid, schema_name)
+        if status == 200:
+            return True, None
+        if status is None:
+            return False, TWILIO_UNREACHABLE_MESSAGE
+        # Twilio answers a permission denial with 401 (error 20003) rather than 403, so on this API the
+        # two statuses carry the same meaning and neither can be read as a valid credential.
+        if status in (401, 403):
+            return False, _endpoint_denied_message(schema_name)
+        # A 404 is not mapped to "no such account" here the way it is on the create path below: this
+        # branch probes one chosen table, so a 404 more likely means that resource is unavailable on
+        # the account than that the Account SID is wrong.
+        return False, _unexpected_status_message(status)
 
-    # A valid token without access to a specific resource is acceptable at source-create time
-    # (no schema selected yet); only treat it as a failure when validating a specific endpoint.
-    if status == 403 and schema_name is None:
-        return True, None
+    # No table chosen yet, so prove the credential can read something rather than asking Twilio to
+    # confirm the account itself. See CREDENTIAL_PROBE_ENDPOINTS for why the account resource is unsafe
+    # to probe here.
+    for candidate in CREDENTIAL_PROBE_ENDPOINTS:
+        status = _probe_status(auth, account_sid, candidate)
+        if status == 200:
+            return True, None
+        if status is None:
+            return False, TWILIO_UNREACHABLE_MESSAGE
+        if status == 404:
+            return False, TWILIO_ACCOUNT_NOT_FOUND_MESSAGE
+        if status not in (401, 403):
+            # A throttle or a server error is not a verdict on the credential, so stop rather than
+            # walking the remaining candidates only to report them as invalid.
+            return False, _unexpected_status_message(status)
 
-    if status is None:
-        return False, "Could not reach Twilio to validate credentials."
+    return False, TWILIO_INVALID_CREDENTIALS_MESSAGE
 
-    return False, f"Twilio returned an unexpected status ({status}) while validating credentials."
+
+def check_endpoint_permissions(auth: TwilioAuth, account_sid: str, endpoints: list[str]) -> dict[str, str | None]:
+    """Report which tables these credentials cannot read, so the schema picker can disable them."""
+    permissions: dict[str, str | None] = dict.fromkeys(endpoints)
+    for endpoint in endpoints:
+        if endpoint not in MAIN_KEY_ONLY_ENDPOINTS:
+            continue
+        # Only an outright denial hides the table. A throttle, a server error, or a network blip must
+        # not remove a table the credential can actually read.
+        if _probe_status(auth, account_sid, endpoint) in (401, 403):
+            permissions[endpoint] = TWILIO_MAIN_KEY_REQUIRED_REASON
+    return permissions
 
 
 def twilio_source(
