@@ -65,6 +65,17 @@ issues. 500 is intentionally excluded: those are genuine backend exceptions wort
 */
 const TRANSIENT_GATEWAY_STATUSES = [502, 503, 504]
 
+export function shouldCaptureLoaderError(actionKey: string, error: any): boolean {
+    // Fingerprint alert links can be opened before ingestion has created the fingerprint record.
+    // The fingerprint scene treats a 404 as expected control flow and retries it, so reporting each
+    // miss creates a misleading error-tracking issue for behavior the UI handles intentionally.
+    if (actionKey === 'resolveFingerprint' && error?.status === 404) {
+        return false
+    }
+
+    return !TRANSIENT_GATEWAY_STATUSES.includes(error?.status)
+}
+
 interface InitKeaProps {
     state?: Record<string, any>
     routerHistory?: any
@@ -189,7 +200,7 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status)) {
+                if (shouldCaptureLoaderError(actionKey, error)) {
                     posthog.captureException(error)
                 }
             },
