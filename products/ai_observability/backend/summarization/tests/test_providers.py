@@ -225,6 +225,51 @@ class TestSummarizeEvaluationRuns:
         assert mock_client.chat.completions.create.call_args.kwargs["timeout"] == SUMMARIZATION_TIMEOUT
         assert result.overall_assessment == "Mostly passing."
 
+    def test_failure_log_includes_evaluation_trace_and_session(self) -> None:
+        trace_id = UUID("6f6905aa-00d2-4df7-a5e4-e1c06d934c23")
+        session_id = UUID("7dfda50a-5710-45b1-97a3-30d98a07c1da")
+
+        lock_context = MagicMock()
+        lock_context.__aenter__ = AsyncMock(return_value=None)
+        lock_context.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch(
+                "products.ai_observability.backend.summarization.llm.evaluation_summary._team_generation_lock",
+                return_value=lock_context,
+            ),
+            patch(
+                "products.ai_observability.backend.summarization.llm.evaluation_summary.uuid4",
+                side_effect=[trace_id, session_id],
+            ),
+            patch(
+                "products.ai_observability.backend.summarization.llm.evaluation_summary.build_async_openai_client",
+                side_effect=RuntimeError("gateway unavailable"),
+            ),
+            patch(
+                "products.ai_observability.backend.summarization.llm.evaluation_summary.logger.exception"
+            ) as mock_logger_exception,
+        ):
+            with pytest.raises(exceptions.APIException, match="Failed to generate evaluation summary"):
+                asyncio.run(
+                    summarize_evaluation_runs(
+                        evaluation_runs=[{"generation_id": "g1", "result": True, "reasoning": "good"}],
+                        team_id=1,
+                        evaluation_id="evaluation-1",
+                        model=OpenAIModel.GPT_4_1_MINI,
+                    )
+                )
+
+        mock_logger_exception.assert_called_once_with(
+            "evaluation_summary_failed",
+            team_id=1,
+            evaluation_id="evaluation-1",
+            trace_id=str(trace_id),
+            session_id=str(session_id),
+            model=str(OpenAIModel.GPT_4_1_MINI),
+            error="gateway unavailable",
+        )
+
     def test_concurrent_requests_are_limited_per_team(self, valid_evaluation_summary_json: str) -> None:
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]

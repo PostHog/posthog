@@ -278,7 +278,13 @@ class GenerateLabelsActivityInputs:
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
-        return {"team_id": self.team_id}
+        return {
+            "team_id": self.team_id,
+            "trace_id": self.trace_id,
+            "session_id": self.session_id,
+            "clustering_run_id": self.clustering_run_id,
+            "clustering_job_id": self.clustering_job_id,
+        }
 
 
 @dataclass

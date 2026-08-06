@@ -353,6 +353,8 @@ def run_eval_report_agent(
                 reason=validation_error,
                 title=content.title,
                 section_count=len(content.sections),
+                trace_id=resolved_trace_id,
+                session_id=resolved_session_id,
             )
             return _fallback_content(evaluation_name, metrics, validation_error, evaluation_target)
 
@@ -368,6 +370,8 @@ def run_eval_report_agent(
             section_count=len(content.sections),
             citation_count=len(content.citations),
             metrics=metrics.to_dict(),
+            trace_id=resolved_trace_id,
+            session_id=resolved_session_id,
         )
         return content
 
@@ -381,6 +385,8 @@ def run_eval_report_agent(
             error_type=type(e).__name__,
             team_id=team_id,
             evaluation_id=evaluation_id,
+            trace_id=resolved_trace_id,
+            session_id=resolved_session_id,
         )
         return _fallback_content(
             evaluation_name,

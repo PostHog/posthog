@@ -252,3 +252,10 @@ class TestClusteringWorkflowWiring:
         assert label_inputs.session_id == f"{trace_uuid}:session"
         assert label_inputs.clustering_run_id == compute_result.clustering_run_id
         assert label_inputs.clustering_job_id == "job-1"
+        assert label_inputs.properties_to_log == {
+            "team_id": 1,
+            "trace_id": str(trace_uuid),
+            "session_id": f"{trace_uuid}:session",
+            "clustering_run_id": compute_result.clustering_run_id,
+            "clustering_job_id": "job-1",
+        }

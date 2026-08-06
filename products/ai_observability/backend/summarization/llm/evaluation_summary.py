@@ -487,6 +487,8 @@ async def _generate_evaluation_summary(
     evaluation_runs: list[dict],
     team_id: int,
     evaluation_id: str,
+    trace_id: str,
+    session_id: str,
     model: OpenAIModel,
     filter_type: str,
     evaluation_name: str,
@@ -502,8 +504,6 @@ async def _generate_evaluation_summary(
         "evaluation_prompt": evaluation_prompt,
         "max_candidates": EVALUATION_SUMMARY_CHUNK_SIZE,
     }
-    trace_id = str(uuid4())
-    session_id = str(uuid4())
     resolved_distinct_id = user_distinct_id or team_distinct_id(team_id)
     observability_properties = {
         "team_id": str(team_id),
@@ -602,12 +602,16 @@ async def summarize_evaluation_runs(
     if not evaluation_runs:
         raise exceptions.ValidationError("No evaluation runs provided")
 
+    trace_id = str(uuid4())
+    session_id = str(uuid4())
     try:
         async with _team_generation_lock(team_id):
             return await _generate_evaluation_summary(
                 evaluation_runs=evaluation_runs,
                 team_id=team_id,
                 evaluation_id=evaluation_id,
+                trace_id=trace_id,
+                session_id=session_id,
                 model=model,
                 filter_type=filter_type,
                 evaluation_name=evaluation_name,
@@ -618,5 +622,13 @@ async def summarize_evaluation_runs(
     except exceptions.APIException:
         raise
     except Exception as error:
-        logger.exception("evaluation_summary_failed", team_id=team_id, model=str(model), error=str(error))
+        logger.exception(
+            "evaluation_summary_failed",
+            team_id=team_id,
+            evaluation_id=evaluation_id,
+            trace_id=trace_id,
+            session_id=session_id,
+            model=str(model),
+            error=str(error),
+        )
         raise exceptions.APIException("Failed to generate evaluation summary") from error
