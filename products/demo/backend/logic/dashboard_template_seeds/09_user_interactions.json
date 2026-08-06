@@ -1,11 +1,202 @@
 {
     "template_name": "User interactions",
-    "dashboard_description": "See what people click in your product, and which clicks do nothing. Everything here comes from autocapture, so it needs no extra tracking code.",
+    "dashboard_description": "See what people click in your product, which clicks do nothing, and where forms get abandoned. Everything here comes from autocapture, so it needs no extra tracking code.",
     "dashboard_filters": {},
     "tags": [],
     "image_url": null,
     "scope": "global",
     "tiles": [
+        {
+            "name": "Dead click rate",
+            "type": "INSIGHT",
+            "color": "red",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "event": "$dead_click",
+                            "name": "$dead_click",
+                            "math": "total"
+                        },
+                        {
+                            "kind": "EventsNode",
+                            "event": "$autocapture",
+                            "name": "$autocapture",
+                            "math": "total"
+                        }
+                    ],
+                    "interval": "day",
+                    "dateRange": {
+                        "date_from": "-30d",
+                        "explicitDate": false
+                    },
+                    "properties": [],
+                    "trendsFilter": {
+                        "display": "BoldNumber",
+                        "showLegend": false,
+                        "formulaNodes": [
+                            {
+                                "formula": "A / (A + B)",
+                                "custom_name": "Dead click rate"
+                            }
+                        ],
+                        "aggregationAxisFormat": "percentage_scaled"
+                    },
+                    "filterTestAccounts": false
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 4,
+                    "w": 4,
+                    "x": 0,
+                    "y": 0,
+                    "minH": 4,
+                    "minW": 3
+                },
+                "xs": {
+                    "h": 4,
+                    "w": 1,
+                    "x": 0,
+                    "y": 0,
+                    "minH": 4,
+                    "minW": 3
+                }
+            },
+            "description": "Share of clicks that changed nothing on the page. Anything above a few percent is worth a look."
+        },
+        {
+            "name": "Rage clicks",
+            "type": "INSIGHT",
+            "color": "orange",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "event": "$rageclick",
+                            "name": "$rageclick",
+                            "math": "total"
+                        }
+                    ],
+                    "interval": "day",
+                    "dateRange": {
+                        "date_from": "-30d",
+                        "explicitDate": false
+                    },
+                    "properties": [],
+                    "trendsFilter": {
+                        "display": "BoldNumber",
+                        "showLegend": false
+                    },
+                    "filterTestAccounts": false
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 4,
+                    "w": 4,
+                    "x": 4,
+                    "y": 0,
+                    "minH": 4,
+                    "minW": 3
+                },
+                "xs": {
+                    "h": 4,
+                    "w": 1,
+                    "x": 0,
+                    "y": 4,
+                    "minH": 4,
+                    "minW": 3
+                }
+            },
+            "description": "Repeated fast clicks in one spot. Usually something is slow rather than broken."
+        },
+        {
+            "name": "Form completion rate",
+            "type": "INSIGHT",
+            "color": "purple",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "event": "$autocapture",
+                            "name": "$autocapture",
+                            "math": "dau",
+                            "custom_name": "Submitted",
+                            "properties": [
+                                {
+                                    "key": "$event_type",
+                                    "type": "event",
+                                    "value": ["submit"],
+                                    "operator": "exact"
+                                }
+                            ]
+                        },
+                        {
+                            "kind": "EventsNode",
+                            "event": "$autocapture",
+                            "name": "$autocapture",
+                            "math": "dau",
+                            "custom_name": "Started",
+                            "properties": [
+                                {
+                                    "key": "$event_type",
+                                    "type": "event",
+                                    "value": ["change"],
+                                    "operator": "exact"
+                                }
+                            ]
+                        }
+                    ],
+                    "interval": "day",
+                    "dateRange": {
+                        "date_from": "-90d",
+                        "explicitDate": false
+                    },
+                    "properties": [],
+                    "trendsFilter": {
+                        "display": "BoldNumber",
+                        "showLegend": false,
+                        "formulaNodes": [
+                            {
+                                "formula": "A / B",
+                                "custom_name": "Completion rate"
+                            }
+                        ],
+                        "aggregationAxisFormat": "percentage_scaled"
+                    },
+                    "filterTestAccounts": false
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 4,
+                    "w": 4,
+                    "x": 8,
+                    "y": 0,
+                    "minH": 4,
+                    "minW": 3
+                },
+                "xs": {
+                    "h": 4,
+                    "w": 1,
+                    "x": 0,
+                    "y": 8,
+                    "minH": 4,
+                    "minW": 3
+                }
+            },
+            "description": "People who submitted a form as a share of people who started filling one in."
+        },
         {
             "name": "Interactions over time",
             "type": "INSIGHT",
@@ -17,8 +208,8 @@
                     "series": [
                         {
                             "kind": "EventsNode",
-                            "name": "$autocapture",
                             "event": "$autocapture",
+                            "name": "$autocapture",
                             "math": "total"
                         }
                     ],
@@ -40,7 +231,7 @@
                     "h": 5,
                     "w": 6,
                     "x": 0,
-                    "y": 0,
+                    "y": 4,
                     "minH": 5,
                     "minW": 3
                 },
@@ -48,7 +239,7 @@
                     "h": 5,
                     "w": 1,
                     "x": 0,
-                    "y": 0,
+                    "y": 12,
                     "minH": 5,
                     "minW": 3
                 }
@@ -56,7 +247,7 @@
             "description": "Every click, form submission, and input change that autocapture recorded."
         },
         {
-            "name": "Dead clicks vs clicks",
+            "name": "Dead click rate over time",
             "type": "INSIGHT",
             "color": "red",
             "query": {
@@ -66,14 +257,14 @@
                     "series": [
                         {
                             "kind": "EventsNode",
-                            "name": "$dead_click",
                             "event": "$dead_click",
+                            "name": "$dead_click",
                             "math": "total"
                         },
                         {
                             "kind": "EventsNode",
-                            "name": "$autocapture",
                             "event": "$autocapture",
+                            "name": "$autocapture",
                             "math": "total"
                         }
                     ],
@@ -85,7 +276,14 @@
                     "properties": [],
                     "trendsFilter": {
                         "display": "ActionsLineGraph",
-                        "showLegend": true
+                        "showLegend": false,
+                        "formulaNodes": [
+                            {
+                                "formula": "A / (A + B)",
+                                "custom_name": "Dead click rate"
+                            }
+                        ],
+                        "aggregationAxisFormat": "percentage_scaled"
                     },
                     "filterTestAccounts": false
                 }
@@ -95,7 +293,7 @@
                     "h": 5,
                     "w": 6,
                     "x": 6,
-                    "y": 0,
+                    "y": 4,
                     "minH": 5,
                     "minW": 3
                 },
@@ -103,12 +301,120 @@
                     "h": 5,
                     "w": 1,
                     "x": 0,
-                    "y": 5,
+                    "y": 17,
                     "minH": 5,
                     "minW": 3
                 }
             },
-            "description": "A dead click is a click that changed nothing on the page. When the two lines get close, people are probably clicking something that does not respond."
+            "description": "Watch for steps up after a release. A rising line means new UI that does not respond."
+        },
+        {
+            "name": "Pages with the most dead clicks",
+            "type": "INSIGHT",
+            "color": "red",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "event": "$dead_click",
+                            "name": "$dead_click",
+                            "math": "total"
+                        }
+                    ],
+                    "interval": "day",
+                    "dateRange": {
+                        "date_from": "-30d",
+                        "explicitDate": false
+                    },
+                    "properties": [],
+                    "trendsFilter": {
+                        "display": "ActionsBarValue",
+                        "showLegend": false
+                    },
+                    "filterTestAccounts": false,
+                    "breakdownFilter": {
+                        "breakdown": "$pathname",
+                        "breakdown_type": "event",
+                        "breakdown_limit": 15
+                    }
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 9,
+                    "minH": 5,
+                    "minW": 3
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 22,
+                    "minH": 5,
+                    "minW": 3
+                }
+            },
+            "description": "Where to start looking. Ranked by dead clicks on each page."
+        },
+        {
+            "name": "Most interacted pages",
+            "type": "INSIGHT",
+            "color": "green",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "event": "$autocapture",
+                            "name": "$autocapture",
+                            "math": "total"
+                        }
+                    ],
+                    "interval": "day",
+                    "dateRange": {
+                        "date_from": "-30d",
+                        "explicitDate": false
+                    },
+                    "properties": [],
+                    "trendsFilter": {
+                        "display": "ActionsBarValue",
+                        "showLegend": false
+                    },
+                    "filterTestAccounts": false,
+                    "breakdownFilter": {
+                        "breakdown": "$pathname",
+                        "breakdown_type": "event",
+                        "breakdown_limit": 15
+                    }
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 6,
+                    "y": 9,
+                    "minH": 5,
+                    "minW": 3
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 27,
+                    "minH": 5,
+                    "minW": 3
+                }
+            },
+            "description": "Where people are actually doing things, rather than just loading a page."
         },
         {
             "name": "Most clicked elements",
@@ -121,9 +427,17 @@
                     "series": [
                         {
                             "kind": "EventsNode",
-                            "name": "$autocapture",
                             "event": "$autocapture",
-                            "math": "total"
+                            "name": "$autocapture",
+                            "math": "total",
+                            "properties": [
+                                {
+                                    "key": "$el_text",
+                                    "type": "event",
+                                    "value": "is_set",
+                                    "operator": "is_set"
+                                }
+                            ]
                         }
                     ],
                     "interval": "day",
@@ -133,14 +447,15 @@
                     },
                     "properties": [],
                     "trendsFilter": {
-                        "display": "ActionsBarValue"
+                        "display": "ActionsBarValue",
+                        "showLegend": false
                     },
+                    "filterTestAccounts": false,
                     "breakdownFilter": {
                         "breakdown": "$el_text",
                         "breakdown_type": "event",
                         "breakdown_limit": 15
-                    },
-                    "filterTestAccounts": false
+                    }
                 }
             },
             "layouts": {
@@ -148,7 +463,7 @@
                     "h": 5,
                     "w": 6,
                     "x": 0,
-                    "y": 5,
+                    "y": 14,
                     "minH": 5,
                     "minW": 3
                 },
@@ -156,12 +471,12 @@
                     "h": 5,
                     "w": 1,
                     "x": 0,
-                    "y": 10,
+                    "y": 32,
                     "minH": 5,
                     "minW": 3
                 }
             },
-            "description": "The elements people click most, grouped by the text on the element."
+            "description": "Grouped by the text on the element. Elements with no text are left out."
         },
         {
             "name": "Elements that do nothing when clicked",
@@ -174,8 +489,70 @@
                     "series": [
                         {
                             "kind": "EventsNode",
-                            "name": "$dead_click",
                             "event": "$dead_click",
+                            "name": "$dead_click",
+                            "math": "total",
+                            "properties": [
+                                {
+                                    "key": "$el_text",
+                                    "type": "event",
+                                    "value": "is_set",
+                                    "operator": "is_set"
+                                }
+                            ]
+                        }
+                    ],
+                    "interval": "day",
+                    "dateRange": {
+                        "date_from": "-30d",
+                        "explicitDate": false
+                    },
+                    "properties": [],
+                    "trendsFilter": {
+                        "display": "ActionsBarValue",
+                        "showLegend": false
+                    },
+                    "filterTestAccounts": false,
+                    "breakdownFilter": {
+                        "breakdown": "$el_text",
+                        "breakdown_type": "event",
+                        "breakdown_limit": 15
+                    }
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 6,
+                    "y": 14,
+                    "minH": 5,
+                    "minW": 3
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 37,
+                    "minH": 5,
+                    "minW": 3
+                }
+            },
+            "description": "Ranked by dead clicks. Start at the top when hunting broken or misleading UI."
+        },
+        {
+            "name": "Rage clicks over time",
+            "type": "INSIGHT",
+            "color": "orange",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "event": "$rageclick",
+                            "name": "$rageclick",
                             "math": "total"
                         }
                     ],
@@ -186,12 +563,8 @@
                     },
                     "properties": [],
                     "trendsFilter": {
-                        "display": "ActionsBarValue"
-                    },
-                    "breakdownFilter": {
-                        "breakdown": "$el_text",
-                        "breakdown_type": "event",
-                        "breakdown_limit": 15
+                        "display": "ActionsLineGraph",
+                        "showLegend": false
                     },
                     "filterTestAccounts": false
                 }
@@ -200,8 +573,8 @@
                 "sm": {
                     "h": 5,
                     "w": 6,
-                    "x": 6,
-                    "y": 5,
+                    "x": 0,
+                    "y": 19,
                     "minH": 5,
                     "minW": 3
                 },
@@ -209,12 +582,12 @@
                     "h": 5,
                     "w": 1,
                     "x": 0,
-                    "y": 15,
+                    "y": 42,
                     "minH": 5,
                     "minW": 3
                 }
             },
-            "description": "Ranked by dead clicks. Start at the top when you are looking for broken or misleading parts of your UI."
+            "description": "A spike usually points at something that got slower, not something that broke."
         },
         {
             "name": "Form fields edited vs forms submitted",
@@ -227,8 +600,8 @@
                     "series": [
                         {
                             "kind": "EventsNode",
-                            "name": "Field edited",
                             "event": "$autocapture",
+                            "name": "$autocapture",
                             "math": "dau",
                             "custom_name": "Field edited",
                             "properties": [
@@ -242,8 +615,8 @@
                         },
                         {
                             "kind": "EventsNode",
-                            "name": "Form submitted",
                             "event": "$autocapture",
+                            "name": "$autocapture",
                             "math": "dau",
                             "custom_name": "Form submitted",
                             "properties": [
@@ -273,8 +646,8 @@
                 "sm": {
                     "h": 5,
                     "w": 6,
-                    "x": 0,
-                    "y": 10,
+                    "x": 6,
+                    "y": 19,
                     "minH": 5,
                     "minW": 3
                 },
@@ -282,12 +655,12 @@
                     "h": 5,
                     "w": 1,
                     "x": 0,
-                    "y": 20,
+                    "y": 47,
                     "minH": 5,
                     "minW": 3
                 }
             },
-            "description": "The gap between these lines is people who started filling in a form and never sent it. Autocapture records both, so you do not need to track your forms."
+            "description": "The gap between these lines is people who started a form and never sent it."
         },
         {
             "name": "People interacting with your key element",
@@ -315,8 +688,8 @@
                 "sm": {
                     "h": 5,
                     "w": 6,
-                    "x": 6,
-                    "y": 10,
+                    "x": 0,
+                    "y": 24,
                     "minH": 5,
                     "minW": 3
                 },
@@ -324,12 +697,12 @@
                     "h": 5,
                     "w": 1,
                     "x": 0,
-                    "y": 25,
+                    "y": 52,
                     "minH": 5,
                     "minW": 3
                 }
             },
-            "description": "Narrow this to the one interaction you care about most, such as a click on your main call to action."
+            "description": "Narrow this to the one interaction you care about most, such as your main call to action."
         }
     ],
     "variables": [
