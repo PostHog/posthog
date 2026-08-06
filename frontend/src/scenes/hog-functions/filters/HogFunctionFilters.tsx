@@ -78,6 +78,10 @@ function sanitizeActionFilters(filters?: FilterType): Partial<CyclotronJobFilter
         }))
     }
 
+    if (filters.groups) {
+        sanitized.groups = filters.groups
+    }
+
     return sanitized
 }
 
@@ -89,8 +93,16 @@ export function HogFunctionFilters({
     showTriggerOptions?: boolean
 }): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { configuration, type, useMapping, filtersContainPersonProperties, oldFilters, newFilters, isLegacyPlugin } =
-        useValues(hogFunctionConfigurationLogic)
+    const {
+        configuration,
+        type,
+        useMapping,
+        filtersContainPersonProperties,
+        oldFilters,
+        newFilters,
+        isLegacyPlugin,
+        logicProps,
+    } = useValues(hogFunctionConfigurationLogic)
     const {
         setOldFilters,
         setNewFilters,
@@ -180,6 +192,10 @@ export function HogFunctionFilters({
         (cdpPersonUpdatesEnabled || cdpDwhTableSourceEnabled) && type === 'destination' && !useMapping
     const showEventMatchers =
         !useMapping && ['events', 'data-warehouse-table'].includes(configuration?.filters?.source ?? 'events')
+
+    // Give each function its own entityFilterLogic instance. A shared constant key made every
+    // destination opened in a session share one logic, so edits landed on the wrong row.
+    const filtersTypeKey = `hog-function-filters-${logicProps.id ?? logicProps.templateId ?? 'new'}`
 
     const mainContent = (
         <div
@@ -313,7 +329,7 @@ export function HogFunctionFilters({
                                                 ...sanitizeActionFilters(payload),
                                             })
                                         }}
-                                        typeKey="plugin-filters"
+                                        typeKey={filtersTypeKey}
                                         mathAvailability={MathAvailability.None}
                                         hideRename
                                         hideDuplicate

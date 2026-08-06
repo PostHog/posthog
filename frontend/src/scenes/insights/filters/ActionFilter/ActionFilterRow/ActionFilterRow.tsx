@@ -689,7 +689,7 @@ export function ActionFilterRow({
             {propertyFiltersVisible && (
                 <div className={`ActionFilterRow-filters${filtersLeftPadding ? ' pl-7' : ''}`}>
                     <PropertyFilters
-                        pageKey={`${index}-${value}-${typeKey}-filter`}
+                        pageKey={`${filter.uuid}-${typeKey}-filter`}
                         propertyFilters={filter.properties}
                         onChange={onPropertyChange}
                         showNestedArrow={showNestedArrow}

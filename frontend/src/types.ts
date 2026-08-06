@@ -7188,6 +7188,7 @@ export interface CyclotronJobFiltersType {
     events?: CyclotronJobFilterEvents[]
     data_warehouse?: CyclotronJobFilterDataWarehouse[]
     actions?: CyclotronJobFilterActions[]
+    groups?: Record<string, any>[]
     properties?: CyclotronJobFilterPropertyFilter[]
     filter_test_accounts?: boolean
     bytecode?: any[]
