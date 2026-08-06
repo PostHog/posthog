@@ -308,6 +308,13 @@ describe('replayScannerLogic', () => {
             expect(readScannerDraft(teamId)).toBeNull()
         })
 
+        it('persists a type switch, so a reload does not restore the old type', async () => {
+            const teamId = teamLogic.values.currentTeamId!
+            logic.actions.setScannerValues({ name: 'Drafted' })
+            logic.actions.setScannerType('summarizer')
+            expect(readScannerDraft(teamId)?.scanner.scanner_type).toBe('summarizer')
+        })
+
         it('keeps the draft on resetScanner, so leaving the editor stays resumable', async () => {
             const teamId = teamLogic.values.currentTeamId!
             logic.actions.setScannerValues({ name: 'Drafted' })
@@ -344,7 +351,10 @@ describe('replayScannerLogic', () => {
             const info = jest.spyOn(lemonToast, 'info')
             logic.actions.setScannerValues({ name: 'Drafted' })
             logic.unmount()
-            expect(info).toHaveBeenCalledWith('Draft saved', expect.anything())
+            expect(info).toHaveBeenCalledWith(
+                'Draft saved',
+                expect.objectContaining({ button: expect.objectContaining({ label: 'Resume' }) })
+            )
             info.mockRestore()
         })
 

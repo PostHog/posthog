@@ -11,7 +11,7 @@ import {
     IconTrash,
     IconWarning,
 } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -29,9 +29,6 @@ const TEMPLATE_ICONS: Record<ScannerTemplateIcon, JSX.Element> = {
     'thumbs-down': <IconThumbsDown />,
     check: <IconCheckCircle />,
 }
-
-const CARD_CLASSES =
-    'flex flex-col bg-bg-light border border-border rounded-lg hover:border-primary-3000-hover focus:border-primary-3000-hover focus:outline-none transition-colors p-6 cursor-pointer min-h-[180px] w-full md:w-[calc(50%-0.75rem)] lg:w-[calc(33.333%-1rem)]'
 
 function TemplateCard({ template }: { template: ScannerTemplate | 'blank' }): JSX.Element {
     const isBlank = template === 'blank'
@@ -60,7 +57,7 @@ function TemplateCard({ template }: { template: ScannerTemplate | 'blank' }): JS
 
     return (
         <button
-            className={CARD_CLASSES}
+            className="flex flex-col bg-bg-light border border-border rounded-lg hover:border-primary-3000-hover focus:border-primary-3000-hover focus:outline-none transition-colors p-6 cursor-pointer min-h-[180px]"
             data-attr={isBlank ? 'vision-template-blank' : `vision-template-${template.key}`}
             data-ph-capture-attribute-template={isBlank ? 'blank' : template.key}
             onClick={handleClick}
@@ -99,7 +96,7 @@ function TemplateCard({ template }: { template: ScannerTemplate | 'blank' }): JS
     )
 }
 
-function ResumeDraftCard(): JSX.Element | null {
+function ResumeDraftBanner(): JSX.Element | null {
     const logic = replayScannerLogic({ id: 'new' })
     const { scannerDraftSavedAt, scanner } = useValues(logic)
     const { discardScannerDraft } = useActions(logic)
@@ -115,60 +112,58 @@ function ResumeDraftCard(): JSX.Element | null {
     }
 
     return (
-        <div
-            role="button"
-            tabIndex={0}
-            className={CARD_CLASSES}
-            data-attr="vision-template-resume-draft"
-            onClick={handleResume}
-            onKeyDown={(e) => {
-                // Ignore keys aimed at the nested discard button, or Enter would discard and resume at once.
-                if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
-                    e.preventDefault()
-                    handleResume()
-                }
+        <LemonBanner
+            type="info"
+            icon={<IconPencil />}
+            action={{
+                children: 'Resume draft',
+                onClick: handleResume,
+                'data-attr': 'vision-template-resume-draft',
             }}
         >
-            <div className="flex flex-col items-center text-center gap-4 h-full">
-                <div className="bg-primary-3000/10 rounded-lg flex-shrink-0 size-12 flex items-center justify-center">
-                    <span className="w-6 h-6 text-primary-3000 [&_svg]:w-6 [&_svg]:h-6">
-                        <IconPencil />
-                    </span>
-                </div>
-                <div className="flex-1 flex flex-col justify-start w-full">
-                    <h3 className="text-base font-semibold text-default mb-2">Resume your draft</h3>
-                    <p className="text-sm text-secondary leading-relaxed mb-0">
-                        {scanner?.name ? `"${scanner.name}"` : 'Your unsaved scanner'}, saved{' '}
-                        {dayjs(scannerDraftSavedAt).fromNow()}.
-                    </p>
-                    <div className="mt-auto pt-4 flex items-center justify-center gap-2">
-                        {scanner?.scanner_type && <ScannerTypeBadge scannerType={scanner.scanner_type} size="medium" />}
-                        <LemonButton
-                            size="xsmall"
-                            type="tertiary"
-                            icon={<IconTrash />}
-                            tooltip="Discard this draft"
-                            data-attr="vision-template-discard-draft"
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                discardScannerDraft()
-                            }}
-                        />
-                    </div>
-                </div>
+            <div className="flex flex-wrap items-center gap-2">
+                <span className="font-semibold">Resume your draft</span>
+                <span className="text-secondary font-normal">
+                    {scanner?.name ? `"${scanner.name}"` : 'Untitled scanner'}
+                </span>
+                {scanner?.scanner_type && <ScannerTypeBadge scannerType={scanner.scanner_type} />}
+                <span className="text-secondary font-normal">saved {dayjs(scannerDraftSavedAt).fromNow()}.</span>
+                <LemonButton
+                    size="xsmall"
+                    type="tertiary"
+                    status="danger"
+                    icon={<IconTrash />}
+                    tooltip="Discard this draft"
+                    className="ml-auto"
+                    data-attr="vision-template-discard-draft"
+                    onClick={(): void =>
+                        LemonDialog.open({
+                            title: 'Discard this draft?',
+                            description: 'This cannot be undone.',
+                            primaryButton: {
+                                children: 'Discard',
+                                status: 'danger',
+                                onClick: (): void => discardScannerDraft(),
+                            },
+                            secondaryButton: { children: 'Keep my draft' },
+                        })
+                    }
+                />
             </div>
-        </div>
+        </LemonBanner>
     )
 }
 
 export function ScannerTemplatePicker(): JSX.Element {
     return (
-        <div className="flex flex-wrap justify-center gap-6">
-            <ResumeDraftCard />
-            <TemplateCard template="blank" />
-            {defaultScannerTemplates.map((template) => (
-                <TemplateCard key={template.key} template={template} />
-            ))}
+        <div className="flex flex-col gap-6">
+            <ResumeDraftBanner />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <TemplateCard template="blank" />
+                {defaultScannerTemplates.map((template) => (
+                    <TemplateCard key={template.key} template={template} />
+                ))}
+            </div>
         </div>
     )
 }

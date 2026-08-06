@@ -411,7 +411,12 @@ function EditorFooter({
                     </LemonButton>
                 ) : null}
                 <div className="flex flex-wrap items-center gap-2 ml-auto">
-                    <LemonButton type="tertiary" onClick={handleCancel} data-attr="vision-editor-cancel">
+                    <LemonButton
+                        type="tertiary"
+                        onClick={handleCancel}
+                        disabledReason={isSubmitting ? 'Saving…' : undefined}
+                        data-attr="vision-editor-cancel"
+                    >
                         Cancel
                     </LemonButton>
                     {nextStep ? (

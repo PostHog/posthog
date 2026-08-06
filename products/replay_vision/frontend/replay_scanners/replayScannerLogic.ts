@@ -1174,6 +1174,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 return
             }
             const savedAt = writeScannerDraft(teamId, values.scanner)
+            if (savedAt === null) {
+                // A failed write leaves any older draft behind; drop it so it can't resurrect stale edits.
+                clearScannerDraft()
+            }
             cache.draftTouched = savedAt !== null
             actions.setScannerDraftSavedAt(savedAt)
         }
@@ -1255,7 +1259,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     scanner_type: scannerType,
                     scanner_config: defaultConfigForType(scannerType),
                 } as ReplayScanner)
-                // The reset bypasses setScannerValues, so sync the draft or a reload restores the old type.
                 persistDraft()
             },
 
