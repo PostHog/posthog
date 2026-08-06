@@ -19,7 +19,12 @@ from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionE
 from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
 from products.tasks.backend.logic.services.sandbox import REPO_READY_FILE, Sandbox, SandboxBase, sandbox_repo_path
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.temporal.metrics import StepTimer, record_agent_server_session_init_ms, record_boot_total_ms
+from products.tasks.backend.temporal.metrics import (
+    StepTimer,
+    record_agent_server_session_init_ms,
+    record_boot_total_ms,
+    sandbox_runtime_label,
+)
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
@@ -429,7 +434,7 @@ def _record_boot_total(input: StartAgentServerInput) -> int | None:
         used_snapshot=input.used_snapshot,
         has_repo=input.context.repository is not None,
         origin_product=input.context.origin_product,
-        runtime="vm" if input.context.use_modal_vm_sandbox else "gvisor",
+        runtime=sandbox_runtime_label(input.context.use_modal_vm_sandbox),
     )
     return boot_total_ms
 
@@ -458,7 +463,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         _ensure_repository_on_disk(ctx, sandbox)
         params = _prepare_launch(ctx, input.posthog_mcp_scopes, input.sandbox_id)
 
-        runtime = "vm" if ctx.use_modal_vm_sandbox else "gvisor"
+        runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
         with StepTimer(
             "agent_server_ready", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
         ) as ready_timer:
@@ -502,7 +507,7 @@ def launch_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         params = _prepare_launch(ctx, input.posthog_mcp_scopes, input.sandbox_id)
 
         repo_ready_file = REPO_READY_FILE if input.defer_for_clone else None
-        runtime = "vm" if ctx.use_modal_vm_sandbox else "gvisor"
+        runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
         with StepTimer(
             "agent_server_launch", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
         ) as launch_timer:
@@ -538,7 +543,7 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
         agentsh_domains = _agentsh_domains_for(ctx)
 
         try:
-            runtime = "vm" if ctx.use_modal_vm_sandbox else "gvisor"
+            runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
             with StepTimer(
                 "agent_server_ready", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
             ) as ready_timer:

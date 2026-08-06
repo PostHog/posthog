@@ -79,6 +79,10 @@ def _bool_label(value: bool | None) -> str:
 _ALLOWED_RUNTIME_ADAPTERS = {"claude", "codex"}
 
 
+def sandbox_runtime_label(use_vm_sandbox: bool) -> str:
+    return "vm" if use_vm_sandbox else "gvisor"
+
+
 def _runtime_adapter_label(value: str | None) -> str:
     """Bounded label: unexpected values collapse to "other" to cap cardinality."""
     if not value:

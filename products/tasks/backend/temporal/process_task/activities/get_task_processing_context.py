@@ -513,7 +513,7 @@ def _resolve_modal_vm_sandbox(
     log_with_activity_context(
         "modal_vm_sandbox_flag_checked",
         run_id=run_id,
-        flag_enabled=bool(allowed_origins or default_base_origins),
+        flag_enabled=bool(allowed_origins or default_base_origins or origin_rollout_percentages),
         origin_product=origin_product,
         allowed_origin_products=sorted(allowed_origins),
         default_base_origin_products=sorted(default_base_origins),

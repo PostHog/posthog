@@ -1,4 +1,5 @@
 import pytest
+from freezegun import freeze_time
 
 from products.tasks.backend.exceptions import SandboxMissingRepositoryError
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
@@ -13,11 +14,8 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
 )
 
 
+@freeze_time("2026-08-06T12:01:30Z")
 def test_record_boot_total_excludes_wizard_time_and_labels_runtime(mocker) -> None:
-    now = mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server.datetime"
-    ).now.return_value
-    now.__sub__.return_value.total_seconds.return_value = 90
     record_metric = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.record_boot_total_ms"
     )
