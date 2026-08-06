@@ -116,6 +116,14 @@ describe('retentionGraphLogic', () => {
         expect(series.map((s) => s.rawBreakdownValue)).toEqual([undefined, undefined])
     })
 
+    it('returns empty x-axis labels for a retention insight with no results and no breakdown', async () => {
+        // An empty results array falls through `results?.[0]?.values.map(...)`; without the fallback the
+        // selector returns undefined and the chart crashes on `labels.length` during render.
+        await loadResults({ kind: NodeKind.RetentionQuery, retentionFilter: { period: RetentionPeriod.Day } }, [])
+
+        expect(logic.values.xAxisLabels).toEqual([])
+    })
+
     it('getRetentionColorToken falls back to positional tokens and wraps at the theme size', () => {
         const token = (rawBreakdownValue: string | null, seriesIndex: number): string | null =>
             builtRetentionLogic.values.getRetentionColorToken(rawBreakdownValue, seriesIndex)[1]

@@ -434,7 +434,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                     }
                     return labels
                 }
-                return results?.[0]?.values.map((_, i) => `${period} ${i + offset}`)
+                return results?.[0]?.values.map((_, i) => `${period} ${i + offset}`) ?? []
             },
         ],
     }),
