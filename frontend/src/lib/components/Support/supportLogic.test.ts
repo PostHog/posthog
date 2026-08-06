@@ -118,7 +118,7 @@ describe('supportLogic', () => {
             (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === 'posthog_ai_support_ticket_created')
 
         const sendFailures = (): unknown[][] =>
-            (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === 'support ticket send failed')
+            (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === 'support ticket send blocked')
 
         beforeEach(() => {
             ;(posthog.capture as jest.Mock).mockClear()
