@@ -403,6 +403,26 @@ class TestCanvasRevertAndBuilds(CanvasAPIBaseTest):
         assert body["published_build_id"] == str(published.id)
         assert str(published.id) in {build["id"] for build in body["builds"]}
 
+    def test_builds_lifecycle_includes_requested_historical_build_beyond_window(self):
+        canvas_id, v1, v2 = self._published_canvas()
+        historical = CanvasBuild.objects.unscoped().get(canvas_id=canvas_id, source_version_id=v1)
+        historical.status = CanvasBuild.STATUS_READY
+        historical.save(update_fields=["status"])
+        version = CanvasSourceVersion.objects.unscoped().get(id=v2)
+        with team_scope(self.team.id):
+            for _ in range(25):
+                CanvasBuild.objects.create(
+                    team_id=self.team.id,
+                    canvas_id=canvas_id,
+                    source_version=version,
+                    status=CanvasBuild.STATUS_FAILED,
+                )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/builds/?version_id={v1}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert str(historical.id) in {build["id"] for build in response.json()["builds"]}
+
     def test_build_with_pruned_artifacts_advertises_no_url(self):
         canvas_id, v1, _ = self._published_canvas()
         build = CanvasBuild.objects.unscoped().filter(canvas_id=canvas_id).first()
