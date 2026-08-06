@@ -663,4 +663,43 @@ describe('dataNodeLogic', () => {
             'posthog_ai'
         )
     })
+
+    // A programmatic cancel (cancelAllLoading, e.g. switching web analytics tabs) used to strand a
+    // still-mounted tile on "The query was cancelled" until the user clicked Try again. It now
+    // self-heals once. A deliberate user cancel from the Reload/Cancel button must stay cancelled.
+    it.each([
+        { name: 'recoverable cancel reloads the tile once', recoverable: true, expectedCalls: 2, cancelled: false },
+        {
+            name: 'user cancel stays cancelled without reloading',
+            recoverable: false,
+            expectedCalls: 1,
+            cancelled: true,
+        },
+    ])('$name', async ({ recoverable, expectedCalls, cancelled }) => {
+        mockedQuery.mockResolvedValue({ results: {} })
+        logic = dataNodeLogic({
+            key: testUniqueKey,
+            query: setLatestVersionsOnQuery({
+                kind: NodeKind.EventsQuery,
+                select: ['*', 'event', 'timestamp'],
+            }),
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDataSuccess'])
+        expect(performQuery).toHaveBeenCalledTimes(1)
+
+        jest.useFakeTimers()
+        try {
+            logic.actions.cancelQuery(recoverable)
+            expect(logic.values.queryCancelled).toBe(true)
+
+            // Advance well past the self-heal delay.
+            jest.advanceTimersByTime(1000)
+
+            expect(performQuery).toHaveBeenCalledTimes(expectedCalls)
+            expect(logic.values.queryCancelled).toBe(cancelled)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
 })

@@ -140,6 +140,9 @@ export interface DataNodeLogicProps {
 
 export const AUTOLOAD_INTERVAL = 30000
 const LOAD_MORE_ROWS_LIMIT = 10000
+// How long a recoverable cancel waits before self-healing, giving tiles that unmount from the same
+// navigation time to tear down their retry timer instead of re-issuing a query that's aborted at once.
+const CANCEL_RECOVERY_DELAY_MS = 250
 
 const concurrencyController = new ConcurrencyController(1)
 const webAnalyticsConcurrencyController = new ConcurrencyController(6)
@@ -322,8 +325,8 @@ export interface dataNodeLogicActions {
     abortQuery: (payload: { queryId: string }) => {
         queryId: string
     }
-    cancelQuery: () => {
-        value: true
+    cancelQuery: (recoverable?: boolean) => {
+        recoverable: boolean
     }
     clearResponse: () => {
         value: true
@@ -918,7 +921,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         }),
         abortAnyRunningQuery: true,
         abortQuery: (payload: { queryId: string }) => payload,
-        cancelQuery: true,
+        // `recoverable` marks a programmatic cancel (e.g. a dashboard tab switch) that should
+        // self-heal, as opposed to a deliberate user cancel from the Reload/Cancel button.
+        cancelQuery: (recoverable: boolean = false) => ({ recoverable }),
         setResponse: (response: Exclude<AnyResponseType, undefined>) => response,
         clearResponse: true,
         startAutoLoad: true,
@@ -1956,9 +1961,25 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 console.warn('Failed cancelling query', e)
             }
         },
-        cancelQuery: () => {
+        cancelQuery: ({ recoverable }) => {
             actions.abortAnyRunningQuery()
             actions.resetLoadingTimer()
+            if (recoverable && !cache.hasScheduledCancelRecovery) {
+                // A programmatic cancel (e.g. switching web analytics tabs) can strand a still-mounted
+                // tile on "The query was cancelled" with no way back but a manual click. Reload it once,
+                // after a short delay so tiles that unmount from the same navigation dispose this timer
+                // first and don't kick off a query only to be aborted again.
+                cache.hasScheduledCancelRecovery = true
+                cache.disposables.add(() => {
+                    const timerId = window.setTimeout(() => {
+                        if (values.queryCancelled && !values.dataLoading) {
+                            const refreshType = isInsightQueryNode(props.query) ? 'async' : 'blocking'
+                            actions.loadData(refreshType)
+                        }
+                    }, CANCEL_RECOVERY_DELAY_MS)
+                    return () => window.clearTimeout(timerId)
+                }, 'cancelRecovery')
+            }
         },
         loadData: () => {
             actions.collectionNodeLoadData(props.key)
@@ -1967,6 +1988,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         loadDataSuccess: ({ response }) => {
             props.onData?.(response as Record<string, unknown> | null | undefined)
             actions.collectionNodeLoadDataSuccess(props.key)
+            // Allow another self-heal after a clean load, while still capping each cancel at one retry.
+            cache.hasScheduledCancelRecovery = false
             if ('query' in props.query) {
                 cache.localResults[JSON.stringify(props.query.query)] = response
             }
@@ -2040,7 +2063,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         actions.mountDataNode(props.key, {
             id: props.key,
             loadData: actions.loadData,
-            cancelQuery: actions.cancelQuery,
+            // Collection-driven cancels (cancelAllLoading) are recoverable: a surviving tile self-heals.
+            cancelQuery: () => actions.cancelQuery(true),
         })
     }),
     beforeUnmount(({ actions, props, values }) => {
