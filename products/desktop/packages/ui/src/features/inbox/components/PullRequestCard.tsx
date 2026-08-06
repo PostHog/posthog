@@ -67,7 +67,9 @@ export function PullRequestCard({
   return (
     <div
       className={cn(
-        "group flex w-full items-start gap-3 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-4 py-3.5 transition duration-150 hover:border-(--gray-6) hover:bg-(--gray-2) hover:shadow-sm",
+        // The card is its own size container: below ~32rem the actions rail
+        // stacks under the content instead of crushing the title column.
+        "@container group flex w-full flex-col gap-3 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-4 py-3.5 transition duration-150 @lg:flex-row @lg:items-start hover:border-(--gray-6) hover:bg-(--gray-2) hover:shadow-sm",
         isSelected &&
           "border-(--accent-8) bg-(--accent-2) ring-(--accent-8) ring-2 ring-inset",
       )}
@@ -89,7 +91,7 @@ export function PullRequestCard({
         <PriorityMonogram priority={report.priority} />
 
         <Flex direction="column" gap="1.5" className="min-w-0 flex-1">
-          <Flex align="center" gap="1" wrap="wrap" className="min-w-0">
+          <div className="min-w-0 break-words">
             {conventionalTitle && (
               <ConventionalCommitScopeTag
                 type={conventionalTitle.type}
@@ -98,7 +100,7 @@ export function PullRequestCard({
               />
             )}
             <InboxCardTitle>{cardTitle}</InboxCardTitle>
-          </Flex>
+          </div>
 
           {(() => {
             const headline = deriveHeadline(report.summary);
@@ -116,13 +118,10 @@ export function PullRequestCard({
         </Flex>
       </Link>
 
-      <Flex
-        align="center"
-        className="gap-3.5 self-stretch border-border border-l pl-3"
-      >
-        <Flex align="center" gap="2" className="shrink-0">
+      <div className="flex items-center justify-between gap-3.5 border-border border-t pt-3 @lg:justify-start @lg:self-stretch @lg:border-t-0 @lg:border-l @lg:pt-0 @lg:pl-3">
+        <div className="flex shrink-0 items-center gap-2">
           {report.implementation_pr_url && (
-            <Flex direction="column" align="end" gap="1" className="shrink-0">
+            <div className="flex shrink-0 items-center gap-2 @lg:flex-col @lg:items-end @lg:gap-1">
               <ReportImplementationPrLink
                 prUrl={report.implementation_pr_url}
                 size="sm"
@@ -131,14 +130,14 @@ export function PullRequestCard({
                 prUrl={report.implementation_pr_url}
                 hideWhileLoading
               />
-            </Flex>
+            </div>
           )}
           <SuggestedReviewerAvatarStack
             reportId={report.id}
             artefacts={artefactsResp ?? null}
           />
-        </Flex>
-        <Flex align="center" className="shrink-0 gap-2.5">
+        </div>
+        <div className="flex shrink-0 items-center gap-2.5">
           <UiButton
             type="button"
             variant="soft"
@@ -168,8 +167,8 @@ export function PullRequestCard({
           >
             Review
           </Button>
-        </Flex>
-      </Flex>
+        </div>
+      </div>
     </div>
   );
 }

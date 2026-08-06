@@ -66,7 +66,7 @@ export function InboxDetailPageHeader({
         {breadcrumb}
       </Flex>
 
-      <Flex align="center" gap="2" wrap="wrap" className="min-w-0">
+      <div className="min-w-0 break-words">
         {conventionalTitle && (
           <ConventionalCommitScopeTag
             type={conventionalTitle.type}
@@ -77,7 +77,7 @@ export function InboxDetailPageHeader({
         <Text className="min-w-0 font-bold text-[24px] text-gray-12 leading-tight tracking-tight">
           {displayTitle}
         </Text>
-      </Flex>
+      </div>
 
       {hasBottomRow && (
         <Flex align="center" justify="between" gap="3" wrap="wrap">

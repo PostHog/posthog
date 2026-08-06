@@ -126,7 +126,9 @@ export function ReportCard(props: ReportCardProps) {
   return (
     <div
       className={cn(
-        "group flex w-full items-stretch gap-3 rounded-(--radius-2) border border-(--gray-6) border-dashed bg-(--color-panel-solid) px-4 py-3.5 transition duration-150 hover:border-(--gray-7) hover:bg-(--gray-2)",
+        // The card is its own size container: below ~32rem the actions rail
+        // stacks under the content instead of crushing the title column.
+        "@container group flex w-full flex-col gap-3 rounded-(--radius-2) border border-(--gray-6) border-dashed bg-(--color-panel-solid) px-4 py-3.5 transition duration-150 @lg:flex-row @lg:items-stretch hover:border-(--gray-7) hover:bg-(--gray-2)",
         isArchived ? "opacity-90" : "hover:shadow-sm",
         !isArchived &&
           isSelected &&
@@ -150,7 +152,7 @@ export function ReportCard(props: ReportCardProps) {
         <PriorityMonogram priority={report.priority} />
 
         <Flex direction="column" gap="1.5" className="min-w-0 flex-1">
-          <Flex align="center" gap="1" wrap="wrap" className="min-w-0">
+          <div className="min-w-0 break-words">
             {conventionalTitle && (
               <ConventionalCommitScopeTag
                 type={conventionalTitle.type}
@@ -159,7 +161,7 @@ export function ReportCard(props: ReportCardProps) {
               />
             )}
             <InboxCardTitle>{cardTitle}</InboxCardTitle>
-          </Flex>
+          </div>
 
           {isArchived ? (
             headline && (
@@ -237,12 +239,7 @@ export function ReportCard(props: ReportCardProps) {
         </Flex>
       </Link>
 
-      <Flex
-        direction="column"
-        align="end"
-        justify="between"
-        className="shrink-0 border-border border-l pl-3"
-      >
+      <div className="flex items-center justify-between gap-3 border-border border-t pt-3 @lg:flex-col @lg:items-end @lg:justify-between @lg:shrink-0 @lg:border-t-0 @lg:border-l @lg:pt-0 @lg:pl-3">
         {props.variant === "archived" ? (
           // Resolved reports are terminal — reference-only, no restore action.
           isResolved ? null : (
@@ -272,14 +269,14 @@ export function ReportCard(props: ReportCardProps) {
               </Text>
             )}
 
-            <Flex align="center" className="my-auto gap-3.5">
-              <Flex align="center" className="shrink-0">
+            <div className="flex items-center gap-3.5 @lg:my-auto">
+              <div className="flex shrink-0 items-center">
                 <SuggestedReviewerAvatarStack
                   reportId={report.id}
                   artefacts={artefactsResp ?? null}
                 />
-              </Flex>
-              <Flex align="center" className="shrink-0 gap-2.5">
+              </div>
+              <div className="flex shrink-0 items-center gap-2.5">
                 <UiButton
                   type="button"
                   variant="soft"
@@ -311,23 +308,19 @@ export function ReportCard(props: ReportCardProps) {
                 >
                   Review
                 </Button>
-              </Flex>
-            </Flex>
+              </div>
+            </div>
           </>
         )}
 
-        <Flex
-          align="center"
-          gap="1"
-          className="shrink-0 text-[12px] text-gray-10"
-        >
+        <div className="flex shrink-0 items-center gap-1 text-[12px] text-gray-10">
           <LightningIcon size={11} />
           <span className="tabular-nums">
             {report.signal_count} signal
             {report.signal_count !== 1 ? "s" : ""}
           </span>
-        </Flex>
-      </Flex>
+        </div>
+      </div>
     </div>
   );
 }

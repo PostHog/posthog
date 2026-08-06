@@ -118,7 +118,7 @@ export function AgentRunCard({ report }: AgentRunCardProps) {
           params: { reportId: report.id },
         })
       }
-      className="group flex w-full items-start gap-3 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-4 py-3.5 text-left transition duration-150 hover:border-(--gray-6) hover:bg-(--gray-2) hover:shadow-sm focus-visible:bg-(--gray-2) focus-visible:outline-none"
+      className="@container group flex w-full flex-wrap items-start gap-3 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-4 py-3.5 text-left transition duration-150 @lg:flex-nowrap hover:border-(--gray-6) hover:bg-(--gray-2) hover:shadow-sm focus-visible:bg-(--gray-2) focus-visible:outline-none"
     >
       <RunStatusOrb meta={meta} />
 
@@ -145,18 +145,14 @@ export function AgentRunCard({ report }: AgentRunCardProps) {
         </InboxMetaRow>
       </Flex>
 
-      <Flex
-        align="end"
-        direction="column"
-        justify="center"
-        gap="1.5"
-        className="self-stretch border-border border-l pl-3"
-      >
+      {/* Below ~32rem this rail wraps onto a full-width row under the content
+          instead of crushing the title column. */}
+      <div className="flex w-full items-center justify-between gap-1.5 border-border border-t pt-2.5 @lg:w-auto @lg:flex-col @lg:items-end @lg:justify-center @lg:self-stretch @lg:border-t-0 @lg:border-l @lg:pt-0 @lg:pl-3">
         <InboxBadge variant={meta.badgeTone}>{meta.label}</InboxBadge>
         <InboxMetaText mono className="text-[11px]">
           {runId}
         </InboxMetaText>
-      </Flex>
+      </div>
     </button>
   );
 }

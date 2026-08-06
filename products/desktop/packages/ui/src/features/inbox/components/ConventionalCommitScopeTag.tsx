@@ -22,10 +22,13 @@ export function ConventionalCommitScopeTag({
   const label = formatConventionalCommitTag(type, scope);
 
   return (
+    // Rendered as an inline prefix inside the title text (not a flex sibling),
+    // so it stays on the title's first line and the title wraps beneath it.
+    // `align-middle` keeps it centered on that line.
     <InboxBadge
       variant={compact ? "default" : meta.variant}
       className={cn(
-        "shrink-0 gap-1 font-mono",
+        "mr-1.5 gap-1 whitespace-nowrap align-middle font-mono font-normal select-none",
         compact &&
           "h-5 gap-0.5 border border-(--gray-4) bg-(--gray-2) px-1.5 py-0 text-[11px] text-gray-11 leading-none",
       )}
