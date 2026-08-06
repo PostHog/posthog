@@ -26,7 +26,11 @@ from products.replay_vision.backend.enqueue_claims import (
     release_enqueue_claim,
     try_claim_enqueue_slot,
 )
-from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
+from products.replay_vision.backend.models.replay_observation import (
+    TERMINAL_STATUSES,
+    ObservationTrigger,
+    ReplayObservation,
+)
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.quota import compute_quota_snapshot
 from products.replay_vision.backend.temporal.constants import (
@@ -48,6 +52,8 @@ class WorkflowStartOutcome(enum.Enum):
     STARTED = "started"
     # A workflow with our deterministic id is already running — the scan is effectively in progress.
     ALREADY_RUNNING = "already_running"
+    # A settled observation already holds this (scanner, session) slot, so nothing was started.
+    ALREADY_SCANNED = "already_scanned"
     # The atomic enqueue-slot claim was refused: the in-flight caps have no headroom.
     CAPPED = "capped"
     FAILED = "failed"
@@ -117,6 +123,14 @@ def claim_apply_scanner_slot(
     return workflow_id, True
 
 
+def _is_already_scanned(scanner: ReplayScanner, session_id: str, finished_sessions: frozenset[str] | None) -> bool:
+    if finished_sessions is not None:
+        return session_id in finished_sessions
+    return ReplayObservation.objects.filter(
+        scanner_id=scanner.id, session_id=session_id, status__in=TERMINAL_STATUSES
+    ).exists()
+
+
 def start_apply_scanner_workflow(
     scanner: ReplayScanner,
     session_id: str,
@@ -125,10 +139,20 @@ def start_apply_scanner_workflow(
     trigger: ObservationTrigger,
     team_in_flight_rows: int | None = None,
     scanner_in_flight_rows: int | None = None,
+    finished_sessions: frozenset[str] | None = None,
     slot_already_claimed: bool = False,
 ) -> tuple[str, WorkflowStartOutcome]:
     """Start the deterministic apply-scanner workflow for one (scanner, session); never raises.
     An atomic enqueue-slot claim guards the in-flight caps; pass row counts to save two queries."""
+    # A settled observation holds the (scanner, session) slot for good, so starting a workflow would
+    # burn a run only to lose the INSERT in create_observation and hand back the row we can already
+    # see. Checked here rather than in each caller so a new one gets it by default; batch callers pass
+    # `finished_sessions` to answer it for the whole batch in one query, the same way they pass row
+    # counts. Skipped when the caller pre-claimed a slot: that is retry, which deleted the settled row
+    # to free this slot and means to scan again. Returning before the claim also keeps this exit from
+    # having a claim to leak.
+    if not slot_already_claimed and _is_already_scanned(scanner, session_id, finished_sessions):
+        return build_apply_scanner_workflow_id(scanner.id, session_id), WorkflowStartOutcome.ALREADY_SCANNED
     if slot_already_claimed:
         workflow_id = build_apply_scanner_workflow_id(scanner.id, session_id)
     else:

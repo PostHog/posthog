@@ -64,16 +64,7 @@
         "bin/**"
     ],
     "smoke_subset": ["playwright/e2e/auth.spec.ts"],
-    "scenes_smoke_only": [
-        "billing",
-        "groups",
-        "heatmaps",
-        "hog-functions",
-        "inbox",
-        "integrations",
-        "max",
-        "web-analytics"
-    ],
+    "scenes_smoke_only": ["billing", "groups", "hog-functions", "inbox", "integrations", "max", "web-analytics"],
     "products": {
         "posthog_ai": ["products/posthog_ai/frontend/e2e/"],
         "replay": ["products/replay/frontend/e2e/"],
@@ -128,6 +119,7 @@
         "feature-flags": ["playwright/e2e/feature-flags.spec.ts", "products/surveys/frontend/e2e/quickcreate.spec.ts"]
     },
     "explicit": {
+        "products/web_analytics/frontend/heatmaps/**": ["playwright/e2e/auth.spec.ts"],
         "products/feature_flags/frontend/**": ["playwright/e2e/feature-flags.spec.ts"],
         "products/product_analytics/frontend/**": ["playwright/e2e/product-analytics/"],
         "products/dashboards/frontend/**": [

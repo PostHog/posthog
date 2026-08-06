@@ -574,12 +574,12 @@ export interface ActivityLogApi {
 }
 
 export interface PaginatedActivityLogListApi {
-    count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
     results: ActivityLogApi[]
+    count?: number
 }
 
 /**
@@ -760,6 +760,13 @@ export interface ChangeRequestRejectApi {
     reason: string
 }
 
+export interface CommentSlackThreadRefApi {
+    /** Slack channel ID this discussion is mirrored to. */
+    channel_id: string
+    /** Deep link that opens the mirrored Slack thread. */
+    url: string
+}
+
 export interface CommentApi {
     readonly id: string
     readonly created_by: UserBasicApi
@@ -771,6 +778,8 @@ export interface CommentApi {
     is_task?: boolean
     /** The user who marked this task complete. Null for open tasks and non-task comments. */
     readonly completed_by: UserBasicApi | null
+    /** The Slack thread this comment's discussion is mirrored to, or null. Set only on a tracked thread-root comment; used to surface an 'Open in Slack' link and hide re-sending. */
+    readonly slack_thread: CommentSlackThreadRefApi | null
     /** @nullable */
     content?: string | null
     rich_content?: unknown
@@ -812,6 +821,8 @@ export interface PatchedCommentApi {
     is_task?: boolean
     /** The user who marked this task complete. Null for open tasks and non-task comments. */
     readonly completed_by?: UserBasicApi | null
+    /** The Slack thread this comment's discussion is mirrored to, or null. Set only on a tracked thread-root comment; used to surface an 'Open in Slack' link and hide re-sending. */
+    readonly slack_thread?: CommentSlackThreadRefApi | null
     /** @nullable */
     content?: string | null
     rich_content?: unknown
@@ -832,6 +843,43 @@ export interface PatchedCommentApi {
     readonly completed_at?: string | null
     /** @nullable */
     source_comment?: string | null
+}
+
+export interface SendCommentToSlackApi {
+    /** ID of the Slack integration (kind='slack') whose bot posts the thread. */
+    integration_id: number
+    /**
+     * Slack channel ID to create the mirrored thread in. The bot must be a member of the channel.
+     * @maxLength 255
+     */
+    channel_id: string
+}
+
+export interface CommentSlackThreadApi {
+    readonly id: string
+    /** Resource type of the mirrored discussion (e.g. Insight). */
+    readonly scope: string
+    /**
+     * ID of the resource the discussion is attached to.
+     * @nullable
+     */
+    readonly item_id: string | null
+    /** The thread-root comment whose replies mirror to the Slack thread. */
+    readonly source_comment: string
+    /** Slack integration used to post to and read from the thread. */
+    readonly integration: number
+    /** Slack channel the mirrored thread lives in. */
+    readonly slack_channel_id: string
+    /** Slack thread timestamp anchoring the mirrored thread. */
+    readonly slack_thread_ts: string
+    /**
+     * Slack workspace ID, used to route inbound replies back.
+     * @nullable
+     */
+    readonly slack_team_id: string | null
+    readonly created_at: string
+    /** User who mirrored the discussion. Null if since deleted. */
+    readonly created_by: UserBasicApi | null
 }
 
 export interface PinnedSceneTabApi {
@@ -952,12 +1000,20 @@ export type ActivityLogListParams = {
      */
     item_id?: string
     /**
+     * Sort by when the entry was created. Defaults to newest first. Use created_at for oldest first when polling for new entries, so a saved cursor picks up where the last request stopped.
+     *
+     * * `-created_at` - -created_at
+     * * `created_at` - created_at
+     * @minLength 1
+     */
+    ordering?: string
+    /**
      * Page number for pagination. When provided, uses page-based pagination ordered by most recent first.
      * @minimum 1
      */
     page?: number
     /**
-     * Number of results per page (default: 100, max: 1000). Only used with page-based pagination.
+     * Number of results per page (default: 100, max: 1000).
      * @minimum 1
      * @maximum 1000
      */
@@ -1019,6 +1075,7 @@ export type ActivityLogListParams = {
      * * `ExternalDataSource` - ExternalDataSource
      * * `ExternalDataSchema` - ExternalDataSchema
      * * `Evaluation` - Evaluation
+     * * `EvaluationDirectory` - EvaluationDirectory
      * * `LLMPrompt` - LLMPrompt
      * * `LLMPromptLabel` - LLMPromptLabel
      * * `LLMTrace` - LLMTrace
@@ -1110,6 +1167,7 @@ export const ActivityLogListScope = {
     ExternalDataSource: 'ExternalDataSource',
     ExternalDataSchema: 'ExternalDataSchema',
     Evaluation: 'Evaluation',
+    EvaluationDirectory: 'EvaluationDirectory',
     LLMPrompt: 'LLMPrompt',
     LLMPromptLabel: 'LLMPromptLabel',
     LLMTrace: 'LLMTrace',
@@ -1188,6 +1246,7 @@ export const ActivityLogListScope = {
  * * `ExternalDataSource` - ExternalDataSource
  * * `ExternalDataSchema` - ExternalDataSchema
  * * `Evaluation` - Evaluation
+ * * `EvaluationDirectory` - EvaluationDirectory
  * * `LLMPrompt` - LLMPrompt
  * * `LLMPromptLabel` - LLMPromptLabel
  * * `LLMTrace` - LLMTrace
@@ -1267,6 +1326,7 @@ export const ActivityLogListScopesItem = {
     ExternalDataSource: 'ExternalDataSource',
     ExternalDataSchema: 'ExternalDataSchema',
     Evaluation: 'Evaluation',
+    EvaluationDirectory: 'EvaluationDirectory',
     LLMPrompt: 'LLMPrompt',
     LLMPromptLabel: 'LLMPromptLabel',
     LLMTrace: 'LLMTrace',
@@ -1308,9 +1368,17 @@ export type AdvancedActivityLogsListParams = {
      */
     end_date?: string
     /**
+     * Keep the next link valid after the last entry, so the same cursor can be re-polled as new entries arrive. Only applies with oldest-first ordering. When following, stop on an empty results list rather than on a null next link.
+     */
+    follow?: boolean
+    /**
      * Reserved for future HogQL-based filtering.
      */
     hogql_filter?: string
+    /**
+     * Include the previous and new values of changed fields. Only applies when schema is ocsf. Values can contain the content of the changed object, which makes responses larger and sends that content to your security tool.
+     */
+    include_values?: boolean
     /**
      * Filter by client IP addresses. Accepts exact IPv4/IPv6 values or wildcard patterns using `*` (e.g. `203.0.113.*`). Multiple entries are OR-combined.
      */
@@ -1325,16 +1393,31 @@ export type AdvancedActivityLogsListParams = {
      */
     item_ids?: string[]
     /**
+     * Sort by when the entry was created. Defaults to newest first. Use created_at for oldest first when polling for new entries, so a saved cursor picks up where the last request stopped.
+     *
+     * * `-created_at` - -created_at
+     * * `created_at` - created_at
+     * @minLength 1
+     */
+    ordering?: string
+    /**
      * Page number for pagination. When provided, uses page-based pagination ordered by most recent first.
      * @minimum 1
      */
     page?: number
     /**
-     * Number of results per page (default: 100, max: 1000). Only used with page-based pagination.
+     * Number of results per page (default: 100, max: 1000).
      * @minimum 1
      * @maximum 1000
      */
     page_size?: number
+    /**
+     * Response format. Set to ocsf to return Open Cybersecurity Schema Framework events for ingestion into a security tool. Omit for the default PostHog format.
+     *
+     * * `ocsf` - ocsf
+     * @minLength 1
+     */
+    schema?: AdvancedActivityLogsListSchema
     /**
      * Filter by activity scopes (e.g. "FeatureFlag", "Insight").
      */
@@ -1361,6 +1444,13 @@ export type AdvancedActivityLogsListParams = {
      */
     was_impersonated?: boolean | null
 }
+
+export type AdvancedActivityLogsListSchema =
+    (typeof AdvancedActivityLogsListSchema)[keyof typeof AdvancedActivityLogsListSchema]
+
+export const AdvancedActivityLogsListSchema = {
+    Ocsf: 'ocsf',
+} as const
 
 export type ApprovalPoliciesListParams = {
     /**
@@ -1421,7 +1511,7 @@ export type CommentsListParams = {
      */
     kind?: CommentsListKind
     /**
-     * Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay).
+     * Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay). Support-ticket scopes (Ticket, conversations_ticket) additionally require ticket API scope access.
      * @minLength 1
      */
     scope?: string
