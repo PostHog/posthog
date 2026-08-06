@@ -3,7 +3,7 @@ import 'react-data-grid/lib/styles.css'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
 
 import {
@@ -1124,17 +1124,9 @@ const Content = ({
     isEmbeddedMode,
 }: any): JSX.Element | null => {
     const { selectedDirectSource } = useValues(sqlEditorLogic)
-    const [loadingSeconds, setLoadingSeconds] = useState(0)
-    const isLoading = responseLoading || insightLoading
-    useEffect(() => {
-        if (!isLoading) {
-            setLoadingSeconds(0)
-            return
-        }
-        const startedAt = Date.now()
-        const interval = setInterval(() => setLoadingSeconds(Math.floor((Date.now() - startedAt) / 1000)), 1000)
-        return () => clearInterval(interval)
-    }, [isLoading])
+    // dataNodeLogic's timer resets on every loadData dispatch, so a rerun issued while a
+    // query is still in flight restarts the count (a local isLoading-keyed timer wouldn't).
+    const { loadingTimeSeconds } = useValues(dataNodeLogic)
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
     const sortedRows = useMemo(() => {
@@ -1231,7 +1223,7 @@ const Content = ({
                     progress={progress}
                     suggestion={
                         // Only worth saying once the query is demonstrably slow.
-                        selectedDirectSource?.source_type === 'Motherduck' && loadingSeconds >= 60 ? (
+                        selectedDirectSource?.source_type === 'Motherduck' && loadingTimeSeconds >= 60 ? (
                             <p className="text-xs m-0 text-center">
                                 This query runs live on your MotherDuck database. Speed depends on its capacity and
                                 current load.
