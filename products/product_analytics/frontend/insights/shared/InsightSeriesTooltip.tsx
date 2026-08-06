@@ -25,6 +25,8 @@ import { ActionFilter, IntervalType } from '~/types'
 
 type InsightSeriesMetaBase = {
     action?: ActionFilter
+    /** Series name for rows without an `action` — formula series carry their formula label here. */
+    series_name?: string
     breakdown_value?: string | number | string[] | null
     compare_label?: SeriesDatum['compare_label']
     days?: string[]
@@ -99,8 +101,11 @@ function formatRowValue(
  *  (A, B, …) shown in the insight editor. */
 export type SeriesIdentification = 'none' | 'name' | 'letter-and-name'
 
+/** `SeriesDatum` plus the series name for rows whose meta has no `action` (formula series). */
+type TooltipSeriesDatum = SeriesDatum & { series_name?: string }
+
 interface SeriesLabelProps {
-    datum: SeriesDatum
+    datum: TooltipSeriesDatum
     breakdownFilter?: BreakdownFilter
     formatCompareLabel?: (label: string, dateLabel?: string) => string
     seriesIdentification: SeriesIdentification
@@ -172,7 +177,8 @@ export function SeriesLabel({
             <span className="opacity-50 shrink-0 inline-flex items-center">
                 {seriesLetter}
                 <span>
-                    {(datum.action ? getDisplayNameFromEntityFilter(datum.action) : null) ?? datum.label}&nbsp;·&nbsp;
+                    {(datum.action ? getDisplayNameFromEntityFilter(datum.action) : datum.series_name) ?? datum.label}
+                    &nbsp;·&nbsp;
                 </span>
             </span>
         ) : null
@@ -219,7 +225,7 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
     // Quill delivers one entry per series key; map to SeriesDatum so existing
     // formatting helpers (getDatumTitle, formatAggregationValue, etc.) stay reusable.
     const datumByKey = useMemo(() => {
-        const m = new Map<string, SeriesDatum>()
+        const m = new Map<string, TooltipSeriesDatum>()
         context.seriesData.forEach((entry, idx) => {
             const meta = (entry.series.meta ?? {}) as InsightSeriesMetaBase
             m.set(entry.series.key, {
@@ -231,6 +237,7 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
                 color: entry.color,
                 count: entry.value,
                 action: meta.action,
+                series_name: meta.series_name,
                 breakdown_value: meta.breakdown_value ?? undefined,
                 compare_label: meta.compare_label,
                 date_label: meta.days?.[context.dataIndex],
@@ -242,13 +249,16 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
 
     const seriesIdentification = useMemo((): SeriesIdentification => {
         // One entry per series entity — breakdown/compare rows of one series share its `order`.
+        // Formula series have no `action`, but their `order` still identifies the formula they
+        // came from, with `series_name` carrying the formula label.
         const nameByEntity = new Map<number | string, string>()
         for (const d of datumByKey.values()) {
-            if (!d.action) {
-                continue
+            if (d.action) {
+                const entityKey = d.action.order ?? `${d.action.type}:${d.action.id}`
+                nameByEntity.set(entityKey, getDisplayNameFromEntityFilter(d.action) ?? '')
+            } else if (d.series_name != null) {
+                nameByEntity.set(d.order, d.series_name)
             }
-            const entityKey = d.action.order ?? `${d.action.type}:${d.action.id}`
-            nameByEntity.set(entityKey, getDisplayNameFromEntityFilter(d.action) ?? '')
         }
         if (nameByEntity.size <= 1) {
             return 'none'

@@ -17,7 +17,10 @@ const BOOLEAN_BREAKDOWN_FILTER: BreakdownFilter = { breakdown: 'is_subscribed', 
 interface FixtureSeries {
     label: string
     data: number[]
-    event: string
+    /** Event name — omit for formula rows, which have no `action`. */
+    event?: string
+    /** Formula label carried as `series_name` for rows without an event. */
+    seriesName?: string
     seriesOrder: number
     breakdown_value: string
 }
@@ -33,7 +36,8 @@ function buildSeries(fixtures: FixtureSeries[]): {
         label: f.label,
         data: f.data,
         meta: {
-            action: { id: f.event, name: f.event, type: 'events', order: f.seriesOrder },
+            action: f.event ? { id: f.event, name: f.event, type: 'events', order: f.seriesOrder } : undefined,
+            series_name: f.seriesName,
             breakdown_value: f.breakdown_value,
             days: DAYS,
             order: f.seriesOrder,
@@ -137,6 +141,46 @@ export const SameEventSeriesWithBreakdown: Story = {
                     breakdown_value: 'true',
                 },
                 { label: 'false', data: [2, 4, 5, 9, 3], event: '$pageview', seriesOrder: 1, breakdown_value: 'false' },
+            ]}
+        />
+    ),
+    play: async ({ canvasElement }) => await playHoverAtFraction(canvasElement, 0.5),
+}
+
+// Formula series have no `action`; their `order` and `series_name` keep the repeated
+// breakdown values from separate formulas attributable.
+export const MultipleFormulasWithBreakdown: Story = {
+    render: () => (
+        <TooltipChart
+            fixtures={[
+                {
+                    label: 'true',
+                    data: [45, 82, 134, 210, 95],
+                    seriesName: 'Formula (A+B)',
+                    seriesOrder: 0,
+                    breakdown_value: 'true',
+                },
+                {
+                    label: 'false',
+                    data: [20, 31, 46, 70, 38],
+                    seriesName: 'Formula (A+B)',
+                    seriesOrder: 0,
+                    breakdown_value: 'false',
+                },
+                {
+                    label: 'true',
+                    data: [8, 12, 21, 30, 14],
+                    seriesName: 'Formula (A-B)',
+                    seriesOrder: 1,
+                    breakdown_value: 'true',
+                },
+                {
+                    label: 'false',
+                    data: [2, 4, 5, 9, 3],
+                    seriesName: 'Formula (A-B)',
+                    seriesOrder: 1,
+                    breakdown_value: 'false',
+                },
             ]}
         />
     ),

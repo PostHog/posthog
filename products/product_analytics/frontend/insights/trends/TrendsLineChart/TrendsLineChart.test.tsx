@@ -168,6 +168,24 @@ describe('TrendsLineChart', () => {
             expect(tooltip.row('Prickles')).toContain('1')
         })
 
+        it('prefixes rows with the formula name when multiple formulas share a breakdown', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                    trendsFilter: { formulas: ['A', 'A*2'] },
+                }),
+            })
+
+            await chart.clickAtIndex(2)
+
+            // Formula rows carry no `action`; their `order` is what keeps the repeated
+            // breakdown values from separate formulas attributable.
+            const tooltip = createInsightTooltipAccessor(chart.getTooltip()!)
+            expect(tooltip.row('Formula (A) · Spike')).toContain('3')
+            expect(tooltip.row('Formula (A*2) · Spike')).toContain('6')
+        })
+
         it('shows current and previous period rows in compare mode', async () => {
             renderInsight({
                 query: buildTrendsQuery({
