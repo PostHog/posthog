@@ -49,6 +49,7 @@ from posthog.models.integration import (
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
     Integration,
+    JiraIntegration,
     LinearIntegration,
     OauthIntegration,
     PostgreSQLIntegration,
@@ -231,6 +232,23 @@ class TestLinearIntegrationModel(BaseTest):
         assert attachment_variables["issueId"] == "LIN-123"
         assert attachment_variables["title"] == "PostHog issue"
         assert attachment_variables["url"].endswith(f'/project/{self.team.id}/error_tracking/issue-id" }} mutation {{')
+
+
+class TestJiraIntegrationModel:
+    @patch("posthog.models.integration.requests.post")
+    def test_create_issue_rejects_an_unsuccessful_response(self, mock_post):
+        mock_post.return_value.status_code = 400
+        mock_post.return_value.json.return_value = {"errorMessages": ["Issue type is not available"]}
+        integration = MagicMock(
+            kind=Integration.IntegrationKind.JIRA,
+            config={"cloud_id": "cloud-id"},
+            sensitive_config={"access_token": "access-token"},
+        )
+
+        with pytest.raises(ValidationError, match="Could not create the Jira issue"):
+            JiraIntegration(integration).create_issue(
+                {"project_key": "ENG", "title": "Checkout failed", "description": "Details"}
+            )
 
 
 class TestOauthIntegrationModel(BaseTest):

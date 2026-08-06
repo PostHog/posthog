@@ -3263,8 +3263,15 @@ class JiraIntegration:
             timeout=10,
         )
 
+        error_message = "Could not create the Jira issue. Check the project's issue settings and try again."
+        if response.status_code != 201:
+            raise ValidationError(error_message)
+
         issue = response.json()
-        return {"key": issue.get("key", ""), "id": issue.get("id", "")}
+        if not issue.get("key"):
+            raise ValidationError(error_message)
+
+        return {"key": issue["key"], "id": issue.get("id", "")}
 
 
 # Default branches change rarely; a multi-hour TTL is plenty to avoid hitting
