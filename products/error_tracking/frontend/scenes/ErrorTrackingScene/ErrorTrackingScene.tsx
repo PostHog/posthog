@@ -61,7 +61,7 @@ export function ErrorTrackingScene(): JSX.Element {
 
     useOnMountEffect(() => {
         const utmSource = new URLSearchParams(window.location.search).get('utm_source')
-        api.hogFunctions
+        void api.hogFunctions
             .list({
                 types: ['internal_destination'],
                 filter_groups: ERROR_TRACKING_ALERT_FILTER_GROUPS,
@@ -73,6 +73,10 @@ export function ErrorTrackingScene(): JSX.Element {
                     ...(utmSource ? { utm_source: utmSource } : {}),
                 })
             })
+            // Without this, a rejection escapes the mount effect as an unhandled error and takes
+            // the scene down. The destination count only decorates an analytics event, so failing
+            // to fetch it should stay invisible to the user while still being reported to us.
+            .catch((e) => posthog.captureException(e))
     })
 
     const tabs: LemonTab<ErrorTrackingSceneActiveTab>[] = [
