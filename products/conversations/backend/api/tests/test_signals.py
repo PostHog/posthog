@@ -156,6 +156,19 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.message_count == 0  # Not -1
         assert self.ticket.unread_customer_count == 0  # Not -1
 
+    def test_first_response_at_stamped_once_by_first_team_reply(self, mock_on_commit):
+        self._create_customer_message("customer first")
+        self.ticket.refresh_from_db()
+        assert self.ticket.first_response_at is None
+
+        first_reply = self._create_team_message("first reply")
+        self.ticket.refresh_from_db()
+        assert self.ticket.first_response_at == first_reply.created_at
+
+        self._create_team_message("second reply")
+        self.ticket.refresh_from_db()
+        assert self.ticket.first_response_at == first_reply.created_at
+
     def test_non_conversations_comment_ignored(self, mock_on_commit):
         # Comment for a different scope (e.g., recordings)
         Comment.objects.create(
@@ -188,6 +201,7 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.last_message_at is None  # Not updated
         assert self.ticket.last_message_text is None  # Not updated
         assert self.ticket.unread_customer_count == 0  # Not incremented
+        assert self.ticket.first_response_at is None  # Internal notes are not a response
 
     def test_private_message_does_not_affect_existing_last_message(self, mock_on_commit):
         """A private message sent after a public message should not change last_message_text."""
