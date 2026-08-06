@@ -168,7 +168,7 @@ separate project.
 | test.yml | desktop-test.yml | gating: `workflow_call` child of desktop-ci.yml + `Desktop Tests Pass`; live-gateway e2e kept with `POSTHOG_CODE_E2E_*` org secrets |
 | code-storybook.yml | _(not ported)_ | removed post-merge: the code-signed VR baseline flagged every story as new from this repo (see the Visual Review baseline note). Do not re-port on resync unless VR is re-registered against posthog/posthog first |
 | code-build-test.yml | desktop-build-test.yml | `workflow_dispatch` only; the source's `refactor/electron-vite` push trigger is a code-repo branch and is dropped |
-| code-release.yml | desktop-release.yml | tags `desktop-v*`; legacy publishing to PostHog/code releases kept (see below) |
+| code-release.yml | desktop-release.yml | tags `desktop-v*`; manual dispatch accepts an existing desktop tag; legacy publishing to PostHog/code releases kept (see below) |
 | code-tag.yml | desktop-tag.yml | computes and pushes `desktop-v*` tags; quiet-period check and patch count scoped `-- products/desktop/` (monorepo master always has fresh commits; unscoped counts would be meaningless) |
 | code-update-e2e.yml | desktop-update-e2e.yml | nightly + dispatch; the source's temporary push trigger for `test/macos-auto-update-e2e` is dropped (code-repo branch, and default-only triggers exempt its caches from the cache-write lint) |
 | cleanup-draft-releases.yml | desktop-cleanup-draft-releases.yml | targets PostHog/code explicitly via the releaser app token: `github.repository` is now the monorepo, whose drafts belong to other products |
