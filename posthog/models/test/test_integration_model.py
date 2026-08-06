@@ -235,20 +235,45 @@ class TestLinearIntegrationModel(BaseTest):
 
 
 class TestJiraIntegrationModel:
-    @patch("posthog.models.integration.requests.post")
-    def test_create_issue_rejects_an_unsuccessful_response(self, mock_post):
-        mock_post.return_value.status_code = 400
-        mock_post.return_value.json.return_value = {"errorMessages": ["Issue type is not available"]}
-        integration = MagicMock(
+    @staticmethod
+    def integration() -> MagicMock:
+        return MagicMock(
             kind=Integration.IntegrationKind.JIRA,
             config={"cloud_id": "cloud-id"},
             sensitive_config={"access_token": "access-token"},
         )
 
-        with pytest.raises(ValidationError, match="Could not create the Jira issue"):
-            JiraIntegration(integration).create_issue(
+    @patch("posthog.models.integration.requests.post")
+    def test_create_issue_exposes_structured_error_details(self, mock_post):
+        mock_post.return_value.status_code = 400
+        mock_post.return_value.json.return_value = {
+            "errorMessages": ["Issue type is not available"],
+            "errors": {"summary": "Summary is required"},
+        }
+
+        with pytest.raises(ValidationError) as error:
+            JiraIntegration(self.integration()).create_issue(
                 {"project_key": "ENG", "title": "Checkout failed", "description": "Details"}
             )
+
+        assert error.value.detail[0] == (
+            "Could not create the Jira issue. Check the project's issue settings and try again. "
+            "Jira reported: Issue type is not available; summary: Summary is required"
+        )
+
+    @patch("posthog.models.integration.requests.post")
+    def test_create_issue_uses_safe_fallback_for_non_json_error(self, mock_post):
+        mock_post.return_value.status_code = 502
+        mock_post.return_value.json.side_effect = ValueError
+
+        with pytest.raises(ValidationError) as error:
+            JiraIntegration(self.integration()).create_issue(
+                {"project_key": "ENG", "title": "Checkout failed", "description": "Details"}
+            )
+
+        assert error.value.detail[0] == (
+            "Could not create the Jira issue. Check the project's issue settings and try again."
+        )
 
 
 class TestOauthIntegrationModel(BaseTest):

@@ -3201,6 +3201,28 @@ class JiraIntegration:
         except Exception:
             logger.warning("JiraIntegration: token refresh pre-check failed", exc_info=True)
 
+    @staticmethod
+    def _create_issue_error_message(response_body: Any) -> str:
+        fallback = "Could not create the Jira issue. Check the project's issue settings and try again."
+        if not isinstance(response_body, dict):
+            return fallback
+
+        error_messages = response_body.get("errorMessages", [])
+        details = (
+            [message for message in error_messages if isinstance(message, str)]
+            if isinstance(error_messages, list)
+            else []
+        )
+        field_errors = response_body.get("errors", {})
+        if isinstance(field_errors, dict):
+            details.extend(
+                f"{field}: {message}"
+                for field, message in field_errors.items()
+                if isinstance(field, str) and isinstance(message, str)
+            )
+
+        return f"{fallback} Jira reported: {'; '.join(details)}" if details else fallback
+
     def list_projects(self) -> list[dict]:
         """List all Jira projects accessible to the user"""
         cloud_id = self.cloud_id()
@@ -3263,13 +3285,16 @@ class JiraIntegration:
             timeout=10,
         )
 
-        error_message = "Could not create the Jira issue. Check the project's issue settings and try again."
-        if response.status_code != 201:
-            raise ValidationError(error_message)
+        try:
+            issue = response.json()
+        except ValueError:
+            issue = {}
 
-        issue = response.json()
+        if response.status_code != 201:
+            raise ValidationError(self._create_issue_error_message(issue))
+
         if not issue.get("key"):
-            raise ValidationError(error_message)
+            raise ValidationError(self._create_issue_error_message(issue))
 
         return {"key": issue["key"], "id": issue.get("id", "")}
 
