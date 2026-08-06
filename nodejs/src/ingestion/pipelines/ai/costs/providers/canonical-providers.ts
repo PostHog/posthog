@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-05 10:49:48 UTC
+// Generated at: 2026-08-06 10:52:10 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -167,7 +167,7 @@ export type CanonicalProvider =
     | 'tencent-fp8'
     | 'together'
     | 'together-fp8'
-    | 'upstage'
+    | 'upstage-fp4'
     | 'venice'
     | 'venice-bf16'
     | 'venice-fp16'

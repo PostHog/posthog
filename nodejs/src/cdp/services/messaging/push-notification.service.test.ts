@@ -67,6 +67,7 @@ describe('PushNotificationService', () => {
     let redisStore: Map<string, string>
     let mockRedisSet: jest.Mock
     let mockRedis: any
+    let mockValkey: any
 
     const mockTrackedFetch = jest.fn()
 
@@ -105,7 +106,21 @@ describe('PushNotificationService', () => {
             ),
         } as any
 
-        service = new PushNotificationService(integrationManager, encryptedFields, fetchUtils, mockRedis)
+        // Backed by its own store so mirror writes never show up in `mockRedisSet` assertions.
+        const valkeyStore = new Map<string, string>()
+        mockValkey = {
+            useClient: jest.fn((_opts: any, fn: any) =>
+                fn({
+                    get: (key: string) => valkeyStore.get(key) ?? null,
+                    set: (key: string, value: string) => {
+                        valkeyStore.set(key, value)
+                        return 'OK'
+                    },
+                })
+            ),
+        } as any
+
+        service = new PushNotificationService(integrationManager, encryptedFields, fetchUtils, mockRedis, mockValkey)
     })
 
     afterEach(() => {
@@ -293,6 +308,7 @@ describe('PushNotificationService', () => {
                     encryptedFields,
                     fetchUtils,
                     mockRedis,
+                    mockValkey,
                     new MessageAssetsService({ produce: jest.fn() } as any)
                 )
             })
@@ -354,6 +370,7 @@ describe('PushNotificationService', () => {
                     encryptedFields,
                     fetchUtils,
                     mockRedis,
+                    mockValkey,
                     {
                         buildRowForPush: () => {
                             throw new Error('boom')
@@ -672,7 +689,6 @@ describe('PushNotificationService', () => {
                 encryptedFields,
                 fetchUtils,
                 mockRedis,
-                undefined,
                 mirrorRedis
             )
             mockTrackedFetch.mockResolvedValue({
