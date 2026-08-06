@@ -295,8 +295,8 @@ jobs:
         name: Integration Tests (depot-ubuntu-24.04-4)
         runs-on: depot-ubuntu-24.04-4
         needs: changes
-        # Sized for the schema-cache miss path (~20 min migrate + ~11 min tests):
-        # fork PRs can't read Depot Cache, so they always miss.
+        # Sized for the schema-cache miss path (~20 min migrate + ~11 min tests),
+        # not just a hit.
         timeout-minutes: 45
         # Skipped on drafts: these boot the full PostHog backend and trigger on any
         # non-pytest Python change, so they're the expensive half of this workflow.
