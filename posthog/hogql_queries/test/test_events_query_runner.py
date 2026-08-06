@@ -867,7 +867,15 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, CachedEventsQueryResponse)
         assert response.results[0][2] == "Organic Social"
 
-    def test_orderby_person_display_name_field(self):
+    @parameterized.expand(
+        [
+            # DataTable.tsx sends ascending sort with no suffix at all, and
+            # descending sort as the column joined with a literal newline before DESC.
+            ("ascending, no suffix", "person_display_name -- Person", "user2@email.com"),
+            ("descending, newline before DESC", "person_display_name -- Person\n DESC", "user@email.com"),
+        ]
+    )
+    def test_orderby_person_display_name_field(self, _name: str, order_by: str, expected_first_display_name: str):
         _create_person(
             team_id=self.team.pk,
             distinct_ids=["id_email", "id_anon"],
@@ -908,14 +916,14 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = EventsQuery(
             kind="EventsQuery",
             select=["event", "person_display_name -- Person"],
-            orderBy=["person_display_name -- Person  DESC"],
+            orderBy=[order_by],
         )
         runner = EventsQueryRunner(query=query, team=self.team)
         response = runner.run()
         assert isinstance(response, CachedEventsQueryResponse)
         # Should use default display name property (email)
         display_names = [row[1]["display_name"] for row in response.results]
-        assert display_names[0] == "user@email.com"
+        assert display_names[0] == expected_first_display_name
 
     def test_presorted_pagination_does_not_double_offset(self):
         self._create_events(

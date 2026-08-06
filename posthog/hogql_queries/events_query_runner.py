@@ -391,8 +391,8 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                             )
                             props = person_display_name_property_exprs(property_keys, "person.properties")
                             expr = f"(coalesce({', '.join([*props, 'distinct_id'])}), toString(person.id))"
-                            newCol = re.sub(r"person_display_name -- Person ", expr, col)
-                            columns.append(newCol)
+                            direction = "DESC" if re.search(r"\bDESC\s*$", col, re.IGNORECASE) else ""
+                            columns.append(f"{expr} {direction}".strip())
                         else:
                             columns.append(col)
                     order_by = [parse_order_expr(column, timings=self.timings) for column in columns]
