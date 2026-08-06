@@ -1,15 +1,12 @@
-.ErrorTrackingIssue {
-    .ErrorTrackingIssue__search .quill-input-group {
-        background-color: color-mix(in oklab, var(--muted) 30%, transparent);
-        border-color: color-mix(in oklab, var(--foreground) 10%, transparent);
-    }
+@layer components {
+    .ErrorTrackingIssue {
+        .quill-tabs__list--variant-line .quill-tabs__trigger[data-active] {
+            background-color: rgb(0 0 0 / 0%) !important;
+        }
 
-    // Needed for the NotFound state inside SessionRecordingPlayer
-    .NotFoundComponent {
-        margin: 0 auto;
+        // Needed for the NotFound state inside SessionRecordingPlayer
+        .NotFoundComponent {
+            margin: 0 auto;
+        }
     }
-}
-
-:is(.dark, [theme='dark']) .ErrorTrackingIssue .ErrorTrackingIssue__search .quill-input-group {
-    border-color: color-mix(in oklab, var(--foreground) 15%, transparent);
 }

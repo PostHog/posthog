@@ -52,23 +52,25 @@ export function ErrorTrackingStatusSelect({
     disabledReason,
 }: ErrorTrackingStatusSelectProps): JSX.Element {
     return (
-        <LemonSelect
-            fullWidth={fullWidth}
-            size={size}
-            disabled={disabled}
-            disabledReason={disabledReason}
-            value={value}
-            onChange={(next) => {
-                if (next) {
-                    onChange(next)
-                }
-            }}
-            placeholder="Select status"
-            options={STATUS_OPTIONS.map((key) => ({
-                value: key,
-                label: statusOptionLabel(key),
-            }))}
-        />
+        <div className="contents">
+            <LemonSelect
+                fullWidth={fullWidth}
+                size={size}
+                disabled={disabled}
+                disabledReason={disabledReason}
+                value={value}
+                onChange={(next) => {
+                    if (next) {
+                        onChange(next)
+                    }
+                }}
+                placeholder="Select status"
+                options={STATUS_OPTIONS.map((key) => ({
+                    value: key,
+                    label: statusOptionLabel(key),
+                }))}
+            />
+        </div>
     )
 }
 

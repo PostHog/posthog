@@ -1,5 +1,6 @@
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
+import { IconChevronDown } from '@posthog/icons'
+
+import { Button } from 'lib/ui/quill'
 
 import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
 
@@ -8,24 +9,20 @@ import { AssigneeSelect } from '../../../components/Assignee/AssigneeSelect'
 
 export const IssueAssigneeSelect = ({
     assignee,
-    disabled,
     onChange,
 }: {
     assignee: ErrorTrackingIssueAssignee | null
-    disabled: boolean
     onChange: (assignee: ErrorTrackingIssueAssignee | null) => void
 }): JSX.Element => {
     return (
-        <div>
+        <div data-quill>
             <AssigneeSelect assignee={assignee} onChange={onChange}>
                 {(anyAssignee, isOpen) => (
-                    <ButtonPrimitive disabled={disabled} data-state={isOpen ? 'open' : 'closed'}>
-                        <div className="flex items-center">
-                            <AssigneeIconDisplay assignee={anyAssignee} size="small" />
-                            <AssigneeLabelDisplay assignee={anyAssignee} className="ml-1" size="small" />
-                        </div>
-                        {!disabled && <MenuOpenIndicator className="ml-auto" />}
-                    </ButtonPrimitive>
+                    <Button variant="default" size="default" data-state={isOpen ? 'open' : 'closed'}>
+                        <AssigneeIconDisplay assignee={anyAssignee} size="small" />
+                        <AssigneeLabelDisplay assignee={anyAssignee} size="small" />
+                        <IconChevronDown />
+                    </Button>
                 )}
             </AssigneeSelect>
         </div>
