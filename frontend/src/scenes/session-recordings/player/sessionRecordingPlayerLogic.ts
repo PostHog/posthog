@@ -33,6 +33,7 @@ import {
 } from '@posthog/replay-shared'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -3202,8 +3203,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // Reload the recording metadata to get the updated external_references
                 actions.loadRecordingData()
             } catch (error) {
-                lemonToast.error('Failed to create issue. Please try again.')
-                throw error
+                // Surface the issue tracker's own reason (e.g. a required field it rejected) rather
+                // than a generic message, so the user knows what to fix.
+                const detail = error instanceof ApiError ? error.detail : null
+                lemonToast.error(detail || 'Failed to create issue. Please try again.')
             }
         },
     })),

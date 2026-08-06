@@ -3202,6 +3202,16 @@ class JiraIntegration:
             logger.warning("JiraIntegration: token refresh pre-check failed", exc_info=True)
 
     def _raise_create_issue_error(self, response: requests.Response, response_body: Any) -> NoReturn:
+        error_messages: list[str] = []
+        field_errors: dict[str, str] = {}
+        if isinstance(response_body, dict):
+            raw_messages = response_body.get("errorMessages")
+            if isinstance(raw_messages, list):
+                error_messages = [str(message) for message in raw_messages if message]
+            raw_field_errors = response_body.get("errors")
+            if isinstance(raw_field_errors, dict):
+                field_errors = {str(field): str(message) for field, message in raw_field_errors.items() if message}
+
         properties: dict[str, Any] = {
             "jira_status_code": response.status_code,
             "jira_response_content_type": response.headers.get("Content-Type"),
@@ -3218,6 +3228,12 @@ class JiraIntegration:
             )
 
         capture_exception(Exception("Jira issue creation failed"), additional_properties=properties)
+
+        # Surface Jira's own diagnosis (e.g. a required custom field it rejected) so the user can
+        # fix the offending field instead of hitting an opaque "check your settings" dead end.
+        detail_parts = [*error_messages, *field_errors.values()]
+        if detail_parts:
+            raise ValidationError(f"Jira couldn't create the issue: {' '.join(detail_parts)}")
         raise ValidationError("Could not create the Jira issue. Check the project's issue settings and try again.")
 
     def list_projects(self) -> list[dict]:

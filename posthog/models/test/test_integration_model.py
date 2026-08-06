@@ -261,7 +261,7 @@ class TestJiraIntegrationModel:
             )
 
         assert error.value.args[0] == (
-            "Could not create the Jira issue. Check the project's issue settings and try again."
+            "Jira couldn't create the issue: Issue type is not available Summary is required"
         )
         captured_error = mock_capture_exception.call_args.args[0]
         assert str(captured_error) == "Jira issue creation failed"
