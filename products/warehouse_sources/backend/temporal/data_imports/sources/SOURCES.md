@@ -421,6 +421,7 @@ the row lists both.
 | monday                           | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | mongodb                          | DB protocol                 | pymongo                                                         | ➖                          |
 | monte_carlo                      | HTTP (GraphQL)              | requests                                                        | ✅                          |
+| motherduck                       | DB protocol                 | duckdb (MotherDuck `md:` connection)                            | ➖                          |
 | mssql                            | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
 | mux                              | HTTP                        | requests                                                        | ✅                          |
 | my_hours                         | HTTP                        | requests                                                        | ✅                          |
@@ -492,6 +493,7 @@ the row lists both.
 | pipedrive                        | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | pipeliner                        | HTTP                        | requests                                                        | ✅                          |
 | plain                            | HTTP                        | requests                                                        | ✅                          |
+| planetscale                      | DB protocol                 | pymysql (delegates to MySQLSource)                              | ➖                          |
 | planhat                          | HTTP                        | requests                                                        | ✅                          |
 | platform_sh                      | HTTP                        | requests                                                        | ✅                          |
 | plausible                        | HTTP                        | requests                                                        | ✅                          |
@@ -1149,7 +1151,6 @@ doesn't conflict with concurrent PRs.
 - moneybird
 - mono
 - moodle
-- motherduck
 - motion
 - moxie
 - mycase
@@ -1215,7 +1216,6 @@ doesn't conflict with concurrent PRs.
 - pipeliner
 - pivotal_tracker
 - piwik
-- planetscale
 - planning_center
 - plunk
 - pluralsight_flow
