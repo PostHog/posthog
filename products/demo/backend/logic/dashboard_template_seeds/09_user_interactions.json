@@ -259,6 +259,47 @@
             "description": "Repeated fast clicks in one spot. Usually something is slow rather than broken."
         },
         {
+            "name": "Clicks that go nowhere",
+            "type": "INSIGHT",
+            "color": null,
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "-- One row per thing people click, ranked by how often the click does nothing.\n-- Element type walks to the first useful ancestor tag, so an icon click counts\n-- against the control around it rather than against the svg.\nSELECT\n    properties.$pathname AS page,\n    if(length(elements_chain_elements) > 0, toString(elements_chain_elements[1]), 'other') AS element_type,\n    nullIf(properties.$el_text, '') AS element_text,\n    countIf(event = '$dead_click') AS dead_clicks,\n    countIf(event = '$autocapture') AS working_clicks,\n    round(100 * countIf(event = '$dead_click') / count(), 1) AS dead_pct,\n    uniq(person_id) AS people\nFROM events\nWHERE event IN ('$dead_click', '$autocapture')\n    AND timestamp >= now() - INTERVAL 7 DAY\nGROUP BY page, element_type, element_text\nHAVING dead_clicks > 10\nORDER BY dead_clicks DESC\nLIMIT 30",
+                    "filters": {
+                        "dateRange": null,
+                        "properties": null,
+                        "filterTestAccounts": null
+                    },
+                    "variables": {}
+                },
+                "display": "ActionsTable",
+                "tableSettings": {
+                    "conditionalFormatting": []
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 4,
+                    "minH": 8,
+                    "minW": 3
+                },
+                "xs": {
+                    "h": 8,
+                    "w": 1,
+                    "x": 0,
+                    "y": 16,
+                    "minH": 8,
+                    "minW": 3
+                }
+            },
+            "description": "One row per thing people click, worst first. A high share on a button or input is usually a bug. On text and plain containers it is usually just people clicking around."
+        },
+        {
             "name": "Interactions over time",
             "type": "INSIGHT",
             "color": "blue",
@@ -292,7 +333,7 @@
                     "h": 5,
                     "w": 6,
                     "x": 0,
-                    "y": 4,
+                    "y": 12,
                     "minH": 5,
                     "minW": 3
                 },
@@ -300,7 +341,7 @@
                     "h": 5,
                     "w": 1,
                     "x": 0,
-                    "y": 16,
+                    "y": 24,
                     "minH": 5,
                     "minW": 3
                 }
@@ -341,7 +382,7 @@
                     "h": 5,
                     "w": 6,
                     "x": 6,
-                    "y": 4,
+                    "y": 12,
                     "minH": 5,
                     "minW": 3
                 },
@@ -349,7 +390,7 @@
                     "h": 5,
                     "w": 1,
                     "x": 0,
-                    "y": 21,
+                    "y": 29,
                     "minH": 5,
                     "minW": 3
                 }
@@ -357,58 +398,45 @@
             "description": "A spike usually points at something that got slower, not something that broke."
         },
         {
-            "name": "Dead clicks by element type",
+            "name": "Links, downloads and contact clicks",
             "type": "INSIGHT",
-            "color": "red",
+            "color": null,
             "query": {
-                "kind": "InsightVizNode",
+                "kind": "DataVisualizationNode",
                 "source": {
-                    "kind": "TrendsQuery",
-                    "series": [
-                        {
-                            "kind": "EventsNode",
-                            "event": "$dead_click",
-                            "name": "$dead_click",
-                            "math": "total"
-                        }
-                    ],
-                    "interval": "day",
-                    "dateRange": {
-                        "date_from": "-30d",
-                        "explicitDate": false
+                    "kind": "HogQLQuery",
+                    "query": "-- Every link click, with downloads and contact links called out.\n-- Autocapture records the href, so none of this needs its own tracking code.\nSELECT\n    multiIf(\n        match(elements_chain_href, '^(mailto|tel):'), 'Contact',\n        match(elements_chain_href, '\\\\.(pdf|csv|zip|xlsx?|docx?|pptx?|dmg|exe|pkg)($|\\\\?)'), 'Download',\n        'Link') AS link_type,\n    elements_chain_href AS destination,\n    count() AS clicks,\n    uniq(person_id) AS people\nFROM events\nWHERE event = '$autocapture'\n    AND timestamp >= now() - INTERVAL 30 DAY\n    AND elements_chain_href != ''\nGROUP BY link_type, destination\nORDER BY clicks DESC\nLIMIT 30",
+                    "filters": {
+                        "dateRange": null,
+                        "properties": null,
+                        "filterTestAccounts": null
                     },
-                    "properties": [],
-                    "trendsFilter": {
-                        "display": "ActionsBarValue",
-                        "showLegend": false
-                    },
-                    "filterTestAccounts": false,
-                    "breakdownFilter": {
-                        "breakdown": "if(length(elements_chain_elements) > 0, toString(elements_chain_elements[1]), 'other')",
-                        "breakdown_type": "hogql",
-                        "breakdown_limit": 15
-                    }
+                    "variables": {}
+                },
+                "display": "ActionsTable",
+                "tableSettings": {
+                    "conditionalFormatting": []
                 }
             },
             "layouts": {
                 "sm": {
-                    "h": 5,
-                    "w": 6,
+                    "h": 8,
+                    "w": 12,
                     "x": 0,
-                    "y": 9,
-                    "minH": 5,
+                    "y": 17,
+                    "minH": 8,
                     "minW": 3
                 },
                 "xs": {
-                    "h": 5,
+                    "h": 8,
                     "w": 1,
                     "x": 0,
-                    "y": 26,
-                    "minH": 5,
+                    "y": 34,
+                    "minH": 8,
                     "minW": 3
                 }
             },
-            "description": "Dead clicks on a button or input are usually a bug. On text, table cells, and plain containers they are usually just people clicking around."
+            "description": "Every link click by destination, with documents and email or phone links called out. None of this needs its own tracking code."
         },
         {
             "name": "Dead clicks by browser",
@@ -448,8 +476,8 @@
                 "sm": {
                     "h": 5,
                     "w": 6,
-                    "x": 6,
-                    "y": 9,
+                    "x": 0,
+                    "y": 25,
                     "minH": 5,
                     "minW": 3
                 },
@@ -457,128 +485,12 @@
                     "h": 5,
                     "w": 1,
                     "x": 0,
-                    "y": 31,
+                    "y": 42,
                     "minH": 5,
                     "minW": 3
                 }
             },
             "description": "If one browser stands out, the cause is probably browser specific rather than a broken component."
-        },
-        {
-            "name": "Pages with the most dead clicks",
-            "type": "INSIGHT",
-            "color": "red",
-            "query": {
-                "kind": "InsightVizNode",
-                "source": {
-                    "kind": "TrendsQuery",
-                    "series": [
-                        {
-                            "kind": "EventsNode",
-                            "event": "$dead_click",
-                            "name": "$dead_click",
-                            "math": "total"
-                        }
-                    ],
-                    "interval": "day",
-                    "dateRange": {
-                        "date_from": "-30d",
-                        "explicitDate": false
-                    },
-                    "properties": [],
-                    "trendsFilter": {
-                        "display": "ActionsBarValue",
-                        "showLegend": false
-                    },
-                    "filterTestAccounts": false,
-                    "breakdownFilter": {
-                        "breakdown": "$pathname",
-                        "breakdown_type": "event",
-                        "breakdown_limit": 15
-                    }
-                }
-            },
-            "layouts": {
-                "sm": {
-                    "h": 5,
-                    "w": 6,
-                    "x": 0,
-                    "y": 14,
-                    "minH": 5,
-                    "minW": 3
-                },
-                "xs": {
-                    "h": 5,
-                    "w": 1,
-                    "x": 0,
-                    "y": 36,
-                    "minH": 5,
-                    "minW": 3
-                }
-            },
-            "description": "Where to start looking, ranked by dead clicks on each page."
-        },
-        {
-            "name": "Elements that do nothing when clicked",
-            "type": "INSIGHT",
-            "color": "red",
-            "query": {
-                "kind": "InsightVizNode",
-                "source": {
-                    "kind": "TrendsQuery",
-                    "series": [
-                        {
-                            "kind": "EventsNode",
-                            "event": "$dead_click",
-                            "name": "$dead_click",
-                            "math": "total",
-                            "properties": [
-                                {
-                                    "key": "$el_text",
-                                    "type": "event",
-                                    "value": "is_set",
-                                    "operator": "is_set"
-                                }
-                            ]
-                        }
-                    ],
-                    "interval": "day",
-                    "dateRange": {
-                        "date_from": "-30d",
-                        "explicitDate": false
-                    },
-                    "properties": [],
-                    "trendsFilter": {
-                        "display": "ActionsBarValue",
-                        "showLegend": false
-                    },
-                    "filterTestAccounts": false,
-                    "breakdownFilter": {
-                        "breakdown": "$el_text",
-                        "breakdown_type": "event",
-                        "breakdown_limit": 15
-                    }
-                }
-            },
-            "layouts": {
-                "sm": {
-                    "h": 5,
-                    "w": 6,
-                    "x": 6,
-                    "y": 14,
-                    "minH": 5,
-                    "minW": 3
-                },
-                "xs": {
-                    "h": 5,
-                    "w": 1,
-                    "x": 0,
-                    "y": 41,
-                    "minH": 5,
-                    "minW": 3
-                }
-            },
-            "description": "Ranked by dead clicks. Elements with no text are left out."
         },
         {
             "name": "Most clicked elements",
@@ -626,8 +538,8 @@
                 "sm": {
                     "h": 5,
                     "w": 6,
-                    "x": 0,
-                    "y": 19,
+                    "x": 6,
+                    "y": 25,
                     "minH": 5,
                     "minW": 3
                 },
@@ -635,7 +547,7 @@
                     "h": 5,
                     "w": 1,
                     "x": 0,
-                    "y": 46,
+                    "y": 47,
                     "minH": 5,
                     "minW": 3
                 }
@@ -680,8 +592,8 @@
                 "sm": {
                     "h": 5,
                     "w": 6,
-                    "x": 6,
-                    "y": 19,
+                    "x": 0,
+                    "y": 30,
                     "minH": 5,
                     "minW": 3
                 },
@@ -689,7 +601,7 @@
                     "h": 5,
                     "w": 1,
                     "x": 0,
-                    "y": 51,
+                    "y": 52,
                     "minH": 5,
                     "minW": 3
                 }
@@ -734,70 +646,8 @@
                 "sm": {
                     "h": 5,
                     "w": 6,
-                    "x": 0,
-                    "y": 24,
-                    "minH": 5,
-                    "minW": 3
-                },
-                "xs": {
-                    "h": 5,
-                    "w": 1,
-                    "x": 0,
-                    "y": 56,
-                    "minH": 5,
-                    "minW": 3
-                }
-            },
-            "description": "What kinds of controls people use. Autocapture attributes an icon click to the control around it."
-        },
-        {
-            "name": "Most clicked links",
-            "type": "INSIGHT",
-            "color": "blue",
-            "query": {
-                "kind": "InsightVizNode",
-                "source": {
-                    "kind": "TrendsQuery",
-                    "series": [
-                        {
-                            "kind": "EventsNode",
-                            "event": "$autocapture",
-                            "name": "$autocapture",
-                            "math": "total",
-                            "properties": [
-                                {
-                                    "key": "href",
-                                    "type": "element",
-                                    "value": "is_set",
-                                    "operator": "is_set"
-                                }
-                            ]
-                        }
-                    ],
-                    "interval": "day",
-                    "dateRange": {
-                        "date_from": "-30d",
-                        "explicitDate": false
-                    },
-                    "properties": [],
-                    "trendsFilter": {
-                        "display": "ActionsBarValue",
-                        "showLegend": false
-                    },
-                    "filterTestAccounts": false,
-                    "breakdownFilter": {
-                        "breakdown": "elements_chain_href",
-                        "breakdown_type": "hogql",
-                        "breakdown_limit": 15
-                    }
-                }
-            },
-            "layouts": {
-                "sm": {
-                    "h": 5,
-                    "w": 6,
                     "x": 6,
-                    "y": 24,
+                    "y": 30,
                     "minH": 5,
                     "minW": 3
                 },
@@ -805,128 +655,12 @@
                     "h": 5,
                     "w": 1,
                     "x": 0,
-                    "y": 61,
+                    "y": 57,
                     "minH": 5,
                     "minW": 3
                 }
             },
-            "description": "Every link click by destination, with no link tracking to set up."
-        },
-        {
-            "name": "File downloads",
-            "type": "INSIGHT",
-            "color": "purple",
-            "query": {
-                "kind": "InsightVizNode",
-                "source": {
-                    "kind": "TrendsQuery",
-                    "series": [
-                        {
-                            "kind": "EventsNode",
-                            "event": "$autocapture",
-                            "name": "$autocapture",
-                            "math": "total",
-                            "custom_name": "Downloads",
-                            "properties": [
-                                {
-                                    "key": "href",
-                                    "type": "element",
-                                    "value": "\\.(pdf|csv|zip|xlsx?|docx?|pptx?|dmg|exe|pkg)($|\\?)",
-                                    "operator": "regex"
-                                }
-                            ]
-                        }
-                    ],
-                    "interval": "week",
-                    "dateRange": {
-                        "date_from": "-90d",
-                        "explicitDate": false
-                    },
-                    "properties": [],
-                    "trendsFilter": {
-                        "display": "ActionsLineGraph",
-                        "showLegend": false
-                    },
-                    "filterTestAccounts": false
-                }
-            },
-            "layouts": {
-                "sm": {
-                    "h": 5,
-                    "w": 6,
-                    "x": 0,
-                    "y": 29,
-                    "minH": 5,
-                    "minW": 3
-                },
-                "xs": {
-                    "h": 5,
-                    "w": 1,
-                    "x": 0,
-                    "y": 66,
-                    "minH": 5,
-                    "minW": 3
-                }
-            },
-            "description": "Clicks on links to documents and archives. Normally this needs its own tracking code."
-        },
-        {
-            "name": "Contact clicks",
-            "type": "INSIGHT",
-            "color": "purple",
-            "query": {
-                "kind": "InsightVizNode",
-                "source": {
-                    "kind": "TrendsQuery",
-                    "series": [
-                        {
-                            "kind": "EventsNode",
-                            "event": "$autocapture",
-                            "name": "$autocapture",
-                            "math": "total",
-                            "custom_name": "Contact clicks",
-                            "properties": [
-                                {
-                                    "key": "href",
-                                    "type": "element",
-                                    "value": "^(mailto|tel):",
-                                    "operator": "regex"
-                                }
-                            ]
-                        }
-                    ],
-                    "interval": "week",
-                    "dateRange": {
-                        "date_from": "-90d",
-                        "explicitDate": false
-                    },
-                    "properties": [],
-                    "trendsFilter": {
-                        "display": "ActionsLineGraph",
-                        "showLegend": false
-                    },
-                    "filterTestAccounts": false
-                }
-            },
-            "layouts": {
-                "sm": {
-                    "h": 5,
-                    "w": 6,
-                    "x": 6,
-                    "y": 29,
-                    "minH": 5,
-                    "minW": 3
-                },
-                "xs": {
-                    "h": 5,
-                    "w": 1,
-                    "x": 0,
-                    "y": 71,
-                    "minH": 5,
-                    "minW": 3
-                }
-            },
-            "description": "Clicks on email and phone links, a direct read on contact intent."
+            "description": "What kinds of controls people use. An icon click counts against the control around it."
         },
         {
             "name": "Form fields edited vs forms submitted",
@@ -986,7 +720,7 @@
                     "h": 5,
                     "w": 6,
                     "x": 0,
-                    "y": 34,
+                    "y": 35,
                     "minH": 5,
                     "minW": 3
                 },
@@ -994,7 +728,7 @@
                     "h": 5,
                     "w": 1,
                     "x": 0,
-                    "y": 76,
+                    "y": 62,
                     "minH": 5,
                     "minW": 3
                 }
@@ -1028,7 +762,7 @@
                     "h": 5,
                     "w": 6,
                     "x": 6,
-                    "y": 34,
+                    "y": 35,
                     "minH": 5,
                     "minW": 3
                 },
@@ -1036,7 +770,7 @@
                     "h": 5,
                     "w": 1,
                     "x": 0,
-                    "y": 81,
+                    "y": 67,
                     "minH": 5,
                     "minW": 3
                 }
