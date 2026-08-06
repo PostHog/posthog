@@ -116,7 +116,10 @@ def _top_level_source(
 ) -> Resource:
     rest_config: RESTAPIConfig = {
         "client": _client_config(api_key),
-        "resource_defaults": {},
+        # A collection with no rows 404s instead of returning `data: []` (seen on
+        # /learning-paths); retrying can't produce rows, so treat it like the empty-body
+        # case above and let the resource yield nothing rather than failing the sync.
+        "resource_defaults": {"endpoint": {"response_actions": [{"status_code": 404, "action": "ignore"}]}},
         "resources": [
             {
                 "name": endpoint,
@@ -170,7 +173,10 @@ def _fan_out_source(
 
     rest_config: RESTAPIConfig = {
         "client": _client_config(api_key),
-        "resource_defaults": {},
+        # Same "empty collection 404s instead of `data: []`" case as the top-level source: the
+        # parent enumeration below inherits this so an account with no parent rows fans out over
+        # zero parents instead of failing the sync outright.
+        "resource_defaults": {"endpoint": {"response_actions": [{"status_code": 404, "action": "ignore"}]}},
         "resources": [
             {
                 "name": parent_name,
