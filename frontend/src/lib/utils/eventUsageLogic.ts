@@ -1501,6 +1501,24 @@ export interface eventUsageLogicActions {
         isAIFirst: boolean
         itemCount: number
     }
+    reportOnboardingAIReportRemoved: (
+        role: string | null,
+        reportKey: string,
+        experimentArm: string | null
+    ) => {
+        experimentArm: string | null
+        reportKey: string
+        role: string | null
+    }
+    reportOnboardingAIReportSubscribed: (
+        role: string | null,
+        reportKey: string,
+        experimentArm: string | null
+    ) => {
+        experimentArm: string | null
+        reportKey: string
+        role: string | null
+    }
     reportOnboardingCompleted: (productKey: string) => {
         productKey: string
     }
@@ -2615,6 +2633,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportOnboardingStepSkipped: (stepKey: OnboardingStepKey, productKey?: string) => ({
             stepKey,
             productKey,
+        }),
+        reportOnboardingAIReportSubscribed: (role: string | null, reportKey: string, experimentArm: string | null) => ({
+            role,
+            reportKey,
+            experimentArm,
+        }),
+        reportOnboardingAIReportRemoved: (role: string | null, reportKey: string, experimentArm: string | null) => ({
+            role,
+            reportKey,
+            experimentArm,
         }),
         reportOnboardingCompleted: (productKey: string) => ({ productKey }),
         reportOnboardingUseCaseSelected: (useCase: string, recommendedProducts: readonly string[]) => ({
@@ -3982,6 +4010,22 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('onboarding step skipped', {
                 step_key: stepKey,
                 ...(productKey ? { product_key: productKey } : {}),
+                ...LEGACY_ONBOARDING_EVENT_PROPS,
+            })
+        },
+        reportOnboardingAIReportSubscribed: ({ role, reportKey, experimentArm }) => {
+            posthog.capture('onboarding ai report subscribed', {
+                role,
+                report_key: reportKey,
+                experiment_arm: experimentArm,
+                ...LEGACY_ONBOARDING_EVENT_PROPS,
+            })
+        },
+        reportOnboardingAIReportRemoved: ({ role, reportKey, experimentArm }) => {
+            posthog.capture('onboarding ai report removed', {
+                role,
+                report_key: reportKey,
+                experiment_arm: experimentArm,
                 ...LEGACY_ONBOARDING_EVENT_PROPS,
             })
         },

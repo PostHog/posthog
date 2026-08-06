@@ -20,6 +20,7 @@ import {
     SignalsReportsStateCreateParams,
     SignalsScoutConfigCreateBody,
     SignalsScoutConfigDestroyParams,
+    SignalsScoutConfigListQueryParams,
     SignalsScoutConfigRunParams,
     SignalsScoutConfigUpdateBody,
     SignalsScoutConfigUpdateParams,
@@ -538,6 +539,9 @@ const scoutConfigCreate = (): ToolBase<typeof ScoutConfigCreateSchema, Schemas.S
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
         }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
         if (params.structured_output_schema !== undefined) {
             body['structured_output_schema'] = params.structured_output_schema
         }
@@ -568,17 +572,19 @@ const scoutConfigDelete = (): ToolBase<typeof ScoutConfigDeleteSchema, unknown> 
     },
 })
 
-const ScoutConfigListSchema = z.object({})
+const ScoutConfigListSchema = SignalsScoutConfigListQueryParams
 
 const scoutConfigList = (): ToolBase<typeof ScoutConfigListSchema, WithPostHogUrl<Schemas.SignalScoutConfig[]>> => ({
     name: 'scout-config-list',
     schema: ScoutConfigListSchema,
-    // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof ScoutConfigListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SignalScoutConfig[]>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
+            query: {
+                tags: params.tags,
+            },
         })
         return await withPostHogUrl(context, result, '/inbox')
     },
@@ -633,6 +639,9 @@ const scoutConfigUpdate = (): ToolBase<typeof ScoutConfigUpdateSchema, WithPostH
         }
         if (params.auto_pause_exempt !== undefined) {
             body['auto_pause_exempt'] = params.auto_pause_exempt
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
@@ -1215,6 +1224,9 @@ const signalsScoutConfigCreate = (): ToolBase<typeof SignalsScoutConfigCreateSch
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
         }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
         if (params.structured_output_schema !== undefined) {
             body['structured_output_schema'] = params.structured_output_schema
         }
@@ -1245,7 +1257,7 @@ const signalsScoutConfigDelete = (): ToolBase<typeof SignalsScoutConfigDeleteSch
     },
 })
 
-const SignalsScoutConfigListSchema = z.object({})
+const SignalsScoutConfigListSchema = SignalsScoutConfigListQueryParams
 
 const signalsScoutConfigList = (): ToolBase<
     typeof SignalsScoutConfigListSchema,
@@ -1253,12 +1265,14 @@ const signalsScoutConfigList = (): ToolBase<
 > => ({
     name: 'signals-scout-config-list',
     schema: SignalsScoutConfigListSchema,
-    // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof SignalsScoutConfigListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SignalScoutConfig[]>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
+            query: {
+                tags: params.tags,
+            },
         })
         return await withPostHogUrl(context, result, '/inbox')
     },
@@ -1319,6 +1333,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
         }
         if (params.auto_pause_exempt !== undefined) {
             body['auto_pause_exempt'] = params.auto_pause_exempt
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',

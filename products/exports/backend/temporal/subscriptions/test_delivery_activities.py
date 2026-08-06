@@ -8,6 +8,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.email import EmailDeliveryError
+from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.types import ExportAssetResult
 
@@ -87,7 +88,13 @@ async def test_process_subscription_picks_delivery_activity_from_patch(patch_act
         if activity is validate_subscription_for_delivery:
             return None
         if activity is create_export_assets:
-            return CreateExportAssetsResult(exported_asset_ids=[1], total_insight_count=1)
+            return CreateExportAssetsResult(
+                exported_asset_ids=[1],
+                total_insight_count=3,
+                target_type="email",
+                available_insight_count=5,
+                selected_insight_count=4,
+            )
         if activity is export_asset_activity:
             return ExportAssetResult(exported_asset_id=1, success=True)
         if activity is snapshot_subscription_insights:
@@ -107,11 +114,25 @@ async def test_process_subscription_picks_delivery_activity_from_patch(patch_act
         patch("temporalio.workflow.logger", MagicMock()),
     ):
         mock_info.return_value = MagicMock(workflow_id="wf-test")
-        await ProcessSubscriptionWorkflow().run(
-            TrackedSubscriptionInputs(subscription_id=1, team_id=1, distinct_id="u1")
+        inputs = TrackedSubscriptionInputs(
+            subscription_id=1,
+            team_id=1,
+            distinct_id="u1",
+            slo=SloConfig(
+                operation=SloOperation.SUBSCRIPTION_DELIVERY,
+                area=SloArea.ANALYTIC_PLATFORM,
+                team_id=1,
+                resource_id="1",
+                distinct_id="u1",
+            ),
         )
+        await ProcessSubscriptionWorkflow().run(inputs)
 
     assert picked is (deliver_subscription_v2 if patch_active else deliver_subscription)
+    assert inputs.slo is not None
+    assert inputs.slo.completion_properties["target_type"] == "email"
+    assert inputs.slo.completion_properties["selected_insight_count"] == 4
+    assert inputs.slo.completion_properties["available_insight_count"] == 5
 
 
 @pytest.mark.parametrize("patch_active", [True, False], ids=["patched_v2", "pre_patch_v1"])
@@ -125,7 +146,7 @@ async def test_process_ai_subscription_picks_delivery_activity_from_patch(patch_
         if activity is validate_subscription_for_delivery:
             return None
         if activity is generate_ai_subscription_report:
-            return GenerateAIReportResult()
+            return GenerateAIReportResult(target_type="slack")
         if activity in (deliver_subscription, deliver_subscription_v2):
             picked = activity
             return DeliverSubscriptionResult()
@@ -141,8 +162,20 @@ async def test_process_ai_subscription_picks_delivery_activity_from_patch(patch_
         patch("temporalio.workflow.logger", MagicMock()),
     ):
         mock_info.return_value = MagicMock(workflow_id="wf-test-ai")
-        await ProcessAISubscriptionWorkflow().run(
-            TrackedSubscriptionInputs(subscription_id=1, team_id=1, distinct_id="u1")
+        inputs = TrackedSubscriptionInputs(
+            subscription_id=1,
+            team_id=1,
+            distinct_id="u1",
+            slo=SloConfig(
+                operation=SloOperation.SUBSCRIPTION_DELIVERY,
+                area=SloArea.ANALYTIC_PLATFORM,
+                team_id=1,
+                resource_id="1",
+                distinct_id="u1",
+            ),
         )
+        await ProcessAISubscriptionWorkflow().run(inputs)
 
     assert picked is (deliver_subscription_v2 if patch_active else deliver_subscription)
+    assert inputs.slo is not None
+    assert inputs.slo.completion_properties["target_type"] == "slack"

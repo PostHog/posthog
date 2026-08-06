@@ -1,1 +1,1 @@
-0086_signalscoutconfig_structured_output_schema
+0087_signalscoutconfig_tags
