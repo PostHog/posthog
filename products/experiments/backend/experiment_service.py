@@ -1058,13 +1058,22 @@ class ExperimentService:
         return event_names, action_ids
 
     @classmethod
-    def validate_metric_action_ids(cls, metrics: list[dict] | None, team_id: int) -> None:
+    def validate_metric_action_ids(
+        cls, metrics: list[dict] | None, team_id: int, *, known_action_ids: set[int] | None = None
+    ) -> None:
         """Validate that all ActionsNode IDs reference existing, non-deleted actions for the team.
 
         Actions are explicitly created entities with stable IDs, so a reference to a
         nonexistent action is almost certainly a mistake, so we raise a hard validation error.
+
+        ``known_action_ids`` exempts ids already persisted on the experiment, so an
+        update is checked for what it introduces rather than for everything it
+        resends. Without it, deleting a referenced action makes every later metric
+        edit fail on the resent arrays. See ``update_experiment``.
         """
         _, action_ids = cls._extract_entity_nodes(metrics)
+        if known_action_ids:
+            action_ids -= known_action_ids
         if not action_ids:
             return
 
@@ -1083,7 +1092,9 @@ class ExperimentService:
                 "Each ActionsNode must reference an existing action belonging to this project."
             )
 
-    def validate_metric_event_names(self, metrics: list[dict] | None) -> None:
+    def validate_metric_event_names(
+        self, metrics: list[dict] | None, *, known_event_names: set[str] | None = None
+    ) -> None:
         """Validate that all EventsNode event names have been seen by this project.
 
         The frontend event picker already prevents selecting unknown events, so an
@@ -1092,12 +1103,18 @@ class ExperimentService:
         an experiment before deploying the emitting code) can pass
         ``allow_unknown_events=True`` to bypass this check.
 
+        ``known_event_names`` exempts names the caller has established are already in
+        use, so an update can be checked for what it introduces rather than for
+        everything it resends. See ``update_experiment``.
+
         Scope must match the picker: the EventDefinition list endpoint is
         project-scoped (see posthog/api/event_definition.py), so a user in a
         multi-team project can pick an event ingested by a sibling team. We
         mirror that scope here to avoid rejecting legitimate selections.
         """
         event_names, _ = self._extract_entity_nodes(metrics)
+        if known_event_names:
+            event_names -= known_event_names
         if not event_names:
             return
 
@@ -3358,20 +3375,36 @@ class ExperimentService:
         # _sync_ordering_with_metric_changes runs later and appends the new
         # regenerated uuids as additions; _sync_ordering_for_saved_metrics_on_update
         # handles saved-metric link uuids independently.
+
+        # `metrics`/`metrics_secondary` are whole-array fields, so changing one metric
+        # means resending them all. A metric already on the experiment has been through
+        # this check (or was deliberately allowed past it), so re-validating it lets one
+        # stale event name or deleted action block edits that don't touch it. Both
+        # sections are pooled: moving a metric between them changes which array holds
+        # it, not which entity it references. Read before the update is applied, so
+        # these are the stored references.
+        persisted_event_names, persisted_action_ids = self._extract_entity_nodes(
+            [*(experiment.metrics or []), *(experiment.metrics_secondary or [])]
+        )
+
         if "metrics" in update_data:
             update_data["metrics"] = self._assign_uuids_to_metrics(update_data["metrics"], seen=seen_metric_uuids)
             self.validate_experiment_metrics(update_data["metrics"])
-            self.validate_metric_action_ids(update_data["metrics"], self.team.id)
+            self.validate_metric_action_ids(update_data["metrics"], self.team.id, known_action_ids=persisted_action_ids)
             if not allow_unknown_events:
-                self.validate_metric_event_names(update_data["metrics"])
+                self.validate_metric_event_names(update_data["metrics"], known_event_names=persisted_event_names)
         if "metrics_secondary" in update_data:
             update_data["metrics_secondary"] = self._assign_uuids_to_metrics(
                 update_data["metrics_secondary"], seen=seen_metric_uuids
             )
             self.validate_experiment_metrics(update_data["metrics_secondary"])
-            self.validate_metric_action_ids(update_data["metrics_secondary"], self.team.id)
+            self.validate_metric_action_ids(
+                update_data["metrics_secondary"], self.team.id, known_action_ids=persisted_action_ids
+            )
             if not allow_unknown_events:
-                self.validate_metric_event_names(update_data["metrics_secondary"])
+                self.validate_metric_event_names(
+                    update_data["metrics_secondary"], known_event_names=persisted_event_names
+                )
 
         enforce_warehouse_metric_access(
             [
