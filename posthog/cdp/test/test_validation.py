@@ -17,6 +17,8 @@ from posthog.cdp.validation import (
     generate_template_bytecode,
 )
 
+from products.cohorts.backend.models.cohort import Cohort
+
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
 
@@ -550,6 +552,30 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                 2,
             ],
         }
+
+    def test_validate_filters_with_unsupported_cohort_degrades_instead_of_500ing(self):
+        # A static cohort in test-account filters can't be inlined for real-time use. For
+        # site_destination/site_app, filters compile straight to JS (no bytecode fallback), so
+        # this used to raise CohortInlineError out of the serializer's validate() and 500 the
+        # save. It must instead degrade to a non-matching filter and surface the reason on
+        # bytecode_error, like the bytecode path already does for other function types.
+        cohort = Cohort.objects.create(team=self.team, name="Static cohort", is_static=True)
+        self.team.test_account_filters = [
+            {"key": "id", "type": "cohort", "value": cohort.id, "operator": "not_in"},
+        ]
+        self.team.save()
+
+        filters = {
+            "events": [{"id": "$pageview", "type": "events", "name": "$pageview", "order": 0}],
+            "filter_test_accounts": True,
+        }
+
+        serializer = HogFunctionFiltersSerializer(
+            data=filters, context={"function_type": "site_destination", "get_team": lambda: self.team}
+        )
+        serializer.is_valid(raise_exception=True)
+        assert "cohort" in serializer.validated_data["bytecode_error"]
+        assert serializer.validated_data["transpiled"]["code"]
 
     def test_validate_filters_person_updates_only_allows_properties(self):
         filters = {

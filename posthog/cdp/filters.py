@@ -331,6 +331,18 @@ def _internal_user_settings_url(team_id: int) -> str:
     return f"{site_url}/project/{team_id}/settings/project-customization#internal-user-filtering"
 
 
+def cohort_inline_error_message(reasons: list[str], team_id: int) -> str:
+    settings_url = _internal_user_settings_url(team_id)
+    details = "; ".join(reasons)
+    return (
+        f"Your internal/test user filters include cohorts that can't be used in real-time filters: "
+        f"{details}. "
+        f"Either switch to a cohort that only uses person properties, "
+        f"or replace the cohort with inline person property filters. "
+        f"Update your filters at: {settings_url}"
+    )
+
+
 class _LowerConstantMembership(CloningVisitor):
     """Rewrite `x IN (c1, c2, ...)` / `x NOT IN (...)` over constant literals into a coercing
     OR-of-EQ / AND-of-NotEq chain. The Hog VM evaluates the IN/NOT_IN opcode with strict equality
@@ -379,16 +391,8 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
         if "bytecode_error" in filters:
             del filters["bytecode_error"]
     except CohortInlineError as e:
-        settings_url = _internal_user_settings_url(team.id)
-        details = "; ".join(e.reasons)
         filters["bytecode"] = None
-        filters["bytecode_error"] = (
-            f"Your internal/test user filters include cohorts that can't be used in real-time filters: "
-            f"{details}. "
-            f"Either switch to a cohort that only uses person properties, "
-            f"or replace the cohort with inline person property filters. "
-            f"Update your filters at: {settings_url}"
-        )
+        filters["bytecode_error"] = cohort_inline_error_message(e.reasons, team.id)
     except Exception as e:
         error_msg = str(e)
 

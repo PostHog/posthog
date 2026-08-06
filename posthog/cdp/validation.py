@@ -14,7 +14,12 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
+from posthog.cdp.filters import (
+    CohortInlineError,
+    cohort_inline_error_message,
+    compile_filters_bytecode,
+    compile_filters_expr,
+)
 
 from products.cdp.backend.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
@@ -635,7 +640,15 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         # If we have a bytecode, we need to validate the transpiled
         if function_type in TYPES_WITH_TRANSPILED_FILTERS:
             compiler = JavaScriptCompiler()
-            code = compiler.visit(compile_filters_expr(data, team))
+            try:
+                filters_expr = compile_filters_expr(data, team)
+            except CohortInlineError as e:
+                # Un-inlineable cohorts can't be evaluated client-side. Degrade to a
+                # non-matching filter so the save still succeeds, and surface the reason
+                # on bytecode_error the same way compile_filters_bytecode does.
+                filters_expr = ast.Constant(value=False)
+                data["bytecode_error"] = cohort_inline_error_message(e.reasons, team.id)
+            code = compiler.visit(filters_expr)
             data["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
             if "bytecode" in data:
                 del data["bytecode"]

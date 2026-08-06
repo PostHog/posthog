@@ -312,9 +312,14 @@ class TestSiteFunctions(TestCase):
         ]
     )
     @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
-    def test_get_transpiled_function_with_unsupported_cohort_raises_error(
+    def test_get_transpiled_function_with_unsupported_cohort_degrades_instead_of_raising(
         self, _name, is_static, filters, mock_transpile_fn
     ):
+        # An un-inlineable cohort in the internal-user filters used to make the whole
+        # transpile raise, so `_build_site_apps_js` would drop this site function (and any
+        # other enabled site destinations/apps for the team) from the config with no visible
+        # error. It must degrade instead: the site function still transpiles, and the reason
+        # is recorded on filters["bytecode_error"] for the UI to surface.
         cohort = Cohort.objects.create(
             team=self.team,
             name="Unsupported cohort",
@@ -333,8 +338,35 @@ class TestSiteFunctions(TestCase):
             "filter_test_accounts": True,
         }
 
-        with pytest.raises(Exception, match="cohort"):
-            get_transpiled_function(self.hog_function)
+        result = get_transpiled_function(self.hog_function)
+        assert isinstance(result, str)
+        assert "cohort" in self.hog_function.filters["bytecode_error"]
+
+    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    def test_get_transpiled_function_with_unsupported_cohort_in_mapping_filters_degrades(self, mock_transpile_fn):
+        # Same failure mode as the global-filters case, but for a per-mapping filter — a
+        # separate, previously-unguarded call to hog_function_filters_to_expr.
+        cohort = Cohort.objects.create(team=self.team, name="Static cohort", is_static=True)
+
+        self.team.test_account_filters = [
+            {"key": "id", "type": "cohort", "value": cohort.id, "operator": "not_in"},
+        ]
+        self.team.save()
+
+        self.hog_function.hog = "export function onEvent({ inputs }) { console.log(inputs); }"
+        self.hog_function.mappings = [
+            {
+                "inputs": {},
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events"}],
+                    "filter_test_accounts": True,
+                },
+            }
+        ]
+
+        result = get_transpiled_function(self.hog_function)
+        assert isinstance(result, str)
+        assert "cohort" in self.hog_function.mappings[0]["filters"]["bytecode_error"]
 
     @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_mappings(self, mock_transpile_fn):

@@ -1,12 +1,27 @@
 import json
 
+from posthog.hogql import ast
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
 
-from posthog.cdp.filters import hog_function_filters_to_expr
+from posthog.cdp.filters import CohortInlineError, cohort_inline_error_message, hog_function_filters_to_expr
 from posthog.cdp.validation import transpile_template_code
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import transpile
+
+
+def _filters_to_expr_or_non_matching(filters: dict, hog_function: HogFunction) -> ast.Expr:
+    """Compile hog function filters to an expression, degrading to "never matches" if a
+    referenced cohort can't be inlined for real-time use — so the rest of the site function
+    still loads and runs instead of the whole transpile blowing up. The reason is recorded on
+    `filters["bytecode_error"]`, the same channel `compile_filters_bytecode` uses, so it surfaces
+    in the UI rather than failing silently.
+    """
+    try:
+        return hog_function_filters_to_expr(filters, hog_function.team, {})
+    except CohortInlineError as e:
+        filters["bytecode_error"] = cohort_inline_error_message(e.reasons, hog_function.team_id)
+        return ast.Constant(value=False)
 
 
 def get_transpiled_function(hog_function: HogFunction) -> str:
@@ -56,7 +71,7 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
     response += f"const source = {transpile(hog_function.hog, 'site')}();"
 
     # Convert the global filters to code
-    filters_expr = hog_function_filters_to_expr(hog_function.filters or {}, hog_function.team, {})
+    filters_expr = _filters_to_expr_or_non_matching(hog_function.filters or {}, hog_function)
     filters_code = compiler.visit(filters_expr)
 
     # Convert the mappings to code
@@ -69,7 +84,7 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
 
         mapping_inputs = mapping.get("inputs", {})
         mapping_inputs_schema = mapping.get("inputs_schema", [])
-        mapping_filters_expr = hog_function_filters_to_expr(mapping.get("filters", {}) or {}, hog_function.team, {})
+        mapping_filters_expr = _filters_to_expr_or_non_matching(mapping.get("filters") or {}, hog_function)
         mapping_filters_code = compiler.visit(mapping_filters_expr)
 
         mapping_code += f"if ({mapping_filters_code}) {{"
