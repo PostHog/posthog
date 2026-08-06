@@ -2,7 +2,6 @@ import dataclasses
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -18,6 +17,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend.settings import MAILERSEND_ENDPOINTS
 
 # MailerSend serves every account from a single global base URL (no per-account hostname).
@@ -56,7 +57,7 @@ def _activity_date_window(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     lookback_days: int,
-) -> tuple[int, int]:
+) -> SyncWindow[int]:
     """Build the required date_from/date_to window for the Activity endpoint as Unix timestamps.
 
     MailerSend requires both bounds and rejects date_from >= date_to. On the first sync (or a full
@@ -74,7 +75,7 @@ def _activity_date_window(
         # A future-dated cursor would make date_from >= date_to and 422 the request; clamp it.
         date_from = now - timedelta(seconds=1)
 
-    return int(date_from.timestamp()), int(now.timestamp())
+    return SyncWindow(start=int(date_from.timestamp()), end=int(now.timestamp()))
 
 
 def check_credentials(api_token: str, schema_name: Optional[str] = None) -> tuple[bool, str | None]:
@@ -143,7 +144,7 @@ def mailersend_source(
             resumable_source_manager.save_state(MailerSendResumeConfig(fanout_state=state))
 
     if config.fan_out_over_domains:
-        date_from, date_to = _activity_date_window(
+        window = _activity_date_window(
             should_use_incremental_field, db_incremental_field_last_value, config.default_lookback_days or 30
         )
         rest_config: RESTAPIConfig = {
@@ -171,8 +172,8 @@ def mailersend_source(
                             "limit": config.page_size,
                             # The window is computed once per run and rides as static query params —
                             # MailerSend filters server-side on created_at within [date_from, date_to].
-                            "date_from": date_from,
-                            "date_to": date_to,
+                            "date_from": window.start,
+                            "date_to": window.end,
                         },
                         "data_selector": "data",
                     },

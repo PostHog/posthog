@@ -13,6 +13,7 @@ import {
     drawSelectionRect,
     drawTickMarks,
     resolveAxisLineColor,
+    withVerticalClip,
 } from './canvas-renderer'
 import type { ChartDrawArgs, ChartTheme } from './types'
 
@@ -1144,7 +1145,12 @@ describe('hog-charts canvas-renderer', () => {
         it('clamps a 2D drag that extends past the vertical plot edges', () => {
             const ctx = mockCanvasContext()
             composeDrawHoverWithSelection(jest.fn())(
-                makeSelectionArgs(ctx, { x0: plotLeft + 100, x1: plotLeft + 250, y0: -500, y1: plotTop + plotHeight + 500 })
+                makeSelectionArgs(ctx, {
+                    x0: plotLeft + 100,
+                    x1: plotLeft + 250,
+                    y0: -500,
+                    y1: plotTop + plotHeight + 500,
+                })
             )
             expect(ctx.fillRect).toHaveBeenCalledWith(plotLeft + 100, plotTop, 150, plotHeight)
         })
@@ -1174,5 +1180,36 @@ describe('hog-charts canvas-renderer', () => {
                 expect(rectCall[2]).toBe(expectedWidth)
             }
         )
+    })
+})
+
+describe('withVerticalClip', () => {
+    it.each([
+        { name: 'a normal plot box', width: 800, plotLeft: 48, clips: true },
+        { name: 'a left margin wider than the container', width: 40, plotLeft: 48, clips: false },
+        { name: 'a left margin exactly at the container edge', width: 48, plotLeft: 48, clips: false },
+        { name: 'a non-finite width', width: Number.NaN, plotLeft: 48, clips: false },
+    ])('with clipLeft on and $name, clips=$clips', ({ width, plotLeft, clips }) => {
+        const ctx = mockCanvasContext()
+        const draw = jest.fn()
+
+        withVerticalClip(ctx, { ...dimensions, width, plotLeft }, draw, undefined, true)
+
+        // A reserved left gutter wider than the container makes the rect negative, which canvas
+        // reads as a reversed rectangle off the right edge — clipping to it would discard the whole
+        // series layer, so the draw has to run unclipped instead.
+        expect(draw).toHaveBeenCalledTimes(1)
+        expect(ctx.clip).toHaveBeenCalledTimes(clips ? 1 : 0)
+    })
+
+    it('restores the context even when draw throws', () => {
+        const ctx = mockCanvasContext()
+
+        expect(() =>
+            withVerticalClip(ctx, dimensions, () => {
+                throw new Error('boom')
+            })
+        ).toThrow('boom')
+        expect(ctx.restore).toHaveBeenCalledTimes(1)
     })
 })

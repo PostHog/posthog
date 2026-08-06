@@ -16,7 +16,6 @@ pub mod validation;
 use std::sync::Arc;
 
 use tonic::{Request, Response, Status};
-use uuid::Uuid;
 
 use personhog_proto::personhog::lifecycle::v1::person_hog_lifecycle_server::PersonHogLifecycle;
 use personhog_proto::personhog::lifecycle::v1::{
@@ -89,8 +88,7 @@ impl PersonHogLifecycle for PersonHogLifecycleService {
         request: Request<DeletePersonsRequest>,
     ) -> Result<Response<DeletePersonsResponse>, Status> {
         let request = request.into_inner();
-        validate_delete_persons(&request)?;
-        let op_id = Uuid::parse_str(&request.op_id).expect("op_id was validated as a UUID");
+        let op_id = validate_delete_persons(&request)?;
 
         let frozen = serde_json::to_value(delete::DeleteRequest {
             person_ids: request.person_ids,

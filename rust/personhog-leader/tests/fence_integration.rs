@@ -105,6 +105,9 @@ async fn start_fence_harness(seed: CachedPerson, fallback: Option<PgFallback>) -
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
         Arc::new(DashMap::new()),
+        None,
+        None,
+        Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
 
     cache.create_partition(partition);

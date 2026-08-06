@@ -8,7 +8,7 @@ from django.utils import timezone
 
 import structlog
 import posthoganalytics
-from celery import chain, current_task, shared_task
+from celery import Task, chain, current_task, shared_task
 from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter, Gauge, Histogram
 
@@ -22,7 +22,14 @@ from posthog.models.user import User
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
-from products.cohorts.backend.backfill.runs import create_backfill_run_for_cohort
+from products.cohorts.backend.backfill.finalize import finalize_backfill_runs
+from products.cohorts.backend.backfill.runs import (
+    check_person_run_preconditions,
+    check_run_preconditions,
+    create_backfill_run_for_cohort,
+    create_person_backfill_run_for_cohort,
+)
+from products.cohorts.backend.models.backfill import CohortBackfillKind
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import (
@@ -32,6 +39,7 @@ from products.cohorts.backend.models.util import (
     get_clickhouse_query_stats,
     sort_cohorts_topologically,
 )
+from products.cohorts.backend.realtime_teams import is_cohort_backfill_trigger_team
 
 COHORT_RECALCULATIONS_BACKLOG_GAUGE = Gauge(
     "cohort_recalculations_backlog",
@@ -490,9 +498,33 @@ def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id
         cohort.calculate_people_ch(pending_version, initiating_user_id=initiating_user_id)
 
 
-@shared_task(ignore_result=True, max_retries=1)
+def _is_final_attempt(task: Task, err: Exception) -> bool:
+    """Whether a failure is permanent, so the task must finalize terminal state now.
+
+    Nothing retries an error outside CH_TRANSIENT_ERRORS, a direct (synchronous) call, which has no
+    Celery retry machinery behind it, or the last autoretry attempt.
+    """
+    if not isinstance(err, CH_TRANSIENT_ERRORS):
+        return True
+    if task.request.called_directly:
+        return True
+    return task.max_retries is not None and (task.request.retries or 0) >= task.max_retries
+
+
+@shared_task(
+    bind=True,
+    ignore_result=True,
+    # Auto-retry transient ClickHouse capacity errors with exponential backoff, matching the
+    # dynamic-cohort sibling calculate_cohort_ch. Without this, a brief capacity blip during
+    # the person_static_cohort insert leaves the static cohort permanently half-populated.
+    autoretry_for=CH_TRANSIENT_ERRORS,
+    retry_backoff=60,
+    retry_backoff_max=1800,
+    max_retries=6,
+)
 @skip_team_scope_audit
 def calculate_cohort_from_list(
+    self: Task,
     cohort_id: int,
     items: list[str],
     team_id: Optional[int] = None,
@@ -508,14 +540,30 @@ def calculate_cohort_from_list(
     if team_id is None:
         team_id = cohort.team_id
 
-    if id_type == "distinct_id":
-        batch_count = cohort.insert_users_by_list(items, team_id=team_id)
-    elif id_type == "person_id":
-        batch_count = cohort.insert_users_list_by_uuid(items, team_id=team_id)
-    elif id_type == "email":
-        batch_count = cohort.insert_users_by_email(items, team_id=team_id, email_property_key=email_property_key)
-    else:
+    if id_type not in ("distinct_id", "person_id", "email"):
         raise ValueError(f"Unsupported id_type: {id_type}")
+
+    # raise_on_error surfaces a batch insert failure instead of swallowing it, so a transient
+    # capacity blip propagates and triggers the backed-off retry above. Retries are safe: the
+    # insert path dedupes members already in the cohort (ClickHouse excludes existing UUIDs, the
+    # InsertCohortMembers RPC dedupes on person id), so re-running the whole list adds no duplicates.
+    try:
+        if id_type == "distinct_id":
+            batch_count = cohort.insert_users_by_list(items, team_id=team_id, raise_on_error=True)
+        elif id_type == "person_id":
+            batch_count = cohort.insert_users_list_by_uuid(items, team_id=team_id, raise_on_error=True)
+        else:
+            batch_count = cohort.insert_users_by_email(
+                items, team_id=team_id, email_property_key=email_property_key, raise_on_error=True
+            )
+    except Exception as err:
+        # raise_on_error also hands terminal-state finalization to us, so record the failure, but
+        # only when nothing will retry. Recording it while attempts remain would leave a cohort
+        # that is still being retried looking errored and no longer calculating.
+        if _is_final_attempt(self, err):
+            cohort._safe_save_cohort_state(team_id=team_id, processing_error=err)
+        raise
+
     logger.warn(
         "Cohort {}: {:,} items in {} batches from CSV completed in {:.2f}s".format(
             cohort.pk, len(items), batch_count, (time.time() - start_time)
@@ -839,77 +887,106 @@ def collect_cohort_query_stats(
         raise
 
 
-@shared_task(ignore_result=True, max_retries=3)
-def trigger_cohort_backfill_task(team_id: int, cohort_id: int) -> None:
+COHORT_BACKFILL_TRIGGER_TASK_COUNTER = Counter(
+    "posthog_cohort_backfill_trigger_task_total",
+    "Outcomes of debounced cohort backfill run-creation tasks",
+    labelnames=["backfill_kind", "outcome"],
+)
+
+
+# acks_late: a countdown message acked on receipt sits in one worker's memory for the whole window
+# and dies with it, after the edit's supersession already ran. The creators refuse duplicates, so
+# the redelivery this trades into is harmless. The queue matches the module's other
+# ClickHouse-touching tasks: the person creator runs a sizing scan capped at 30 s.
+@shared_task(
+    ignore_result=True,
+    acks_late=True,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=3,
+    queue=CeleryQueue.LONG_RUNNING.value,
+)
+def trigger_cohort_backfill_run_task(team_id: int, cohort_id: int, trigger_kind: str, backfill_kind: str) -> None:
+    """Create the run a debounced cohort save asked for, reading the cohort's current definition.
+
+    The creators re-check eligibility under a row lock, so a cohort that was edited again, deleted,
+    or made static during the debounce window returns None here. That is a normal outcome, not a
+    failure, and must not raise: a raise burns the task's retries re-deciding the same refusal.
+
+    A missing operator attestation is the same kind of outcome on this path. The creators record a
+    `blocked` row when called directly, which is right for operator-driven runs, but a blocked row
+    holds the per-cohort uniqueness slot and nothing ever advances it, so the signal path skips
+    instead of parking one on every cohort a freshly allowlisted team saves.
     """
-    Trigger backfill for a realtime cohort with person properties.
-    Uses the existing temporal workflow for consistency.
-
-    TODO: Extract the core logic from backfill_precalculated_person_properties
-    into a standalone function (e.g. posthog.cohorts.backfill.run_backfill)
-    so this task, the management command, and the admin view can all call it
-    directly instead of going through call_command/argparse.
-    """
-    from django.core.management import call_command
-
-    logger = structlog.get_logger(__name__)
-
     try:
-        logger.info(
-            "triggering_cohort_backfill_task",
-            cohort_id=cohort_id,
-            team_id=team_id,
-        )
-
-        # Use the existing management command to trigger backfill
-        call_command(
-            "backfill_precalculated_person_properties",
-            "--team-id",
-            str(team_id),
-            "--cohort-id",
-            str(cohort_id),
-            "--batch-size",
-            10_000,
-            "--concurrent-workflows",
-            100,
-        )
-
-    except Exception as e:
-        logger.exception(
-            "failed_to_trigger_cohort_backfill_task",
-            cohort_id=cohort_id,
-            team_id=team_id,
-            error=str(e),
-        )
-        raise
-
-
-@shared_task(ignore_result=True, max_retries=3)
-def trigger_cohort_events_backfill_task(team_id: int, cohort_id: int, trigger_kind: str) -> None:
-    try:
-        run = create_backfill_run_for_cohort(team_id, cohort_id, trigger_kind)
-        if run is None:
+        if not is_cohort_backfill_trigger_team(team_id):
+            # The enqueue-side check ran up to the debounce countdown ago; re-checking here makes
+            # shrinking the allowlist stop tasks already in flight, not only new enqueues.
+            COHORT_BACKFILL_TRIGGER_TASK_COUNTER.labels(backfill_kind=backfill_kind, outcome="not_allowlisted").inc()
             logger.info(
-                "skipping_cohort_events_backfill_task",
+                "skipping_cohort_backfill_run_task_team_not_allowlisted",
                 cohort_id=cohort_id,
                 team_id=team_id,
                 trigger_kind=trigger_kind,
+                backfill_kind=backfill_kind,
             )
             return
+        person = backfill_kind == CohortBackfillKind.PERSON_PROPERTY
+        _, missing = check_person_run_preconditions() if person else check_run_preconditions()
+        if missing:
+            COHORT_BACKFILL_TRIGGER_TASK_COUNTER.labels(
+                backfill_kind=backfill_kind, outcome="missing_attestations"
+            ).inc()
+            logger.info(
+                "skipping_cohort_backfill_run_task_missing_attestations",
+                cohort_id=cohort_id,
+                team_id=team_id,
+                trigger_kind=trigger_kind,
+                backfill_kind=backfill_kind,
+                missing=missing,
+            )
+            return
+        run = (
+            create_person_backfill_run_for_cohort(team_id, cohort_id, trigger_kind)
+            if person
+            else create_backfill_run_for_cohort(team_id, cohort_id, trigger_kind)
+        )
+        if run is None:
+            COHORT_BACKFILL_TRIGGER_TASK_COUNTER.labels(backfill_kind=backfill_kind, outcome="refused").inc()
+            logger.info(
+                "skipping_cohort_backfill_run_task",
+                cohort_id=cohort_id,
+                team_id=team_id,
+                trigger_kind=trigger_kind,
+                backfill_kind=backfill_kind,
+            )
+            return
+        COHORT_BACKFILL_TRIGGER_TASK_COUNTER.labels(backfill_kind=backfill_kind, outcome="created").inc()
         logger.info(
-            "created_cohort_events_backfill_run",
+            "created_cohort_backfill_run",
             run_id=str(run.id),
             cohort_id=cohort_id,
             team_id=team_id,
             trigger_kind=trigger_kind,
+            backfill_kind=backfill_kind,
             status=run.status,
         )
     except Exception as error:
+        COHORT_BACKFILL_TRIGGER_TASK_COUNTER.labels(backfill_kind=backfill_kind, outcome="error").inc()
         logger.exception(
-            "failed_to_trigger_cohort_events_backfill_task",
+            "failed_to_trigger_cohort_backfill_run_task",
             cohort_id=cohort_id,
             team_id=team_id,
             trigger_kind=trigger_kind,
+            backfill_kind=backfill_kind,
             error=str(error),
         )
         raise
+
+
+@shared_task(ignore_result=True)
+def finalize_cohort_backfill_runs() -> None:
+    """Terminalize behavioral backfill runs the Rust seeder has fully observed. Gated off by
+    ``BEHAVIORAL_BACKFILL_FINALIZER_ENABLED`` (checked inside ``finalize_backfill_runs``, which
+    returns before touching the DB when disabled)."""
+    finalize_backfill_runs()

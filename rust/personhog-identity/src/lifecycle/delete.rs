@@ -101,6 +101,40 @@ const STATUS_SEALED: &str = "sealed";
 const STATUS_DELETED: &str = "deleted";
 const STATUS_SKIPPED_CONFLICT: &str = "skipped_conflict";
 
+const STEPS_TOTAL: &str = "personhog_lifecycle_delete_steps_total";
+const OUTCOMES_TOTAL: &str = "personhog_lifecycle_delete_outcomes_total";
+
+/// Call after a step's transaction commits — a commit means the step CAS was
+/// won, so each transition is counted exactly once across concurrent drivers.
+fn record_transition(from: &str, to: &str) {
+    common_metrics::inc(
+        STEPS_TOTAL,
+        &[
+            ("from".to_string(), from.to_string()),
+            ("to".to_string(), to.to_string()),
+        ],
+        1,
+    );
+}
+
+/// Call after the terminal transaction commits: one count per person,
+/// labeled with its recorded outcome.
+fn record_outcomes(outcome: &Value) {
+    let Ok(parsed) = serde_json::from_value::<DeleteOutcome>(outcome.clone()) else {
+        return;
+    };
+    for label in [OUTCOME_DELETED, OUTCOME_SKIPPED_CONFLICT, OUTCOME_NOT_FOUND] {
+        let count = parsed.results.iter().filter(|r| r.outcome == label).count();
+        if count > 0 {
+            common_metrics::inc(
+                OUTCOMES_TOTAL,
+                &[("outcome".to_string(), label.to_string())],
+                count as u64,
+            );
+        }
+    }
+}
+
 pub struct DeleteDriver;
 
 #[async_trait]
@@ -243,18 +277,21 @@ async fn mark(pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
     .fetch_one(&mut *tx)
     .await?;
 
+    let mut abort_outcome: Option<Value> = None;
     let advanced = if claims == 0 {
         // Every requested person was conflicted or missing: nothing was (or
         // will be) mutated, so the op ends here as aborted.
         let outcome = build_outcome(&mut tx, op.op_id, &request.person_ids).await?;
-        complete_op_in_tx(
+        let advanced = complete_op_in_tx(
             &mut tx,
             op.op_id,
             DeleteStep::Started.as_str(),
             STEP_ABORTED,
             &outcome,
         )
-        .await?
+        .await?;
+        abort_outcome = Some(outcome);
+        advanced
     } else {
         advance_step_in_tx(
             &mut tx,
@@ -269,6 +306,13 @@ async fn mark(pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
         return Ok(());
     }
     tx.commit().await?;
+    match abort_outcome {
+        Some(outcome) => {
+            record_transition(DeleteStep::Started.as_str(), STEP_ABORTED);
+            record_outcomes(&outcome);
+        }
+        None => record_transition(DeleteStep::Started.as_str(), DeleteStep::Marked.as_str()),
+    }
     Ok(())
 }
 
@@ -308,6 +352,7 @@ async fn seal(pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
         return Ok(());
     }
     tx.commit().await?;
+    record_transition(DeleteStep::Marked.as_str(), DeleteStep::Sealed.as_str());
     Ok(())
 }
 
@@ -423,6 +468,7 @@ async fn unmap(pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
         return Ok(());
     }
     tx.commit().await?;
+    record_transition(DeleteStep::Sealed.as_str(), DeleteStep::Unmapped.as_str());
     Ok(())
 }
 
@@ -457,6 +503,8 @@ async fn complete(pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
         return Ok(());
     }
     tx.commit().await?;
+    record_transition(DeleteStep::Unmapped.as_str(), STEP_COMPLETED);
+    record_outcomes(&outcome);
     Ok(())
 }
 

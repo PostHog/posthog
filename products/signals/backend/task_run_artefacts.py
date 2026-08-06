@@ -13,15 +13,20 @@ purpose is *derived* — there is no relationship label on the task↔report ass
 
 from __future__ import annotations
 
+import json
+
+from django.db import transaction
+
 from products.signals.backend.artefact_schemas import (
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_DISCUSSION,
     TASK_RUN_TYPE_IMPLEMENTATION,
     TASK_RUN_TYPE_REPO_SELECTION,
     TASK_RUN_TYPE_RESEARCH,
+    NoteArtefact,
     TaskRunArtefact,
 )
-from products.signals.backend.billing import mark_report_billing_exempt
+from products.signals.backend.billing import first_billable_pr_run_at, mark_report_billing_exempt
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportTask
 
 # The task-run vocabulary lives in `artefact_schemas` (a leaf module the model layer can import
@@ -37,6 +42,7 @@ __all__ = [
     "append_task_run_artefact",
     "record_implementation_task",
     "record_report_task",
+    "release_quota_cancelled_implementation",
     "signals_task_ids",
 ]
 
@@ -155,3 +161,70 @@ def record_report_task(
         task_id=task_id,
         run_id=run_id,
     )
+
+
+def release_quota_cancelled_implementation(*, team_id: int, task_id: str) -> list[str]:
+    """Remove a quota-cancelled implementation's auto-start records so its report can be
+    implemented again by a later cycle.
+
+    A run the quota gate cancels mid-flight never shipped its PR, but its `SignalReportTask` gate
+    row and implementation `task_run` artefact would keep `associated_task_runs` reporting a
+    started implementation and permanently block re-implementation. Deleting both restores the
+    report to "never implemented"; a system `note` artefact records for the report timeline why
+    the run stopped. Locks each report row (the same lock auto-start creation takes) so the
+    removal serializes with a concurrent auto-start evaluation. Returns the affected report ids
+    (empty when the task has no implementation link).
+
+    Reports that already shipped a billable PR are skipped entirely: the cancel decision is
+    run-scoped but this delete is task-scoped, and a sibling run of the same task may have
+    shipped the PR that billed the report. Its `SignalReportTask` row is billing's evidence —
+    the `billed_earlier` dedup and refund eligibility both resolve through it — so deleting it
+    would re-bill the report on its next implementation and strand the paid charge unrefundable.
+    """
+    report_ids = list(
+        SignalReportTask.objects.filter(
+            team_id=team_id, task_id=task_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION
+        ).values_list("report_id", flat=True)
+    )
+    released: list[str] = []
+    for report_id in report_ids:
+        with transaction.atomic():
+            report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
+            if report is None:
+                continue
+            if first_billable_pr_run_at(report_id) is not None:
+                # A sibling run already shipped this report's billable PR. These records are
+                # billing's evidence for that charge — deleting them would double-bill the next
+                # implementation — and the report needs no release: it *is* implemented.
+                continue
+            SignalReportTask.objects.filter(
+                team_id=team_id,
+                report_id=report_id,
+                task_id=task_id,
+                relationship=TASK_RUN_TYPE_IMPLEMENTATION,
+            ).delete()
+            for artefact in SignalReportArtefact.objects.filter(
+                team_id=team_id,
+                report_id=report_id,
+                task_id=task_id,
+                type=SignalReportArtefact.ArtefactType.TASK_RUN,
+            ):
+                try:
+                    content = json.loads(artefact.content)
+                except (TypeError, ValueError):
+                    continue
+                if content.get("product") == SIGNALS_PRODUCT and content.get("type") == TASK_RUN_TYPE_IMPLEMENTATION:
+                    artefact.delete()
+            SignalReportArtefact.add_log(
+                team_id=team_id,
+                report_id=str(report_id),
+                content=NoteArtefact(
+                    note=(
+                        "Implementation run stopped: the organization reached its self-driving pull request "
+                        "limit. A new run can start after the limit is raised or the billing period resets."
+                    )
+                ),
+                attribution=ArtefactAttribution.system(),
+            )
+            released.append(str(report_id))
+    return released

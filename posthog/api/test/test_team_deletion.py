@@ -86,7 +86,9 @@ class TestTeamDeletionSideEffects(NonAtomicBaseTest):
                 "detail": {
                     "changes": None,
                     "context": None,
-                    "name": "Default project",
+                    # The org's first project holds the plain default name, so this team's
+                    # implicit project got the suffixed one
+                    "name": "Default project 2",
                     "short_id": None,
                     "trigger": None,
                     "type": None,

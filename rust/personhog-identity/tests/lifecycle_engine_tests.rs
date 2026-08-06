@@ -281,7 +281,7 @@ async fn a_live_lease_blocks_a_second_driver_until_it_lapses() {
         },
     );
     let err = short_engine
-        .resume(&driver, op_id)
+        .execute(&driver, op_id, ctx.team_id, &json!({}))
         .await
         .expect_err("cannot steal a live lease");
     assert!(matches!(err, SagaError::Busy));
@@ -289,6 +289,155 @@ async fn a_live_lease_blocks_a_second_driver_until_it_lapses() {
         driver.steps_run.load(Ordering::SeqCst),
         0,
         "no step ran while another instance held the lease"
+    );
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn resume_bails_immediately_when_another_driver_holds_the_lease() {
+    let ctx = TestContext::new().await;
+    // The default test engine's 10s execute timeout: a resume that waits
+    // out a live lease instead of bailing would blow the elapsed assertion.
+    let engine = ctx.engine();
+    let driver = DummyDriver::new();
+    let op_id = Uuid::now_v7();
+
+    sqlx::query(
+        r#"
+        INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request, lease_expires_at)
+        VALUES ($1, 'merge', $2, 'started', '{}'::jsonb, now() + interval '1 hour')
+        "#,
+    )
+    .bind(op_id)
+    .bind(ctx.team_id as i32)
+    .execute(&ctx.pool)
+    .await
+    .expect("insert leased op");
+
+    let started = std::time::Instant::now();
+    let err = engine
+        .resume(&driver, op_id)
+        .await
+        .expect_err("live lease means not abandoned");
+
+    assert!(matches!(err, SagaError::Busy));
+    assert_eq!(driver.steps_run.load(Ordering::SeqCst), 0);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(5),
+        "resume must skip a live lease, not poll out the execute timeout"
+    );
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
+/// Simulates another instance stealing the op mid-step: bumps `attempt` and
+/// takes a one-hour lease, exactly what a concurrent `try_claim` does.
+async fn steal_lease(pool: &PgPool, op_id: Uuid) {
+    sqlx::query(
+        "UPDATE lifecycle_op SET attempt = attempt + 1, lease_expires_at = now() + interval '1 hour' WHERE op_id = $1",
+    )
+    .bind(op_id)
+    .execute(pool)
+    .await
+    .expect("steal lease");
+}
+
+async fn lease_is_live(pool: &PgPool, op_id: Uuid) -> bool {
+    sqlx::query_scalar("SELECT lease_expires_at > now() FROM lifecycle_op WHERE op_id = $1")
+        .bind(op_id)
+        .fetch_one(pool)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(false)
+}
+
+/// Driver whose first step gets its lease stolen mid-run. `fail_after_steal`
+/// picks the exit: Err exercises the engine's release path, Ok without
+/// advancing (a lost CAS) exercises the renew path.
+struct StolenLeaseDriver {
+    steps_run: AtomicUsize,
+    fail_after_steal: bool,
+}
+
+#[async_trait]
+impl OpDriver for StolenLeaseDriver {
+    fn op_type(&self) -> &'static str {
+        "merge"
+    }
+
+    fn initial_step(&self) -> &'static str {
+        "started"
+    }
+
+    async fn run_step(&self, pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
+        self.steps_run.fetch_add(1, Ordering::SeqCst);
+        steal_lease(pool, op.op_id).await;
+        if self.fail_after_steal {
+            Err(SagaError::CorruptState("simulated step failure".into()))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_driver_whose_lease_was_stolen_stops_running_steps_instead_of_renewing() {
+    let ctx = TestContext::new().await;
+    let driver = StolenLeaseDriver {
+        steps_run: AtomicUsize::new(0),
+        fail_after_steal: false,
+    };
+    let op_id = Uuid::now_v7();
+
+    let short_engine = personhog_identity::lifecycle::engine::Engine::new(
+        ctx.pool.clone(),
+        personhog_identity::lifecycle::engine::EngineConfig {
+            lease: std::time::Duration::from_secs(5),
+            execute_timeout: std::time::Duration::from_millis(200),
+            poll_interval: std::time::Duration::from_millis(25),
+            attempt_alert_threshold: 5,
+        },
+    );
+    let err = short_engine
+        .execute(&driver, op_id, ctx.team_id, &json!({}))
+        .await
+        .expect_err("waits on the stealer's lease until the deadline");
+
+    assert!(matches!(err, SagaError::Busy));
+    assert_eq!(
+        driver.steps_run.load(Ordering::SeqCst),
+        1,
+        "no step ran after the lease was stolen"
+    );
+    assert!(
+        lease_is_live(&ctx.pool, op_id).await,
+        "the displaced driver must not have renewed or cleared the stealer's lease"
+    );
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_failing_driver_whose_lease_was_stolen_does_not_release_the_stealers_lease() {
+    let ctx = TestContext::new().await;
+    let engine = ctx.engine();
+    let driver = StolenLeaseDriver {
+        steps_run: AtomicUsize::new(0),
+        fail_after_steal: true,
+    };
+    let op_id = Uuid::now_v7();
+
+    let err = engine
+        .execute(&driver, op_id, ctx.team_id, &json!({}))
+        .await
+        .expect_err("step failure propagates");
+
+    assert!(matches!(err, SagaError::CorruptState(_)));
+    assert!(
+        lease_is_live(&ctx.pool, op_id).await,
+        "the stale driver's error-path release must not clear the stealer's lease"
     );
 
     ctx.cleanup().await.expect("cleanup");

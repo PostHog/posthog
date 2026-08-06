@@ -22,10 +22,6 @@ from posthog.schema import (
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -46,6 +42,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.github import GithubSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.github import (
@@ -83,7 +80,18 @@ GITHUB_WEBHOOK_RESOURCE_MAP: dict[str, str] = {
     "reviews": "pull_request_review",
     "deployments": "deployment",
     "deployment_statuses": "deployment_status",
+    # Like reviews, a fan-out child with no repo-wide list endpoint, so polling costs one call per
+    # commit and the table ships deselected. The event nests the run under `check_run` and the poll
+    # path injects no parent column (check run ids are globally unique), so the webhook row already
+    # matches the poll row and needs no reshaping.
+    "check_runs": "check_run",
 }
+
+# Everything else stays poll-only. GitHub does emit events for several of the other tables, but the
+# template lands `body[eventType]` as the row and these nest the object under a different key —
+# `alert` for the code-scanning/Dependabot/secret-scanning alerts, `comment` for issue and review
+# comments, `forkee` for forks, `commit` for statuses — so each needs its own reshaping branch
+# before its webhook rows would match what the poll path writes.
 
 
 @SourceRegistry.register
@@ -234,8 +242,21 @@ If automatic creation failed, your token needs webhook permissions — the **adm
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error": "Invalid GitHub credentials. Please reconnect your account.",
-            "403 Client Error": "Access forbidden. Your token may lack required permissions or have hit rate limits.",
-            "404 Client Error": "Repository not found. Please verify the repository name and access permissions.",
+            # GitHub's own wording for the two denials a user can actually act on. Both are matched
+            # ahead of the generic 403 keys below, because the first match in this dict wins.
+            "Resource not accessible by integration": "The GitHub app doesn't have permission to read this table. Give it the matching repository permission on GitHub, then reconnect your GitHub account.",
+            "Resource not accessible by personal access token": "Your GitHub token doesn't have permission to read this table. Add the missing scope to the token, then update the source with the new token.",
+            "SAML enforcement": "Your GitHub organization requires single sign-on for this connection. Authorize it on GitHub, then reconnect your GitHub account.",
+            "OAuth App access restrictions": "Your GitHub organization hasn't approved this connection. Ask an organization owner to approve it, then reconnect your GitHub account.",
+            # Rate-limited 403s never reach here: the sync classifies those as a rate limit and backs
+            # off until GitHub's reset. A 403 that lands in this map is a permission denial.
+            "GitHub denied access": "GitHub denied access to this repository. The connected account is missing a permission, or your organization hasn't approved it. Check the connection on GitHub, then reconnect your GitHub account.",
+            "403 Client Error": "GitHub denied access to this repository. The connected account is missing a permission, or your organization hasn't approved it. Check the connection on GitHub, then reconnect your GitHub account.",
+            # Raised only after a probe confirms the repository itself no longer resolves. A renamed
+            # or transferred repository still resolves through GitHub's redirect, so this is a
+            # deleted repository or one the connection can no longer see.
+            "GitHub repository is not accessible": "This repository is no longer available on GitHub. It may have been deleted, or your connection may have lost access to it. Update the source with a repository you can still reach, or reconnect your GitHub account.",
+            "404 Client Error": "GitHub couldn't find this repository. Check that it still exists and that your connection can access it.",
             "Bad credentials": "Your GitHub connection is invalid or expired. Please reconnect.",
             # The GitHub App isn't configured on this PostHog instance, so an OAuth source can't mint
             # the App JWT to refresh its installation token. Deterministic — retrying never resolves it.
@@ -697,8 +718,18 @@ If automatic creation failed, your token needs webhook permissions — the **adm
     def delete_webhook(
         self, config: GithubSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> WebhookDeletionResult:
-        access_token = self._get_access_token(config, team_id)
-        egress_identity = self._egress_identity(config, team_id)
+        try:
+            access_token = self._get_access_token(config, team_id)
+            egress_identity = self._egress_identity(config, team_id)
+        except ValueError:
+            # Deleting the hook is best-effort cleanup when a source is removed, by which point its
+            # OAuth integration may already be gone — leaving us no token to reach GitHub. Report the
+            # skip instead of raising: the orphaned hook stops delivering once the App installation is
+            # removed, and raising here only captures noise on an otherwise-successful deletion.
+            return WebhookDeletionResult(
+                success=False,
+                error="Couldn't remove the GitHub webhook because the connected account is no longer available.",
+            )
         repositories = self._webhook_repositories(config)
         pinned_version = self.resolve_api_version(api_version)
         results = self._map_webhook_repositories(

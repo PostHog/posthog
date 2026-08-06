@@ -5,9 +5,9 @@ Tests for evaluation summary API endpoint.
 import uuid
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from rest_framework import status
+from rest_framework import exceptions, status
 
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.summarization.constants import EVALUATION_SUMMARY_MAX_RUNS
@@ -182,6 +182,35 @@ class TestEvaluationSummaryAPI(APIBaseTest):
         assert data["statistics"]["pass_count"] == 2
         assert data["statistics"]["fail_count"] == 1
         assert data["statistics"]["na_count"] == 0
+
+    @patch("products.ai_observability.backend.api.evaluation_summary.async_to_sync")
+    @patch("products.ai_observability.backend.api.evaluation_summary._fetch_evaluation_runs")
+    def test_concurrent_summary_returns_throttled_response(
+        self, mock_fetch_runs: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        mock_fetch_runs.return_value = [
+            {"generation_id": "gen_001", "result": True, "reasoning": "Good response"},
+        ]
+        mock_async_to_sync.return_value.side_effect = exceptions.Throttled(
+            detail="An evaluation summary is already being generated for this project. Try again when it finishes."
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/evaluation_summary/",
+            {
+                "evaluation_id": str(self.evaluation.id),
+                "filter": "all",
+                "force_refresh": True,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert response.data["code"] == "throttled"
+        assert "already being generated for this project" in response.data["detail"]
 
     @patch("products.ai_observability.backend.api.evaluation_summary.async_to_sync")
     @patch("products.ai_observability.backend.api.evaluation_summary._fetch_evaluation_runs")

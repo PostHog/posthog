@@ -10,7 +10,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
@@ -527,7 +527,13 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
         )
         routed_result.raise_for_status()
 
-    await database_sync_to_async(_emit, thread_sensitive=False)()
+    try:
+        await database_sync_to_async(_emit, thread_sensitive=False)()
+    except CaptureInternalError as e:
+        if e.is_billing_limit_exceeded:
+            logger.info("Skipping tag event emission; team over billing quota", team_id=event_data["team_id"])
+            return
+        raise
 
 
 @temporalio.activity.defn

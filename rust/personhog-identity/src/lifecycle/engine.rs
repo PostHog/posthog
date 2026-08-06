@@ -12,7 +12,9 @@
 //! `lifecycle_op.step`) in one transaction: the loser's CAS fails, its
 //! transaction rolls back, and its work evaporates. A saved step therefore
 //! always means "everything up to and including this step really happened,
-//! exactly once".
+//! exactly once". A claim's bumped `attempt` doubles as a fencing token:
+//! renew/release match only while `attempt` is unchanged, so a displaced
+//! driver cannot extend or clear a stealer's lease.
 
 use std::time::Duration;
 
@@ -159,18 +161,29 @@ impl Engine {
             )));
         }
 
-        self.drive(driver, op_id).await
+        self.drive(driver, op_id, true).await
     }
 
     /// Drive an existing op (sweeper entry point — no create, no request
-    /// verification).
+    /// verification). Does not wait on another driver's live lease: to the
+    /// sweeper a live lease means "not abandoned", so this bails with `Busy`
+    /// instead of polling out the execute timeout.
     pub async fn resume(&self, driver: &dyn OpDriver, op_id: Uuid) -> Result<OpRow, SagaError> {
-        self.drive(driver, op_id).await
+        self.drive(driver, op_id, false).await
     }
 
-    async fn drive(&self, driver: &dyn OpDriver, op_id: Uuid) -> Result<OpRow, SagaError> {
+    async fn drive(
+        &self,
+        driver: &dyn OpDriver,
+        op_id: Uuid,
+        wait_for_lease: bool,
+    ) -> Result<OpRow, SagaError> {
         let deadline = tokio::time::Instant::now() + self.config.execute_timeout;
-        let mut owned = false;
+        // The attempt number returned by our claim, used as a fencing token:
+        // renew/release only touch the lease while `attempt` still matches,
+        // so a driver whose lease was stolen (the stealer bumped `attempt`)
+        // cannot extend or clear the stealer's lease.
+        let mut claim_attempt: Option<i32> = None;
 
         loop {
             let Some(row) = self.load(op_id).await? else {
@@ -179,7 +192,7 @@ impl Engine {
                 )));
             };
             if row.completed_at.is_some() {
-                if owned {
+                if claim_attempt.is_some() {
                     // We drove it over the line (vs attaching to an op that
                     // was already done).
                     common_metrics::inc(
@@ -194,18 +207,24 @@ impl Engine {
                 return Ok(row);
             }
             if tokio::time::Instant::now() >= deadline {
-                if owned {
-                    self.release_lease(op_id).await.ok();
+                if let Some(attempt) = claim_attempt {
+                    self.release_lease(op_id, attempt).await.ok();
                 }
                 return Err(SagaError::Busy);
             }
 
-            if owned {
-                self.renew_lease(op_id).await?;
-            } else {
-                match self.try_claim(op_id).await? {
+            match claim_attempt {
+                Some(attempt) => {
+                    if !self.renew_lease(op_id, attempt).await? {
+                        // Another driver stole the lease; go back to
+                        // claiming instead of running a step we would lose.
+                        claim_attempt = None;
+                        continue;
+                    }
+                }
+                None => match self.try_claim(op_id).await? {
                     Some(attempt) => {
-                        owned = true;
+                        claim_attempt = Some(attempt);
                         if attempt >= self.config.attempt_alert_threshold {
                             tracing::warn!(
                                 op_id = %op_id,
@@ -217,17 +236,22 @@ impl Engine {
                         }
                     }
                     None => {
+                        if !wait_for_lease {
+                            return Err(SagaError::Busy);
+                        }
                         // Someone else holds the lease; wait for them to
                         // finish or for the lease to lapse.
                         tokio::time::sleep(self.config.poll_interval).await;
                         continue;
                     }
-                }
+                },
             }
 
             if let Err(err) = driver.run_step(&self.pool, &row).await {
                 // Drop the lease so an immediate retry doesn't wait it out.
-                self.release_lease(op_id).await.ok();
+                if let Some(attempt) = claim_attempt {
+                    self.release_lease(op_id, attempt).await.ok();
+                }
                 return Err(err);
             }
         }
@@ -267,25 +291,29 @@ impl Engine {
         .await
     }
 
-    async fn renew_lease(&self, op_id: Uuid) -> Result<(), sqlx::Error> {
-        sqlx::query!(
+    /// Extend our lease. Returns false when the lease is no longer ours
+    /// (another driver claimed the op and bumped `attempt`).
+    async fn renew_lease(&self, op_id: Uuid, attempt: i32) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query!(
             r#"
             UPDATE lifecycle_op
             SET lease_expires_at = now() + make_interval(secs => $2)
-            WHERE op_id = $1 AND completed_at IS NULL
+            WHERE op_id = $1 AND completed_at IS NULL AND attempt = $3
             "#,
             op_id,
             self.config.lease.as_secs_f64(),
+            attempt,
         )
         .execute(&self.pool)
         .await?;
-        Ok(())
+        Ok(result.rows_affected() > 0)
     }
 
-    async fn release_lease(&self, op_id: Uuid) -> Result<(), sqlx::Error> {
+    async fn release_lease(&self, op_id: Uuid, attempt: i32) -> Result<(), sqlx::Error> {
         sqlx::query!(
-            "UPDATE lifecycle_op SET lease_expires_at = NULL WHERE op_id = $1 AND completed_at IS NULL",
-            op_id
+            "UPDATE lifecycle_op SET lease_expires_at = NULL WHERE op_id = $1 AND completed_at IS NULL AND attempt = $2",
+            op_id,
+            attempt,
         )
         .execute(&self.pool)
         .await?;
@@ -325,6 +353,9 @@ impl Engine {
                     resumed += 1;
                     common_metrics::inc(SWEEPER_RESUMED_TOTAL, &[], 1);
                 }
+                // Claimed by another driver between our scan and now, so it
+                // is live, not abandoned — leave it to its owner.
+                Err(SagaError::Busy) => {}
                 Err(err) => {
                     tracing::warn!(op_id = %op.op_id, error = %err,
                         "sweeper failed to resume op; will retry next pass");

@@ -13,14 +13,16 @@ import type {
     SignalScoutConfigApi as SignalScoutConfig,
 } from 'products/signals/frontend/generated/api.schemas'
 
+import { captureScoutAction } from '../../../inboxAnalytics'
 import {
     dailyCronToTime,
     formatRunIntervalShort,
     prettifyScoutSkillName,
     ScoutRollup,
 } from '../../../utils/scoutRunsWindow'
+import { scoutTags } from '../../../utils/scoutTags'
 import { agentSetupModalLogic } from '../../shell/agentSetupModalLogic'
-import { ScoutOriginBadge } from './ScoutBadges'
+import { ScoutLifecycleBadge, ScoutOriginBadge, ScoutTagBadge } from './ScoutBadges'
 import { ScoutConfigForm, ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutRunBoxes } from './ScoutRunBoxes'
 
@@ -53,6 +55,8 @@ export function ScoutRowCard({
     const [settingsOpen, setSettingsOpen] = useState(false)
     const { closeSetupModal } = useActions(agentSetupModalLogic)
     const displayName = prettifyScoutSkillName(config.skill_name)
+    // The same card is both a fleet row and the detail page header, and the two read very differently.
+    const surface = asHeader ? 'scout_detail' : 'fleet_list'
 
     // What the scout investigates, from the skill frontmatter — surfaced on hover over the name.
     const description = config.description?.trim()
@@ -114,14 +118,22 @@ export function ScoutRowCard({
                                     subtle
                                     className="text-muted"
                                     aria-label={`Open the ${config.skill_name} skill`}
+                                    onClick={() =>
+                                        captureScoutAction({
+                                            actionType: 'open_skill_in_posthog',
+                                            surface,
+                                            skillName: config.skill_name,
+                                        })
+                                    }
                                 >
                                     <IconArrowUpRight className="size-3.5" />
                                 </Link>
                             </Tooltip>
                             <ScoutOriginBadge origin={config.scout_origin} />
+                            <ScoutLifecycleBadge config={config} />
                         </div>
                     </div>
-                    <div className="flex items-center gap-1 whitespace-nowrap text-[11px] text-muted">
+                    <div className="flex flex-wrap items-center gap-1 text-[11px] text-muted">
                         {/* A cron schedule overrides the rolling interval, so the badge shows it instead. */}
                         <span>
                             {config.run_cron_schedule
@@ -133,6 +145,9 @@ export function ScoutRowCard({
                         {rollup && rollup.emittedCount > 0 ? (
                             <span>· {pluralize(rollup.emittedCount, 'signal')} emitted</span>
                         ) : null}
+                        {scoutTags(config).map((tag) => (
+                            <ScoutTagBadge key={tag} tag={tag} />
+                        ))}
                     </div>
                 </div>
                 {/* The sparkline is the flexible region: it shrinks and clips the oldest runs
@@ -152,7 +167,14 @@ export function ScoutRowCard({
                             size="small"
                             icon={<IconGear />}
                             active={settingsOpen}
-                            onClick={() => setSettingsOpen((value) => !value)}
+                            onClick={() => {
+                                captureScoutAction({
+                                    actionType: settingsOpen ? 'close_settings' : 'open_settings',
+                                    surface,
+                                    skillName: config.skill_name,
+                                })
+                                setSettingsOpen((value) => !value)
+                            }}
                             aria-label={`${config.skill_name} settings`}
                         />
                     </Tooltip>

@@ -23,6 +23,7 @@ export const USAGE_TYPES = [
     { label: 'Workflow push notifications', value: 'workflow_push_sent_in_period' },
     { label: 'Workflow destinations', value: 'workflow_billable_invocations_in_period' },
     { label: 'Logs ingested (MB)', value: 'logs_mb_in_period' },
+    { label: 'Logs 30-day retention (MB)', value: 'logs_retention_30d_mb_in_period' },
 ] as const
 
 export type UsageTypeOption = (typeof USAGE_TYPES)[number]

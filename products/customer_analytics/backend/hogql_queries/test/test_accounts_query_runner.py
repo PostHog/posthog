@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 
@@ -543,6 +543,55 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(values_by_id[str(account.id)], "enterprise")
         # An account with no value for the definition aggregates to NULL/empty.
         self.assertFalse(values_by_id[str(other.id)])
+
+    def test_custom_property_history_returns_ordered_writes_within_horizon(self):
+        account = create_account(team_id=self.team.id, name="A")
+        stale_account = create_account(team_id=self.team.id, name="Stale")
+        definition = create_custom_property_definition(team_id=self.team.id, name="Seats", display_type="number")
+        text_definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        CustomPropertyValue.objects.unscoped().create(
+            team_id=self.team.id, account=account, definition=text_definition, value_str="enterprise"
+        )
+        now = timezone.now()
+        for target, value, is_deleted, written_at in [
+            (account, 99.0, True, now - timedelta(days=200)),
+            (account, 10.0, True, now - timedelta(days=10)),
+            (account, 33.0, False, now - timedelta(days=5)),
+            # An active value last written before the horizon must still surface as the
+            # current value — only superseded rows age out.
+            (stale_account, 77.0, False, now - timedelta(days=200)),
+        ]:
+            row = CustomPropertyValue.objects.unscoped().create(
+                team_id=self.team.id, account=target, definition=definition, value_num=value, is_deleted=is_deleted
+            )
+            CustomPropertyValue.objects.unscoped().filter(id=row.id).update(created_at=written_at)
+
+        runner = AccountsQueryRunner(
+            query=AccountsQuery(
+                select=[
+                    "id",
+                    f"accounts.custom_properties_history.values.`{definition.id}` AS numeric_history",
+                    f"accounts.custom_properties_history.values.`{text_definition.id}` AS text_history",
+                ]
+            ),
+            team=self.team,
+            user=self.user,
+        )
+        response = runner.calculate()
+        self.assertEqual(len(response.results), 2)
+        id_idx = runner.columns.index("id")
+        rows_by_id = {str(row[id_idx]): row for row in response.results}
+
+        numeric_history = rows_by_id[str(account.id)][runner.columns.index("numeric_history")]
+        # The 200-day-old superseded write falls outside the fetch horizon; the two in-horizon
+        # writes come back oldest first, superseded row included.
+        self.assertEqual([point[1] for point in numeric_history], [10.0, 33.0])
+        timestamps = [point[0] for point in numeric_history]
+        self.assertEqual(timestamps, sorted(timestamps))
+        self.assertFalse(rows_by_id[str(account.id)][runner.columns.index("text_history")])
+
+        stale_history = rows_by_id[str(stale_account.id)][runner.columns.index("numeric_history")]
+        self.assertEqual([point[1] for point in stale_history], [77.0])
 
     def test_numeric_custom_property_aggregates_in_metrics_mode(self):
         # Overview tiles sum/avg a numeric custom property by casting its (string) value to a float.

@@ -7,7 +7,7 @@ CREATE TABLE posthog.adhoc_events_deletion (
   created_at DateTime64(6, 'UTC') DEFAULT now64(),
   deleted_at DateTime,
   is_deleted UInt8 DEFAULT 0
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.adhoc_events_deletion', '{replica}-{shard}', deleted_at, is_deleted) ORDER BY (team_id, uuid) TTL deleted_at + toIntervalMonth(3) SETTINGS index_granularity = 8192;
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.adhoc_events_deletion', '{replica}-{shard}', deleted_at, is_deleted) ORDER BY (team_id, uuid) TTL deleted_at + toIntervalMonth(3) WHERE is_deleted = 1 SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.ai_events (
   uuid UUID,
   event LowCardinality(String),
@@ -1169,6 +1169,46 @@ CREATE TABLE posthog.sharded_experiment_exposures_preaggregated (
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at Date DEFAULT today() + toIntervalDay(7)
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.experiment_exposures_preaggregated', '{replica}', computed_at) ORDER BY (team_id, job_id, entity_id, breakdown_value) PARTITION BY toYYYYMMDD(expires_at) TTL expires_at SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.sharded_flag_evaluations (
+  team_id Int64,
+  uuid UUID,
+  timestamp DateTime64(6, 'UTC'),
+  inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+  distinct_id String,
+  session_id String,
+  device_id String,
+  flag_key String,
+  response LowCardinality(String),
+  flag_id UInt64,
+  flag_version UInt32,
+  reason LowCardinality(String),
+  request_id String,
+  evaluated_at DateTime64(6, 'UTC') DEFAULT timestamp,
+  error String,
+  locally_evaluated Bool,
+  lib LowCardinality(String),
+  lib_version LowCardinality(String),
+  is_server Bool,
+  os LowCardinality(String),
+  os_version LowCardinality(String),
+  app_version LowCardinality(String),
+  current_url String,
+  pathname String,
+  country_code LowCardinality(String),
+  subdivision_1_code LowCardinality(String),
+  group_0 String,
+  group_1 String,
+  group_2 String,
+  group_3 String,
+  group_4 String,
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64,
+  INDEX distinct_id_idx distinct_id TYPE bloom_filter(0.01) GRANULARITY 1,
+  INDEX session_id_idx session_id TYPE bloom_filter(0.01) GRANULARITY 1,
+  INDEX request_id_idx request_id TYPE bloom_filter(0.01) GRANULARITY 1,
+  INDEX inserted_at_idx inserted_at TYPE minmax GRANULARITY 1
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/posthog.flag_evaluations', '{replica}') ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id)) PARTITION BY toYYYYMM(timestamp) TTL toDate(timestamp) + toIntervalDay(90) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_heatmaps (
   session_id String,
   team_id Int64,
@@ -3079,6 +3119,42 @@ CREATE TABLE posthog.experiment_exposures_preaggregated (
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at Date DEFAULT today() + toIntervalDay(7)
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_experiment_exposures_preaggregated', cityHash64(entity_id));
+CREATE TABLE posthog.flag_evaluations (
+  team_id Int64,
+  uuid UUID,
+  timestamp DateTime64(6, 'UTC'),
+  inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+  distinct_id String,
+  session_id String,
+  device_id String,
+  flag_key String,
+  response LowCardinality(String),
+  flag_id UInt64,
+  flag_version UInt32,
+  reason LowCardinality(String),
+  request_id String,
+  evaluated_at DateTime64(6, 'UTC') DEFAULT timestamp,
+  error String,
+  locally_evaluated Bool,
+  lib LowCardinality(String),
+  lib_version LowCardinality(String),
+  is_server Bool,
+  os LowCardinality(String),
+  os_version LowCardinality(String),
+  app_version LowCardinality(String),
+  current_url String,
+  pathname String,
+  country_code LowCardinality(String),
+  subdivision_1_code LowCardinality(String),
+  group_0 String,
+  group_1 String,
+  group_2 String,
+  group_3 String,
+  group_4 String,
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_flag_evaluations', sipHash64(distinct_id));
 CREATE TABLE posthog.heatmaps (
   session_id String,
   team_id Int64,

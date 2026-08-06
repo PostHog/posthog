@@ -7,7 +7,6 @@ from typing import Any, Optional
 from dateutil import parser
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -18,6 +17,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads.settings import (
     INSIGHTS_PAGE_SIZE,
     LIST_PAGE_SIZE,
@@ -128,7 +129,7 @@ def _to_utc_date(value: Any) -> date:
     return parser.parse(str(value)).astimezone(UTC).date()
 
 
-def _insights_window(db_incremental_field_last_value: Optional[Any]) -> tuple[str, str]:
+def _insights_window(db_incremental_field_last_value: Optional[Any]) -> SyncWindow[str]:
     """The [since, until] ISO date window for one insights sync.
 
     Incremental runs start at the watermark (the pipeline already rewinds it by the configured
@@ -140,7 +141,7 @@ def _insights_window(db_incremental_field_last_value: Optional[Any]) -> tuple[st
     if db_incremental_field_last_value is not None:
         since = _to_utc_date(db_incremental_field_last_value)
     since = min(since, until)
-    return since.isoformat(), until.isoformat()
+    return SyncWindow(start=since.isoformat(), end=until.isoformat())
 
 
 def _convert_insights_times(row: dict[str, Any]) -> dict[str, Any]:
@@ -235,9 +236,9 @@ def openai_ads_source(
 
     if config.aggregation_level is not None:
         if resume is not None and resume.since and resume.until:
-            since, until = resume.since, resume.until
+            window: SyncWindow[str] = SyncWindow(start=resume.since, end=resume.until)
         else:
-            since, until = _insights_window(db_incremental_field_last_value)
+            window = _insights_window(db_incremental_field_last_value)
         params: dict[str, Any] = {
             "aggregation_level": config.aggregation_level,
             "time_granularity": "daily",
@@ -246,11 +247,13 @@ def openai_ads_source(
             "fields[]": list(config.insights_fields),
             # One JSON-encoded time-range object; the explicit timezone keeps daily buckets (and
             # therefore the bucket ids merge dedupes on) stable across runs.
-            "time_ranges[]": json.dumps({"type": "date_range", "since": since, "until": until, "timezone": "UTC"}),
+            "time_ranges[]": json.dumps(
+                {"type": "date_range", "since": window.start, "until": window.end, "timezone": "UTC"}
+            ),
         }
         data_map = _convert_insights_times
     else:
-        since = until = ""
+        window = SyncWindow(start="", end="")
         # An explicit stable sort prevents page-boundary skips/duplicates while paginating the
         # full campaign list.
         params = {"limit": LIST_PAGE_SIZE, "order": "asc"}
@@ -288,7 +291,7 @@ def openai_ads_source(
         # resumed cursor pairs with the result set it was issued for.
         if state and state.get("cursor"):
             resumable_source_manager.save_state(
-                OpenAIAdsResumeConfig(cursor=state["cursor"], since=since or None, until=until or None)
+                OpenAIAdsResumeConfig(cursor=state["cursor"], since=window.start or None, until=window.end or None)
             )
 
     resource = rest_api_resource(
