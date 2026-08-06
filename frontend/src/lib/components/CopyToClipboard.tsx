@@ -1,11 +1,14 @@
 import clsx from 'clsx'
-import React from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 
-import { IconCopy } from '@posthog/icons'
+import { IconCheck, IconCopy } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+
+// How long the copy icon stays a checkmark after a successful copy.
+const COPIED_RESET_MS = 1700
 
 interface InlinePropsBase {
     description?: string
@@ -53,15 +56,38 @@ export const CopyToClipboardInline = React.forwardRef<HTMLSpanElement, InlinePro
     },
     ref
 ) {
-    const copy = (): void => void copyToClipboard((explicitValue ?? children) as string, description)
+    const [copied, setCopied] = useState(false)
+    const copiedResetRef = useRef<number | undefined>(undefined)
+
+    useEffect(() => () => window.clearTimeout(copiedResetRef.current), [])
+
+    const copy = (): void => {
+        void copyToClipboard((explicitValue ?? children) as string, description).then((didCopy) => {
+            if (didCopy) {
+                setCopied(true)
+                window.clearTimeout(copiedResetRef.current)
+                copiedResetRef.current = window.setTimeout(() => setCopied(false), COPIED_RESET_MS)
+            }
+        })
+    }
+
+    const copyLabel = `Copy ${description ?? 'text'}`
 
     let content = (
         <LemonButton
             size={iconSize}
-            icon={<IconCopy style={{ ...iconStyle }} />}
+            icon={copied ? <IconCheck style={{ ...iconStyle }} /> : <IconCopy style={{ ...iconStyle }} />}
             noPadding
-            className={iconMargin ? 'ml-1' : undefined}
+            // When there's no text to click, padding plus a matching negative margin widens the
+            // click target without shifting layout, so the icon-only button (e.g. in a zero-width
+            // table column) stops being a near-impossible target.
+            className={clsx(
+                !children && 'p-1 -m-1',
+                iconMargin && 'ml-1',
+                copied && '[--lemon-button-color:var(--success)]'
+            )}
             data-attr="copy-icon"
+            aria-label={copyLabel}
             onClick={selectable || !children ? copy : undefined}
         />
     )
@@ -87,9 +113,20 @@ export const CopyToClipboardInline = React.forwardRef<HTMLSpanElement, InlinePro
             </span>
         )
     }
-    return !selectable || tooltipMessage !== null ? (
-        <Tooltip title={tooltipMessage || 'Click to copy'}>{content}</Tooltip>
-    ) : (
-        <>{content}</>
+    // Selectable text can't advertise "Click to copy" (clicking selects), so it drops the tooltip —
+    // but an icon-only button always copies on click, so it keeps one regardless of `selectable`.
+    const showTooltip = !selectable || tooltipMessage !== null || !children
+
+    return (
+        <>
+            {showTooltip ? (
+                <Tooltip title={tooltipMessage || (copied ? 'Copied!' : 'Click to copy')}>{content}</Tooltip>
+            ) : (
+                content
+            )}
+            <span aria-live="polite" aria-atomic="true" className="sr-only">
+                {copied ? `Copied ${description ?? 'text'} to clipboard` : ''}
+            </span>
+        </>
     )
 })
