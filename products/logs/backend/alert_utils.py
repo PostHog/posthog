@@ -12,6 +12,7 @@ from products.alerts.backend.scheduling import (
 )
 
 __all__ = [
+    "HOIST_BATCHED_ALERT_PREDICATES",
     "MAX_BYTES_TO_READ",
     "SCHEDULE_INTERVAL_SECONDS",
     "advance_next_check_at",
@@ -33,6 +34,13 @@ SCHEDULE_INTERVAL_SECONDS = 60
 # consumer) is outside the temporal package. Importing it from temporal would create
 # a circular import via `temporal/__init__.py` to activities to alert_check_query.
 MAX_BYTES_TO_READ = int(os.environ.get("LOGS_ALERTING_MAX_BYTES_TO_READ", "5368709120"))
+
+# Kill switch for hoisting the OR of per-alert predicates into the batched
+# alert query's outer WHERE so ClickHouse can prune the scan with them.
+# Results are identical either way; disable only if the hoisted query shape
+# misbehaves on the cluster (e.g. pathological KeyCondition analysis on a
+# large OR chain).
+HOIST_BATCHED_ALERT_PREDICATES = os.environ.get("LOGS_ALERTING_HOIST_BATCHED_ALERT_PREDICATES", "1") == "1"
 
 
 def compute_shard_offset_seconds(alert_id: UUID, check_interval_minutes: int) -> int:
