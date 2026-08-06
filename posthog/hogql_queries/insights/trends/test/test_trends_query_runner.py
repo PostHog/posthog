@@ -71,6 +71,7 @@ from posthog.hogql_queries.insights.utils.breakdowns import (
     BREAKDOWN_OTHER_DISPLAY,
     BREAKDOWN_OTHER_STRING_LABEL,
 )
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models.group.util import create_group
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -769,6 +770,32 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ]
         assert response.results[0]["data"] == [1, 1, 2, 2, 4, 4, 5]
         assert response.results[0]["count"] == response.results[0]["data"][-1]
+
+    def test_cache_payload_varies_only_for_retired_hide_weekends(self):
+        # Retiring hideWeekends changed format_results output without changing the query JSON, so
+        # the key has to vary for queries carrying the flag — otherwise a pre-retirement entry
+        # serves weekend-less results. Queries without it must keep their existing key.
+        with_flag = TrendsQueryRunner(
+            team=self.team,
+            query=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                dateRange=DateRange(date_from=self.default_date_from, date_to=self.default_date_to),
+                interval=IntervalType.DAY,
+                trendsFilter=TrendsFilter(hideWeekends=True),
+            ),
+        )
+        without_flag = TrendsQueryRunner(
+            team=self.team,
+            query=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                dateRange=DateRange(date_from=self.default_date_from, date_to=self.default_date_to),
+                interval=IntervalType.DAY,
+            ),
+        )
+
+        assert with_flag.get_cache_payload()["hide_weekends_retired"] is True
+        assert "hide_weekends_retired" not in without_flag.get_cache_payload()
+        assert "hide_weekends_retired" not in AnalyticsQueryRunner.get_cache_payload(with_flag)
 
     def test_exclude_incomplete_periods_drops_current_bucket(self):
         self._create_test_events()

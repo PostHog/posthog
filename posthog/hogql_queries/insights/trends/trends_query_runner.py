@@ -159,6 +159,17 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             DisallowDaysOfWeekWithSmoothing(),
         )
 
+    def get_cache_payload(self) -> dict:
+        # hideWeekends used to drop weekend buckets from the response and is now ignored, but the
+        # query JSON still carries the flag, so the cache identity is unchanged. Vary the key for
+        # those queries only, or a pre-retirement entry keeps serving weekend-less results while a
+        # fresh calculation includes them. Conditional rather than a blanket version bump so this
+        # doesn't invalidate every trends cache.
+        payload = super().get_cache_payload()
+        if self.query.trendsFilter and self.query.trendsFilter.hideWeekends:
+            payload["hide_weekends_retired"] = True
+        return payload
+
     def _refresh_frequency(self):
         date_to = self.query_date_range.date_to()
         date_from = self.query_date_range.date_from()
