@@ -758,6 +758,20 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "include the value used on the remote server, or remove the foreign table from the "
                 "sync, then re-enable the sync."
             ),
+            # A selected relation is a postgres_fdw foreign table whose locally-declared character
+            # column is narrower than the data actually stored on the remote server (SQLSTATE 22001,
+            # "value too long for type character varying(<n>)"). Postgres enforces length constraints
+            # at write time on ordinary tables, so this can only surface via a foreign table's
+            # separately-declared width. The schema drift lives on the customer's side and is
+            # deterministic, so retrying re-reads into the same row every time. Match the stable
+            # message and exclude the volatile declared width and the CONTEXT line's column/table names.
+            "value too long for type character": (
+                "One of the tables you selected to sync is a foreign table (postgres_fdw) whose "
+                "locally-declared column is narrower than the data on the remote server "
+                '(PostgreSQL reported "value too long for type character..."). Widen the local '
+                "column's declared length to match the remote server, or remove the foreign table "
+                "from the sync, then re-enable the sync."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:
