@@ -84,4 +84,15 @@ describe("fetchExistingReleases", () => {
       "Release feed fetch failed: 500",
     );
   });
+
+  it.each([[{}], [{ releases: null }], [null]])(
+    "throws on a 200 response without a releases array (%o) instead of wiping history",
+    async (body) => {
+      const fetchImpl = vi.fn().mockResolvedValue(response(body));
+
+      await expect(fetchExistingReleases(fetchImpl)).rejects.toThrow(
+        "Release feed response has no releases array",
+      );
+    },
+  );
 });

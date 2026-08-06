@@ -14,7 +14,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 10
         permissions:
-            contents: write
+            contents: read
         steps:
             - name: Get app token
               id: app-token

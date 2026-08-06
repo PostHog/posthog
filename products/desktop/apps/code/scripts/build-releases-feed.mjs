@@ -17,12 +17,21 @@ export async function fetchExistingReleases(fetchImpl = fetch) {
     headers: { Accept: "application/json" },
   });
   // A feed that has never been published surfaces as 403/404 from CloudFront.
-  if (response.status === 403 || response.status === 404) return [];
+  if (response.status === 403 || response.status === 404) {
+    console.warn(
+      `Release feed fetch returned ${response.status}; starting an empty feed`,
+    );
+    return [];
+  }
   if (!response.ok) {
     throw new Error(`Release feed fetch failed: ${response.status}`);
   }
   const data = await response.json();
-  return Array.isArray(data.releases) ? data.releases : [];
+  if (!Array.isArray(data?.releases)) {
+    // Rebuilding from an empty base would wipe the published history.
+    throw new Error("Release feed response has no releases array");
+  }
+  return data.releases;
 }
 
 async function main() {
