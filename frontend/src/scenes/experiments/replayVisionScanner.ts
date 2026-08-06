@@ -41,7 +41,11 @@ export function experimentScannerPrompt(experiment: Experiment): string {
     const hypothesis = experiment.description?.trim()
     return [
         'Classify what this participant did after the point where the experiment change would first be visible to them. Ignore anything earlier in the session.',
-        hypothesis ? `What the experiment changes: ${hypothesis}` : null,
+        // The hypothesis is optional at creation, so the required name is the fallback grounding:
+        // without any hint at the changed surface, the tags have nothing to distinguish sessions on.
+        hypothesis
+            ? `What the experiment changes: ${hypothesis}`
+            : `The experiment has no written hypothesis. Its name is "${experiment.name.trim()}", so infer the changed surface from that name.`,
         'Pick one tag:',
         '- never-reached: they never got to the part of the product the experiment changes.',
         '- smooth: they reached it and moved on without visible trouble.',
@@ -49,9 +53,7 @@ export function experimentScannerPrompt(experiment: Experiment): string {
         '- confusion: they reached it and acted as if they misread it, for example wrong clicks, repeated attempts, or wandering.',
         '- error-or-dead-end: they hit an error, an empty state, or a point with no way forward.',
         'Do not guess which variant of the experiment this session was in, and do not mention variants. Describe only what the participant did.',
-    ]
-        .filter(Boolean)
-        .join('\n\n')
+    ].join('\n\n')
 }
 
 /**

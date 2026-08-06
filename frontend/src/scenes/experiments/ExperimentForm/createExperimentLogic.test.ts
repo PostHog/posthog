@@ -9,7 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { useMocks } from '~/mocks/jest'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { type ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { Experiment } from '~/types'
 
@@ -233,7 +233,7 @@ describe('createExperimentLogic', () => {
                         event: 'backend_assigned',
                         properties: [],
                     },
-                },
+                } satisfies ExperimentExposureCriteria as ExperimentExposureCriteria,
                 expectedQuery: {
                     events: [expect.objectContaining({ id: 'backend_assigned' })],
                 },
@@ -582,9 +582,11 @@ describe('createExperimentLogic', () => {
 
             firstNew.actions.setExperimentValue('name', 'Work In Progress')
             firstNew.actions.setExperimentValue('feature_flag_key', 'wip-flag')
+            firstNew.actions.setCreateReplayVisionScanner(true)
 
             await expectLogic(firstNew).toMatchValues({
                 experiment: partial({ name: 'Work In Progress', feature_flag_key: 'wip-flag' }),
+                createReplayVisionScanner: true,
             })
 
             // Navigating away without saving writes the draft to sessionStorage
@@ -595,6 +597,7 @@ describe('createExperimentLogic', () => {
 
             await expectLogic(secondNew).toMatchValues({
                 experiment: partial({ id: 'new', name: 'Work In Progress', feature_flag_key: 'wip-flag' }),
+                createReplayVisionScanner: true,
             })
 
             secondNew.unmount()

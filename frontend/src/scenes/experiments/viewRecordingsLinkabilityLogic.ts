@@ -1,5 +1,6 @@
 import { MakeLogicType, afterMount, kea, key, path, props, propsChanged, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { objectsEqual } from 'lib/utils/objects'
@@ -41,7 +42,9 @@ export function unlinkableEventNamesFromSeenTogether(
 
 /**
  * One-shot version of the check below, for surfaces that need the answer once rather than as
- * mounted state. Fails open on error, the same way the logic's selector does.
+ * mounted state. Fails open on error, the same way the logic's selector does, but captures the
+ * error first: callers bake the result into objects they create, so a systemic failure here is
+ * otherwise indistinguishable from "no unlinkable events".
  */
 export async function loadUnlinkableEventNames(experiment: Experiment): Promise<Set<string>> {
     const eventNames = getSessionLinkabilityEventNames(experiment)
@@ -52,7 +55,8 @@ export async function loadUnlinkableEventNames(experiment: Experiment): Promise<
         return unlinkableEventNamesFromSeenTogether(
             await api.propertyDefinitions.seenTogether({ eventNames, propertyDefinitionName: '$session_id' })
         )
-    } catch {
+    } catch (error) {
+        posthog.captureException(error)
         return new Set()
     }
 }

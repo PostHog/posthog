@@ -75,10 +75,16 @@ export const DRAFT_STORAGE_KEY = `experiment-draft-${window.POSTHOG_APP_CONTEXT?
 
 type ExperimentDraft = {
     experiment: Experiment
+    createReplayVisionScanner?: boolean
     timestamp: number
 }
 
-const readDraftFromStorage = (): Experiment | null => {
+type RestoredDraft = {
+    experiment: Experiment
+    createReplayVisionScanner: boolean
+}
+
+const readDraftFromStorage = (): RestoredDraft | null => {
     if (typeof sessionStorage === 'undefined') {
         return null
     }
@@ -89,24 +95,24 @@ const readDraftFromStorage = (): Experiment | null => {
     try {
         const parsed = JSON.parse(raw) as ExperimentDraft | Experiment
         if (parsed && typeof parsed === 'object' && 'experiment' in parsed && 'timestamp' in parsed) {
-            const { experiment, timestamp } = parsed as ExperimentDraft
+            const { experiment, createReplayVisionScanner, timestamp } = parsed as ExperimentDraft
             if (Date.now() - timestamp > DRAFT_TTL_MS) {
                 sessionStorage.removeItem(DRAFT_STORAGE_KEY)
                 return null
             }
-            return experiment
+            return { experiment, createReplayVisionScanner: createReplayVisionScanner ?? false }
         }
-        return parsed as Experiment
+        return { experiment: parsed as Experiment, createReplayVisionScanner: false }
     } catch {
         return null
     }
 }
 
-const writeDraftToStorage = (experiment: Experiment): void => {
+const writeDraftToStorage = (experiment: Experiment, createReplayVisionScanner: boolean): void => {
     if (typeof sessionStorage === 'undefined') {
         return
     }
-    const draft: ExperimentDraft = { experiment, timestamp: Date.now() }
+    const draft: ExperimentDraft = { experiment, createReplayVisionScanner, timestamp: Date.now() }
     sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft))
 }
 
@@ -467,7 +473,8 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
 
             const draft = readDraftFromStorage()
             if (draft) {
-                actions.setExperiment(draft)
+                actions.setExperiment(draft.experiment)
+                actions.setCreateReplayVisionScanner(draft.createReplayVisionScanner)
             }
         },
         beforeUnmount: () => {
@@ -476,7 +483,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             }
             // Use cases covered:
             // - navigating away from the form without saving
-            writeDraftToStorage(values.experiment)
+            writeDraftToStorage(values.experiment, values.createReplayVisionScanner)
         },
     })),
     listeners(({ values, actions }) => ({
