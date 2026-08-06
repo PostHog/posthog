@@ -80,11 +80,15 @@ def update_db_field_value(field, model_id, value):
     cursor.execute(f"update posthog_integration set {field}='{value}' where id='{model_id}';")
 
 
-def test_slack_oauth_scope_includes_canvas_scope_for_local_installs():
+def test_slack_oauth_requests_the_recently_approved_scopes_on_every_instance():
+    # These waited on Slack app-directory review and were only requested on DEV/local. They're
+    # approved now, so every instance asks for them — the features behind them (DM assistant,
+    # canvas and file artifact delivery, inbox channel creation) are dark without them.
     from posthog.models.integration import POSTHOG_SLACK_SCOPE
 
-    assert "canvases:write" in set(POSTHOG_SLACK_SCOPE.split(","))
-    assert "files:write" in set(POSTHOG_SLACK_SCOPE.split(","))
+    requested = set(POSTHOG_SLACK_SCOPE.split(","))
+
+    assert {"assistant:write", "im:history", "canvases:write", "files:write", "channels:manage"} <= requested
 
 
 class TestIntegrationModel(BaseTest):
