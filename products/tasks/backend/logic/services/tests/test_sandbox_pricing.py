@@ -8,7 +8,6 @@ from products.tasks.backend.logic.services.sandbox_pricing import (
     ComputeRateCard,
     ComputeRateCardConfigurationError,
     calculate_sandbox_compute_cost,
-    get_compute_rate_cards_for_period,
     validate_compute_rate_cards,
     validate_reporting_window,
 )
@@ -303,11 +302,3 @@ def test_invalid_reporting_windows_are_rejected(start, end, message):
 
 def test_reporting_window_accepts_different_aware_offsets():
     validate_reporting_window(EFFECTIVE_AT, EFFECTIVE_AT.astimezone(timezone(timedelta(hours=1))) + timedelta(1))
-
-
-def test_returns_every_rate_card_overlapping_the_displayed_period():
-    assert get_compute_rate_cards_for_period(
-        NEXT_RATE_AT - timedelta(days=1),
-        NEXT_RATE_AT + timedelta(days=1),
-        (RATE_V1, RATE_V2),
-    ) == (RATE_V1, RATE_V2)

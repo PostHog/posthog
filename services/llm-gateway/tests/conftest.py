@@ -18,7 +18,6 @@ from llm_gateway.rate_limiting.cost_throttles import (
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import Throttle
 from llm_gateway.request_context import request_context_var
-from llm_gateway.services.compute_rate_resolver import ComputeRateStatus
 from llm_gateway.services.plan_resolver import PlanInfo
 from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
@@ -61,8 +60,6 @@ def create_test_app(
         app.state.plan_resolver.get_plan = AsyncMock(return_value=PlanInfo(plan_key=None, seat_created_at=None))
         app.state.anthropic_circuit_breaker = None
         app.state.quota_resolver = quota_resolver
-        app.state.compute_rate_resolver = AsyncMock()
-        app.state.compute_rate_resolver.get_rates = AsyncMock(return_value=ComputeRateStatus())
         yield
 
     app = FastAPI(title="LLM Gateway Test", lifespan=test_lifespan)

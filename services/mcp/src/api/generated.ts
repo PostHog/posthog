@@ -15634,50 +15634,6 @@ export namespace Schemas {
       ticket_number: number;
     }
 
-    export interface ComputeRateCard {
-      /** Published compute rate-card version. */
-      version: string;
-      /** Timestamp when this rate card became effective. */
-      effective_at: string;
-      /**
-         * Timestamp when this rate card stopped applying, or null for the current version.
-         * @nullable
-         */
-      expires_at: string | null;
-      /**
-         * Published USD price per CPU core-second.
-         * @pattern ^-?\d{0,6}(?:\.\d{0,18})?$
-         */
-      cpu_usd_per_core_second: string;
-      /**
-         * Published USD price per memory GiB-second.
-         * @pattern ^-?\d{0,6}(?:\.\d{0,18})?$
-         */
-      memory_usd_per_gib_second: string;
-    }
-
-    /**
-     * * `invalid_configuration` - invalid_configuration
-     */
-    export type ErrorEnum = typeof ErrorEnum[keyof typeof ErrorEnum];
-
-
-    export const ErrorEnum = {
-      InvalidConfiguration: 'invalid_configuration',
-    } as const;
-
-    export interface ComputeRateCardsResponse {
-      /**
-         * Published compute rate cards overlapping the organization's synchronized billing period. Null means the configured rate cards are invalid; an empty list means compute pricing is inactive.
-         * @nullable
-         */
-      rate_cards: ComputeRateCard[] | null;
-      /** Set when configured compute rates are invalid and therefore omitted.
-       *
-       * * `invalid_configuration` - invalid_configuration */
-      error: ErrorEnum | null;
-    }
-
     /**
      * * `won` - won
      * * `lost` - lost
@@ -64399,12 +64355,12 @@ export namespace Schemas {
     }
 
     /**
-     * Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`. Also carries the informational Desktop component resources (`posthog_code_token_credits`, `sandbox_compute_credits`, `sandbox_compute_cpu_millicore_seconds`, `sandbox_compute_memory_mib_seconds`) with integer usage, a null limit, and `limited` always false — they are never quota-enforced; only the combined `posthog_code_credits` is.
+     * Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`. Also carries the informational Desktop component resources (`posthog_code_token_credits`, `sandbox_compute_credits`, `sandbox_compute_cpu_millicore_seconds`, `sandbox_compute_memory_mib_seconds`) with usage in their native units, a null limit, and `limited` always false — they are never quota-enforced; only the combined `posthog_code_credits` is.
      */
     export type QuotaLimitsResponseLimited = {[key: string]: QuotaResourceLimit};
 
     export interface QuotaLimitsResponse {
-      /** Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`. Also carries the informational Desktop component resources (`posthog_code_token_credits`, `sandbox_compute_credits`, `sandbox_compute_cpu_millicore_seconds`, `sandbox_compute_memory_mib_seconds`) with integer usage, a null limit, and `limited` always false — they are never quota-enforced; only the combined `posthog_code_credits` is. */
+      /** Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`. Also carries the informational Desktop component resources (`posthog_code_token_credits`, `sandbox_compute_credits`, `sandbox_compute_cpu_millicore_seconds`, `sandbox_compute_memory_mib_seconds`) with usage in their native units, a null limit, and `limited` always false — they are never quota-enforced; only the combined `posthog_code_credits` is. */
       limited: QuotaLimitsResponseLimited;
       /** Whether the team's organization pays for PostHog Desktop usage: billing grants the `posthog_code_usage` product feature only on the Desktop usage product's paid plan, synced into the organization's available features. Consumers gate paid-tier Desktop behavior on this; an org unknown to billing reads as not paying. */
       code_usage_billing_active: boolean;

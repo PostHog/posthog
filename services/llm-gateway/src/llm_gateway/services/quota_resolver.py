@@ -20,7 +20,6 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
-from decimal import Decimal
 from typing import TYPE_CHECKING
 
 import httpx
@@ -95,9 +94,13 @@ def _credits_to_usd(credits: object) -> float | None:
 
 
 def _optional_integer(value: object) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, int):
+    if isinstance(value, bool):
         return None
-    return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return None
 
 
 def _posthog_code_usage(data: dict[str, object]) -> dict[str, object] | None:
@@ -112,10 +115,6 @@ def _posthog_code_usage(data: dict[str, object]) -> dict[str, object] | None:
     if all(value is None for value in components.values()):
         return None
 
-    token_credits = _optional_integer(components["token_credits"])
-    compute_credits = _optional_integer(components["compute_credits"])
-    components["token_used_usd"] = str(Decimal(token_credits) / 100) if token_credits is not None else None
-    components["compute_used_usd"] = str(Decimal(compute_credits) / 100) if compute_credits is not None else None
     return components
 
 

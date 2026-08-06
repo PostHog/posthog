@@ -13,7 +13,6 @@ from llm_gateway.rate_limiting.billable_credits_throttle import bucket_block_app
 from llm_gateway.rate_limiting.cost_throttles import CostStatus, UserCostBurstThrottle, UserCostSustainedThrottle
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import ThrottleContext
-from llm_gateway.services.compute_rate_resolver import resolve_compute_rates
 from llm_gateway.services.plan_resolver import (
     POSTHOG_CODE_PRODUCT,
     PlanResolver,
@@ -103,15 +102,6 @@ async def get_usage(
     # through the same decision as the request-path throttle: clients gate on this
     # response, so it must never disagree with what enforcement would do.
     credits_exhausted = bucket_block_applies(context)
-    breakdown = quota_status.posthog_code_usage
-    if product == POSTHOG_CODE_PRODUCT and breakdown is not None:
-        compute_rates = await resolve_compute_rates(request, user.team_id)
-        breakdown = {
-            **breakdown,
-            "rate_cards": compute_rates.rate_cards,
-            "rate_card_error": compute_rates.error,
-        }
-
     burst_status: CostLimitStatus | None = None
     sustained_status: CostLimitStatus | None = None
 
@@ -157,7 +147,7 @@ async def get_usage(
             exhausted=credits_exhausted,
             used_usd=quota_status.used_usd,
             limit_usd=quota_status.limit_usd,
-            breakdown=breakdown if product == POSTHOG_CODE_PRODUCT else None,
+            breakdown=quota_status.posthog_code_usage if product == POSTHOG_CODE_PRODUCT else None,
         ),
         is_rate_limited=burst_status.exceeded or sustained_status.exceeded or credits_exhausted,
         is_pro=is_pro_plan(plan_info.plan_key),
