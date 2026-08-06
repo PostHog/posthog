@@ -51,10 +51,17 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig]):
         }
 
     def get_retryable_errors(self) -> set[str]:
-        # A 5xx is already retried internally with backoff (see notion.py's tenacity-wrapped
-        # _request); if those retries still exhaust, the failure is transient and self-recovering,
-        # so let Temporal retry the activity without surfacing it as tracked exception noise.
-        return {"Notion API error (retryable)"}
+        # A 5xx or a 429 is already retried internally with backoff (see notion.py's
+        # tenacity-wrapped _request, which honors Notion's Retry-After on 429s); if those retries
+        # still exhaust, the failure is transient and self-recovering, so let Temporal retry the
+        # activity without surfacing it as tracked exception noise.
+        #
+        # A dropped/reset connection (SSL handshake failure, connection reset, proxy error) is
+        # retried by that same tenacity decorator via requests.ConnectionError. urllib3 wraps all of
+        # these in a MaxRetryError before requests re-raises them as the specific subclass, so they
+        # share this message regardless of the underlying reason. Same self-recovering reasoning
+        # applies once that budget exhausts.
+        return {"Notion API error (retryable)", "Notion rate limited", "Max retries exceeded with url"}
 
     @property
     def get_source_config(self) -> SourceConfig:
