@@ -1731,16 +1731,16 @@ pyarrow = [
 
 [[package]]
 name = "deltalite"
-version = "0.1.4"
+version = "0.1.5"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/89/ef/c3e4de01ac8b9f7dfe50852420657d2bbcfafad365fc04d36f8484405525/deltalite-0.1.4.tar.gz", hash = "sha256:dfc5f59b97dee84ffa2ce3129dd983369d0b20b10bc4b6e68dd3025d4a2913c7", size = 175069, upload-time = "2026-08-06T11:02:20.139Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d6/48/9bcfde29c0995ea05e2c19461a3dc0c6be0a50fece497c288682cb1596d3/deltalite-0.1.5.tar.gz", hash = "sha256:f32bfdc3694eaf50c9ebdaaecbc5c2569f7bbb25e654c4993e1be38c0d20551b", size = 175881, upload-time = "2026-08-06T14:12:23.211Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/60/17/e3e3e7ef4f6729aa8c3f2b8b20401805d5e12c45e7a2c4e4ea6253412c2a/deltalite-0.1.4-cp312-abi3-macosx_10_12_x86_64.whl", hash = "sha256:326c4016780ade987c898ccaf8ef493341887131464d459e2a59b5f68a419c5e", size = 17965595, upload-time = "2026-08-06T11:02:02.638Z" },
-    { url = "https://files.pythonhosted.org/packages/68/f0/4162127eab86f447ea3c5229d29b7905af46b0318d8b5c880814c76be378/deltalite-0.1.4-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:adffda01943353277fb342276cee384bfb80e9233eafc1e2f32951aa1f894691", size = 17853167, upload-time = "2026-08-06T11:02:05.22Z" },
-    { url = "https://files.pythonhosted.org/packages/47/13/15d404cb24fb426e1e4143cbf60557d85f820689f14586731681b5cc2f45/deltalite-0.1.4-cp312-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:9cc5091a4785cfb196907c091cb375b9e2d9f61240e52777ab392bf586e38229", size = 63170350, upload-time = "2026-08-06T11:02:07.967Z" },
-    { url = "https://files.pythonhosted.org/packages/55/f2/77c8485969917baa0e2b6eb501a74e0e5c20eaa6667644113339d3385d0e/deltalite-0.1.4-cp312-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:6959bc5c8261fd7609e849d9221849b254f380f101ea103752e1b9acc74d9f94", size = 65479693, upload-time = "2026-08-06T11:02:11.425Z" },
-    { url = "https://files.pythonhosted.org/packages/3b/10/768f835cc1b5b5a9bba55aa007599b2175cd70b8514184102f4d443f9afe/deltalite-0.1.4-cp312-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:9eb87bde30971573320a161014ad41563569dcc7833ca64e0722dfe0df5869dd", size = 62763624, upload-time = "2026-08-06T11:02:14.644Z" },
-    { url = "https://files.pythonhosted.org/packages/bb/4a/6bcfc265df1e5e74f6ea996e673dfe5b2c3232b06fad5cf5fac460ee3196/deltalite-0.1.4-cp312-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:f194a83bdf12a54562a6635b5c7040a85def1e873bba160b41e31f1b973e3876", size = 63839827, upload-time = "2026-08-06T11:02:17.791Z" },
+    { url = "https://files.pythonhosted.org/packages/fd/43/93519f0b3ca35ea2d8ce261d49eebc5b702e5ebefb4f2f8e783ef6a25f2d/deltalite-0.1.5-cp312-abi3-macosx_10_12_x86_64.whl", hash = "sha256:2af20ea42d2a5f658870a18b628f1a6ad1e36c9f68677ff392aa7b59d43f6605", size = 17966299, upload-time = "2026-08-06T14:11:58.436Z" },
+    { url = "https://files.pythonhosted.org/packages/da/e3/9dab3f1694528a3f745933d8d83e686f4d3bd1fdec544ae490faf3ab81f6/deltalite-0.1.5-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:e2d7579bd39551c28af81969d7d6710f7ee45e2ccd09eef5c067152171b1be93", size = 17853173, upload-time = "2026-08-06T14:12:01.014Z" },
+    { url = "https://files.pythonhosted.org/packages/a4/e3/fdc5efd9c05bf96e52f2928f1cd83b9f1ad844d84feafc31d66fe68061aa/deltalite-0.1.5-cp312-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:16e98ea37abda4f24743c816d8e31277c77523fbe92e0add0a0429b41cd442e3", size = 63179978, upload-time = "2026-08-06T14:12:05.44Z" },
+    { url = "https://files.pythonhosted.org/packages/be/5f/495a00f9bd369585fee0f8f4d777239a4f0502da795b540b5589452744e3/deltalite-0.1.5-cp312-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:c21e7dde62aef0feb63fb214466c384c918c13b2ae1abadefb3c412df9aab06b", size = 65477944, upload-time = "2026-08-06T14:12:10.61Z" },
+    { url = "https://files.pythonhosted.org/packages/bc/44/963c25fe15702cda11f48c45c20a584196b51bb9b4d0f94f1532437c9d13/deltalite-0.1.5-cp312-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:a64e87c31d11127062ecddeed0ca19ae4ace89cea8fae4ab188fa2fa627764ea", size = 62767721, upload-time = "2026-08-06T14:12:15.959Z" },
+    { url = "https://files.pythonhosted.org/packages/f1/09/580aafe9ed5a82379986d654739455b3c0eb8ac3faf9b232c192d60e82fc/deltalite-0.1.5-cp312-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:ed7eabd20a48516204e152cd571417257b83d37dd960d75c83d498a4b04e68e7", size = 63838450, upload-time = "2026-08-06T14:12:20.613Z" },
 ]
 
 [[package]]
@@ -5859,7 +5859,7 @@ requires-dist = [
     { name = "databricks-sql-connector", specifier = "~=4.3.0" },
     { name = "defusedxml", specifier = "~=0.7.1" },
     { name = "deltalake", extras = ["pyarrow"], specifier = "==1.6.1" },
-    { name = "deltalite", specifier = "==0.1.4" },
+    { name = "deltalite", specifier = "==0.1.5" },
     { name = "disposable-email-domains", specifier = "~=0.0.140" },
     { name = "dj-database-url", specifier = "~=3.0.0" },
     { name = "django", specifier = "~=5.2.0" },
