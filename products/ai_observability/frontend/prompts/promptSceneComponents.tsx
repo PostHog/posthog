@@ -530,10 +530,14 @@ function buildPythonSnippet(
     host: string,
     projectApiKey: string,
     variables: string[],
-    labelName?: string
+    labelName?: string,
+    showConfig?: boolean
 ): string {
     const compileLines = variables.length
         ? `\nsystem_prompt = prompts.compile(result.prompt, {${variables.map((v) => `${JSON.stringify(v)}: '...'`).join(', ')}})`
+        : ''
+    const configLines = showConfig
+        ? `\nmodel = (result.config or {}).get('model', 'your-default-model')  # config stored with this prompt version`
         : ''
     const labelArg = labelName ? `label=${JSON.stringify(labelName)}, ` : ''
     return `from posthog import Posthog
@@ -546,7 +550,7 @@ posthog = Posthog(
 )
 prompts = Prompts(posthog)
 
-result = prompts.get(${JSON.stringify(promptName)}, ${labelArg}with_metadata=True, fallback='You are a helpful assistant.')${compileLines}
+result = prompts.get(${JSON.stringify(promptName)}, ${labelArg}with_metadata=True, fallback='You are a helpful assistant.')${compileLines}${configLines}
 # result.name / result.version -> send as $ai_prompt_name / $ai_prompt_version on your LLM events`
 }
 
@@ -555,10 +559,14 @@ function buildNodeSnippet(
     host: string,
     projectApiKey: string,
     variables: string[],
-    labelName?: string
+    labelName?: string,
+    showConfig?: boolean
 ): string {
     const compileLines = variables.length
         ? `\nconst systemPrompt = prompts.compile(result.prompt, {${variables.map((v) => ` ${JSON.stringify(v)}: '...'`).join(',')} })`
+        : ''
+    const configLines = showConfig
+        ? `\nconst model = result.config?.model ?? 'your-default-model' // config stored with this prompt version`
         : ''
     const labelArg = labelName ? `label: '${labelName}', ` : ''
     return `import { Prompts } from '@posthog/ai'
@@ -570,7 +578,7 @@ const posthog = new PostHog('${projectApiKey}', {
 })
 const prompts = new Prompts({ posthog })
 
-const result = await prompts.get(${JSON.stringify(promptName)}, { ${labelArg}fallback: 'You are a helpful assistant.' })${compileLines}
+const result = await prompts.get(${JSON.stringify(promptName)}, { ${labelArg}fallback: 'You are a helpful assistant.' })${compileLines}${configLines}
 // result.name / result.version -> send as $ai_prompt_name / $ai_prompt_version on your LLM events`
 }
 
@@ -588,6 +596,8 @@ export function PromptCodeSnippets({ prompt }: { prompt: LLMPrompt }): JSX.Eleme
     const snippetLabel = labelsEnabled
         ? (promptLabels.find((label) => label.name === 'production') ?? promptLabels[0])?.name
         : undefined
+    // Same principle for config: only show the usage line once this prompt has one.
+    const showConfig = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_CONFIG] && prompt.config != null
 
     return (
         <div className="mb-6" data-attr="llma-prompt-code-snippets">
@@ -620,7 +630,14 @@ export function PromptCodeSnippets({ prompt }: { prompt: LLMPrompt }): JSX.Eleme
                         label: 'Python',
                         content: (
                             <CodeSnippet language={Language.Python}>
-                                {buildPythonSnippet(prompt.name, host, projectApiKey, variables, snippetLabel)}
+                                {buildPythonSnippet(
+                                    prompt.name,
+                                    host,
+                                    projectApiKey,
+                                    variables,
+                                    snippetLabel,
+                                    showConfig
+                                )}
                             </CodeSnippet>
                         ),
                     },
@@ -629,7 +646,14 @@ export function PromptCodeSnippets({ prompt }: { prompt: LLMPrompt }): JSX.Eleme
                         label: 'Node.js',
                         content: (
                             <CodeSnippet language={Language.JavaScript}>
-                                {buildNodeSnippet(prompt.name, host, projectApiKey, variables, snippetLabel)}
+                                {buildNodeSnippet(
+                                    prompt.name,
+                                    host,
+                                    projectApiKey,
+                                    variables,
+                                    snippetLabel,
+                                    showConfig
+                                )}
                             </CodeSnippet>
                         ),
                     },
@@ -645,7 +669,7 @@ export function PromptCode({ prompt }: { prompt: LLMPrompt }): JSX.Element {
             <PromptCodeSnippets prompt={prompt} />
 
             <LemonBanner type="info">
-                During the beta period, each prompt fetch is currently charged as a Product analytics event. See the{' '}
+                Each prompt fetch is charged as a Product analytics event. See the{' '}
                 <Link to="https://posthog.com/pricing" target="_blank">
                     pricing page
                 </Link>
@@ -1031,7 +1055,13 @@ export function PromptVersionSidebar({
                         const selected = prompt?.id === versionPrompt.id
                         const isCompareTarget = compareVersion === versionPrompt.version
                         const canCompare = !readOnly && prompt?.version !== versionPrompt.version
-                        const versionUrl = buildPromptUrl(promptName, searchParams, versionPrompt.version)
+                        // The latest version's canonical URL has no ?version param, so landing on
+                        // it matches the state the scene starts in.
+                        const versionUrl = buildPromptUrl(
+                            promptName,
+                            searchParams,
+                            versionPrompt.is_latest ? null : versionPrompt.version
+                        )
 
                         const cardContent = (
                             <>
@@ -1141,7 +1171,9 @@ export function PromptVersionSidebar({
                                     : 'border-primary/10 hover:bg-fill-secondary'
                         }`
 
-                        if (readOnly) {
+                        // The selected version is not a link: navigating to the version already
+                        // shown would only trigger a pointless reload.
+                        if (readOnly || selected) {
                             return (
                                 <div key={versionPrompt.id} className={cardClassName}>
                                     {cardContent}

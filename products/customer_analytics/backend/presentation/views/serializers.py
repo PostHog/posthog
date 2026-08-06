@@ -63,25 +63,10 @@ _PROFILE_CONFIG_SCOPE_CHOICES = [
     ("group_4", "Group 4"),
 ]
 
-# JSON schema for the account ``properties`` field. Kept verbatim from the pre-isolation
-# serializer so the generated ``AccountApiProperties`` component is unchanged.
-_ACCOUNT_ASSIGNMENT_SCHEMA = {
-    "type": "object",
-    "nullable": True,
-    "properties": {
-        "id": {"type": "integer"},
-        "email": {"type": "string"},
-    },
-    "required": ["id", "email"],
-}
-
 _ACCOUNT_PROPERTIES_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "csm": _ACCOUNT_ASSIGNMENT_SCHEMA,
-        "account_executive": _ACCOUNT_ASSIGNMENT_SCHEMA,
-        "account_owner": _ACCOUNT_ASSIGNMENT_SCHEMA,
         "stripe_customer_id": {"type": "string", "nullable": True},
         "hubspot_deal_id": {"type": "string", "nullable": True},
         "billing_id": {"type": "string", "nullable": True},
@@ -89,6 +74,7 @@ _ACCOUNT_PROPERTIES_SCHEMA = {
         "zendesk_id": {"type": "string", "nullable": True},
         "slack_channel_id": {"type": "string", "nullable": True},
         "usage_dashboard_link": {"type": "string", "nullable": True},
+        "metabase_link": {"type": "string", "nullable": True},
     },
 }
 
@@ -173,10 +159,10 @@ class AccountSerializer(DataclassSerializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Typed account properties: assignment fields (csm, account_executive, account_owner) "
-            "and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, "
-            "sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty "
-            "object. Unknown keys are rejected."
+            "Typed account properties: external system identifiers (stripe_customer_id, "
+            "hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, "
+            "usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys "
+            "are rejected. User assignments live on account relationships, not here."
         ),
     )
     tags = serializers.ListField(
@@ -307,6 +293,14 @@ class AccountNoteSerializer(DataclassSerializer):
         fields = ["short_id", "title", "created_at", "last_modified_at", "account_id", "account_name", "created_by"]
 
 
+class ChannelSummaryMessageSerializer(serializers.Serializer):
+    """Metadata for one message a channel summary covered — never the message text."""
+
+    author = serializers.CharField(read_only=True, help_text="Display name of the message author.")
+    sent_at = serializers.DateTimeField(read_only=True, help_text="When the message was sent.")
+    permalink = serializers.CharField(read_only=True, help_text="Slack permalink to the message.")
+
+
 class AccountChannelSummarySerializer(DataclassSerializer):
     """An AI summary of one closed period of the account's bound Slack channel (read-only)."""
 
@@ -327,6 +321,11 @@ class AccountChannelSummarySerializer(DataclassSerializer):
     message_count = serializers.IntegerField(
         read_only=True, help_text="Number of channel messages the summary covered."
     )
+    messages = ChannelSummaryMessageSerializer(
+        many=True,
+        read_only=True,
+        help_text="The messages the summary covered, in transcript order — metadata only, no message text.",
+    )
     generated_at = serializers.DateTimeField(read_only=True, help_text="When the summary was generated.")
 
     class Meta:
@@ -340,6 +339,7 @@ class AccountChannelSummarySerializer(DataclassSerializer):
             "period_end",
             "content",
             "message_count",
+            "messages",
             "generated_at",
         ]
 
@@ -401,7 +401,11 @@ class CustomPropertySyncRunSerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True)
     trigger = serializers.CharField(
         read_only=True,
-        help_text="What started the run: 'scheduled' (rode a warehouse sync), 'manual', or 'backfill'.",
+        help_text=(
+            "What started the run: 'scheduled' (rode a warehouse sync), 'sync' (a warehouse sync "
+            "started from the UI), 'manual' (a backfill started from the UI), or 'backfill' (the "
+            "automatic backfill run when a mapping is created or re-enabled)."
+        ),
     )
     status = serializers.CharField(read_only=True, help_text="Run status: 'running', 'completed', or 'failed'.")
     started_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When the run began.")

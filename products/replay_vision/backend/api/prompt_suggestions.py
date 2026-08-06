@@ -25,7 +25,6 @@ from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
 
-from products.replay_vision.backend.api.scanners import _scanner_config_error_message
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
@@ -48,6 +47,7 @@ from products.replay_vision.backend.prompt_suggestions import (
     labels_fingerprint,
 )
 from products.replay_vision.backend.quota import compute_quota_snapshot
+from products.replay_vision.backend.scanner_config import scanner_config_error
 from products.replay_vision.backend.temporal.constants import (
     EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME,
     build_evaluate_prompt_suggestion_workflow_id,
@@ -366,7 +366,7 @@ class ReplayScannerPromptSuggestionViewSet(
                 config = {**(scanner.scanner_config or {}), "prompt": suggestion.suggested_prompt}
             # Same validation as the scanner edit endpoint: an oversized or malformed LLM rewrite
             # must not land in the config that every future observation snapshots.
-            message = _scanner_config_error_message(ScannerType(scanner.scanner_type), config)
+            message = scanner_config_error(ScannerType(scanner.scanner_type), config)
             if message:
                 raise ValidationError(f"This recommendation can't be applied: {message}")
             scanner.scanner_config = config
@@ -401,42 +401,49 @@ class ReplayScannerPromptSuggestionViewSet(
         input_serializer.is_valid(raise_exception=True)
         session_limit = input_serializer.validated_data["session_limit"]
         edited_config = input_serializer.validated_data.get("config")
-        if suggestion.status != SuggestionStatus.PENDING:
-            raise ValidationError("Only the current pending suggestion can be tested.")
         if not evaluation_supported(scanner):
             raise ValidationError("Testing isn't available for this scanner type.")
         # A malformed edited config must be rejected before it charges credits on runs that can't succeed,
         # matching the validation apply runs before it writes the config.
         if edited_config is not None:
-            message = _scanner_config_error_message(ScannerType(scanner.scanner_type), edited_config)
+            message = scanner_config_error(ScannerType(scanner.scanner_type), edited_config)
             if message:
                 raise ValidationError(f"This config can't be tested: {message}")
         rated_count = self._rated_count(scanner)
         if rated_count == 0:
             raise ValidationError("Rate some results first. They are what the suggestion is tested against.")
-        # A test already in flight keeps reporting its state even if quota ran out meanwhile.
-        if evaluation_in_flight(suggestion.evaluation):
-            return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)
-        # Each re-run session charges credits like a normal observation, so refuse a test that would
-        # overspend the month. An uncapped org (no credit limit) never trips this.
-        planned = min(session_limit, rated_count)
-        planned_credits = planned * observation_credits_for_model(scanner.model)
-        quota = compute_quota_snapshot(organization_id=self.team.organization_id)
-        if quota.would_exceed(planned_credits):
-            raise QuotaLimitExceeded(
-                detail=(
-                    f"This test would use {planned_credits:,} credits but only {quota.remaining or 0:,} of the "
-                    f"monthly Replay Vision credit limit of {quota.credit_limit or 0:,} remain. Lower the test "
-                    f"session count or wait for the reset on "
-                    f"{quota.period_end.strftime('%b')} {quota.period_end.day}."
-                )
+        # Guards must run on a locked row, like apply and dismiss: on unlocked reads two concurrent tests
+        # both see "not in flight", and the second stub save moves `started_at`, which re-keys the usage
+        # receipts of the first run's still-settling sessions and charges them twice.
+        with transaction.atomic():
+            suggestion = ReplayScannerPromptSuggestion.objects.select_for_update().get(
+                team_id=self.team_id, id=suggestion.id
             )
-
-        # Stamp running first so the UI never sees a gap and the planned spend counts against quota
-        # right away. The select activity replaces this stub with the real total and fingerprint.
-        previous_evaluation = suggestion.evaluation
-        suggestion.evaluation = build_running_evaluation(total=planned, labels_fingerprint="")
-        suggestion.save(update_fields=["evaluation"])
+            if suggestion.status != SuggestionStatus.PENDING:
+                raise ValidationError("Only the current pending suggestion can be tested.")
+            # A test already in flight keeps reporting its state even if quota ran out meanwhile.
+            if evaluation_in_flight(suggestion.evaluation):
+                return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)
+            # Each re-run session charges credits like a normal observation, so refuse a test that would
+            # overspend the month. An uncapped org (no credit limit) never trips this.
+            planned = min(session_limit, rated_count)
+            planned_credits = planned * observation_credits_for_model(scanner.model)
+            quota = compute_quota_snapshot(organization_id=self.team.organization_id)
+            if quota.would_exceed(planned_credits):
+                raise QuotaLimitExceeded(
+                    detail=(
+                        f"This test would use {planned_credits:,} credits but only {quota.remaining or 0:,} of the "
+                        f"monthly Replay Vision credit limit of {quota.credit_limit or 0:,} remain. Lower the test "
+                        f"session count or wait for the reset on "
+                        f"{quota.period_end.strftime('%b')} {quota.period_end.day}."
+                    )
+                )
+            # Stamp running first so the UI never sees a gap and the planned spend counts against quota
+            # right away. The select activity replaces this stub with the real total and fingerprint.
+            previous_evaluation = suggestion.evaluation
+            suggestion.evaluation = build_running_evaluation(total=planned, labels_fingerprint="", model=scanner.model)
+            suggestion.save(update_fields=["evaluation"])
+        started_at = str(suggestion.evaluation.get("started_at") or "")
         try:
             client = sync_connect()
             async_to_sync(client.start_workflow)(  # type: ignore[misc]
@@ -446,6 +453,7 @@ class ReplayScannerPromptSuggestionViewSet(
                     team_id=scanner.team_id,
                     session_limit=session_limit,
                     config_override=edited_config,
+                    started_at=started_at,
                 ),
                 id=build_evaluate_prompt_suggestion_workflow_id(suggestion.id),
                 task_queue=settings.REPLAY_VISION_TASK_QUEUE,

@@ -120,8 +120,6 @@ import {
     DataWarehouseTable,
     DataWarehouseViewLink,
     DataWarehouseViewLinkValidation,
-    Dataset,
-    DatasetItem,
     EarlyAccessFeatureType,
     EmailSenderDomainStatus,
     EndpointType,
@@ -237,6 +235,7 @@ import type {
     GitHubReposResponseApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
+import type { BulkAddOptOutsResultApi, BulkOptOutEntryApi } from 'products/messaging/frontend/generated/api.schemas'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 import type {
@@ -366,15 +365,16 @@ export async function getJSONOrNull(response: Response): Promise<any> {
     try {
         return await response.json()
     } catch (error) {
-        // A body read cancelled mid-stream (navigation, superseded request) surfaces here as an
-        // AbortError. Propagate it so it flows through the normal cancellation path instead of
-        // masquerading as a successful `null` — otherwise callers dereference it (`.results`,
-        // `.count`, …) and blow up with a `Cannot read properties of null` TypeError.
         if (isAbortError(error)) {
             throw error
         }
         return null
     }
+}
+
+function apiErrorFallback(response: Response, method: string, url: string): string {
+    const pathname = new URL(url, location.origin).pathname
+    return `Non-OK response [${method} ${pathname}] (status ${response.status}: ${response.statusText})`
 }
 
 /**
@@ -2001,6 +2001,20 @@ export class ApiRequest {
         return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('add_opt_out')
     }
 
+    public messagingPreferencesExportOptOutsCsv(): ApiRequest {
+        return this.environments()
+            .current()
+            .addPathComponent('messaging_preferences')
+            .addPathComponent('export_opt_outs_csv')
+    }
+
+    public messagingPreferencesBulkAddOptOuts(): ApiRequest {
+        return this.environments()
+            .current()
+            .addPathComponent('messaging_preferences')
+            .addPathComponent('bulk_add_opt_outs')
+    }
+
     public hogFlows(): ApiRequest {
         return this.environments().current().addPathComponent('hog_flows')
     }
@@ -2019,22 +2033,6 @@ export class ApiRequest {
 
     public wizard(): ApiRequest {
         return this.addPathComponent('wizard')
-    }
-
-    public datasets(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('datasets')
-    }
-
-    public dataset(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('datasets').addPathComponent(id)
-    }
-
-    public datasetItems(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('dataset_items')
-    }
-
-    public datasetItem(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('dataset_items').addPathComponent(id)
     }
 
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
@@ -2245,6 +2243,9 @@ function captureLivestream401Debug(url: string, authHeader: string | undefined, 
         })
     }
 }
+
+/** `?basic=true` response: the serializer drops these fields (see CohortSerializer.__init__). */
+export type BasicCohortType = Omit<CohortType, 'groups' | 'experiment_set' | 'last_error_message'>
 
 const api = {
     cspReporting: {
@@ -3435,6 +3436,20 @@ const api = {
         ): Promise<CountedPaginatedResponse<CohortType>> {
             return await new ApiRequest().cohorts().withQueryString(toParams(params)).get()
         },
+        async listBasic(
+            params: {
+                limit?: number
+                offset?: number
+                search?: string
+            } = {}
+        ): Promise<CountedPaginatedResponse<BasicCohortType>> {
+            // `?basic=true` returns a trimmed payload — the narrowed BasicCohortType return type
+            // keeps callers from reading a field the serializer dropped (see CohortSerializer).
+            return await new ApiRequest()
+                .cohorts()
+                .withQueryString(toParams({ ...params, basic: true }))
+                .get()
+        },
         async getCohortPersons(cohortId: CohortType['id']): Promise<PaginatedResponse<PersonType>> {
             return await new ApiRequest()
                 .cohortsDetailPersons(cohortId)
@@ -3533,26 +3548,25 @@ const api = {
                 .assembleFullUrl(true)
 
             const abortController = new AbortController()
+            let streamFinished = false
+            const handleConnectionError = (error: any): void => {
+                if (isAbortError(error)) {
+                    return
+                }
+                apiStatusLogic.findMounted()?.actions.onApiResponse(undefined, error)
+                onError(error)
+            }
 
             fetchEventSource(url, {
                 signal: abortController.signal,
                 credentials: 'include',
                 openWhenHidden: true,
                 onopen: async (response) => {
-                    if (!response.ok) {
-                        // Get server error message if available
-                        let errorMessage = `HTTP ${response.status}`
-                        try {
-                            const errorText = await response.text()
-                            if (errorText) {
-                                errorMessage = `HTTP ${response.status}: ${errorText}`
-                            }
-                        } catch {
-                            // If we can't read the response, just use the status
-                        }
+                    apiStatusLogic.findMounted()?.actions.onApiResponse(response.clone())
 
-                        // For any error, call onError and abort to prevent retries
-                        onError(new Error(errorMessage))
+                    if (!response.ok) {
+                        const error = await ApiError.fromResponse(response, apiErrorFallback(response, 'GET', url))
+                        onError(error)
                         abortController.abort()
                         return
                     }
@@ -3561,8 +3575,10 @@ const api = {
                     try {
                         const data = JSON.parse(event.data)
                         if (data.type === 'complete') {
+                            streamFinished = true
                             onComplete()
                         } else if (data.type === 'error') {
+                            streamFinished = true
                             onError(new Error(data.error || 'Streaming error'))
                         } else {
                             onMessage(data)
@@ -3572,9 +3588,15 @@ const api = {
                     }
                 },
                 onerror: (error) => {
-                    onError(error)
+                    handleConnectionError(error)
                 },
-            }).catch(onError)
+            }).then(() => {
+                if (!abortController.signal.aborted && !streamFinished) {
+                    handleConnectionError(
+                        new Error('Dashboard stream ended before loading finished. Refresh the page.')
+                    )
+                }
+            }, handleConnectionError)
 
             return () => abortController.abort()
         },
@@ -4938,6 +4960,8 @@ const api = {
                 refs?: Record<string, { node_id: string; kind: 'hogql' | 'local' }>
                 node_type?: 'hogql' | 'python'
                 output_name?: string
+                connection_id?: string | null
+                send_raw_query?: boolean
             }
         ): Promise<{ run_id: string }> {
             return await new ApiRequest().notebook(notebookId).withAction('sql_v2/run').create({ data })
@@ -5164,7 +5188,9 @@ const api = {
         },
         async update(
             featureId: EarlyAccessFeatureType['id'],
-            data: Pick<EarlyAccessFeatureType, 'name' | 'description' | 'stage' | 'documentation_url'> & {
+            data: Partial<
+                Pick<EarlyAccessFeatureType, 'name' | 'description' | 'stage' | 'documentation_url' | 'assignee'>
+            > & {
                 rollout_to_all?: boolean
             }
         ): Promise<EarlyAccessFeatureType> {
@@ -5213,6 +5239,10 @@ const api = {
             has_implementation_pr?: 'true' | 'false'
             /** Comma-separated reviewer user UUIDs (For-you / teammate scope). */
             suggested_reviewers?: string
+            /** Comma-separated scout skill_name slugs. */
+            scout?: string
+            /** Scout skill_name prefix — matches every scout in the family. */
+            scout_prefix?: string
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
         },
@@ -6265,8 +6295,16 @@ const api = {
         async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest().integrations().get()
         },
-        authorizeUrl(params: { kind: string; next?: string }): string {
-            return new ApiRequest().integrations().withAction('authorize').withQueryString(params).assembleFullUrl(true)
+        authorizeUrl(params: { kind: string; next?: string; extraParams?: Record<string, string> }): string {
+            // `kind` and `next` are common to every integration; anything kind-specific (e.g. the
+            // posthog connection's `region`/`scopes`) rides along in `extraParams` rather than
+            // bloating this shared signature.
+            const { extraParams, ...common } = params
+            return new ApiRequest()
+                .integrations()
+                .withAction('authorize')
+                .withQueryString({ ...common, ...extraParams })
+                .assembleFullUrl(true)
         },
         async slackChannels(
             id: IntegrationType['id'],
@@ -6668,6 +6706,18 @@ const api = {
                 data: { identifier, category_key: categoryKey },
             })
         },
+        async exportOptOutsCsv(categoryKey?: string): Promise<Blob> {
+            const response = await new ApiRequest()
+                .messagingPreferencesExportOptOutsCsv()
+                .withQueryString({ category_key: categoryKey })
+                .getResponse()
+            return await response.blob()
+        },
+        async bulkAddOptOuts(optOuts: BulkOptOutEntryApi[], categoryKey?: string): Promise<BulkAddOptOutsResultApi> {
+            return await new ApiRequest().messagingPreferencesBulkAddOptOuts().create({
+                data: { opt_outs: optOuts, category_key: categoryKey },
+            })
+        },
     },
     hogFlows: {
         async getHogFlows(params?: {
@@ -7020,39 +7070,6 @@ const api = {
         },
     },
 
-    datasets: {
-        list({
-            ids,
-            ...params
-        }: {
-            search?: string
-            order_by?: string
-            offset?: number
-            limit?: number
-            ids?: string[]
-        }): Promise<CountedPaginatedResponse<Dataset>> {
-            return new ApiRequest()
-                .datasets()
-                .withQueryString({
-                    ...params,
-                    id__in: ids?.join(','),
-                })
-                .get()
-        },
-
-        get(datasetId: string): Promise<Dataset> {
-            return new ApiRequest().dataset(datasetId).get()
-        },
-
-        async create(data: Omit<Partial<Dataset>, 'created_by' | 'team'>): Promise<Dataset> {
-            return await new ApiRequest().datasets().create({ data })
-        },
-
-        async update(datasetId: string, data: Omit<Partial<Dataset>, 'created_by' | 'team'>): Promise<Dataset> {
-            return await new ApiRequest().dataset(datasetId).update({ data })
-        },
-    },
-
     evaluationRuns: {
         async create(data: {
             evaluation_id: string
@@ -7067,24 +7084,6 @@ const api = {
             target_event_id: string
         }> {
             return await new ApiRequest().evaluationRuns().create({ data })
-        },
-    },
-
-    datasetItems: {
-        list(data: {
-            dataset: string
-            limit?: number
-            offset?: number
-        }): Promise<CountedPaginatedResponse<DatasetItem>> {
-            return new ApiRequest().datasetItems().withQueryString(data).get()
-        },
-
-        async create(data: Partial<DatasetItem>): Promise<DatasetItem> {
-            return await new ApiRequest().datasetItems().create({ data })
-        },
-
-        async update(datasetItemId: string, data: Partial<DatasetItem>): Promise<DatasetItem> {
-            return await new ApiRequest().datasetItem(datasetItemId).update({ data })
         },
     },
 
@@ -7344,12 +7343,8 @@ const api = {
                         abortController.abort()
                     }
                 } else if (!response.ok) {
-                    let errorData: any = {}
-                    try {
-                        errorData = await response.json()
-                    } catch {
-                        // If JSON parsing fails, leave errorData empty
-                    }
+                    const error = await ApiError.fromResponse(response, `Request failed with status ${response.status}`)
+                    const errorData = error.data
                     // TEMPORARY: capture 401s with decoded (masked) JWT claims so we can
                     // identify which failure mode is producing the livestream auth baseline.
                     // Remove once root cause is known.
@@ -7362,14 +7357,7 @@ const api = {
                             server_message: errorData?.message || errorData?.error,
                         })
                     }
-                    onError(
-                        new ApiError(
-                            errorData.error || `Request failed with status ${response.status}`,
-                            response.status,
-                            response.headers,
-                            errorData
-                        )
-                    )
+                    onError(error)
                     abortController.abort()
                 } else {
                     onOpen?.()
@@ -7581,28 +7569,7 @@ async function handleFetch(
             }
         }
 
-        const data = await getJSONOrNull(response)
-
-        if (response.status >= 400 && data) {
-            if (typeof data.error === 'string') {
-                throw new ApiError(data.error, response.status, response.headers, data)
-            }
-
-            if (typeof data.detail === 'string') {
-                throw new ApiError(data.detail, response.status, response.headers, data)
-            }
-
-            if (typeof data.message === 'string') {
-                throw new ApiError(data.message, response.status, response.headers, data)
-            }
-        }
-
-        throw new ApiError(
-            `Non-OK response [${method} ${pathname}] (status ${response.status}: ${response.statusText})`,
-            response.status,
-            response.headers,
-            data
-        )
+        throw await ApiError.fromResponse(response, apiErrorFallback(response, method, url))
     }
 
     return response

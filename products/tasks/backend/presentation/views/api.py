@@ -5,13 +5,15 @@ import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from datetime import datetime
-from typing import Any
-from urllib.parse import parse_qs, urlparse
+from time import perf_counter
+from typing import TYPE_CHECKING, Any
+from urllib.parse import parse_qs, quote, urlparse
 from uuid import UUID
 
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 
+import pydantic
 import requests as http_requests
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
@@ -19,28 +21,45 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ParseError, PermissionDenied, ValidationError
+from rest_framework.exceptions import NotAuthenticated, NotFound, ParseError, PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.parsers import BaseParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+
+from posthog.schema import QuerySchemaRoot
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.permissions import APIScopePermission, get_authenticator_scoped_team_ids, get_authenticator_scopes
-from posthog.rate_limit import CodeInviteThrottle
+from posthog.event_usage import groups
+from posthog.models import User
+from posthog.permissions import (
+    APIScopePermission,
+    DenyMCPBuiltInAgentOAuth,
+    get_authenticator_scoped_team_ids,
+    get_authenticator_scopes,
+)
+from posthog.rate_limit import CodeInviteThrottle, TaskRunChartRenderThrottle
 from posthog.renderers import ServerSentEventRenderer
+from posthog.schema_migrations.upgrade import upgrade
+from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_APP_CLIENT_IDS
+from posthog.utils import absolute_uri
 
+from products.exports.backend.facade.api import render_png_export
+
+if TYPE_CHECKING:
+    from products.exports.backend.facade.api import ExportedAsset
 from products.tasks.backend.facade import (
     access as tasks_access,
     api as tasks_facade,
     cancellation as tasks_cancellation,
     contracts as tasks_contracts,
 )
-from products.tasks.backend.facade.access import cloud_usage_limit_response, code_access_required_response
+from products.tasks.backend.facade.access import usage_limit_response
+from products.tasks.backend.facade.client_provenance import get_task_client_provenance
 from products.tasks.backend.facade.metrics import (
     StreamConnectionOutcome,
     observe_stream_connection_closed,
@@ -48,6 +67,7 @@ from products.tasks.backend.facade.metrics import (
     observe_stream_length_on_connect,
     observe_stream_resume_gap,
 )
+from products.tasks.backend.facade.run_config import TaskArtifactAdapter, TaskArtifactType
 from products.tasks.backend.facade.streams import (
     TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS,
     TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS,
@@ -74,8 +94,13 @@ from products.tasks.backend.presentation.serializers import (
     SlackThreadContextQuerySerializer,
     SlackThreadContextResponseSerializer,
     StreamReadTokenResponseSerializer,
+    TaskArtifactsResponseSerializer,
     TaskAutomationSerializer,
     TaskAutomationWriteSerializer,
+    TaskCommentDetailQuerySerializer,
+    TaskCommentDetailSerializer,
+    TaskCommentsQuerySerializer,
+    TaskCommentsResponseSerializer,
     TaskCreateSerializer,
     TaskListQuerySerializer,
     TaskPinRequestSerializer,
@@ -99,6 +124,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
     TaskRunErrorResponseSerializer,
+    TaskRunLivingArtifactChartRequestSerializer,
+    TaskRunLivingArtifactChartResponseSerializer,
     TaskRunLivingArtifactCreateRequestSerializer,
     TaskRunLivingArtifactEditRequestSerializer,
     TaskRunLivingArtifactOpenResponseSerializer,
@@ -265,6 +292,23 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _user_id(self) -> int | None:
         return getattr(self.request.user, "id", None)
 
+    def _sandbox_bound_task_id(self, request, task_id: str) -> UUID:
+        authenticator = request.successful_authenticator
+        if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+            raise PermissionDenied("Task comments are available only to the current task agent.")
+        application = authenticator.access_token.application
+        if application is None or application.client_id not in POSTHOG_CODE_OAUTH_APP_CLIENT_IDS:
+            raise PermissionDenied("Task comments are available only to the current task agent.")
+        try:
+            parsed_task_id = UUID(task_id)
+        except ValueError:
+            raise NotFound()
+        if authenticator.access_token.sandbox_task_id is None:
+            raise PermissionDenied("This task uses a legacy sandbox token. Restart the task to read its comments.")
+        if authenticator.access_token.sandbox_task_id != parsed_task_id:
+            raise NotFound()
+        return parsed_task_id
+
     def _write_serializer(
         self,
         data,
@@ -318,12 +362,83 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         return Response(TaskSerializer(task).data)
 
+    @extend_schema(operation_id="tasks_artifacts_list", responses=TaskArtifactsResponseSerializer)
+    @action(detail=True, methods=["get"], url_path="artifacts", required_scopes=["task:read"])
+    def artifacts(self, request, pk=None, **kwargs):
+        task_id = self._sandbox_bound_task_id(request, pk)
+        data = TaskArtifactsResponseSerializer(
+            {"artifacts": tasks_facade.list_task_artifacts(team_id=self.team_id, task_id=task_id)}
+        ).data
+        return Response(data)
+
+    @extend_schema(
+        operation_id="tasks_comments_list",
+        parameters=[TaskCommentsQuerySerializer],
+        responses=TaskCommentsResponseSerializer,
+    )
+    @action(detail=True, methods=["get"], url_path="comments", required_scopes=["comment:read"])
+    def comments(self, request, pk=None, **kwargs):
+        params = TaskCommentsQuerySerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        task_id = self._sandbox_bound_task_id(request, pk)
+        try:
+            page = tasks_facade.list_task_comments(
+                team_id=self.team_id,
+                task_id=task_id,
+                artifact_id=params.validated_data.get("artifact_id"),
+                include_resolved=params.validated_data["include_resolved"],
+                limit=params.validated_data["limit"],
+                cursor=params.validated_data.get("cursor"),
+            )
+        except ValueError:
+            raise ValidationError({"cursor": "Invalid cursor."}) from None
+        data = TaskCommentsResponseSerializer(page).data
+        return Response(data)
+
+    @extend_schema(
+        operation_id="tasks_comments_retrieve",
+        parameters=[OpenApiParameter("root_comment_id", UUID, OpenApiParameter.PATH), TaskCommentDetailQuerySerializer],
+        responses=TaskCommentDetailSerializer,
+    )
+    @action(
+        detail=True, methods=["get"], url_path=r"comments/(?P<root_comment_id>[^/.]+)", required_scopes=["comment:read"]
+    )
+    def comment(self, request, pk=None, root_comment_id=None, **kwargs):
+        params = TaskCommentDetailQuerySerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        task_id = self._sandbox_bound_task_id(request, pk)
+        try:
+            parsed_comment_id = UUID(root_comment_id)
+        except (TypeError, ValueError):
+            raise NotFound()
+        try:
+            comment = tasks_facade.retrieve_task_comment(
+                team_id=self.team_id,
+                task_id=task_id,
+                comment_id=parsed_comment_id,
+                limit=params.validated_data["limit"],
+                cursor=params.validated_data.get("cursor"),
+                content_comment_id=params.validated_data.get("comment_id"),
+                content_offset=params.validated_data["content_offset"],
+            )
+        except ValueError:
+            raise ValidationError({"cursor": "Invalid cursor."}) from None
+        if comment is None:
+            raise NotFound()
+        data = TaskCommentDetailSerializer(comment).data
+        return Response(data)
+
     @extend_schema(request=TaskCreateSerializer, responses={201: TaskSerializer})
     def create(self, request, **kwargs):
         serializer = self._write_serializer(request.data, serializer_class=TaskCreateSerializer)
         # Read before create_task, which pops the relationship out of the dict it's handed.
         relationship = serializer.validated_data.get("signal_report_task_relationship")
-        task = tasks_facade.create_task(self.team_id, self._user_id(), validated_data=dict(serializer.validated_data))
+        task = tasks_facade.create_task(
+            self.team_id,
+            self._user_id(),
+            validated_data=dict(serializer.validated_data),
+            client_provenance=get_task_client_provenance(request),
+        )
         self._forward_signals_discussion_note(request, task, relationship)
         return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
 
@@ -682,16 +797,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ) == tasks_facade.TaskRuntime.PI and not tasks_facade.pi_cloud_runtime_enabled(self.team, request.user):
             return _pi_cloud_runtime_disabled_response()
 
-        # Self-driving report tasks (Inbox "Create PR" / "Discuss") are entitled through the Inbox
-        # (`product-autonomy`), not the PostHog Code (`tasks`) product, so they skip the Code
-        # entitlement check — mirroring auto-start, which runs the same tasks server-side without it.
-        # Usage limits still apply as a cost backstop.
-        require_tasks_access = not tasks_facade.is_signal_report_task(pk, self.team_id)
-        if (
-            limit_response := cloud_usage_limit_response(
-                request.user, self.team_id, require_tasks_access=require_tasks_access
-            )
-        ) is not None:
+        # Usage limits only, no `has_tasks_access` check: that gate is the Desktop waitlist (the
+        # `tasks` flag or a redeemed invite), and this is the endpoint the generally-available Inbox
+        # runs tasks through (report "Create PR" / "Discuss", scout chat). Waitlisting a released
+        # surface would 403 it; cost is covered by usage-based billing.
+        if limit_response := usage_limit_response(request.user, self.team_id):
             return limit_response
 
         result = tasks_facade.run_task(pk, self.team_id, self._user_id(), validated_data=dict(request.validated_data))
@@ -744,9 +854,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not self._warm_enabled():
             return Response(status=status.HTTP_200_OK)
 
-        if access_response := code_access_required_response(request.user):
-            return access_response
-
         user_id = self._user_id()
         if user_id is None:
             return Response(status=status.HTTP_200_OK)
@@ -768,6 +875,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             reasoning_effort=request.validated_data.get("reasoning_effort"),
             sandbox_environment_id=request.validated_data.get("sandbox_environment_id"),
             custom_image_id=request.validated_data.get("custom_image_id"),
+            client_provenance=get_task_client_provenance(request),
         )
         if result is None:
             return Response(status=status.HTTP_200_OK)
@@ -823,12 +931,19 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class DenyBuiltInAgentTaskAutomations(DenyMCPBuiltInAgentOAuth):
+    """Automations schedule future runs that resolve a member's credentials, so a
+    built-in agent's sandbox token must not create or trigger them."""
+
+    message = "Built-in agents cannot manage task automations."
+
+
 @extend_schema(tags=["task-automations"])
 class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """API for managing scheduled task automations."""
 
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    permission_classes = [IsAuthenticated, APIScopePermission, DenyBuiltInAgentTaskAutomations]
     scope_object = "task"
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
@@ -865,8 +980,6 @@ class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(request=TaskAutomationWriteSerializer, responses={201: TaskAutomationSerializer})
     def create(self, request, **kwargs):
-        if access_response := code_access_required_response(request.user):
-            return access_response
         serializer = self._write_serializer(request.data)
         automation = tasks_facade.create_task_automation(
             self.team_id, getattr(request.user, "id", None), **self._facade_kwargs(serializer.validated_data)
@@ -876,9 +989,6 @@ class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(request=TaskAutomationWriteSerializer, responses={200: TaskAutomationSerializer})
     def partial_update(self, request, pk=None, **kwargs):
         serializer = self._write_serializer(request.data, partial=True)
-        if serializer.validated_data.get("enabled") is True:
-            if access_response := code_access_required_response(request.user):
-                return access_response
         automation = tasks_facade.update_task_automation(
             pk, self.team_id, getattr(request.user, "id", None), **self._facade_kwargs(serializer.validated_data)
         )
@@ -895,8 +1005,6 @@ class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(request=None, responses={200: TaskAutomationSerializer})
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
     def run(self, request, pk=None, **kwargs):
-        if access_response := code_access_required_response(request.user):
-            return access_response
         automation = tasks_facade.run_task_automation_now(pk, self.team_id, getattr(request.user, "id", None))
         if automation is None:
             raise NotFound()
@@ -1038,7 +1146,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 task_id, self.team_id, self._user_id(), for_control=True
             ) == tasks_facade.TaskRuntime.PI and not tasks_facade.pi_cloud_runtime_enabled(self.team, request.user):
                 return _pi_cloud_runtime_disabled_response()
-            if (limit_response := cloud_usage_limit_response(request.user, self.team_id)) is not None:
+            if limit_response := usage_limit_response(request.user, self.team_id):
                 return limit_response
 
         result = tasks_facade.bootstrap_task_run(
@@ -1093,7 +1201,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
 
         # Backstop: don't launch the cloud workflow for an over-limit team.
-        if (limit_response := cloud_usage_limit_response(request.user, self.team_id)) is not None:
+        if limit_response := usage_limit_response(request.user, self.team_id):
             return limit_response
 
         outcome, started_task_id = tasks_facade.start_task_run(
@@ -1750,8 +1858,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         params = request.validated_data.get("params")
 
         if method == "user_message":
-            if access_response := code_access_required_response(request.user):
-                return access_response
+            # No `has_tasks_access` check, for the same reason as `TaskViewSet.run`:
+            # the Inbox starts interactive runs and drops the user straight into this composer, so
+            # "Discuss" would 403 on its first reply if this required Code access.
             command_params = dict(params or {})
             artifact_ids = command_params.pop("artifact_ids", [])
             if artifact_ids:
@@ -2095,7 +2204,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return _pi_cloud_runtime_disabled_response()
 
         # Resume also runs in cloud: gate before handoff.
-        if (limit_response := cloud_usage_limit_response(request.user, self.team_id)) is not None:
+        if limit_response := usage_limit_response(request.user, self.team_id):
             return limit_response
 
         outcome, run, _ = tasks_facade.resume_task_run_in_cloud(pk, task_id, self.team_id, self._user_id())
@@ -2351,6 +2460,10 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         run_id = self.kwargs.get("parent_lookup_run_id")
         if not run_id:
             raise NotFound("Run ID is required")
+        try:
+            UUID(run_id)
+        except (ValueError, TypeError):
+            raise NotFound("Run not found")
         return run_id
 
     def _ensure_task_accessible(self) -> str:
@@ -2359,7 +2472,11 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         is_read = self.action in ("list", "retrieve")
         bypass_visibility = is_read and _can_bypass_visibility(self.request, self.team_id)
         if not tasks_facade.task_accessible_for_run_view(
-            task_id, self.team_id, getattr(self.request.user, "id", None), bypass_visibility=bypass_visibility
+            task_id,
+            self.team_id,
+            getattr(self.request.user, "id", None),
+            bypass_visibility=bypass_visibility,
+            for_control=not is_read,
         ):
             raise NotFound("Task not found")
         return task_id
@@ -2415,6 +2532,161 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             return Response(TaskRunErrorResponseSerializer({"error": error}).data, status=status.HTTP_400_BAD_REQUEST)
         serializer = TaskRunLivingArtifactResponseSerializer(artifact)
         return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=TaskRunLivingArtifactChartRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunLivingArtifactChartResponseSerializer,
+                description="Chart rendered and registered as a living artifact",
+            ),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Render or delivery failed"),
+            403: OpenApiResponse(description="Caller may not run queries in this project"),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Render an insight chart and attach it as a living artifact",
+        description=(
+            "Renders a PostHog insight (ad-hoc query JSON or a saved insight) to a PNG server-side and registers "
+            "it as a slack_file living artifact in one call. Blocks until the render finishes."
+        ),
+        strict_request_validation=True,
+        operation_id="tasks_runs_living_artifacts_chart",
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="chart",
+        # query:read because the body executes arbitrary insight queries — task:write alone
+        # must not become a data-read scope.
+        required_scopes=["task:write", "query:read"],
+        throttle_classes=[TaskRunChartRenderThrottle],
+    )
+    def chart(self, request, *args, **kwargs):
+        task_id = self._ensure_task_accessible()
+        run_id = self._run_id()
+        # Refuse unknown runs before the expensive render, like every sibling action does.
+        if not tasks_facade.task_run_exists(run_id, task_id, self.team_id):
+            raise NotFound()
+        name = request.validated_data["name"]
+        query = request.validated_data.get("query")
+        started = perf_counter()
+
+        def capture_render(*, failure_reason: str | None = None, export_asset_id: int | None = None) -> None:
+            posthoganalytics.capture(
+                distinct_id=str(getattr(request.user, "distinct_id", None) or self.team.uuid),
+                event="task_chart_render_failed" if failure_reason else "task_chart_render_succeeded",
+                properties={
+                    "task_id": task_id,
+                    "run_id": run_id,
+                    "source": "query" if query is not None else "insight",
+                    "duration_ms": round((perf_counter() - started) * 1000, 2),
+                    "failure_reason": failure_reason,
+                    "export_asset_id": export_asset_id,
+                },
+                groups=groups(self.organization, self.team),
+            )
+
+        if query is not None:
+            # Only InsightVizNode renders a chart deterministically; QuerySchemaRoot
+            # also admits kinds that render as table dumps or nothing.
+            if not isinstance(query, dict) or query.get("kind") != "InsightVizNode":
+                capture_render(failure_reason="unsupported_query")
+                return Response(
+                    TaskRunErrorResponseSerializer(
+                        {
+                            "error": "Only insight queries wrapped in an InsightVizNode can be charted — "
+                            "SQL and table queries are not supported yet"
+                        }
+                    ).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                # upgrade() only mutates nested nodes in place, so a migrated root must be bound
+                # or we'd validate one shape and render another.
+                query = upgrade(query)
+                QuerySchemaRoot.model_validate(query)
+            except (pydantic.ValidationError, TypeError, KeyError, ValueError):
+                capture_render(failure_reason="invalid_query")
+                return Response(
+                    TaskRunErrorResponseSerializer({"error": "Invalid insight query"}).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            # query:read only gates tokens — session auth skips scopes entirely, and the facade's
+            # object-level check covers insight_id, not an ad-hoc export_context.
+            if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+                raise PermissionDenied("You do not have permission to run queries in this project")
+        if not isinstance(request.user, User):
+            # Scoped-token auth guarantees a real user; the facade's access checks need one.
+            raise NotAuthenticated()
+        try:
+            asset, png = render_png_export(
+                team=self.team,
+                created_by=request.user,
+                export_context={"source": query} if query is not None else None,
+                insight_id=request.validated_data.get("insight_id"),
+            )
+        except ValueError as e:
+            capture_render(failure_reason="invalid_request")
+            return Response(TaskRunErrorResponseSerializer({"error": str(e)}).data, status=status.HTTP_400_BAD_REQUEST)
+        if png is None:
+            # asset.exception is a raw str(e) and the agent relays this field into Slack, so keep
+            # the pipeline internals in the log.
+            logger.warning("Chart render failed for asset %s on team %s: %s", asset.id, self.team_id, asset.exception)
+            capture_render(failure_reason="render_failed", export_asset_id=asset.id)
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Chart render failed"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Store a reference, not a url: the delivery token authenticates anonymously and
+        # bypasses the org's publicly-shared-resources setting, while metadata is readable by
+        # anyone with task:read. Slack delivery mints the url from this id when it posts.
+        # It lands in a dedicated column, not metadata, so the generic create/edit actions
+        # (whose metadata is writable by anyone with task:write) can never set it.
+        url = self._chart_url(query, asset)
+        chart_metadata: dict = {}
+        if url:
+            chart_metadata["posthog_url"] = url
+        artifact, error = tasks_facade.create_task_run_living_artifact(
+            run_id,
+            task_id,
+            self.team_id,
+            artifact={
+                "name": self._with_png_extension(name),
+                "artifact_type": TaskArtifactType.FILE,
+                "adapter": TaskArtifactAdapter.SLACK_FILE,
+                "content_type": "image/png",
+                "content_bytes": png,
+                "metadata": chart_metadata,
+                "export_asset_id": asset.id,
+            },
+        )
+        if artifact is None and error is None:
+            raise NotFound()
+        if error is not None:
+            # The render already persisted the export; without this it would sit
+            # orphaned until its own six-month expiry instead of being cleaned up now.
+            asset.delete()
+            capture_render(failure_reason="artifact_create_failed")
+            return Response(TaskRunErrorResponseSerializer({"error": error}).data, status=status.HTTP_400_BAD_REQUEST)
+        capture_render(export_asset_id=asset.id)
+        serializer = TaskRunLivingArtifactChartResponseSerializer(
+            {"artifact": artifact, "export_asset_id": asset.id, "url": url}
+        )
+        return Response(serializer.data)
+
+    @staticmethod
+    def _with_png_extension(name: str) -> str:
+        base, ext = os.path.splitext(name)
+        return name if ext.lower() == ".png" else f"{base or name}.png"
+
+    def _chart_url(self, query: dict | None, asset: "ExportedAsset") -> str | None:
+        if query is not None:
+            # absolute_uri rejects the %5C that json.dumps escapes produce, so append the payload
+            # after resolving the path (same shape as data_catalog's _deep_link).
+            return absolute_uri(f"/project/{self.team_id}/insights/new") + f"#q={quote(json.dumps(query))}"
+        if asset.insight_id and asset.insight:
+            return absolute_uri(f"/project/{self.team_id}/insights/{asset.insight.short_id}")
+        return None
 
     @validated_request(
         responses={

@@ -1,8 +1,6 @@
 import logging
 from typing import TYPE_CHECKING, Optional, cast
 
-from django.db import OperationalError as DjangoOperationalError
-
 import structlog
 from psycopg import OperationalError
 from psycopg.errors import SqlclientUnableToEstablishSqlconnection
@@ -43,7 +41,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     drop_slot_and_publication,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    _CONNECTION_LIMIT_ERROR_SUBSTRINGS,
     _SSH_HANDSHAKE_EOF_ERROR,
+    XMIN_AS_INCREMENTAL_FIELD_ERROR,
     PostgresImplementation,
     SSLRequiredError,
     _rls_active_from_conn,
@@ -249,8 +249,8 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                         placeholder="db.example.com",
                         caption=(
                             "Must be reachable from the public internet. Add PostHog's egress IP addresses to your "
-                            "firewall allowlist (see the docs above) and use a public host — `localhost` and private "
-                            "IPs (10.x, 172.16–31.x, 192.168.x) can't be reached. For a database that can't be "
+                            "firewall allowlist (see the docs above) and use a public host. `localhost` and private "
+                            "IPs (10.x, 172.16-31.x, 192.168.x) can't be reached. For a database that can't be "
                             "exposed publicly, enable the SSH tunnel below."
                         ),
                         secret=False,
@@ -404,6 +404,15 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "PostHog can't build its sync query. Choose an incremental field for the table in its "
                 "sync settings, or switch it to full table replication, then re-enable the sync."
             ),
+            # `xmin` was picked as a plain incremental/append field instead of through the dedicated
+            # xmin replication sync type — `_build_query`/`_build_count_query` raise this before
+            # emitting SQL Postgres would reject (`xid >= integer` has no operator). The stored config
+            # is fixed until the customer changes it, so every retry re-hits the same wall.
+            XMIN_AS_INCREMENTAL_FIELD_ERROR: (
+                "This table's incremental field is set to Postgres's internal 'xmin' system column, "
+                "which only works with the dedicated xmin replication sync type. Switch this schema to "
+                "xmin replication, or choose a different incremental field, then re-enable the sync."
+            ),
             "failed: timeout expired": None,
             # NOTE: "SSL connection has been closed unexpectedly" is intentionally NOT listed here.
             # It denotes an established SSL connection being dropped on connect or mid-stream (idle
@@ -490,6 +499,24 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 '(PostgreSQL reported "permission denied"). Grant the connecting role SELECT on those tables '
                 "(for example: GRANT SELECT ON <table> TO <role>), then re-enable the sync."
             ),
+            # A row-level security policy on this table (or another table its policy queries) is
+            # self-referential, so Postgres can't evaluate it and raises SQLSTATE 42P17 on every
+            # read attempt. The raw psycopg message ("infinite recursion detected in policy for
+            # relation <name>") is what the activity-level check sees via `str(e)`; match that,
+            # excluding the volatile relation name. `InvalidObjectDefinition` — the psycopg
+            # exception class name — only appears once Temporal wraps the activity failure, and
+            # a wrapped message contains both substrings, so this key must come first: finalization
+            # (`update_external_data_job_model`) takes the friendly message from the first matching
+            # dict entry, and a `None` class-name match ahead of it would shadow the actionable one.
+            # The policy is fixed until the customer edits it, so retrying re-hits the same
+            # recursion every attempt.
+            "infinite recursion detected in policy": (
+                "A row-level security policy on one of your tables refers back to itself (or to "
+                "another table whose policy loops back to it), so PostgreSQL can't evaluate it "
+                '("infinite recursion detected in policy"). Fix the policy definition to remove the '
+                "self-reference, or grant the connecting role BYPASSRLS, then re-enable the sync."
+            ),
+            "InvalidObjectDefinition": None,
             "Connection refused": None,
             "No route to host": None,
             "password authentication failed connection": None,
@@ -730,6 +757,20 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "include the value used on the remote server, or remove the foreign table from the "
                 "sync, then re-enable the sync."
             ),
+            # A selected relation is a postgres_fdw foreign table whose locally-declared character
+            # column is narrower than the data actually stored on the remote server (SQLSTATE 22001,
+            # "value too long for type character varying(<n>)"). Postgres enforces length constraints
+            # at write time on ordinary tables, so this can only surface via a foreign table's
+            # separately-declared width. The schema drift lives on the customer's side and is
+            # deterministic, so retrying re-reads into the same row every time. Match the stable
+            # message and exclude the volatile declared width and the CONTEXT line's column/table names.
+            "value too long for type character": (
+                "One of the tables you selected to sync is a foreign table (postgres_fdw) whose "
+                "locally-declared column is narrower than the data on the remote server "
+                '(PostgreSQL reported "value too long for type character..."). Widen the local '
+                "column's declared length to match the remote server, or remove the foreign table "
+                "from the sync, then re-enable the sync."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -741,7 +782,22 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         # self-recovering, so classify it here too — otherwise `_handle_import_error` logs it at
         # `exception` on every occurrence, flooding error tracking with a self-recovering failure
         # (e.g. a cloud provider terminating a backend for maintenance or failover).
-        return {"terminating connection due to"}
+        # "the database system is shutting down" is the connect-time sibling of the same restart: a
+        # smart/fast shutdown refuses new connections while the source is going down, which the
+        # offset-chunking reconnect also retries in-process (`_SERVER_STARTING_UP_ERROR_SUBSTRINGS`
+        # in postgres.py) — this is the same whole-activity-retry fallback for when that budget is
+        # exhausted (e.g. a longer maintenance window).
+        #
+        # `_CONNECTION_LIMIT_ERROR_SUBSTRINGS` (e.g. "remaining connection slots are reserved") is a
+        # connect-time capacity refusal already retried in-process by `_connect_with_dropped_retry` /
+        # `_is_dropped_or_connection_limit`. A slot frees the moment another connection closes, so a
+        # sustained shortage that outlasts that budget is still transient — the same
+        # reaches-here-only-after-internal-retries-exhaust case as the two entries above.
+        return {
+            "terminating connection due to",
+            "the database system is shutting down",
+            *_CONNECTION_LIMIT_ERROR_SUBSTRINGS,
+        }
 
     def reconcile_schema_metadata(
         self,
@@ -1126,20 +1182,16 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
             CDCHandledExternally,
             ForeignServerUnreachableError,
-            PostHogDatabaseConnectionError,
         )
 
         ssh_tunnel = self.make_ssh_tunnel_func(config, inputs.team_id)
 
-        # This reads sync metadata from PostHog's own database, not the customer's Postgres. A
-        # transient failure reaching our database here (e.g. a DNS blip resolving our host) raises
-        # the same "Name or service not known" wording a customer host misconfig would, which
-        # `get_non_retryable_errors` would misclassify as non-retryable and permanently stop a
-        # healthy sync. Re-raise as a retryable error whose message doesn't collide with those.
-        try:
-            schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
-        except DjangoOperationalError as e:
-            raise PostHogDatabaseConnectionError("Failed to load sync metadata from PostHog's database") from e
+        # This reads sync metadata from PostHog's own database, not the customer's Postgres — a
+        # transient failure reaching it (e.g. a DNS blip resolving our host) is a plain Django
+        # `OperationalError`, which `_handle_import_error` already classifies as a self-recovering
+        # app-DB blip and keeps out of error tracking. Let it propagate as-is: wrapping it would only
+        # hide that type from the classifier and turn a benign retry into reported error-tracking noise.
+        schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
         schema_metadata = schema.schema_metadata or {}
         source_schema = (
             schema_metadata.get("source_schema") if isinstance(schema_metadata.get("source_schema"), str) else None
