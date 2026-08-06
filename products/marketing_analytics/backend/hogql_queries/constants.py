@@ -104,16 +104,12 @@ SESSIONS_COLUMN_ALIAS = "Sessions"
 # enum so the sides can't drift apart and split one row in two.
 UNKNOWN_CHANNEL = DefaultChannelTypes.UNKNOWN.value
 
-# Derived column built from conversion goals marked counts_as_revenue: their summed value over
-# the channel divided by that channel's spend. Distinct from REPORTED_ROAS, which uses the ad
-# platform's own reported conversion value. Left out of MarketingAnalyticsBaseColumns because it
-# needs the unified conversion goals CTE, not just campaign_costs.
+# Revenue from goals marked counts_as_revenue over the channel's spend. Distinct from
+# REPORTED_ROAS, the platform's own figure. Not a base column: it needs the goals CTE.
 ROAS_COLUMN = MarketingAnalyticsConstants.ROAS.value
 
-# Suffix for the CAC column, joined to the "Cost per" prefix to read "Cost per customer". The
-# prefix makes it inherit the currency / higher-is-worse formatting the cost-per columns use.
-# It counts each customer goal's conversions as customers, which holds when that goal marks a
-# once-per-person conversion moment; see the aggregator for the assumption.
+# Joined to the "Cost per" prefix so it inherits that family's currency and higher-is-worse
+# formatting. Counts each customer goal's conversions as customers — see the aggregator.
 CAC_COLUMN_SUFFIX = MarketingAnalyticsConstants.CUSTOMER.value
 
 # Field used for joining with conversion goals

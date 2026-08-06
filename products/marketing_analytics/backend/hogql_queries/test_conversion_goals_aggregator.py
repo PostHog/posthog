@@ -404,8 +404,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
 
     def test_cac_denominator_skips_customer_goals_that_sum_a_property(self):
         goals = [
-            # A revenue-summing purchase goal flagged as a customer goal: its column is money, so
-            # counting it as customers divides spend by revenue.
+            # Its column is money, so counting it as customers divides spend by revenue.
             self._create_test_conversion_goal(
                 "g0",
                 "Purchases",

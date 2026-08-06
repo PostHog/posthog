@@ -401,14 +401,9 @@ class ConversionGoalsAggregator:
                 )
                 columns[f"{self.config.cost_per_prefix} {goal_name}"] = cost_per_goal_alias
 
-        # ROAS and CAC both need the channel's spend, so they only exist when campaign_costs is
-        # joined (include_cost_per), and each stays hidden until a goal is flagged for it.
-        #
-        # Each ratio also needs its flagged goals to hold the right kind of number, since a goal's
-        # column is either a conversion count or a summed property depending on its math. A
-        # counting goal in the ROAS numerator reads 200 signups against $100 of spend as "ROAS
-        # 2.0"; a summing goal in the CAC denominator divides spend by revenue, so $1,000 over 50
-        # purchases worth $5,000 reads as $0.20 per customer instead of $20.
+        # Both need campaign_costs joined, since spend is the denominator. And a flagged goal has
+        # to hold the right kind of number: a counting goal in the ROAS numerator reads 200 signups
+        # against $100 as "ROAS 2.0", a summing one in the CAC denominator divides spend by revenue.
         if include_cost_per:
             revenue_processors = [p for p in self.processors if p.goal.counts_as_revenue and p.sums_a_property()]
             if revenue_processors:
@@ -440,11 +435,8 @@ class ConversionGoalsAggregator:
         )
 
     def _build_cac_column(self, customer_processors: list[ConversionGoalProcessor], alias: str) -> ast.Alias:
-        # Customer acquisition cost: the channel's spend over the customers it produced. Each
-        # customer goal contributes its conversion count as customers, which is right when the goal
-        # marks a once-per-person conversion (a sign-up or first purchase). A goal pointed at a
-        # repeatable event would overcount, needing a first-time-per-person scan we don't do here.
-        # A `dau` goal is the closest fit, since it already counts each person once.
+        # Each customer goal contributes its conversion count, which is right only for a
+        # once-per-person moment: a repeatable event overcounts, and `dau` is the closest fit.
         total_customers = self._sum_conversion_values(customer_processors)
         total_cost = ast.Field(chain=self.config.get_campaign_cost_field_chain(self.config.total_cost_field))
         return ast.Alias(

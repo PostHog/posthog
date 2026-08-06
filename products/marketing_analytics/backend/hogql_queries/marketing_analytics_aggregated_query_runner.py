@@ -118,8 +118,8 @@ class MarketingAnalyticsAggregatedQueryRunner(
         # Add conversion goal columns using the aggregator
         if conversion_aggregator:
             conversion_columns = conversion_aggregator.get_conversion_goal_columns()
-            # Exclude the rate-shaped conversion goal columns (`Cost per`, ROAS): a sum of per-row
-            # ratios is not the ratio of the totals, so they can't ride the generic SUM() wrapper.
+            # A sum of per-row ratios isn't the ratio of the totals, so rate-shaped columns can't
+            # ride the generic SUM() wrapper.
             conversion_columns = {
                 k: v
                 for k, v in conversion_columns.items()
