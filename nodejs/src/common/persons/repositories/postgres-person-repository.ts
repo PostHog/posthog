@@ -530,6 +530,27 @@ export class PostgresPersonRepository
         extraDistinctIds: { distinctId: string; version?: number }[] = [],
         tx?: TransactionClient
     ): Promise<CreatePersonResult> {
+        // A conflicted create is undone by a compensating statement, which is only
+        // atomic with the create inside a transaction. Without one, the created person
+        // would be briefly visible to concurrent requests before the undo tombstones it.
+        if (!tx) {
+            return await this.inRawTransaction('createPerson', (newTx) =>
+                this.createPerson(
+                    createdAt,
+                    properties,
+                    propertiesLastUpdatedAt,
+                    propertiesLastOperation,
+                    teamId,
+                    isUserId,
+                    isIdentified,
+                    uuid,
+                    primaryDistinctId,
+                    extraDistinctIds,
+                    newTx
+                )
+            )
+        }
+
         const distinctIds = [primaryDistinctId, ...extraDistinctIds]
         for (const distinctId of distinctIds) {
             distinctId.version ||= 0
