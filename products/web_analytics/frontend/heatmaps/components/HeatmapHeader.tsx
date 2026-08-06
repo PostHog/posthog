@@ -3,14 +3,15 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, LemonButton, LemonInput, LemonLabel } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { HeatmapAdvancedSettings } from 'scenes/heatmaps/components/HeatmapAdvancedSettings'
-import { HeatmapRecordingFallback } from 'scenes/heatmaps/components/HeatmapRecordingFallback'
-import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
-import { HeatmapsForbiddenURL } from 'scenes/heatmaps/components/HeatmapsForbiddenURL'
-import { HeatmapsInvalidURL } from 'scenes/heatmaps/components/HeatmapsInvalidURL'
-import { heatmapLogic } from 'scenes/heatmaps/scenes/heatmap/heatmapLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { heatmapLogic } from '../scenes/heatmap/heatmapLogic'
+import { HeatmapAdvancedSettings } from './HeatmapAdvancedSettings'
+import { HeatmapRecordingFallback } from './HeatmapRecordingFallback'
+import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
+import { HeatmapsForbiddenURL } from './HeatmapsForbiddenURL'
+import { HeatmapsInvalidURL } from './HeatmapsInvalidURL'
 
 export function HeatmapHeader(): JSX.Element {
     const {

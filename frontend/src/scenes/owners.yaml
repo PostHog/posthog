@@ -45,8 +45,6 @@ rules:
       owners: team-analytics-platform
     - match: '/health/'
       owners: team-growth
-    - match: '/heatmaps/'
-      owners: team-web-analytics
     - match: '/hog-functions/'
       owners: team-workflows
     - match: '/inbox/'
