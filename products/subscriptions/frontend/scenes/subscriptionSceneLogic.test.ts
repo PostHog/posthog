@@ -203,7 +203,7 @@ describe('subscriptionSceneLogic', () => {
         })
         initKeaTests()
         const captureSpy = jest.spyOn(posthog, 'capture')
-        const displaySurveySpy = jest.spyOn(posthog, 'displaySurvey').mockImplementation()
+        const displaySurveySpy = jest.spyOn(posthog, 'displaySurvey')
 
         const logic = subscriptionSceneLogic({ id: '2' })
         logic.mount()
@@ -279,6 +279,7 @@ describe('subscriptionSceneLogic', () => {
         })
         initKeaTests()
         const captureSpy = jest.spyOn(posthog, 'capture')
+        const displaySurveySpy = jest.spyOn(posthog, 'displaySurvey')
 
         const logic = subscriptionSceneLogic({ id: '2' })
         logic.mount()
@@ -296,12 +297,15 @@ describe('subscriptionSceneLogic', () => {
         }).toFinishAllListeners()
 
         expect(captureSpy.mock.calls.filter(([event]) => event === 'ai_report_feedback')).toHaveLength(0)
+        // The already-recorded delivery is skipped, so the survey isn't reshown on a re-click either.
+        expect(displaySurveySpy).not.toHaveBeenCalled()
         // Params are still stripped, and the originally recorded feedback wins.
         expect(router.values.searchParams).toEqual({})
         expect(logic.values.deliveryFeedback).toEqual({ 'd-123': 'positive' })
 
         logic.unmount()
         captureSpy.mockRestore()
+        displaySurveySpy.mockRestore()
     })
 
     it('persists recorded feedback across remounts', async () => {
@@ -336,7 +340,7 @@ describe('subscriptionSceneLogic', () => {
         })
         initKeaTests()
         const captureSpy = jest.spyOn(posthog, 'capture')
-        const displaySurveySpy = jest.spyOn(posthog, 'displaySurvey').mockImplementation()
+        const displaySurveySpy = jest.spyOn(posthog, 'displaySurvey')
 
         const logic = subscriptionSceneLogic({ id: '2' })
         logic.mount()
