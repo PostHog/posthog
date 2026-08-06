@@ -209,7 +209,7 @@ class RetentionQueryBuilder:
             entity_id_cast = "toUUID(t.entity_id)" if self._b.entity_key == "person_id" else "t.entity_id"
             start_events_body = f"""FROM (
                     SELECT
-                        {entity_id_cast} AS `{self._b.entity_key}`,
+                        {entity_id_cast} AS entity_id,
                         t.timestamp AS timestamp,
                         t.event_uuid AS uuid
                     FROM experiment_metric_events_preaggregated AS t
@@ -219,7 +219,7 @@ class RetentionQueryBuilder:
                         AND t.timestamp >= {{metric_events_date_from}}
                         AND t.timestamp < {{metric_events_date_to}} + toIntervalSecond({{metric_events_start_window_seconds}})
                 ) AS events
-                INNER JOIN exposures ON {{entity_key}} = exposures.entity_id
+                INNER JOIN exposures ON events.entity_id = exposures.entity_id
                 WHERE {{start_after_exposure_predicate}}"""
             completion_events_body = f"""SELECT
                     {entity_id_cast} AS entity_id,

@@ -106,12 +106,12 @@
             min(events.timestamp) AS start_timestamp,
             argMin(events.uuid, events.timestamp) AS start_uuid
      FROM
-       (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS person_id,
+       (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS entity_id,
                toTimeZone(t.timestamp, 'UTC') AS timestamp,
                t.event_uuid AS uuid
         FROM experiment_metric_events_preaggregated AS t
         WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), ifNull(equals(arrayElement(t.steps, 1), 1), 0), greaterOrEquals(t.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(t.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))))) AS events
-     INNER JOIN exposures ON equals(events.person_id, exposures.entity_id)
+     INNER JOIN exposures ON equals(events.entity_id, exposures.entity_id)
      WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
      GROUP BY exposures.entity_id),
        completion_events AS
@@ -262,12 +262,12 @@
             min(events.timestamp) AS start_timestamp,
             argMin(events.uuid, events.timestamp) AS start_uuid
      FROM
-       (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS person_id,
+       (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS entity_id,
                toTimeZone(t.timestamp, 'UTC') AS timestamp,
                t.event_uuid AS uuid
         FROM experiment_metric_events_preaggregated AS t
         WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), ifNull(equals(arrayElement(t.steps, 1), 1), 0), greaterOrEquals(t.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(t.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(259200))))) AS events
-     INNER JOIN exposures ON equals(events.person_id, exposures.entity_id)
+     INNER JOIN exposures ON equals(events.entity_id, exposures.entity_id)
      WHERE and(greaterOrEquals(events.timestamp, exposures.first_exposure_time), lessOrEquals(events.timestamp, plus(toTimeZone(exposures.first_exposure_time, 'UTC'), toIntervalSecond(259200))))
      GROUP BY exposures.entity_id
      HAVING ifNull(lessOrEquals(plus(min(events.timestamp), toIntervalSecond(604800)), parseDateTime64BestEffortOrNull('2020-01-25 12:00:00', 6, 'UTC')), 0)),
@@ -419,12 +419,12 @@
             min(events.timestamp) AS start_timestamp,
             argMin(events.uuid, events.timestamp) AS start_uuid
      FROM
-       (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS person_id,
+       (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS entity_id,
                toTimeZone(t.timestamp, 'UTC') AS timestamp,
                t.event_uuid AS uuid
         FROM experiment_metric_events_preaggregated AS t
         WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), ifNull(equals(arrayElement(t.steps, 1), 1), 0), greaterOrEquals(t.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(t.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(0))))) AS events
-     INNER JOIN exposures ON equals(events.person_id, exposures.entity_id)
+     INNER JOIN exposures ON equals(events.entity_id, exposures.entity_id)
      WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
      GROUP BY exposures.entity_id
      HAVING ifNull(lessOrEquals(plus(min(events.timestamp), toIntervalSecond(604800)), parseDateTime64BestEffortOrNull('2020-01-25 12:00:00', 6, 'UTC')), 0)),
@@ -576,12 +576,12 @@
             min(events.timestamp) AS start_timestamp,
             argMin(events.uuid, events.timestamp) AS start_uuid
      FROM
-       (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS person_id,
+       (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS entity_id,
                toTimeZone(t.timestamp, 'UTC') AS timestamp,
                t.event_uuid AS uuid
         FROM experiment_metric_events_preaggregated AS t
         WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), ifNull(equals(arrayElement(t.steps, 1), 1), 0), greaterOrEquals(t.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(t.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(0))))) AS events
-     INNER JOIN exposures ON equals(events.person_id, exposures.entity_id)
+     INNER JOIN exposures ON equals(events.entity_id, exposures.entity_id)
      WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
      GROUP BY exposures.entity_id
      HAVING ifNull(lessOrEquals(plus(min(events.timestamp), toIntervalSecond(604800)), parseDateTime64BestEffortOrNull('2020-01-25 12:00:00', 6, 'UTC')), 0)),
@@ -732,12 +732,12 @@
             min(events.timestamp) AS start_timestamp,
             argMin(events.uuid, events.timestamp) AS start_uuid
      FROM
-       (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS person_id,
+       (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS entity_id,
                toTimeZone(t.timestamp, 'UTC') AS timestamp,
                t.event_uuid AS uuid
         FROM experiment_metric_events_preaggregated AS t
         WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), ifNull(equals(arrayElement(t.steps, 1), 1), 0), greaterOrEquals(t.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(t.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))))) AS events
-     INNER JOIN exposures ON equals(events.person_id, exposures.entity_id)
+     INNER JOIN exposures ON equals(events.entity_id, exposures.entity_id)
      WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
      GROUP BY exposures.entity_id),
        completion_events AS
@@ -1247,12 +1247,12 @@
             min(events.timestamp) AS start_timestamp,
             argMin(events.uuid, events.timestamp) AS start_uuid
      FROM
-       (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS person_id,
+       (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS entity_id,
                toTimeZone(t.timestamp, 'UTC') AS timestamp,
                t.event_uuid AS uuid
         FROM experiment_metric_events_preaggregated AS t
         WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), ifNull(equals(arrayElement(t.steps, 1), 1), 0), greaterOrEquals(t.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(t.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))))) AS events
-     INNER JOIN exposures ON equals(events.person_id, exposures.entity_id)
+     INNER JOIN exposures ON equals(events.entity_id, exposures.entity_id)
      WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
      GROUP BY exposures.entity_id),
        completion_events AS
@@ -1402,12 +1402,12 @@
             min(events.timestamp) AS start_timestamp,
             argMin(events.uuid, events.timestamp) AS start_uuid
      FROM
-       (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS person_id,
+       (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS entity_id,
                toTimeZone(t.timestamp, 'UTC') AS timestamp,
                t.event_uuid AS uuid
         FROM experiment_metric_events_preaggregated AS t
         WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), ifNull(equals(arrayElement(t.steps, 1), 1), 0), greaterOrEquals(t.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(t.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))))) AS events
-     INNER JOIN exposures ON equals(events.person_id, exposures.entity_id)
+     INNER JOIN exposures ON equals(events.entity_id, exposures.entity_id)
      WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
      GROUP BY exposures.entity_id),
        completion_events AS
@@ -1557,12 +1557,12 @@
             min(events.timestamp) AS start_timestamp,
             argMin(events.uuid, events.timestamp) AS start_uuid
      FROM
-       (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS person_id,
+       (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS entity_id,
                toTimeZone(t.timestamp, 'UTC') AS timestamp,
                t.event_uuid AS uuid
         FROM experiment_metric_events_preaggregated AS t
         WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), ifNull(equals(arrayElement(t.steps, 1), 1), 0), greaterOrEquals(t.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(t.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))))) AS events
-     INNER JOIN exposures ON equals(events.person_id, exposures.entity_id)
+     INNER JOIN exposures ON equals(events.entity_id, exposures.entity_id)
      WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
      GROUP BY exposures.entity_id),
        completion_events AS
@@ -1712,12 +1712,12 @@
             min(events.timestamp) AS start_timestamp,
             argMin(events.uuid, events.timestamp) AS start_uuid
      FROM
-       (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS person_id,
+       (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS entity_id,
                toTimeZone(t.timestamp, 'UTC') AS timestamp,
                t.event_uuid AS uuid
         FROM experiment_metric_events_preaggregated AS t
         WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), ifNull(equals(arrayElement(t.steps, 1), 1), 0), greaterOrEquals(t.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(t.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))))) AS events
-     INNER JOIN exposures ON equals(events.person_id, exposures.entity_id)
+     INNER JOIN exposures ON equals(events.entity_id, exposures.entity_id)
      WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
      GROUP BY exposures.entity_id),
        completion_events AS
@@ -1867,12 +1867,12 @@
             min(events.timestamp) AS start_timestamp,
             argMin(events.uuid, events.timestamp) AS start_uuid
      FROM
-       (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS person_id,
+       (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS entity_id,
                toTimeZone(t.timestamp, 'UTC') AS timestamp,
                t.event_uuid AS uuid
         FROM experiment_metric_events_preaggregated AS t
         WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), ifNull(equals(arrayElement(t.steps, 1), 1), 0), greaterOrEquals(t.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(t.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))))) AS events
-     INNER JOIN exposures ON equals(events.person_id, exposures.entity_id)
+     INNER JOIN exposures ON equals(events.entity_id, exposures.entity_id)
      WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
      GROUP BY exposures.entity_id),
        completion_events AS
@@ -2022,12 +2022,12 @@
             min(events.timestamp) AS start_timestamp,
             argMin(events.uuid, events.timestamp) AS start_uuid
      FROM
-       (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS person_id,
+       (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS entity_id,
                toTimeZone(t.timestamp, 'UTC') AS timestamp,
                t.event_uuid AS uuid
         FROM experiment_metric_events_preaggregated AS t
         WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), ifNull(equals(arrayElement(t.steps, 1), 1), 0), greaterOrEquals(t.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(t.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))))) AS events
-     INNER JOIN exposures ON equals(events.person_id, exposures.entity_id)
+     INNER JOIN exposures ON equals(events.entity_id, exposures.entity_id)
      WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
      GROUP BY exposures.entity_id),
        completion_events AS
@@ -2177,12 +2177,12 @@
             min(events.timestamp) AS start_timestamp,
             argMin(events.uuid, events.timestamp) AS start_uuid
      FROM
-       (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS person_id,
+       (SELECT accurateCastOrNull(t.entity_id, 'UUID') AS entity_id,
                toTimeZone(t.timestamp, 'UTC') AS timestamp,
                t.event_uuid AS uuid
         FROM experiment_metric_events_preaggregated AS t
         WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), ifNull(equals(arrayElement(t.steps, 1), 1), 0), greaterOrEquals(t.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(t.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(7200))))) AS events
-     INNER JOIN exposures ON equals(events.person_id, exposures.entity_id)
+     INNER JOIN exposures ON equals(events.entity_id, exposures.entity_id)
      WHERE and(greaterOrEquals(events.timestamp, exposures.first_exposure_time), lessOrEquals(events.timestamp, plus(toTimeZone(exposures.first_exposure_time, 'UTC'), toIntervalSecond(7200))))
      GROUP BY exposures.entity_id),
        completion_events AS
