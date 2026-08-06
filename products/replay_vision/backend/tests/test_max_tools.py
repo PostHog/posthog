@@ -583,3 +583,57 @@ class TestReplayVisionChargeConfirmation(BaseTest):
 
         assert artifact["error"] == "no_ai_consent"
         assert "AI analysis" in content
+
+
+class TestCreateReplayVisionScannerTool(BaseTest):
+    def _tool(self) -> CreateReplayVisionScannerTool:
+        config: RunnableConfig = {"configurable": {"team": self.team, "user": self.user}}
+        return CreateReplayVisionScannerTool(team=self.team, user=self.user, config=config)
+
+    @parameterized.expand(
+        [
+            ("monitor", {}, {}),
+            (
+                "classifier",
+                {"tags": ["abandoned cart", "payment error"]},
+                {"tags": ["abandoned cart", "payment error"]},
+            ),
+            ("scorer", {"scale_min": 0, "scale_max": 5}, {"scale": {"min": 0, "max": 5}}),
+            ("summarizer", {"length": "short"}, {"length": "short"}),
+        ]
+    )
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_creates_each_scanner_type_with_its_own_config(self, scanner_type, kwargs, expected_extra):
+        # Each type needs different config keys, and the shared validator rejects both a missing one and
+        # an unknown one. This pins that the tool assembles a config the API would also accept.
+        with patch(_FLAG_PATH, return_value=True):
+            _, artifact = await self._tool()._arun_impl(
+                name=f"{scanner_type}-scanner", prompt="Did the user check out?", scanner_type=scanner_type, **kwargs
+            )
+
+        assert "error" not in artifact, artifact
+        scanner = await sync_to_async(ReplayScanner.objects.get)(id=artifact["scanner_id"])
+        assert scanner.scanner_type == scanner_type
+        assert scanner.scanner_config == {"prompt": "Did the user check out?", **expected_extra}
+        # Disabled by default, so creating one never starts spending on its own.
+        assert scanner.enabled is False
+
+    @parameterized.expand(
+        [
+            ("classifier_without_tags", "classifier", {}),
+            ("scorer_without_scale", "scorer", {}),
+        ]
+    )
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_rejects_a_type_missing_its_required_config(self, _name, scanner_type, kwargs):
+        # Without this the tool would create a scanner the apply workflow can't run.
+        with patch(_FLAG_PATH, return_value=True):
+            content, artifact = await self._tool()._arun_impl(
+                name="incomplete", prompt="Rate the frustration.", scanner_type=scanner_type, **kwargs
+            )
+
+        assert artifact["error"] == "invalid_config"
+        assert content
+        assert not await sync_to_async(ReplayScanner.objects.filter(name="incomplete").exists)()
