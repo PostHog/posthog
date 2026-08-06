@@ -599,8 +599,7 @@ export const getExperimentsFlagCleanupTargetRetrieveUrl = (projectId: string, id
  * Resolution order: the experiment's saved repository, else the environment's default
  * cleanup repository, else the team's only connected GitHub repository. When the team
  * has several repositories and none is saved (source=ambiguous), pass one via
- * `repository` on end/ship_variant. Requires access to PostHog Desktop, like
- * open_cleanup_pr (403 otherwise).
+ * `repository` on end/ship_variant.
  */
 export const experimentsFlagCleanupTargetRetrieve = async (
     projectId: string,
