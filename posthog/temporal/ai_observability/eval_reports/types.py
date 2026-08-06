@@ -65,6 +65,7 @@ class PrepareReportContextOutput:
     previous_period_start: str
     report_prompt_guidance: str = ""
     output_type: str = "boolean"
+    trace_id: str = ""
 
 
 @dataclasses.dataclass
@@ -81,6 +82,7 @@ class RunEvalReportAgentInput:
     previous_period_start: str
     report_prompt_guidance: str = ""
     output_type: str = "boolean"
+    trace_id: str = ""
 
 
 @dataclasses.dataclass

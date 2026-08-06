@@ -10,6 +10,7 @@ import asyncio
 import contextlib
 from collections.abc import AsyncIterator
 from typing import Any, Literal, TypeVar, cast
+from uuid import uuid4
 
 import structlog
 from openai import AsyncOpenAI
@@ -485,6 +486,7 @@ async def _merge_summaries(
 async def _generate_evaluation_summary(
     evaluation_runs: list[dict],
     team_id: int,
+    evaluation_id: str,
     model: OpenAIModel,
     filter_type: str,
     evaluation_name: str,
@@ -500,7 +502,19 @@ async def _generate_evaluation_summary(
         "evaluation_prompt": evaluation_prompt,
         "max_candidates": EVALUATION_SUMMARY_CHUNK_SIZE,
     }
-    client = build_async_openai_client("llma_eval_summary", ai_product="aio_eval_summary")
+    trace_id = str(uuid4())
+    session_id = evaluation_id or f"{team_id}:evaluation-summary"
+    observability_properties = {
+        "filter_type": filter_type,
+        **({"evaluation_id": evaluation_id} if evaluation_id else {}),
+    }
+    client = build_async_openai_client(
+        "llma_eval_summary",
+        ai_product="aio_eval_summary",
+        trace_id=trace_id,
+        session_id=session_id,
+        properties=observability_properties,
+    )
     if len(evaluation_runs) <= EVALUATION_SUMMARY_CHUNK_SIZE:
         single_system_prompt = load_summarization_template("prompts/evaluation_summary.djt", prompt_context)
         single_user_prompt = _build_runs_prompt(evaluation_runs)
@@ -555,6 +569,7 @@ async def summarize_evaluation_runs(
     evaluation_runs: list[dict],
     team_id: int,
     model: OpenAIModel,
+    evaluation_id: str = "",
     filter_type: str = "all",
     evaluation_name: str = "",
     evaluation_description: str = "",
@@ -571,6 +586,7 @@ async def summarize_evaluation_runs(
         evaluation_runs: List of dicts with 'generation_id' (str), 'result' (bool or None), and 'reasoning' (str)
         team_id: Team ID for logging and tracking
         model: OpenAI model to use
+        evaluation_id: Stable session identifier for summaries of this evaluation
         filter_type: The filter applied ('all', 'pass', 'fail', 'na')
         evaluation_name: Name of the evaluation being summarized
         evaluation_description: Description of what the evaluation tests for
@@ -588,6 +604,7 @@ async def summarize_evaluation_runs(
             return await _generate_evaluation_summary(
                 evaluation_runs=evaluation_runs,
                 team_id=team_id,
+                evaluation_id=evaluation_id,
                 model=model,
                 filter_type=filter_type,
                 evaluation_name=evaluation_name,

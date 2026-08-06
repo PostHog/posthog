@@ -52,6 +52,7 @@ These are compatibility checks, not automatic blockers:
 - **Credential:** Go accepts the credential type and projects the correct team, scope, and revocation state.
 - **Billing:** identify which team owns the Go credential and should pay, then confirm its wallet is funded for the expected usage. Internal workloads can debit a PostHog-owned team wallet so spend stays attributable without charging a customer.
 - **Attribution:** `X-PostHog-Distinct-Id`, `X-PostHog-Trace-Id`, and `X-PostHog-Properties` provide enough event context. Go does not derive the event distinct ID from OpenAI `user`, Anthropic `metadata.user_id`, or the OAuth user. Caller-supplied properties are not trusted policy.
+- **Session attribution:** Go main does not support native sessions yet. [PostHog/ai-gateway#383](https://github.com/PostHog/ai-gateway/pull/383) adds `X-PostHog-Session-Id` as a gateway-owned `$ai_session_id`; callers must wait for that change to deploy.
 - **Provider behavior:** health-based routing or strict `X-PostHog-Provider` pinning matches the caller's fallback requirements.
 - **Wire behavior:** request fields, streaming chunks, errors, timeouts, and retries match what the caller handles.
 - **Metadata:** Python per-key property and feature flag headers are converted to the Go JSON properties header.
@@ -70,6 +71,7 @@ These are compatibility checks, not automatic blockers:
 | Models                       | Gateway-owned catalog, canonical IDs and aliases, capability checks, and router categories.                                                                        | Broader LiteLLM model acceptance and Python product allowlists.                                                                                                        |
 | Routing and failure behavior | Health-based host choice, circuit breakers, hosted-provider failover, and strict provider pinning.                                                                 | Caller opt-in Bedrock fallback and provider-specific Python routing.                                                                                                   |
 | Event metadata               | One `X-PostHog-Properties` JSON object plus dedicated distinct ID, trace ID, and provider headers.                                                                 | `X-POSTHOG-PROPERTY-*` and `X-POSTHOG-FLAG-*` headers.                                                                                                                 |
+| Session attribution          | No native session header on main. [PostHog/ai-gateway#383](https://github.com/PostHog/ai-gateway/pull/383) adds `X-PostHog-Session-Id`.                            | The per-key property header can emit `$ai_session_id`.                                                                                                                 |
 
 ## Migration checklist
 
@@ -85,10 +87,10 @@ Run `/migrating-llm-gateway-callers` to inventory and convert a caller.
 
 Run `/auditing-llm-gateway-parity` after either gateway changes auth, attribution, billing, endpoints, providers, models, routing, or event metadata. The skill audits implementation sources in both repositories and updates this file without migrating callers.
 
-Last verified on 2026-07-31 against:
+Last verified on 2026-08-06 against:
 
-- `PostHog/posthog` master at `75c2b2ff6845097a3eb6dc5214e3f4f660395fb8`
-- `PostHog/ai-gateway` main at `ea8230b6dbc4ebf6c4be83d359e561477a13b215`
+- `PostHog/posthog` master at `609f3665c2e879eebf0dc452aaba2f7cd23b932f`
+- `PostHog/ai-gateway` main at `a7f50903199f74f4f8295da57816735a8d221ecd`
 
 ## References
 

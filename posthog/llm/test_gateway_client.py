@@ -255,6 +255,27 @@ class TestBuildAsyncOpenAIClient:
         )
         assert result is mock_async_openai.return_value
 
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    @patch("posthog.llm.gateway_client.httpx.AsyncClient")
+    @patch("posthog.llm.gateway_client.AsyncOpenAI")
+    def test_gateway_mode_correlates_all_calls_in_a_trace_and_session(self, mock_async_openai, mock_httpx):
+        result = build_async_openai_client(
+            "llma_eval_summary",
+            ai_product="aio_eval_summary",
+            trace_id="a9f9e1dd-8332-4ad0-959b-36ea0a45734e",
+            session_id="evaluation-123",
+            properties={"evaluation_id": "evaluation-123"},
+        )
+
+        headers = mock_async_openai.call_args.kwargs["default_headers"]
+        assert headers["X-PostHog-Trace-Id"] == "a9f9e1dd-8332-4ad0-959b-36ea0a45734e"
+        assert headers["X-PostHog-Session-Id"] == "evaluation-123"
+        assert json.loads(headers["X-PostHog-Properties"]) == {
+            "evaluation_id": "evaluation-123",
+            "ai_product": "aio_eval_summary",
+        }
+        assert result is mock_async_openai.return_value
+
     @override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
     @patch("posthog.llm.gateway_client.get_async_llm_client")
     def test_falls_back_to_python_async_gateway_when_unset(self, mock_get_async):
@@ -262,6 +283,21 @@ class TestBuildAsyncOpenAIClient:
 
         mock_get_async.assert_called_once_with("llma_eval_summary")
         assert result is mock_get_async.return_value
+
+    @override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
+    @patch("posthog.llm.gateway_client.get_async_llm_client")
+    def test_python_gateway_fallback_preserves_trace_and_native_session(self, mock_get_async):
+        build_async_openai_client(
+            "llma_eval_summary",
+            trace_id="a9f9e1dd-8332-4ad0-959b-36ea0a45734e",
+            session_id="evaluation-123",
+            properties={"evaluation_id": "evaluation-123"},
+        )
+
+        headers = mock_get_async.call_args.kwargs["default_headers"]
+        assert headers["traceparent"].startswith("00-a9f9e1dd83324ad0959b36ea0a45734e-")
+        assert headers["x-posthog-property-$ai_session_id"] == "evaluation-123"
+        assert headers["x-posthog-property-evaluation_id"] == "evaluation-123"
 
 
 class TestTeamTraceId:

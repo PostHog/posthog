@@ -1,5 +1,6 @@
 """LangGraph agent for cluster labeling using create_react_agent."""
 
+import uuid
 from typing import Any
 
 import structlog
@@ -7,13 +8,14 @@ from langchain_core.messages import HumanMessage
 from langgraph.prebuilt import create_react_agent
 
 from posthog.temporal.ai_observability.clustering_agent import fill_missing_labels, get_labeling_llm
+from posthog.temporal.ai_observability.llm_endpoint import build_langchain_callbacks
 from posthog.temporal.ai_observability.trace_clustering.labeling_agent.prompts import CLUSTER_LABELING_SYSTEM_PROMPT
 from posthog.temporal.ai_observability.trace_clustering.labeling_agent.state import (
     ClusterLabelingState,
     ClusterTraceData,
 )
 from posthog.temporal.ai_observability.trace_clustering.labeling_agent.tools import LABELING_TOOLS
-from posthog.temporal.ai_observability.trace_clustering.models import ClusterLabel, TraceSummary
+from posthog.temporal.ai_observability.trace_clustering.models import AnalysisLevel, ClusterLabel, TraceSummary
 
 logger = structlog.get_logger(__name__)
 
@@ -23,6 +25,10 @@ def run_labeling_agent(
     cluster_data: dict[int, ClusterTraceData],
     all_trace_summaries: dict[str, TraceSummary],
     max_iterations: int | None = None,
+    trace_id: str = "",
+    session_id: str = "",
+    clustering_run_id: str = "",
+    analysis_level: AnalysisLevel = "trace",
 ) -> dict[int, ClusterLabel]:
     """Run the cluster labeling agent and return generated labels.
 
@@ -43,8 +49,19 @@ def run_labeling_agent(
         LABELING_AGENT_TIMEOUT,
     )
 
-    # Create LLM client
-    llm = get_labeling_llm(LABELING_AGENT_MODEL, LABELING_AGENT_TIMEOUT)
+    resolved_trace_id = trace_id or str(uuid.uuid4())
+    resolved_session_id = session_id or f"{team_id}:{analysis_level}:clustering"
+    observability_properties = {
+        "analysis_level": analysis_level,
+        **({"clustering_run_id": clustering_run_id} if clustering_run_id else {}),
+    }
+    llm = get_labeling_llm(
+        LABELING_AGENT_MODEL,
+        LABELING_AGENT_TIMEOUT,
+        trace_id=resolved_trace_id,
+        session_id=resolved_session_id,
+        properties=observability_properties,
+    )
 
     # Create the agent using prebuilt pattern
     agent = create_react_agent(
@@ -65,9 +82,16 @@ def run_labeling_agent(
 
     # Run the agent
     try:
+        callbacks = build_langchain_callbacks(
+            distinct_id=str(team_id),
+            trace_id=resolved_trace_id,
+            session_id=resolved_session_id,
+            ai_product="aio_clustering",
+            properties=observability_properties,
+        )
         result = agent.invoke(
             initial_state,
-            {"recursion_limit": LABELING_AGENT_RECURSION_LIMIT},
+            {"recursion_limit": LABELING_AGENT_RECURSION_LIMIT, "callbacks": callbacks},
         )
 
         logger.info(

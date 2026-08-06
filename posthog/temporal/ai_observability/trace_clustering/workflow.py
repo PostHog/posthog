@@ -233,6 +233,9 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
                     window_end=window_end,
                     analysis_level=compute_result.analysis_level,
                     batch_run_ids=compute_result.batch_run_ids,
+                    trace_id=compute_result.clustering_run_id,
+                    session_id=inputs.job_id or f"{inputs.team_id}:{inputs.analysis_level}:clustering",
+                    clustering_run_id=compute_result.clustering_run_id,
                 )
             ],
             start_to_close_timeout=LLM_ACTIVITY_TIMEOUT,

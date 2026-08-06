@@ -333,6 +333,7 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
                 period_end=context.period_end,
                 previous_period_start=context.previous_period_start,
                 report_prompt_guidance=context.report_prompt_guidance,
+                trace_id=context.trace_id,
             ),
             start_to_close_timeout=AGENT_ACTIVITY_TIMEOUT,
             heartbeat_timeout=AGENT_HEARTBEAT_TIMEOUT,

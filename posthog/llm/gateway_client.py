@@ -1,4 +1,5 @@
 import json
+from collections.abc import Mapping
 from typing import Literal
 from urllib.parse import urlparse
 from uuid import UUID, uuid5
@@ -44,7 +45,12 @@ def _team_id_header(team_id: int) -> dict[str, str]:
     return {"x-posthog-property-team_id": str(team_id)}
 
 
-def get_llm_client(product: Product = "django", team_id: int | None = None, api_key: str | None = None) -> OpenAI:
+def get_llm_client(
+    product: Product = "django",
+    team_id: int | None = None,
+    api_key: str | None = None,
+    default_headers: Mapping[str, str] | None = None,
+) -> OpenAI:
     """
     Get an OpenAI-compatible client for the internal LLM gateway.
 
@@ -94,21 +100,31 @@ def get_llm_client(product: Product = "django", team_id: int | None = None, api_
             when omitted, the event is attributed to the gateway key owner's team.
         api_key: Optional short-lived credential to use instead of `LLM_GATEWAY_API_KEY`.
             Server-only products use this to avoid exposing the shared personal API key.
+        default_headers: Optional headers sent with every request. Product-owned headers such as
+            team attribution override values supplied here.
     """
     resolved_api_key = api_key or settings.LLM_GATEWAY_API_KEY
     if not settings.LLM_GATEWAY_URL or not resolved_api_key:
         raise ValueError("LLM_GATEWAY_URL and an API key must be configured")
 
     base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{product}/v1"
+    headers = dict(default_headers or {})
+    if team_id is not None:
+        headers.update(_team_id_header(team_id))
+
     return OpenAI(
         base_url=base_url,
         api_key=resolved_api_key,
-        default_headers=_team_id_header(team_id) if team_id is not None else None,
+        default_headers=headers or None,
         http_client=httpx.Client(trust_env=False),
     )
 
 
-def get_async_llm_client(product: Product = "django", team_id: int | None = None) -> AsyncOpenAI:
+def get_async_llm_client(
+    product: Product = "django",
+    team_id: int | None = None,
+    default_headers: Mapping[str, str] | None = None,
+) -> AsyncOpenAI:
     """
     Async variant of `get_llm_client`. See `get_llm_client` for the rationale on `team_id`
     attribution and how to attach extra per-call event properties.
@@ -117,10 +133,14 @@ def get_async_llm_client(product: Product = "django", team_id: int | None = None
         raise ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
 
     base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{product}/v1"
+    headers = dict(default_headers or {})
+    if team_id is not None:
+        headers.update(_team_id_header(team_id))
+
     return AsyncOpenAI(
         base_url=base_url,
         api_key=settings.LLM_GATEWAY_API_KEY,
-        default_headers=_team_id_header(team_id) if team_id is not None else None,
+        default_headers=headers or None,
         http_client=httpx.AsyncClient(trust_env=False),
     )
 
@@ -220,9 +240,46 @@ def ai_product_headers(ai_product: str | None) -> dict[str, str] | None:
     return _ai_property_headers(ai_product=ai_product)
 
 
+def ai_gateway_headers(
+    ai_product: str | None = None,
+    trace_id: str | None = None,
+    session_id: str | None = None,
+    properties: Mapping[str, str] | None = None,
+) -> dict[str, str] | None:
+    """Build the Go ai-gateway headers that correlate a multi-call AI operation."""
+    labels = dict(properties or {})
+    if ai_product:
+        labels["ai_product"] = ai_product
+
+    headers = _ai_property_headers(**labels) or {}
+    if trace_id:
+        headers["X-PostHog-Trace-Id"] = trace_id
+    if session_id:
+        headers["X-PostHog-Session-Id"] = session_id
+    return headers or None
+
+
 # Mirrors the namespace in services/llm-gateway/src/llm_gateway/callbacks/posthog.py. Both must
 # stay equal or a team's trace id changes with whichever gateway serves it.
 _TEAM_TRACE_ID_NAMESPACE = UUID("8d4f6b7e-6a3e-4f3a-9f3b-3b6f4d2e8a1a")
+
+
+def _python_gateway_observability_headers(
+    trace_id: str | None,
+    session_id: str | None,
+    properties: Mapping[str, str] | None,
+) -> dict[str, str] | None:
+    headers = {f"x-posthog-property-{key}": value for key, value in (properties or {}).items()}
+    if session_id:
+        headers["x-posthog-property-$ai_session_id"] = session_id
+    if trace_id:
+        try:
+            normalized_trace_id = UUID(trace_id)
+        except ValueError:
+            normalized_trace_id = uuid5(_TEAM_TRACE_ID_NAMESPACE, trace_id)
+        span_id = uuid5(_TEAM_TRACE_ID_NAMESPACE, f"span-{trace_id}").hex[:16]
+        headers["traceparent"] = f"00-{normalized_trace_id.hex}-{span_id}-01"
+    return headers or None
 
 
 def team_trace_id(team_id: int | None) -> str | None:
@@ -253,7 +310,13 @@ def _anthropic_gateway_base_url(openai_base_url: str) -> str:
     return trimmed
 
 
-def build_openai_client(product: Product, ai_product: str | None = None) -> OpenAI:
+def build_openai_client(
+    product: Product,
+    ai_product: str | None = None,
+    trace_id: str | None = None,
+    session_id: str | None = None,
+    properties: Mapping[str, str] | None = None,
+) -> OpenAI:
     """Return a raw OpenAI client routed through the internal Go ai-gateway when configured,
     else the Python LLM gateway via :func:`get_llm_client`.
 
@@ -268,13 +331,22 @@ def build_openai_client(product: Product, ai_product: str | None = None) -> Open
         return OpenAI(
             api_key=api_key,
             base_url=url,
-            default_headers=ai_product_headers(ai_product),
+            default_headers=ai_gateway_headers(ai_product, trace_id, session_id, properties),
             http_client=httpx.Client(trust_env=False),
         )
+    fallback_headers = _python_gateway_observability_headers(trace_id, session_id, properties)
+    if fallback_headers:
+        return get_llm_client(product, default_headers=fallback_headers)
     return get_llm_client(product)
 
 
-def build_async_openai_client(product: Product, ai_product: str | None = None) -> AsyncOpenAI:
+def build_async_openai_client(
+    product: Product,
+    ai_product: str | None = None,
+    trace_id: str | None = None,
+    session_id: str | None = None,
+    properties: Mapping[str, str] | None = None,
+) -> AsyncOpenAI:
     """Async variant of :func:`build_openai_client`."""
     gateway = resolve_ai_gateway_config()
     if gateway:
@@ -282,9 +354,12 @@ def build_async_openai_client(product: Product, ai_product: str | None = None) -
         return AsyncOpenAI(
             api_key=api_key,
             base_url=url,
-            default_headers=ai_product_headers(ai_product),
+            default_headers=ai_gateway_headers(ai_product, trace_id, session_id, properties),
             http_client=httpx.AsyncClient(trust_env=False),
         )
+    fallback_headers = _python_gateway_observability_headers(trace_id, session_id, properties)
+    if fallback_headers:
+        return get_async_llm_client(product, default_headers=fallback_headers)
     return get_async_llm_client(product)
 
 

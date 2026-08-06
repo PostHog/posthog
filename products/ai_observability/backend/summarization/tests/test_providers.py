@@ -2,6 +2,7 @@ import re
 import json
 import asyncio
 from typing import Any
+from uuid import UUID
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -199,11 +200,16 @@ class TestSummarizeEvaluationRuns:
                 summarize_evaluation_runs(
                     evaluation_runs=[{"generation_id": "g1", "result": True, "reasoning": "good"}],
                     team_id=1,
+                    evaluation_id="evaluation-1",
                     model=OpenAIModel.GPT_4_1_MINI,
                 )
             )
 
-        mock_builder.assert_called_once_with("llma_eval_summary", ai_product="aio_eval_summary")
+        mock_builder.assert_called_once()
+        builder_kwargs = mock_builder.call_args.kwargs
+        UUID(builder_kwargs["trace_id"])
+        assert builder_kwargs["session_id"] == "evaluation-1"
+        assert builder_kwargs["properties"] == {"filter_type": "all", "evaluation_id": "evaluation-1"}
         assert mock_client.chat.completions.create.call_args.kwargs["timeout"] == SUMMARIZATION_TIMEOUT
         assert result.overall_assessment == "Mostly passing."
 

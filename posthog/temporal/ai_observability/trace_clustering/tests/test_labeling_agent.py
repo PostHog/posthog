@@ -2,7 +2,7 @@
 
 import json
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from langchain_core.messages import HumanMessage
 
@@ -370,11 +370,14 @@ class TestFillMissingLabels:
 
 
 class TestRunLabelingAgentIntegration:
+    @patch("posthog.temporal.ai_observability.trace_clustering.labeling_agent.graph.build_langchain_callbacks")
     @patch("posthog.temporal.ai_observability.trace_clustering.labeling_agent.graph.get_labeling_llm")
     @patch("posthog.temporal.ai_observability.trace_clustering.labeling_agent.graph.create_react_agent")
-    def test_runs_agent_and_returns_labels(self, mock_create_agent, mock_get_labeling_llm):
+    def test_runs_agent_and_returns_labels(self, mock_create_agent, mock_get_labeling_llm, mock_build_callbacks):
         mock_llm = MagicMock()
         mock_get_labeling_llm.return_value = mock_llm
+        callbacks = [MagicMock()]
+        mock_build_callbacks.return_value = callbacks
 
         mock_agent = MagicMock()
         mock_create_agent.return_value = mock_agent
@@ -394,11 +397,23 @@ class TestRunLabelingAgentIntegration:
             team_id=1,
             cluster_data=cluster_data,
             all_trace_summaries={},
+            trace_id="trace-clustering-run-1",
+            session_id="clustering-job-1",
+            clustering_run_id="trace-clustering-run-1",
+            analysis_level="trace",
         )
 
         assert result[0].title == "Generated Label"
         assert result[1].title == "Cluster 1"
         mock_create_agent.assert_called_once()
+        mock_get_labeling_llm.assert_called_once_with(
+            ANY,
+            ANY,
+            trace_id="trace-clustering-run-1",
+            session_id="clustering-job-1",
+            properties={"analysis_level": "trace", "clustering_run_id": "trace-clustering-run-1"},
+        )
+        assert mock_agent.invoke.call_args.args[1]["callbacks"] == callbacks
 
     @patch("posthog.temporal.ai_observability.trace_clustering.labeling_agent.graph.get_labeling_llm")
     @patch("posthog.temporal.ai_observability.trace_clustering.labeling_agent.graph.create_react_agent")

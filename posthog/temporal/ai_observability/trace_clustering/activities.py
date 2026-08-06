@@ -335,6 +335,9 @@ def _generate_cluster_labels(inputs: GenerateLabelsActivityInputs) -> GenerateLa
         window_end=window_end,
         batch_run_ids=inputs.batch_run_ids,
         analysis_level=inputs.analysis_level,
+        trace_id=inputs.trace_id,
+        session_id=inputs.session_id,
+        clustering_run_id=inputs.clustering_run_id,
     )
 
     return GenerateLabelsActivityOutputs(cluster_labels=cluster_labels)

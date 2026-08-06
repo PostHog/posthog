@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
-from posthog.temporal.ai_observability.llm_endpoint import build_langchain_chat_client
+from posthog.temporal.ai_observability.llm_endpoint import build_langchain_callbacks, build_langchain_chat_client
 
 GATEWAY_URL = "https://gateway.example/v1"
 GATEWAY_KEY = "phs_project_secret"
@@ -70,10 +70,25 @@ class TestBuildOpenAIChatClient:
     @override_settings(DEBUG=True, AI_GATEWAY_URL=GATEWAY_URL, AI_GATEWAY_API_KEY=GATEWAY_KEY)
     def test_gateway_mode_tags_ai_product_via_posthog_properties_header(self):
         with patch("posthog.temporal.ai_observability.llm_endpoint.ChatOpenAI") as mock_chat:
-            build_langchain_chat_client("gpt-5.4", 600.0, ai_product="aio_clustering")
+            build_langchain_chat_client(
+                "gpt-5.4",
+                600.0,
+                ai_product="aio_clustering",
+                trace_id="clustering-run-1",
+                session_id="clustering-job-1",
+                properties={"analysis_level": "trace"},
+            )
 
-        assert mock_chat.call_args.kwargs["default_headers"] == {
-            "X-PostHog-Properties": json.dumps({"ai_product": "aio_clustering"})
+        headers = mock_chat.call_args.kwargs["default_headers"]
+        assert headers == {
+            "X-PostHog-Properties": json.dumps(
+                {
+                    "analysis_level": "trace",
+                    "ai_product": "aio_clustering",
+                }
+            ),
+            "X-PostHog-Trace-Id": "clustering-run-1",
+            "X-PostHog-Session-Id": "clustering-job-1",
         }
 
     @override_settings(DEBUG=True, AI_GATEWAY_URL=GATEWAY_URL, AI_GATEWAY_API_KEY=GATEWAY_KEY)
@@ -82,3 +97,45 @@ class TestBuildOpenAIChatClient:
             build_langchain_chat_client("gpt-5.4", 600.0)
 
         assert mock_chat.call_args.kwargs["default_headers"] is None
+
+    @override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
+    @patch("posthog.temporal.ai_observability.llm_endpoint.CallbackHandler")
+    @patch("posthog.temporal.ai_observability.llm_endpoint.posthoganalytics")
+    def test_direct_mode_callback_preserves_trace_and_session(self, mock_posthoganalytics, mock_callback):
+        mock_posthoganalytics.default_client = object()
+
+        callbacks = build_langchain_callbacks(
+            distinct_id="42",
+            trace_id="clustering-run-1",
+            session_id="clustering-job-1",
+            ai_product="aio_clustering",
+            properties={"analysis_level": "trace"},
+        )
+
+        assert callbacks == [mock_callback.return_value]
+        mock_callback.assert_called_once_with(
+            mock_posthoganalytics.default_client,
+            distinct_id="42",
+            trace_id="clustering-run-1",
+            properties={
+                "analysis_level": "trace",
+                "ai_product": "aio_clustering",
+                "$ai_session_id": "clustering-job-1",
+            },
+        )
+
+    @override_settings(DEBUG=True, AI_GATEWAY_URL=GATEWAY_URL, AI_GATEWAY_API_KEY=GATEWAY_KEY)
+    @patch("posthog.temporal.ai_observability.llm_endpoint.CallbackHandler")
+    @patch("posthog.temporal.ai_observability.llm_endpoint.posthoganalytics")
+    def test_gateway_mode_omits_callback_to_avoid_duplicate_generations(self, mock_posthoganalytics, mock_callback):
+        mock_posthoganalytics.default_client = object()
+
+        callbacks = build_langchain_callbacks(
+            distinct_id="42",
+            trace_id="clustering-run-1",
+            session_id="clustering-job-1",
+            ai_product="aio_clustering",
+        )
+
+        assert callbacks == []
+        mock_callback.assert_not_called()

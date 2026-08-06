@@ -271,6 +271,9 @@ class GenerateLabelsActivityInputs:
     # Fields with defaults must come after fields without defaults
     analysis_level: AnalysisLevel = "trace"  # "trace" or "generation"
     batch_run_ids: dict[str, str] = field(default_factory=dict)  # item_id -> batch_run_id for linking to summaries
+    trace_id: str = ""
+    session_id: str = ""
+    clustering_run_id: str = ""
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
