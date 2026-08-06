@@ -1017,6 +1017,9 @@ class TestGetTaskProcessingContextActivity:
         ]
         assert 70 <= sum(decisions) <= 130
         assert not vm_sandbox_origin_in_rollout("onboarding", "run-1", percentages)
+        assert vm_sandbox_origin_in_rollout(None, "run-1", {"": 50}) == vm_sandbox_origin_in_rollout(
+            "", "run-1", {"": 50}
+        )
 
     @pytest.mark.parametrize(
         "payload, expected",

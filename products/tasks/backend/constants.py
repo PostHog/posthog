@@ -68,13 +68,14 @@ def vm_sandbox_origin_rollout_percentages(payload: object) -> dict[str, float]:
 
 
 def vm_sandbox_origin_in_rollout(origin_product: str | None, run_id: str, percentages: dict[str, float]) -> bool:
-    percentage = percentages.get(origin_product or "", 0)
+    origin_key = origin_product or ""
+    percentage = percentages.get(origin_key, 0)
     if percentage <= 0:
         return False
     if percentage >= 100:
         return True
 
-    digest = hashlib.sha256(f"{origin_product}:{run_id}".encode()).digest()
+    digest = hashlib.sha256(f"{origin_key}:{run_id}".encode()).digest()
     bucket = int.from_bytes(digest[:8], "big") / 2**64 * 100
     return bucket < percentage
 
