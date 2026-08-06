@@ -68,6 +68,19 @@ describe('visionActionRunsLogic', () => {
             })
     })
 
+    it('derives lastRunAt from the newest run, not the schedule cursor', async () => {
+        // The scheduler-only last_run_at cursor can be null while runs exist, which used to render
+        // "Never" above a populated table. lastRunAt must read the newest run's timestamp instead.
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.action?.last_run_at ?? null).toBeNull()
+        expect(logic.values.lastRunAt).toBe('2026-01-01T09:00:00Z') // newest run's scheduled_at
+
+        // With no runs loaded yet, fall back to the cursor so we don't lose a real timestamp.
+        logic.actions.loadRunsSuccess([], 0)
+        logic.actions.loadActionSuccess({ ...ACTION, last_run_at: '2026-02-02T10:00:00Z' } as VisionActionApi)
+        expect(logic.values.lastRunAt).toBe('2026-02-02T10:00:00Z')
+    })
+
     it('runNow posts to the run endpoint and refreshes the runs list', async () => {
         let posted = false
         useMocks({

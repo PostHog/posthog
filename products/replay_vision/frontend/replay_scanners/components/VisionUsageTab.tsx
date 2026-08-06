@@ -137,7 +137,7 @@ export function VisionUsageTab(): JSX.Element {
             ),
         },
         {
-            title: 'Observations',
+            title: 'Observations this period',
             key: 'observations_this_month',
             tooltip: 'Succeeded observations this billing period.',
             render: (_, scanner) => (

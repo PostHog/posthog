@@ -17,6 +17,7 @@ export interface VisionActionRunsLogicProps {
 export interface visionActionRunsLogicValues {
     action: VisionActionApi | null
     actionLoading: boolean
+    lastRunAt: string | null
     pollUntil: number
     runInProgress: boolean
     runningNow: boolean
@@ -62,6 +63,7 @@ export interface visionActionRunsLogicActions {
 export interface visionActionRunsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        lastRunAt: (runs: VisionActionRunListApi[], action: VisionActionApi | null) => string | null
         runInProgress: (runs: VisionActionRunListApi[]) => boolean
         shouldPoll: (runInProgress: boolean, pollUntil: number) => boolean
     }
@@ -146,6 +148,17 @@ export const visionActionRunsLogic = kea<visionActionRunsLogicType>([
     }),
 
     selectors({
+        // Derive "last run" from the run rows the page already loaded rather than action.last_run_at,
+        // which only the scheduler's claim transaction stamps — so a run whose claim didn't stamp no
+        // longer renders "Never" above a populated table. Runs come back newest-first (-created_at).
+        // Fall back to the scheduler cursor when no rows have loaded yet.
+        lastRunAt: [
+            (s) => [s.runs, s.action],
+            (runs: VisionActionRunListApi[], action: VisionActionApi | null): string | null => {
+                const newest = runs[0]
+                return newest?.scheduled_at ?? newest?.created_at ?? action?.last_run_at ?? null
+            },
+        ],
         // A digest/alert run is actively processing — used to keep "Run now" disabled (a second run
         // coalesces server-side anyway, but disabling makes that obvious) and to drive polling.
         runInProgress: [
@@ -191,7 +204,8 @@ export const visionActionRunsLogic = kea<visionActionRunsLogicType>([
                     const action = await visionActionsRetrieve(String(teamId), props.actionId)
                     actions.loadActionSuccess(action)
                     visionActionSceneLogic.actions.setActionContext(action.name, action.scanner ?? null)
-                } catch {
+                } catch (error: any) {
+                    lemonToast.error(`Failed to load this action${error?.detail ? `: ${error.detail}` : ''}`)
                     actions.loadActionFailure()
                 }
             },

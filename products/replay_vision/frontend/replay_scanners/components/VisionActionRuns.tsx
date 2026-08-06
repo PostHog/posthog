@@ -5,6 +5,7 @@ import { LemonButton, LemonTable, LemonTableColumns, Link } from '@posthog/lemon
 
 import { SleepingHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
@@ -34,7 +35,10 @@ function StatCell({
 }
 
 function RunStats(): JSX.Element {
-    const { action, runsCount } = useValues(visionActionRunsLogic)
+    const { action, runsCount, lastRunAt, runs, runsLoading, actionLoading } = useValues(visionActionRunsLogic)
+    // Match the table below, which shows a spinner until the first fetch settles, instead of rendering
+    // "0 / Never / —" mid-load. Once any rows or the action have landed we show real values.
+    const loading = (runsLoading || actionLoading) && runs.length === 0 && !action
     const disabled = action?.enabled === false
     // Quiet alert checks (condition not met) don't appear in the run list, so for alerts the time
     // cells speak in terms of checks: "last checked" can be much more recent than the newest row.
@@ -48,15 +52,17 @@ function RunStats(): JSX.Element {
         <div className="flex flex-wrap sm:flex-nowrap items-stretch border rounded bg-surface-primary">
             <StatCell
                 title={isAlert ? 'Alerts' : 'Total runs'}
-                value={humanFriendlyNumber(runsCount)}
+                value={loading ? <LemonSkeleton className="h-6 w-12" /> : humanFriendlyNumber(runsCount)}
                 description="all time"
             />
             <StatCell
                 title={isAlert ? 'Last checked' : 'Last run'}
                 value={
-                    action?.last_run_at ? (
+                    loading ? (
+                        <LemonSkeleton className="h-6 w-24" />
+                    ) : lastRunAt ? (
                         <TZLabel
-                            time={action.last_run_at}
+                            time={lastRunAt}
                             displayTimezone={scheduleTimezone}
                             formatDate="MMM D, YYYY"
                             formatTime="HH:mm"
@@ -72,7 +78,9 @@ function RunStats(): JSX.Element {
             <StatCell
                 title={isAlert ? 'Next check' : 'Next run'}
                 value={
-                    disabled ? (
+                    loading ? (
+                        <LemonSkeleton className="h-6 w-24" />
+                    ) : disabled ? (
                         'N/A'
                     ) : isAlert && everyMatch ? (
                         // every_match checks ride each sweep; the rrule cursor is vestigial there and
