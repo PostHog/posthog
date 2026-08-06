@@ -229,11 +229,12 @@ describe("CloudPiSessionClient", () => {
       taskId: "task-1",
       runId: "run-1",
       kind: "snapshot",
-      status: "queued",
+      status: "in_progress",
       newEntries: [{ type: "pi_run_started" }],
       totalEntryCount: 1,
     });
 
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
     expect(cloud.client.sendCommand).not.toHaveBeenCalled();
 
     cloud.sendUpdate({
