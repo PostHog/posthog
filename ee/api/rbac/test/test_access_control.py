@@ -2216,6 +2216,79 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
         results = res.json()["results"]
         assert [r["role_id"] for r in results] == [str(role.id)]
 
+    def test_object_options_search_and_lookup(self):
+        Dashboard.objects.create(team=self.team, name="Growth dashboard", created_by=self.user)
+        insight = Insight.objects.create(
+            team=self.team, derived_name="Weekly signups", saved=True, created_by=self.user
+        )
+        notebook = Notebook.objects.create(team=self.team, title="Q3 planning", created_by=self.user)
+
+        res = self.client.get("/api/projects/@current/access_control_object_options?resource=notebook&search=q3")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert [(r["id"], r["name"]) for r in res.json()["results"]] == [(str(notebook.id), "Q3 planning")]
+
+        # An insight URL carries the short_id; the lookup returns the pk that rules store
+        res = self.client.get(
+            f"/api/projects/@current/access_control_object_options?resource=insight&id={insight.short_id}"
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert [(r["id"], r["name"]) for r in res.json()["results"]] == [(str(insight.id), "Weekly signups")]
+
+        res = self.client.get("/api/projects/@current/access_control_object_options?resource=webhook")
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+
+    def test_object_rules_write_addresses_objects_by_pk(self):
+        notebook = Notebook.objects.create(team=self.team, title="Q3 planning", created_by=self.user)
+        member_id = str(self.organization_membership.id)
+        res = self.client.put(
+            "/api/projects/@current/access_control_object_rules",
+            {
+                "resource": "notebook",
+                "resource_id": str(notebook.id),
+                "access_level": "viewer",
+                "organization_member": member_id,
+            },
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        rows = self.client.get(f"/api/projects/@current/access_control_member_objects?member_id={member_id}").json()[
+            "results"
+        ]
+        assert [(r["resource"], r["resource_id"], r["name"]) for r in rows] == [
+            ("notebook", str(notebook.id), "Q3 planning")
+        ]
+
+        res = self.client.put(
+            "/api/projects/@current/access_control_object_rules",
+            {
+                "resource": "notebook",
+                "resource_id": str(notebook.id),
+                "access_level": None,
+                "organization_member": member_id,
+            },
+        )
+        assert res.status_code == status.HTTP_204_NO_CONTENT
+        rows = self.client.get(f"/api/projects/@current/access_control_member_objects?member_id={member_id}").json()[
+            "results"
+        ]
+        assert rows == []
+
+    def test_object_rules_write_keeps_permission_and_level_validation(self):
+        creator = User.objects.create_and_join(self.organization, "creator@posthog.com", None)
+        dashboard = Dashboard.objects.create(team=self.team, name="Locked", created_by=creator)
+
+        res = self.client.put(
+            "/api/projects/@current/access_control_object_rules",
+            {"resource": "dashboard", "resource_id": str(dashboard.id), "access_level": "bad"},
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self.client.put(
+            "/api/projects/@current/access_control_object_rules",
+            {"resource": "dashboard", "resource_id": str(dashboard.id), "access_level": "viewer"},
+        )
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+
     def test_default_objects_returns_only_rows_without_a_subject(self):
         shared = Dashboard.objects.create(team=self.team, name="Shared dashboard", created_by=self.user)
         scoped = Dashboard.objects.create(team=self.team, name="Scoped dashboard", created_by=self.user)

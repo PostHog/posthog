@@ -4,7 +4,11 @@ from functools import cache
 from typing import TYPE_CHECKING, Any, cast
 
 from django.apps import apps
-from django.db.models import Q
+from django.core.exceptions import (
+    FieldDoesNotExist,
+    ValidationError as DjangoValidationError,
+)
+from django.db.models import Model, Q
 from django.urls import URLResolver, get_resolver
 
 from rest_framework import exceptions, serializers, status
@@ -282,14 +286,14 @@ _OBJECT_RULE_EXCLUDED_SCOPES: frozenset[str] = frozenset({"project"})
 
 
 @cache
-def resources_with_object_access_controls() -> frozenset[APIScopeObject]:
-    """Resources whose viewsets expose per-object access controls, derived from the registered routes.
+def _object_access_viewset_models() -> dict[APIScopeObject, frozenset[type[Model]]]:
+    """The models behind each resource that supports object-level access controls.
 
     A viewset opts into object-level access control by mixing in AccessControlViewSetMixin, so the
-    routes are the source of truth and this set cannot drift from the code. The snapshot test in
-    test_access_control.py makes additions show up in review.
+    registered routes are the source of truth and this mapping cannot drift from the code. A scope
+    served by several viewsets maps to several models.
     """
-    found: set[APIScopeObject] = set()
+    found: dict[APIScopeObject, set[type[Model]]] = {}
 
     def walk(resolver: URLResolver) -> None:
         for pattern in resolver.url_patterns:
@@ -306,10 +310,91 @@ def resources_with_object_access_controls() -> frozenset[APIScopeObject]:
                 and scope not in INTERNAL_API_SCOPE_OBJECTS
                 and scope not in _OBJECT_RULE_EXCLUDED_SCOPES
             ):
-                found.add(scope)
+                queryset = getattr(cls, "queryset", None)
+                found.setdefault(scope, set())
+                if queryset is not None:
+                    found[scope].add(queryset.model)
 
     walk(get_resolver())
-    return frozenset(found)
+    return {scope: frozenset(models) for scope, models in found.items()}
+
+
+@cache
+def resources_with_object_access_controls() -> frozenset[APIScopeObject]:
+    """Resources whose viewsets expose per-object access controls, derived from the registered routes.
+
+    The snapshot test in test_access_control.py makes additions show up in review.
+    """
+    return frozenset(_object_access_viewset_models())
+
+
+# Display fields tried, in order, for resources neither search nor _MODELS_NOT_IN_ENTITY_MAP knows
+_GENERIC_NAME_FIELDS = ("name", "title", "key")
+
+_PICKER_LIMIT = 20
+
+
+def _model_has_field(model: type[Model], field: str) -> bool:
+    try:
+        model._meta.get_field(field)
+        return True
+    except FieldDoesNotExist:
+        return False
+
+
+@dataclass(frozen=True, kw_only=True)
+class _ObjectSearchConfig:
+    model: type[Model]
+    name_field: str
+
+
+@cache
+def _object_search_config(resource: str) -> _ObjectSearchConfig | None:
+    """How the settings picker searches one resource type: its model and display field.
+
+    Display knowledge comes from search's ENTITY_MAP, then _MODELS_NOT_IN_ENTITY_MAP, then any
+    resource whose routes expose exactly one team-scoped model with a recognizable name field.
+    None means the picker cannot offer the type.
+    """
+    from posthog.api.search import (
+        ENTITY_MAP,  # noqa: PLC0415 — imports every searchable product model, keep it off this module's import path
+    )
+
+    if resource not in resources_with_object_access_controls():
+        return None
+
+    model: type[Model] | None = None
+    name_field: str | None = None
+    entity = ENTITY_MAP.get(resource)
+    registry = _MODELS_NOT_IN_ENTITY_MAP.get(resource)
+    if entity is not None:
+        model = entity["klass"]
+        name_field = next((field for field, rank in entity["search_fields"].items() if rank == "A"), None)
+    elif registry is not None:
+        model = apps.get_model(registry.app_label, registry.model_name)
+        name_field = registry.name_field
+    else:
+        models = _object_access_viewset_models().get(resource) or frozenset()
+        if len(models) == 1:
+            model = next(iter(models))
+            name_field = next((field for field in _GENERIC_NAME_FIELDS if _model_has_field(model, field)), None)
+
+    if model is None or name_field is None or not _model_has_field(model, "team"):
+        return None
+    return _ObjectSearchConfig(model=model, name_field=name_field)
+
+
+@dataclass(frozen=True, kw_only=True)
+class _ObjectRuleValidationContext:
+    """Duck-typed stand-in for the view in AccessControlSerializer's context, so the generic
+    object-rule endpoint runs exactly the validation the per-resource access_controls actions run."""
+
+    team: Team
+    user_access_control: UserAccessControl
+    target: Model
+
+    def get_object(self) -> Model:
+        return self.target
 
 
 class AccessControlViewSetMixin(_GenericViewSet):
@@ -379,6 +464,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
             "access_control_member_properties",
             "access_control_role_objects",
             "access_control_role_properties",
+            "access_control_object_options",
         ]:
             return ["access_control:read"]
         elif request.method == "PUT" and self.action in [
@@ -658,7 +744,11 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 "can_edit": user_access_control.check_can_modify_access_levels_for_object(team),
                 "project_access_level": project_access_level,
                 "resource_access_levels": resource_access_levels,
-                "object_rule_resources": sorted(resources_with_object_access_controls()),
+                # The resources the settings UI can search and rule on; every entry works with
+                # access_control_object_options and access_control_object_rules
+                "object_rule_resources": sorted(
+                    r for r in resources_with_object_access_controls() if _object_search_config(r) is not None
+                ),
             }
         )
 
@@ -1060,3 +1150,101 @@ class AccessControlViewSetMixin(_GenericViewSet):
         team = cast(Team, self.team)  # type: ignore
         role = self._get_role(request, team)
         return self._property_rules_response(team, role=role)
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=True, url_path="access_control_object_options")
+    def access_control_object_options(self, request: Request, *args, **kwargs) -> Response:
+        """Objects of one resource type for the settings picker: `?resource=` plus `?search=` or `?id=`.
+
+        Works for every resource the defaults endpoint lists in object_rule_resources, with the same
+        display names the rules list shows. Returns pks, the identifier stored on rules and taken by
+        access_control_object_rules; `?id=` also accepts an insight short_id, since insight URLs
+        carry those.
+        """
+        team = cast(Team, self.team)  # type: ignore
+        resource = request.query_params.get("resource") or ""
+        config = _object_search_config(resource)
+        if config is None:
+            raise exceptions.ValidationError("resource does not support object access rules")
+
+        search = request.query_params.get("search") or ""
+        lookup = request.query_params.get("id") or ""
+        qs = config.model._default_manager.filter(team_id=team.id)
+        # Objects mid-deletion or never saved are not sensible rule targets
+        if _model_has_field(config.model, "deleted"):
+            qs = qs.filter(deleted=False)
+        if _model_has_field(config.model, "saved"):
+            qs = qs.filter(saved=True)
+
+        try:
+            if resource == "insight":
+                if lookup:
+                    qs = qs.filter(pk=lookup) if lookup.isdigit() else qs.filter(short_id=lookup)
+                elif search:
+                    qs = qs.filter(Q(name__icontains=search) | Q(derived_name__icontains=search))
+                rows = qs.order_by("name").values_list("pk", "name", "derived_name")[:_PICKER_LIMIT]
+                results = [{"id": str(pk), "name": name or derived_name or str(pk)} for pk, name, derived_name in rows]
+            else:
+                if lookup:
+                    qs = qs.filter(pk=lookup)
+                elif search:
+                    qs = qs.filter(**{f"{config.name_field}__icontains": search})
+                rows = qs.order_by(config.name_field).values_list("pk", config.name_field)[:_PICKER_LIMIT]
+                results = [{"id": str(pk), "name": str(name) if name else str(pk)} for pk, name in rows]
+        except (ValueError, DjangoValidationError):
+            # A lookup id of the wrong shape for the model's pk matches nothing
+            results = []
+        return Response({"results": results})
+
+    @extend_schema(exclude=True)
+    @action(methods=["PUT"], detail=True, url_path="access_control_object_rules")
+    def access_control_object_rules(self, request: Request, *args, **kwargs) -> Response:
+        """Create, update or clear one object rule, addressing the object by resource + pk.
+
+        The per-resource access_controls actions address objects by each viewset's lookup - a
+        notebook's short_id, for example - while rules and the options search use pks, so the
+        settings UI writes here. Validation and permission checks are AccessControlSerializer's,
+        identical to the per-resource path.
+        """
+        team = cast(Team, self.team)  # type: ignore
+        user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
+
+        resource = str(request.data.get("resource") or "")
+        resource_id = str(request.data.get("resource_id") or "")
+        config = _object_search_config(resource)
+        if config is None:
+            raise exceptions.ValidationError("resource does not support object access rules")
+        if not resource_id:
+            raise exceptions.ValidationError("resource_id is required")
+        target = get_object_or_404(config.model._default_manager.filter(team_id=team.id), pk=resource_id)
+
+        data = {**request.data, "resource": resource, "resource_id": resource_id}
+        context = {
+            **self.get_serializer_context(),
+            "view": _ObjectRuleValidationContext(team=team, user_access_control=user_access_control, target=target),
+        }
+        serializer = AccessControlSerializer(data=data, context=context)
+        serializer.is_valid(raise_exception=True)
+        params = serializer.validated_data
+
+        instance = AccessControl.objects.filter(
+            team=team,
+            resource=resource,
+            resource_id=resource_id,
+            organization_member=params.get("organization_member"),
+            role=params.get("role"),
+        ).first()
+
+        if params["access_level"] is None:
+            if instance:
+                instance.delete()
+                user_access_control._clear_cache()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        if instance:
+            serializer = AccessControlSerializer(instance, data=data, context=context)
+            serializer.is_valid(raise_exception=True)
+        serializer.validated_data["team"] = team
+        serializer.save()
+        user_access_control._clear_cache()
+        return Response(serializer.data, status=status.HTTP_200_OK)
