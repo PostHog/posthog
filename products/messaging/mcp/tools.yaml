@@ -107,19 +107,6 @@ tools:
             Opt one or more recipients (up to 1000 per call) out of marketing messages. Each entry can name its own
             message category via category_key; entries without one use the request-level category_key, or all marketing
             messages if omitted. Importing only ever opts recipients out, so repeating a call is safe.
-    opt-outs-remove:
-        operation: messaging_preferences_remove_opt_out_create
-        enabled: true
-        scopes:
-            - hog_flow:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Remove a recipient from the opt-out list
-        description: >
-            Opt a recipient back in to the message category named by category_key, or to all marketing messages if
-            omitted. Use to honor a resubscribe recorded in your own app. Repeating a call is safe.
     opt-outs-list:
         operation: messaging_preferences_opt_outs_retrieve
         enabled: true
@@ -133,3 +120,16 @@ tools:
         description: >
             List recipients opted out of a message category, most recently updated first. Omit category_key to list
             recipients opted out of all marketing messages.
+    opt-outs-remove:
+        operation: messaging_preferences_remove_opt_out_create
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Remove a recipient from the opt-out list
+        description: >
+            Opt a recipient back in to the message category named by category_key, or to all marketing messages if
+            omitted. Use to honor a resubscribe recorded in your own app. Repeating a call is safe.
