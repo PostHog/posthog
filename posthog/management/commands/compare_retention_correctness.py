@@ -410,7 +410,20 @@ def _try_variant(
         return None, exc
 
 
-def _check_one(insight: Insight, url: str, freeze: bool, recheck: bool) -> Row:
+def format_cell_sample(cell_diffs: Sequence[Any], limit: int) -> str:
+    """Compact rendering of the largest differing cells, in diff_retention_results' order
+    (abs_diff descending). The legacy value always prints left of the dwh value — swapping
+    them would invert every triage conclusion drawn from the output."""
+    cells = []
+    for cell in cell_diffs[:limit]:
+        prefix = f"[{cell.breakdown_value}] " if cell.breakdown_value is not None else ""
+        field = "" if cell.field == "count" else " agg"
+        cells.append(f"{prefix}{cell.row_label}/{cell.value_label}{field} {cell.legacy:g}≠{cell.dwh:g}")
+    suffix = f" (+{len(cell_diffs) - limit} more)" if len(cell_diffs) > limit else ""
+    return "; ".join(cells) + suffix
+
+
+def _check_one(insight: Insight, url: str, freeze: bool, recheck: bool, dump_cells: int = 0) -> Row:
     try:
         action, reason = classify_insight(insight)
         if action == "error":
@@ -485,20 +498,27 @@ def _check_one(insight: Insight, url: str, freeze: bool, recheck: bool) -> Row:
             # points at execution-level causes (replica state, code vintage), not query semantics.
             assert insight.query is not None
             detail += f"; shape: {shape_fingerprint(insight.query['source'])}"
+            if dump_cells and diff.cell_diffs:
+                detail += f" | cells: {format_cell_sample(diff.cell_diffs, dump_cells)}"
         return Row(insight.id, insight.short_id, insight.team_id, url, diff.status, detail)
     except Exception as exc:
         return Row(insight.id, insight.short_id, insight.team_id, url, "ERROR", f"{type(exc).__name__}: {exc}")
 
 
 def _check_team(
-    insights: list[Insight], urls: dict[int, str], freeze: bool, recheck: bool, report: Callable[[Row], None]
+    insights: list[Insight],
+    urls: dict[int, str],
+    freeze: bool,
+    recheck: bool,
+    report: Callable[[Row], None],
+    dump_cells: int = 0,
 ) -> list[Row]:
     """One lane = one team. Its insights are checked serially so a team's data is never read
     concurrently with itself; distinct teams run in parallel across lanes."""
     rows: list[Row] = []
     try:
         for insight in insights:
-            row = _check_one(insight, urls[insight.id], freeze, recheck)
+            row = _check_one(insight, urls[insight.id], freeze, recheck, dump_cells)
             rows.append(row)
             report(row)
     finally:
@@ -565,6 +585,15 @@ class Command(BaseCommand):
             action=argparse.BooleanOptionalAction,
             default=True,
             help="Re-run both variants once on a mismatch and keep only differences that reproduce (default on)",
+        )
+        parser.add_argument(
+            "--dump-cells",
+            type=int,
+            default=0,
+            metavar="N",
+            help="Append the N largest differing cells (row/column coordinates with legacy≠dwh values) to each "
+            "mismatch line. The coordinate pattern shows which part of the result diverges — e.g. values shifted "
+            "into a neighbouring bracket vs a missing Day 0 — without running the full report tool.",
         )
         parser.add_argument("--fail-on-mismatch", action="store_true", help="Exit non-zero if any MISMATCH is found")
 
@@ -641,6 +670,7 @@ class Command(BaseCommand):
                     options["concurrency"],
                     journal,
                     recovered=journal_rows,
+                    dump_cells=options["dump_cells"],
                 )
         finally:
             if journal is not None:
@@ -760,7 +790,7 @@ class Command(BaseCommand):
             )
             if insight is None:
                 return None
-            return _check_one(insight, rec.get("url", ""), freeze, recheck=True)
+            return _check_one(insight, rec.get("url", ""), freeze, recheck=True, dump_cells=options["dump_cells"])
 
         with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, side_effect=lambda team: _use_dwh_var.get()):
             kept, resolved, counts = revalidate_mismatches(state.mismatches, state.counts, check)
@@ -817,6 +847,7 @@ class Command(BaseCommand):
         concurrency_opt: int,
         journal: Optional[LineSink] = None,
         recovered: Sequence[Row] = (),
+        dump_cells: int = 0,
     ) -> list[Row]:
         urls = {i.id: f"{base_url}/project/{i.team_id}/insights/{i.short_id}/edit" for i in insights}
 
@@ -860,7 +891,7 @@ class Command(BaseCommand):
         with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, side_effect=lambda team: _use_dwh_var.get()):
             with ThreadPoolExecutor(max_workers=concurrency) as pool:
                 futures = [
-                    pool.submit(_check_team, team_insights, urls, freeze, recheck, report)
+                    pool.submit(_check_team, team_insights, urls, freeze, recheck, report, dump_cells)
                     for team_insights in teams.values()
                 ]
                 for future in as_completed(futures):

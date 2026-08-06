@@ -13,6 +13,7 @@ from posthog.management.commands.compare_retention_correctness import (
     ProgressState,
     Row,
     _check_one,
+    format_cell_sample,
     journal_line,
     merge_progress_state,
     parse_journal_lines,
@@ -20,6 +21,7 @@ from posthog.management.commands.compare_retention_correctness import (
     scope_signature,
     unabsorbed_journal_rows,
 )
+from posthog.management.commands.compare_retention_legacy_vs_dwh import CellDiff
 from posthog.management.commands.test.test_compare_retention_legacy_vs_dwh import FakeObjectStorage
 from posthog.models import Team
 
@@ -241,6 +243,48 @@ class TestRevalidateMismatches(TestCase):
         self.assertEqual(kept, [record])
         self.assertEqual(resolved, [])
         self.assertEqual(new_counts["MISMATCH"], 1)
+
+
+class TestFormatCellSample(TestCase):
+    # Cell dumps steer prod triage; printing dwh where legacy belongs would invert every
+    # conclusion, and a dropped overflow marker would pass off a sample as the full diff.
+    def test_order_prefix_and_overflow(self):
+        cells = [
+            CellDiff(
+                breakdown_value=None,
+                row_label="Day 2",
+                value_label="Day 1-5",
+                field="count",
+                legacy=12.0,
+                dwh=11.0,
+                abs_diff=1.0,
+                rel_diff=None,
+            ),
+            CellDiff(
+                breakdown_value="Chrome",
+                row_label="Day 0",
+                value_label="Day 0",
+                field="aggregation_value",
+                legacy=3.5,
+                dwh=4.0,
+                abs_diff=0.5,
+                rel_diff=None,
+            ),
+            CellDiff(
+                breakdown_value=None,
+                row_label="Day 3",
+                value_label="Day 6-10",
+                field="count",
+                legacy=2.0,
+                dwh=0.0,
+                abs_diff=2.0,
+                rel_diff=None,
+            ),
+        ]
+        self.assertEqual(
+            format_cell_sample(cells, 2),
+            "Day 2/Day 1-5 12≠11; [Chrome] Day 0/Day 0 agg 3.5≠4 (+1 more)",
+        )
 
 
 def _retention_insight():
