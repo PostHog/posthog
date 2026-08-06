@@ -182,6 +182,20 @@ class TestProposals:
         assert result.proposals == []
         assert [u.raw_utm_campaign for u in result.unresolved] == ["spring_sale_202"]
 
+    def test_a_period_sibling_refusal_names_the_campaign_it_refused(self):
+        # The generic reason claims nothing was within the cutoff, which reads as false when the
+        # campaign is right there at 93.3 and was refused on purpose.
+        campaigns = [_campaign("holiday_push_q4")]
+        utm_events = _events(("holiday_push_q3", "google", 500))
+
+        result = suggest_campaign_name_mappings(campaigns, utm_events, NO_MAPPINGS)
+
+        assert result.proposals == []
+        reason = result.unresolved[0].reason
+        assert "holiday_push_q4" in reason
+        assert "period" in reason
+        assert "similarity" not in reason
+
     def test_a_candidate_between_the_ranking_floor_and_the_cutoff_is_no_match(self):
         # 85.7: survives MARGIN_FLOOR's 73 and gets ranked, then fails SCORE_CUTOFF's 88. The
         # module's headline threshold, and the only line applying it had no test — every other

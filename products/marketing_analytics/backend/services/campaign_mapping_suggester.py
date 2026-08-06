@@ -286,22 +286,36 @@ def _classify(
         score_cutoff=MARGIN_FLOOR,
         limit=TOP_N_CANDIDATES * CANDIDATE_HEADROOM,
     )
-    # Before the margin, or `brand_q2` beside `brand_q1` reads as ambiguous instead of no match.
-    ranked = [(value, score) for value, score in ranked if not differs_only_by_period(orphan.raw_utm_campaign, value)]
-    ranked = ranked[:TOP_N_CANDIDATES]
+    # Split before the margin, or `brand_q2` beside `brand_q1` reads as ambiguous instead of no
+    # match. The siblings are kept to explain the refusal, not to rank.
+    kept: list[tuple[str, float]] = []
+    siblings: list[str] = []
+    for value, score in ranked:
+        if differs_only_by_period(orphan.raw_utm_campaign, value):
+            siblings.append(value)
+        else:
+            kept.append((value, score))
+    ranked = kept[:TOP_N_CANDIDATES]
 
     if ranked and ranked[0][1] < cutoff:
         ranked = []
 
     if not ranked:
-        return _Unresolved(
-            _refuse(
-                orphan,
+        # Naming the sibling matters: without it the reason claims nothing was close, while the
+        # campaign the user is looking at sits well above the cutoff and was refused on purpose.
+        if siblings:
+            reason = (
+                f"'{orphan.raw_utm_campaign}' closely matches {siblings[0]}, but the two differ only "
+                "in the period they name, so they are different runs of one campaign. Mapping them "
+                "together would merge their spend."
+            )
+        else:
+            reason = (
                 f"No platform campaign is within {cutoff:.0f}% similarity of "
                 f"'{orphan.raw_utm_campaign}'. Either the campaign was renamed beyond what edit "
-                "distance can match, or this traffic isn't from a connected ad platform.",
+                "distance can match, or this traffic isn't from a connected ad platform."
             )
-        )
+        return _Unresolved(_refuse(orphan, reason))
 
     top_value, top_score = ranked[0]
     margin = top_score - ranked[1][1] if len(ranked) > 1 else 100.0
