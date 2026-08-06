@@ -18,6 +18,7 @@ paying org's users.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -126,8 +127,9 @@ class _PermanentUpstreamError(Exception):
     """Non-retryable failure: a 4xx response — bad token, missing team, scope mismatch."""
 
 
-def _redis_key(resource_key: str, team_id: int) -> str:
-    return f"quota:{resource_key}:team:{team_id}"
+def _redis_key(resource_key: str, team_id: int, auth_header: str) -> str:
+    credential_fingerprint = hashlib.sha256(auth_header.encode()).hexdigest()
+    return f"quota:{resource_key}:team:{team_id}:credential:{credential_fingerprint}"
 
 
 def _billing_key(team_id: int) -> str:
@@ -164,7 +166,7 @@ class QuotaResolver:
         self._cache_ttl = get_settings().quota_cache_ttl
 
     async def get_resource_status(self, resource_key: str, team_id: int, auth_header: str) -> QuotaResourceStatus:
-        cached = await self._get_cached(resource_key, team_id)
+        cached = await self._get_cached(resource_key, team_id, auth_header)
         if cached is not None:
             return cached
 
@@ -190,7 +192,7 @@ class QuotaResolver:
                 _FAIL_OPEN_CACHE_TTL_SECONDS,
             )
 
-        await self._set_cached(resource_key, team_id, status, ttl)
+        await self._set_cached(resource_key, team_id, auth_header, status, ttl)
         return status
 
     async def _fetch_with_retry(
@@ -245,11 +247,11 @@ class QuotaResolver:
             posthog_desktop_usage=_posthog_desktop_usage(data) if resource_key == "posthog_code_credits" else None,
         ), self._cache_ttl
 
-    async def _get_cached(self, resource_key: str, team_id: int) -> QuotaResourceStatus | None:
+    async def _get_cached(self, resource_key: str, team_id: int, auth_header: str) -> QuotaResourceStatus | None:
         if not self._redis:
             return None
         try:
-            val = await self._redis.get(_redis_key(resource_key, team_id))
+            val = await self._redis.get(_redis_key(resource_key, team_id, auth_header))
             if val is None:
                 return None
             payload = json.loads(val.decode())
@@ -268,7 +270,9 @@ class QuotaResolver:
             logger.debug("quota_cache_read_failed", resource=resource_key, team_id=team_id)
             return None
 
-    async def _set_cached(self, resource_key: str, team_id: int, status: QuotaResourceStatus, ttl: int) -> None:
+    async def _set_cached(
+        self, resource_key: str, team_id: int, auth_header: str, status: QuotaResourceStatus, ttl: int
+    ) -> None:
         if not self._redis:
             return
         try:
@@ -285,7 +289,7 @@ class QuotaResolver:
                     ),
                 }
             )
-            await self._redis.set(_redis_key(resource_key, team_id), payload, ex=ttl)
+            await self._redis.set(_redis_key(resource_key, team_id, auth_header), payload, ex=ttl)
         except Exception:
             logger.debug("quota_cache_write_failed", resource=resource_key, team_id=team_id)
 

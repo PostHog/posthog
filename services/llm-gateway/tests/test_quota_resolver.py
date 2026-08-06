@@ -215,21 +215,21 @@ class TestQuotaResolver:
         assert redis.ttls[_billing_key(42)] == _LAST_KNOWN_BILLING_TTL_SECONDS
 
         # The per-team quota entry expires; the refetch fails.
-        del redis.store[_redis_key("ai_credits", 42)]
+        del redis.store[_redis_key("ai_credits", 42, "Bearer phx_test")]
         status = await resolver.get_resource_status("ai_credits", team_id=42, auth_header="Bearer phx_test")
 
         assert status == QuotaResourceStatus(limited=False, code_usage_billing_active=True)
         if failure_mode == "retries_exhausted":
-            assert json.loads(redis.store[_redis_key("ai_credits", 42)]) == {
+            assert json.loads(redis.store[_redis_key("ai_credits", 42, "Bearer phx_test")]) == {
                 "limited": False,
                 "code_usage_billing_active": True,
                 "used_usd": None,
                 "limit_usd": None,
             }
-            assert redis.ttls[_redis_key("ai_credits", 42)] == _FAIL_OPEN_CACHE_TTL_SECONDS
+            assert redis.ttls[_redis_key("ai_credits", 42, "Bearer phx_test")] == _FAIL_OPEN_CACHE_TTL_SECONDS
         else:
             # 4xx is caller-specific and must not repopulate the shared entry.
-            assert _redis_key("ai_credits", 42) not in redis.store
+            assert _redis_key("ai_credits", 42, "Bearer phx_test") not in redis.store
 
     @pytest.mark.asyncio
     async def test_parses_credit_numbers_into_usd(self) -> None:
@@ -283,6 +283,35 @@ class TestQuotaResolver:
         assert (first.used_usd, first.limit_usd) == (12.34, 50.0)
         assert (cached.used_usd, cached.limit_usd) == (12.34, 50.0)
         assert http_client.get.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_cached_usage_is_scoped_to_the_callers_credential(self) -> None:
+        redis = _FakeRedis()
+        http_client = _make_http_client_sequence(
+            [
+                _make_response(
+                    200,
+                    {
+                        "limited": {
+                            "posthog_code_credits": {"limited": False, "usage": 57, "limit": 1000},
+                            "posthog_code_token_credits": {"limited": False, "usage": 33, "limit": None},
+                            "sandbox_compute_credits": {"limited": False, "usage": 24, "limit": None},
+                        }
+                    },
+                ),
+                _make_response(403, {"detail": "token is not scoped to this team"}),
+            ]
+        )
+        resolver = QuotaResolver(redis=redis, http_client=http_client)  # type: ignore[arg-type]
+
+        allowed = await resolver.get_resource_status("posthog_code_credits", team_id=42, auth_header="Bearer allowed")
+        denied = await resolver.get_resource_status("posthog_code_credits", team_id=42, auth_header="Bearer restricted")
+
+        assert allowed.posthog_desktop_usage is not None
+        assert denied.posthog_desktop_usage is None
+        assert denied.used_usd is None
+        assert http_client.get.await_count == 2
+        assert "allowed" not in _redis_key("posthog_code_credits", 42, "Bearer allowed")
 
     @pytest.mark.asyncio
     async def test_component_integers_round_trip_through_cache(self) -> None:
@@ -473,7 +502,7 @@ class TestQuotaResolver:
         status = await resolver.get_resource_status("ai_credits", team_id=42, auth_header="Bearer phx_test")
 
         assert status == QuotaResourceStatus(limited=True)
-        redis.get.assert_awaited_once_with(_redis_key("ai_credits", 42))
+        redis.get.assert_awaited_once_with(_redis_key("ai_credits", 42, "Bearer phx_test"))
         http_client.get.assert_not_called()
 
     @pytest.mark.asyncio
@@ -488,7 +517,9 @@ class TestQuotaResolver:
 
         # One write per key: the team+resource quota entry and the per-team
         # last-known billing bit.
-        quota_writes = [c for c in redis.set.await_args_list if c.args[0] == _redis_key("ai_credits", 42)]
+        quota_writes = [
+            c for c in redis.set.await_args_list if c.args[0] == _redis_key("ai_credits", 42, "Bearer phx_test")
+        ]
         assert len(quota_writes) == 1
         call = quota_writes[0]
         assert json.loads(call.args[1]) == {
