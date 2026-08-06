@@ -15,6 +15,8 @@ import {
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuTrigger,
+    Skeleton,
+    SkeletonText,
     Spinner,
     Table,
     TableBody,
@@ -106,7 +108,7 @@ export function EventsTable({ query, queryKey, onEventSelect, selectedEvent }: E
 
     return (
         <div data-quill>
-            <Table fullWidth size="sm" tableClassName="table-fixed bg-transparent">
+            <Table fullWidth size="sm" tableClassName="table-fixed bg-transparent" aria-busy={itemsLoading}>
                 <colgroup>
                     <col className="w-1" />
                     <col />
@@ -142,8 +144,10 @@ export function EventsTable({ query, queryKey, onEventSelect, selectedEvent }: E
                             </TableRow>
                         ))}
                     </TableBody>
+                ) : itemsLoading ? (
+                    <EventsTableLoadingBody />
                 ) : (
-                    <EventsTableEmpty loading={itemsLoading} />
+                    <EventsTableEmpty />
                 )}
                 {items.length > 0 && (
                     <TableFooter>
@@ -175,19 +179,52 @@ export function EventsTable({ query, queryKey, onEventSelect, selectedEvent }: E
 export function EventsTableLoading(): JSX.Element {
     return (
         <div data-quill>
-            <Table fullWidth size="sm" tableClassName="table-fixed bg-transparent">
-                <EventsTableEmpty loading />
+            <Table
+                fullWidth
+                size="sm"
+                tableClassName="table-fixed bg-transparent"
+                aria-busy="true"
+                aria-label="Loading exceptions"
+            >
+                <colgroup>
+                    <col className="w-1" />
+                    <col />
+                </colgroup>
+                <EventsTableLoadingBody />
             </Table>
         </div>
     )
 }
 
-function EventsTableEmpty({ loading }: { loading: boolean }): JSX.Element {
+function EventsTableLoadingBody(): JSX.Element {
     return (
-        <TableEmpty className="py-6 text-muted-foreground">
-            {loading ? 'Loading exceptions...' : 'No exceptions found.'}
-        </TableEmpty>
+        <TableBody aria-hidden="true">
+            {[0, 1, 2].map((row) => (
+                <TableRow key={row}>
+                    <TableCell className="w-1 p-0" />
+                    <TableCell className="min-w-0 overflow-hidden p-0">
+                        <div className="flex min-h-[56px] w-full min-w-0 items-center">
+                            <div className="flex min-w-0 flex-1 flex-col gap-0.5 px-3 py-2">
+                                <SkeletonText lines={1} maxWidth={40} className="text-sm" />
+                                <SkeletonText lines={1} maxWidth={70} className="text-xs" />
+                            </div>
+                            <div className="flex w-[35%] min-w-28 max-w-56 shrink-0 flex-col items-end gap-1.5 px-3 py-2">
+                                <Skeleton className="h-2.5 w-20" />
+                                <Skeleton className="h-2.5 w-14" />
+                            </div>
+                            <div className="flex w-10 shrink-0 justify-end py-2 pr-4">
+                                <Skeleton className="size-5" />
+                            </div>
+                        </div>
+                    </TableCell>
+                </TableRow>
+            ))}
+        </TableBody>
     )
+}
+
+function EventsTableEmpty(): JSX.Element {
+    return <TableEmpty className="py-6 text-muted-foreground">No exceptions found.</TableEmpty>
 }
 
 const Person = ({ person }: { person: ErrorEventType['person'] }): JSX.Element => {
