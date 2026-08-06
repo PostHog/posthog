@@ -93,7 +93,29 @@ Envs:
 - prod-us
 - prod-eu
 
-Each table shall be defined once, if there's a difference between envs, it shall be extended (prefered) or overriden, whatever is simple.
+Each table shall be **defined** once, if there's a difference between envs, it shall be extended (prefered) or overriden, whatever is simple.
+
+"Defined once" counts _declarations_ — plain ones and same-name redeclarations carrying `extend` alike (an `extend` from an abstract is one definition; a second same-name declaration is a second definition even if it also extends). What does **not** count: `patch_*` blocks, and a redeclaration carrying `override = true` (sanctioned whole-replacement — it still copies content, so it stays the last resort). What the rule forbids is the same table declared in two layers, i.e. copied.
+
+`hclexp locate -duplicates` draws exactly this line (verified against the pin: table+`patch_table` → 0, table+`override=true` → 0, table+plain redeclaration → 1, plain+`extend` redeclaration → 1, `extend`+`extend` → 1), so it is the enforcement mechanism, not a heuristic. Both repos gate on it against a `duplicates-baseline.txt` that may only shrink.
+
+The patch vocabulary covers tables fully, so "express it as a patch" is always available for a table content difference. `patch_table` carries `column` and `index` (both with positional `after`), `modify_column` (full replacement column spec — `type` is required), `engine`, `order_by`, `partition_by`, `ttl` and `settings`; `patch_view` and `patch_dictionary` do the same for views and dictionaries. `settings` merge into the target with the patch winning on collision; everything else replaces. Built on demand in PostHog/chschema — #153 (settings merge), #156 (full vocab + `patch_view`/`patch_dictionary`), #159 (positioned column adds), #161 (positioned index adds). Two gaps remain: projections are not patchable (a table with an env-extra projection needs `override = true`), and materialized views have neither `override = true` nor a patch form — an MV whose query differs per env must stay declared per env, parked in the baseline.
+
+`patch_column` (#165) is the `extend` side of the same idea: a child using `extend` can specialize a single _inherited_ column — type, nullability, default kind, CODEC, TTL, comment — while keeping every unspecified field and the inherited column order. A plain `column` block on a child still means _add_, and still collides with an inherited name. This is what lets one codec-free abstract back both a storage table and its Distributed proxy, with only the storage child declaring CODECs:
+
+```hcl
+table "sharded_events" {
+  extend = "_event_base"
+
+  patch_column "timestamp" {
+    codec = "Delta(8), ZSTD(1)"
+  }
+}
+```
+
+Before that, the choice was to hang the CODECs on the abstract — forcing them onto the proxy too — or to stop sharing and repeat the column list.
+
+In this repo the cross-_role_ duplicates have been factored into `roles/coshared/<member-set>/` layers (one layer per set of stacks that co-host the objects), with env deltas as `patch_*` blocks in the env layers. What keeps the baseline non-empty is exactly the two vocabulary gaps above (per-env materialized views) plus the `mat_`-column-bearing events-family replicas, which resolve when the cloud env overlays move to posthog-cloud-infra rather than by any restructure here.
 
 The purpose of the extension is to making the schema changes uniform across all envs: think adding a column or table shall be possible in one place and affect all envs.
 

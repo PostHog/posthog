@@ -12753,8 +12753,9 @@ export namespace Schemas {
     /**
      * * `started` - Started
      * * `already_running` - Already running
-     * * `skipped_limit` - Skipped — in-flight limit reached
-     * * `skipped_quota` - Skipped — monthly credit quota reached
+     * * `already_scanned` - Already scanned
+     * * `skipped_limit` - Skipped - in-flight limit reached
+     * * `skipped_quota` - Skipped - monthly credit quota reached
      * * `failed` - Failed to start
      */
     export type ScanOutcomeEnum = typeof ScanOutcomeEnum[keyof typeof ScanOutcomeEnum];
@@ -12763,6 +12764,7 @@ export namespace Schemas {
     export const ScanOutcomeEnum = {
       Started: 'started',
       AlreadyRunning: 'already_running',
+      AlreadyScanned: 'already_scanned',
       SkippedLimit: 'skipped_limit',
       SkippedQuota: 'skipped_quota',
       Failed: 'failed',
@@ -12774,12 +12776,13 @@ export namespace Schemas {
     export interface BulkObserveResult {
       /** The session recording this outcome is for. */
       session_id: string;
-      /** 'started' — a scan workflow was kicked off; 'already_running' — a scan for this session is already in flight (no-op, not recharged); 'skipped_limit' — the in-flight cap was reached before this session; 'skipped_quota' — the monthly credit quota would be exceeded; 'failed' — the workflow failed to start.
+      /** 'started' - a scan workflow was kicked off; 'already_running' - a scan for this session is already in flight (no-op, not recharged); 'already_scanned' - this scanner already has a finished observation for this session, so nothing was started and nothing was charged (read it back, or use the retry action to run it again); 'skipped_limit' - the in-flight cap was reached before this session; 'skipped_quota' - the monthly credit quota would be exceeded; 'failed' - the workflow failed to start.
        *
        * * `started` - Started
        * * `already_running` - Already running
-       * * `skipped_limit` - Skipped — in-flight limit reached
-       * * `skipped_quota` - Skipped — monthly credit quota reached
+       * * `already_scanned` - Already scanned
+       * * `skipped_limit` - Skipped - in-flight limit reached
+       * * `skipped_quota` - Skipped - monthly credit quota reached
        * * `failed` - Failed to start */
       scan_outcome: ScanOutcomeEnum;
     }
@@ -14780,7 +14783,8 @@ export namespace Schemas {
      * * `dataset_name_conflict` - dataset_name_conflict
      * * `dataset_item_archived` - dataset_item_archived
      * * `dataset_item_active` - dataset_item_active
-     * * `external_id_conflict` - external_id_conflict
+     * * `client_item_id_conflict` - client_item_id_conflict
+     * * `limit_reached` - limit_reached
      * * `stale_version` - stale_version
      */
     export type CodeEnum = typeof CodeEnum[keyof typeof CodeEnum];
@@ -14791,7 +14795,8 @@ export namespace Schemas {
       DatasetNameConflict: 'dataset_name_conflict',
       DatasetItemArchived: 'dataset_item_archived',
       DatasetItemActive: 'dataset_item_active',
-      ExternalIdConflict: 'external_id_conflict',
+      ClientItemIdConflict: 'client_item_id_conflict',
+      LimitReached: 'limit_reached',
       StaleVersion: 'stale_version',
     } as const;
 
@@ -22139,6 +22144,20 @@ export namespace Schemas {
       Databricks: 'Databricks',
     } as const;
 
+    /**
+     * * `datasets` - datasets
+     * * `dataset_items` - dataset_items
+     * * `dataset_item_versions` - dataset_item_versions
+     */
+    export type ResourceEnum = typeof ResourceEnum[keyof typeof ResourceEnum];
+
+
+    export const ResourceEnum = {
+      Datasets: 'datasets',
+      DatasetItems: 'dataset_items',
+      DatasetItemVersions: 'dataset_item_versions',
+    } as const;
+
     export interface DatasetConflictResponse {
       /** Stable code identifying why the mutation was rejected.
        *
@@ -22146,7 +22165,8 @@ export namespace Schemas {
        * * `dataset_name_conflict` - dataset_name_conflict
        * * `dataset_item_archived` - dataset_item_archived
        * * `dataset_item_active` - dataset_item_active
-       * * `external_id_conflict` - external_id_conflict
+       * * `client_item_id_conflict` - client_item_id_conflict
+       * * `limit_reached` - limit_reached
        * * `stale_version` - stale_version */
       code: CodeEnum;
       /** Explanation of how to resolve the conflict. */
@@ -22157,10 +22177,20 @@ export namespace Schemas {
          */
       current_version?: number | null;
       /**
-         * Existing item ID when the conflict concerns an external ID.
+         * Existing item ID when the conflict concerns a client item ID.
          * @nullable
          */
       current_item_id?: string | null;
+      /** Resource whose configured limit was reached.
+       *
+       * * `datasets` - datasets
+       * * `dataset_items` - dataset_items
+       * * `dataset_item_versions` - dataset_item_versions */
+      resource?: ResourceEnum;
+      /** Number of resources that already exist. */
+      current_count?: number;
+      /** Maximum number of resources allowed. */
+      limit?: number;
     }
 
     /**
@@ -22195,6 +22225,48 @@ export namespace Schemas {
       Persons: 'persons',
     } as const;
 
+    export interface DatasetExportCreate {
+      /**
+         * Dataset revision to export. Defaults to the latest revision when the export is created.
+         * @minimum 1
+         */
+      revision?: number;
+    }
+
+    export interface DatasetExportError {
+      /** Why the export cannot be created or downloaded yet. */
+      detail: string;
+    }
+
+    export type DatasetExportReadStatusEnum = typeof DatasetExportReadStatusEnum[keyof typeof DatasetExportReadStatusEnum];
+
+
+    export const DatasetExportReadStatusEnum = {
+      Pending: 'pending',
+      Complete: 'complete',
+      Failed: 'failed',
+    } as const;
+
+    export interface DatasetExportRead {
+      /** Export ID used to check status and download the file. */
+      readonly id: number;
+      /** Current export state: pending, complete, or failed. */
+      readonly status: DatasetExportReadStatusEnum;
+      /** Immutable dataset revision included in the export. */
+      readonly dataset_revision: number;
+      /** Generated JSONL filename. */
+      readonly filename: string;
+      /** When the export was requested. */
+      readonly created_at: string;
+      /** When the generated file expires. */
+      readonly expires_after: string;
+      /**
+         * Reason the export failed, or null while it is pending or complete.
+         * @nullable
+         */
+      readonly exception: string | null;
+    }
+
     export interface DatasetItemArchive {
       /**
          * Current item version observed by the caller.
@@ -22214,11 +22286,11 @@ export namespace Schemas {
       /** Dataset that will own the item. */
       dataset: string;
       /**
-         * Optional case-sensitive stable key used for idempotent creates.
+         * Optional case-sensitive stable key used for idempotent creates. It cannot be changed.
          * @maxLength 255
          * @nullable
          */
-      external_id?: string | null;
+      client_item_id?: string | null;
       /** Input supplied to the system under test. Any non-null JSON value is accepted. */
       input: DatasetJSONValue;
       /** Optional user-authored expected output. */
@@ -22257,10 +22329,10 @@ export namespace Schemas {
       /** Dataset that owns the item. */
       readonly dataset: string;
       /**
-         * Optional caller-owned stable key.
+         * Optional caller-owned stable key that cannot be changed.
          * @nullable
          */
-      readonly external_id: string | null;
+      readonly client_item_id: string | null;
       readonly version: number;
       /** ID of this immutable item version. */
       readonly version_id: string;
@@ -22317,6 +22389,9 @@ export namespace Schemas {
      */
     export type DatasetReadMetadata = { [key: string]: unknown };
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface DatasetRead {
       readonly id: string;
       readonly name: string;
@@ -22340,6 +22415,11 @@ export namespace Schemas {
       readonly created_by: UserBasic | null;
       /** Project that owns the dataset. */
       readonly team_id: number;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export interface DatasetRevisionRead {
@@ -27258,6 +27338,11 @@ export namespace Schemas {
       name: string;
       /** Optional description of what this evaluation checks. */
       description?: string;
+      /**
+         * Directory containing the evaluation. Pass null to move the evaluation to the top level.
+         * @nullable
+         */
+      directory_id?: string | null;
       /** Whether the evaluation runs automatically on new $ai_generation events. */
       enabled?: boolean;
       readonly status: EvaluationStatusEnum;
@@ -27296,7 +27381,8 @@ export namespace Schemas {
       model_configuration?: ModelConfiguration | null;
       readonly created_at: string;
       readonly updated_at: string;
-      readonly created_by: UserBasic;
+      /** User who created the evaluation. */
+      readonly created_by: UserBasic | null;
       /** Set to true to soft-delete the evaluation. */
       deleted?: boolean;
     }
@@ -27380,6 +27466,22 @@ export namespace Schemas {
       name: string;
       /** Whether the context is now hidden from the flag editor's suggestion list. */
       hidden_from_suggestions: boolean;
+    }
+
+    export interface EvaluationDirectory {
+      readonly id: string;
+      /**
+         * Directory name shown in the online evals list.
+         * @maxLength 400
+         */
+      name: string;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /** User who created the directory. */
+      readonly created_by: UserBasic | null;
+      /** Number of active evaluations in the directory. */
+      readonly evaluation_count: number;
     }
 
     export interface EvaluationPattern {
@@ -27749,6 +27851,30 @@ export namespace Schemas {
     export interface EventDefinitionBasic {
       id: string;
       name: string;
+    }
+
+    export interface EventDefinitionBulkUpdateVerifiedItem {
+      /** UUID of the event definition whose verified state changed. */
+      id: string;
+      /** The event's verified state after the update. */
+      verified: boolean;
+    }
+
+    export interface EventDefinitionBulkUpdateVerifiedRequest {
+      /**
+         * List of event definition UUIDs to update.
+         * @maxItems 500
+         */
+      ids: string[];
+      /** Target verified state to apply to every matched event. `true` marks the events as verified (and unhides them, since an event cannot be both hidden and verified); `false` unverifies them. */
+      verified: boolean;
+    }
+
+    export interface EventDefinitionBulkUpdateVerifiedResponse {
+      /** Events whose verified state was changed. Events already in the target state are omitted. */
+      updated: EventDefinitionBulkUpdateVerifiedItem[];
+      /** Events that were skipped (e.g. not found in this project), with a reason each. */
+      skipped: BulkUpdateTagsUUIDError[];
     }
 
     /**
@@ -29788,11 +29914,73 @@ export namespace Schemas {
      * * `video/mp4` - video/mp4
      * * `image/gif` - image/gif
      * * `application/json` - application/json
+     * * `application/x-ndjson` - application/x-ndjson
      */
-    export type ExportFormatEnum = typeof ExportFormatEnum[keyof typeof ExportFormatEnum];
+    export type ExportedAssetExportFormatEnum = typeof ExportedAssetExportFormatEnum[keyof typeof ExportedAssetExportFormatEnum];
 
 
-    export const ExportFormatEnum = {
+    export const ExportedAssetExportFormatEnum = {
+      ImagePng: 'image/png',
+      ApplicationPdf: 'application/pdf',
+      TextCsv: 'text/csv',
+      ApplicationVndopenxmlformatsOfficedocumentspreadsheetmlsheet: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      VideoWebm: 'video/webm',
+      VideoMp4: 'video/mp4',
+      ImageGif: 'image/gif',
+      ApplicationJson: 'application/json',
+      ApplicationXNdjson: 'application/x-ndjson',
+    } as const;
+
+    /**
+     * Standard ExportedAsset serializer that doesn't return content.
+     */
+    export interface ExportedAsset {
+      readonly id: number;
+      /** @nullable */
+      dashboard?: number | null;
+      /** @nullable */
+      insight?: number | null;
+      /** File format of the generated export.
+       *
+       * * `image/png` - image/png
+       * * `application/pdf` - application/pdf
+       * * `text/csv` - text/csv
+       * * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+       * * `video/webm` - video/webm
+       * * `video/mp4` - video/mp4
+       * * `image/gif` - image/gif
+       * * `application/json` - application/json
+       * * `application/x-ndjson` - application/x-ndjson */
+      readonly export_format: ExportedAssetExportFormatEnum;
+      readonly created_at: string;
+      readonly has_content: boolean;
+      export_context?: unknown;
+      readonly filename: string;
+      /** @nullable */
+      readonly expires_after: string | null;
+      /** @nullable */
+      readonly exception: string | null;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+    }
+
+    /**
+     * * `image/png` - image/png
+     * * `application/pdf` - application/pdf
+     * * `text/csv` - text/csv
+     * * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+     * * `video/webm` - video/webm
+     * * `video/mp4` - video/mp4
+     * * `image/gif` - image/gif
+     * * `application/json` - application/json
+     */
+    export type ExportedAssetCreateExportFormatEnum = typeof ExportedAssetCreateExportFormatEnum[keyof typeof ExportedAssetCreateExportFormatEnum];
+
+
+    export const ExportedAssetCreateExportFormatEnum = {
       ImagePng: 'image/png',
       ApplicationPdf: 'application/pdf',
       TextCsv: 'text/csv',
@@ -29806,13 +29994,23 @@ export namespace Schemas {
     /**
      * Standard ExportedAsset serializer that doesn't return content.
      */
-    export interface ExportedAsset {
+    export interface ExportedAssetCreate {
       readonly id: number;
       /** @nullable */
       dashboard?: number | null;
       /** @nullable */
       insight?: number | null;
-      export_format: ExportFormatEnum;
+      /** File format to generate. Dataset JSONL exports use the dataset export endpoint.
+       *
+       * * `image/png` - image/png
+       * * `application/pdf` - application/pdf
+       * * `text/csv` - text/csv
+       * * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+       * * `video/webm` - video/webm
+       * * `video/mp4` - video/mp4
+       * * `image/gif` - image/gif
+       * * `application/json` - application/json */
+      export_format: ExportedAssetCreateExportFormatEnum;
       readonly created_at: string;
       readonly has_content: boolean;
       export_context?: unknown;
@@ -38630,6 +38828,69 @@ export namespace Schemas {
       samples: IngestionWarningV2Sample[];
     }
 
+    /**
+     * * `monitor` - Monitor
+     * * `classifier` - Classifier
+     * * `scorer` - Scorer
+     * * `summarizer` - Summarizer
+     */
+    export type ScannerTypeEnum = typeof ScannerTypeEnum[keyof typeof ScannerTypeEnum];
+
+
+    export const ScannerTypeEnum = {
+      Monitor: 'monitor',
+      Classifier: 'classifier',
+      Scorer: 'scorer',
+      Summarizer: 'summarizer',
+    } as const;
+
+    /**
+     * Body of POST /vision/scanners/inline_scan/ - a prompt plus the sessions to point it at.
+     */
+    export interface InlineScanRequest {
+      /**
+         * Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.
+         * @maxItems 200
+         * @items.maxLength 128
+         */
+      session_ids: string[];
+      /**
+         * What to look for in these sessions, in plain language. The same instruction a saved scanner carries.
+         * @maxLength 20000
+         */
+      prompt: string;
+      /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt.
+       *
+       * * `monitor` - Monitor
+       * * `classifier` - Classifier
+       * * `scorer` - Scorer
+       * * `summarizer` - Summarizer */
+      scanner_type?: ScannerTypeEnum;
+      /** Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here. */
+      scanner_config?: unknown;
+      /** Model to scan with. Determines what each observation costs in credits.
+       *
+       * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+       * * `gemini-3-flash-preview` - Gemini 3 Flash
+       * * `gemini-3.6-flash` - Gemini 3.6 Flash */
+      model?: ScannerModelEnum;
+    }
+
+    /**
+     * `bulk_observe`'s partial-success shape plus the id to read the results back through.
+     */
+    export interface InlineScanResponse {
+      /** How many new scans were started. */
+      started: number;
+      /** Per-session outcomes, in request order (deduplicated). */
+      results: BulkObserveResult[];
+      /**
+         * Read results from `/vision/scanners/{scan_id}/observations/`. Stable for a given prompt and model, so asking the same question again returns the same id. Null when nothing was started and nothing existed to read, which happens when the quota is already used up.
+         * @nullable
+         */
+      scan_id: string | null;
+    }
+
     export interface InsightBulkDeleteRequest {
       /**
          * Insight IDs to soft-delete (or restore). At most 1000 ids per request. Soft-deleted insights can be brought back via the bulk_restore endpoint.
@@ -41236,7 +41497,7 @@ export namespace Schemas {
       type: LoopTriggerTypeEnum;
       /** Whether this trigger is active. Disabling pauses only this trigger. */
       enabled?: boolean;
-      /** Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels}`; api takes no config. */
+      /** Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels, payload}`. Use `actions` for the event action; `payload` is for anything else in the webhook body, as a list of `{path, equals}` conditions where `path` is a dot-path of object keys and `equals` is a string or list of strings, e.g. `[{"path": "requested_team.slug", "equals": "team-security"}]` to run only when that team is asked to review. All filters must match. API triggers take no config. */
       config?: unknown;
     }
 
@@ -43941,6 +44202,14 @@ export namespace Schemas {
     } as const;
 
     /**
+     * 200 from POST /vision/scanners/{id}/observe/ - nothing started, the answer already exists.
+     */
+    export interface ObserveAlreadyScanned {
+      /** The settled observation this scanner already has for the session. Nothing was started and nothing was charged; read it from /vision/scanners/{id}/observations/, or use the retry action on it to scan the session again. */
+      observation_id: string;
+    }
+
+    /**
      * Body of POST /vision/scanners/{id}/observe/.
      */
     export interface ObserveRequest {
@@ -46526,22 +46795,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `monitor` - Monitor
-     * * `classifier` - Classifier
-     * * `scorer` - Scorer
-     * * `summarizer` - Summarizer
-     */
-    export type ScannerTypeEnum = typeof ScannerTypeEnum[keyof typeof ScannerTypeEnum];
-
-
-    export const ScannerTypeEnum = {
-      Monitor: 'monitor',
-      Classifier: 'classifier',
-      Scorer: 'scorer',
-      Summarizer: 'summarizer',
-    } as const;
-
-    /**
      * Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.
      */
     export interface ScannerSnapshot {
@@ -48316,7 +48569,7 @@ export namespace Schemas {
       readonly insight_short_id: string | null;
       /** @nullable */
       readonly resource_name: string | null;
-      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6. */
+      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10. */
       dashboard_export_insights?: number[];
       /**
          * Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.
@@ -48346,7 +48599,7 @@ export namespace Schemas {
          */
       interval: number;
       /**
-         * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+         * Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
          * @nullable
          */
       byweekday?: SubscriptionByweekdayItem[] | null;
@@ -52362,6 +52615,11 @@ export namespace Schemas {
       name?: string;
       /** Optional description of what this evaluation checks. */
       description?: string;
+      /**
+         * Directory containing the evaluation. Pass null to move the evaluation to the top level.
+         * @nullable
+         */
+      directory_id?: string | null;
       /** Whether the evaluation runs automatically on new $ai_generation events. */
       enabled?: boolean;
       readonly status?: EvaluationStatusEnum;
@@ -52400,9 +52658,26 @@ export namespace Schemas {
       model_configuration?: ModelConfiguration | null;
       readonly created_at?: string;
       readonly updated_at?: string;
-      readonly created_by?: UserBasic;
+      /** User who created the evaluation. */
+      readonly created_by?: UserBasic | null;
       /** Set to true to soft-delete the evaluation. */
       deleted?: boolean;
+    }
+
+    export interface PatchedEvaluationDirectory {
+      readonly id?: string;
+      /**
+         * Directory name shown in the online evals list.
+         * @maxLength 400
+         */
+      name?: string;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+      /** User who created the directory. */
+      readonly created_by?: UserBasic | null;
+      /** Number of active evaluations in the directory. */
+      readonly evaluation_count?: number;
     }
 
     export interface PatchedEvaluationReportUpdate {
@@ -56464,7 +56739,7 @@ export namespace Schemas {
       readonly insight_short_id?: string | null;
       /** @nullable */
       readonly resource_name?: string | null;
-      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6. */
+      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10. */
       dashboard_export_insights?: number[];
       /**
          * Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.
@@ -56494,7 +56769,7 @@ export namespace Schemas {
          */
       interval?: number;
       /**
-         * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+         * Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
          * @nullable
          */
       byweekday?: PatchedSubscriptionByweekdayItem[] | null;
@@ -77955,6 +78230,7 @@ export namespace Schemas {
      * * `ExternalDataSource` - ExternalDataSource
      * * `ExternalDataSchema` - ExternalDataSchema
      * * `Evaluation` - Evaluation
+     * * `EvaluationDirectory` - EvaluationDirectory
      * * `LLMPrompt` - LLMPrompt
      * * `LLMPromptLabel` - LLMPromptLabel
      * * `LLMTrace` - LLMTrace
@@ -78047,6 +78323,7 @@ export namespace Schemas {
       ExternalDataSource: 'ExternalDataSource',
       ExternalDataSchema: 'ExternalDataSchema',
       Evaluation: 'Evaluation',
+      EvaluationDirectory: 'EvaluationDirectory',
       LLMPrompt: 'LLMPrompt',
       LLMPromptLabel: 'LLMPromptLabel',
       LLMTrace: 'LLMTrace',
@@ -78125,6 +78402,7 @@ export namespace Schemas {
      * * `ExternalDataSource` - ExternalDataSource
      * * `ExternalDataSchema` - ExternalDataSchema
      * * `Evaluation` - Evaluation
+     * * `EvaluationDirectory` - EvaluationDirectory
      * * `LLMPrompt` - LLMPrompt
      * * `LLMPromptLabel` - LLMPromptLabel
      * * `LLMTrace` - LLMTrace
@@ -78205,6 +78483,7 @@ export namespace Schemas {
       ExternalDataSource: 'ExternalDataSource',
       ExternalDataSchema: 'ExternalDataSchema',
       Evaluation: 'Evaluation',
+      EvaluationDirectory: 'EvaluationDirectory',
       LLMPrompt: 'LLMPrompt',
       LLMPromptLabel: 'LLMPromptLabel',
       LLMTrace: 'LLMTrace',
@@ -78667,7 +78946,7 @@ export namespace Schemas {
      */
     kind?: CommentsListKind;
     /**
-     * Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay).
+     * Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay). Support-ticket scopes (Ticket, conversations_ticket) additionally require ticket API scope access.
      * @minLength 1
      */
     scope?: string;
@@ -79522,6 +79801,14 @@ export namespace Schemas {
     offset?: number;
     /**
      * Return the exact dataset snapshot at this revision.
+     * @minimum 1
+     */
+    revision?: number;
+    };
+
+    export type DatasetItemsRetrieveParams = {
+    /**
+     * Return the item as it appeared at this exact dataset revision.
      * @minimum 1
      */
     revision?: number;
@@ -80516,6 +80803,14 @@ export namespace Schemas {
     export type EvaluationRunsCreate200 = { [key: string]: unknown };
 
     export type EvaluationsListParams = {
+    /**
+     * Filter evaluations by directory UUID.
+     */
+    directory_id?: string;
+    /**
+     * Filter evaluations by whether they are at the top level.
+     */
+    directory_id__isnull?: boolean;
     /**
      * Filter by enabled status
      */
