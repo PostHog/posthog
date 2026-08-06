@@ -199,6 +199,22 @@ export function humanizeActivity(activity: string): string {
     return activity.charAt(0).toUpperCase() + activity.slice(1)
 }
 
+/**
+ * Builds a "<who> <did what>" line with the actor masked from autocapture and session replay.
+ * `userNameForLogItem` can fall back to an email address, so the name always needs `ph-no-capture`.
+ * Describers that live in product packages can't do that themselves: those packages don't depend on
+ * react, so they can't build JSX and can only return a plain string.
+ */
+export function describeUserAction(logItem: ActivityLogItem, action: string): HumanizedChange {
+    return {
+        description: (
+            <>
+                <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> {action}
+            </>
+        ),
+    }
+}
+
 export function defaultDescriber(
     logItem: ActivityLogItem,
     asNotification = false,

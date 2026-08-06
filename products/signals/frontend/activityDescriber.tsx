@@ -2,28 +2,28 @@ import {
     ActivityLogItem,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
+    describeUserAction,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
 const scoutName = (logItem: ActivityLogItem): string =>
     logItem?.detail?.name || (logItem?.detail?.context as any)?.skill_name || 'scout'
 
-// Descriptions are plain strings (no JSX): the signals product package doesn't declare
-// `react`, so a `.tsx` file using JSX can't resolve `react/jsx-runtime`. `Description`
-// accepts `string`, which keeps this describer dependency-free.
+// These describers pass the sentence after the actor's name to `describeUserAction` rather than
+// building their own JSX: the signals product package doesn't declare `react`, so a `.tsx` file
+// using JSX can't resolve `react/jsx-runtime`. The helper also masks the actor's name, which can
+// be an email address, from autocapture and session replay.
 export function signalScoutConfigActivityDescriber(
     logItem: ActivityLogItem,
     asNotification?: boolean
 ): HumanizedChange {
     const name = scoutName(logItem)
-    const user = userNameForLogItem(logItem)
 
     if (logItem.activity === 'created') {
-        return { description: `${user} created scout ${name}` }
+        return describeUserAction(logItem, `created scout ${name}`)
     }
 
     if (logItem.activity === 'deleted') {
-        return { description: `${user} deleted scout ${name}` }
+        return describeUserAction(logItem, `deleted scout ${name}`)
     }
 
     if (logItem.activity === 'updated') {
@@ -33,10 +33,10 @@ export function signalScoutConfigActivityDescriber(
         // Single-field enable/disable toggle gets a dedicated phrasing.
         if (enabledChange && changes.length === 1) {
             const verb = enabledChange.after ? 'enabled' : 'disabled'
-            return { description: `${user} ${verb} scout ${name}` }
+            return describeUserAction(logItem, `${verb} scout ${name}`)
         }
 
-        return { description: `${user} updated scout ${name}` }
+        return describeUserAction(logItem, `updated scout ${name}`)
     }
 
     return defaultDescriber(logItem, asNotification, name)
@@ -50,8 +50,6 @@ const channelLabel = (value: unknown): string => {
 }
 
 export function signalTeamConfigActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
-    const user = userNameForLogItem(logItem)
-
     if (logItem.activity === 'updated') {
         const changes = logItem.detail?.changes ?? []
 
@@ -61,31 +59,39 @@ export function signalTeamConfigActivityDescriber(logItem: ActivityLogItem, asNo
             const change = changes[0]
 
             if (change.field === 'autostart_enabled') {
-                // Only an explicit false is an opt-out; never having set it leaves PR generation on.
-                const verb = change.after === false ? 'turned off' : 'turned on'
-                return { description: `${user} ${verb} PR generation for inbox reports` }
+                // Null means the team never set the switch, which leaves PR generation on, so only
+                // an explicit false is an opt-out. A null/true swap moves the stored value without
+                // moving the setting, so it falls through to the generic line rather than claiming
+                // PR generation was turned on or off.
+                const wasOn = change.before !== false
+                const isOn = change.after !== false
+                if (wasOn !== isOn) {
+                    return describeUserAction(logItem, `turned ${isOn ? 'on' : 'off'} PR generation for inbox reports`)
+                }
             }
 
             if (change.field === 'default_autostart_priority') {
-                return {
-                    description: `${user} changed the PR generation threshold from ${change.before} to ${change.after}`,
-                }
+                return describeUserAction(
+                    logItem,
+                    `changed the PR generation threshold from ${change.before} to ${change.after}`
+                )
             }
 
             if (change.field === 'default_slack_notification_channel') {
-                return {
-                    description: change.after
-                        ? `${user} set the default Slack channel for inbox notifications to ${channelLabel(change.after)}`
-                        : `${user} cleared the default Slack channel for inbox notifications`,
-                }
+                return describeUserAction(
+                    logItem,
+                    change.after
+                        ? `set the default Slack channel for inbox notifications to ${channelLabel(change.after)}`
+                        : 'cleared the default Slack channel for inbox notifications'
+                )
             }
 
             if (change.field === 'autostart_base_branches') {
-                return { description: `${user} changed the base branches inbox PRs target` }
+                return describeUserAction(logItem, 'changed the base branches inbox PRs target')
             }
         }
 
-        return { description: `${user} updated the team's inbox settings` }
+        return describeUserAction(logItem, "updated the team's inbox settings")
     }
 
     return defaultDescriber(logItem, asNotification, 'inbox settings')

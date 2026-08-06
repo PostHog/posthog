@@ -5,6 +5,7 @@ from rest_framework import status
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 
+from products.signals.backend.facade.api import set_default_slack_notification_channel
 from products.signals.backend.models import SignalTeamConfig
 
 
@@ -192,3 +193,25 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert self._activity() == []
+
+    def test_slack_onboarding_channel_is_activity_logged_for_a_team_with_no_config_row(self):
+        # Teams that predate SignalTeamConfig have no row until something writes one, so Slack
+        # onboarding can be the first writer. Creating the row with the channel already in it would
+        # make the team's first real settings change land as "created", which is dropped as
+        # auto-provisioning.
+        self.config.delete()
+
+        set_default_slack_notification_channel(self.team.id, "C123|#posthog-inbox")
+
+        entries = self._activity()
+        assert len(entries) == 1
+        assert entries[0].detail is not None
+        assert entries[0].detail["changes"] == [
+            {
+                "type": "SignalTeamConfig",
+                "action": "created",
+                "field": "default_slack_notification_channel",
+                "before": None,
+                "after": "C123|#posthog-inbox",
+            }
+        ]

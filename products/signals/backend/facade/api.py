@@ -171,10 +171,16 @@ def set_default_slack_notification_channel(team_id: int, value: str | None) -> N
         SignalTeamConfig,  # noqa: PLC0415 — avoids importing model layer at facade import time
     )
 
-    SignalTeamConfig.objects.update_or_create(
-        team_id=team_id,
-        defaults={"default_slack_notification_channel": value or None},
-    )
+    # Two steps rather than update_or_create: a team whose config row predates the row's existence
+    # has none yet, and creating it with the channel already set would emit a "created" activity,
+    # which handle_signal_team_config_change drops as auto-provisioning. Creating the defaults row
+    # first makes the channel an "updated" entry that the activity log keeps.
+    config, _ = SignalTeamConfig.objects.get_or_create(team_id=team_id)
+    channel = value or None
+    if config.default_slack_notification_channel == channel:
+        return
+    config.default_slack_notification_channel = channel
+    config.save(update_fields=["default_slack_notification_channel", "updated_at"])
 
 
 # ---------------------------------------------------------------------------
