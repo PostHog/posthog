@@ -2,8 +2,6 @@ import json
 
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 from rest_framework import status
 
@@ -2131,47 +2129,11 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         assert member_data["project"]["access_level"] == "member"
 
 
-class TestObjectAccessControlResourceDerivation(SimpleTestCase):
-    def test_derived_resources_snapshot(self):
-        assert set(resources_with_object_access_controls()) == {
-            "account",
-            "action",
-            "ai_observability_clusters",
-            "customer_journey",
-            "dashboard",
-            "dataset",
-            "early_access_feature",
-            "endpoint",
-            "evaluation",
-            "experiment",
-            "experiment_saved_metric",
-            "export",
-            "external_data_source",
-            "feature_flag",
-            "heatmap",
-            "hog_flow",
-            "insight",
-            "llm_analytics",
-            "llm_prompt",
-            "llm_provider_key",
-            "llm_skill",
-            "notebook",
-            "product_tour",
-            "replay_scanner",
-            "session_recording",
-            "session_recording_playlist",
-            "sharing_configuration",
-            "survey",
-            "tagger",
-            "ticket",
-            "warehouse_table",
-            "warehouse_view",
-        }, (
-            "AccessControlViewSetMixin coverage changed. If a resource gained or lost object-level "
-            "access controls on purpose, update this snapshot and check the settings UI: the "
-            "one-off overrides picker and link registry in "
-            "frontend/.../ResourceAccessControlsV2/accessDetailLogic.ts."
-        )
+# A viewset gaining or losing AccessControlViewSetMixin changes this set. Regenerate with
+# `pytest ee/api/rbac/test/test_access_control.py --snapshot-update` so the change shows up in
+# review, and give the settings picker a look for the new resource while at it.
+def test_resources_with_object_access_controls_snapshot(snapshot):
+    assert sorted(resources_with_object_access_controls()) == snapshot
 
 
 class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):

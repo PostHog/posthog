@@ -324,8 +324,8 @@ def resources_with_object_access_controls() -> frozenset[APIScopeObject]:
     """Resources whose viewsets expose per-object access controls, derived from the registered routes.
 
     Mixing AccessControlViewSetMixin into a registered viewset adds its scope here automatically,
-    which also puts the resource in the settings picker. Update the snapshot test in
-    test_access_control.py when the set changes.
+    which also puts the resource in the settings picker. The snapshot test in
+    test_access_control.py records the set; regenerate it with `pytest --snapshot-update`.
     """
     return frozenset(_object_access_viewset_models())
 
