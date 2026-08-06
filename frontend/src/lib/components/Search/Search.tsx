@@ -24,11 +24,13 @@ import { filterSearchItems } from 'lib/components/Search/utils'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { themeLogic } from 'lib/logic/themeLogic'
+import posthog from 'lib/posthog-typed'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger } from 'lib/ui/ContextMenu/ContextMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -40,7 +42,7 @@ import type { UserTheme } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { RECENTS_LIMIT, STARRED_LIMIT, SearchItem, SearchLogicProps, searchLogic } from './searchLogic'
-import { formatRelativeTimeShort, getCategoryDisplayName } from './utils'
+import { SETTINGS_THEME_ITEM_ID, canOpenInNewTab, formatRelativeTimeShort, getCategoryDisplayName } from './utils'
 
 // ============================================================================
 // Constants
@@ -66,8 +68,6 @@ const PLACEHOLDER_OPTIONS = [
 ]
 
 const PLACEHOLDER_CYCLE_INTERVAL = 3000
-
-const SETTINGS_THEME_ITEM_ID = '__settings_theme__'
 
 const SETTINGS_THEME_ITEM_QUERY = ['dark', 'light', 'theme', 'appearance']
 
@@ -157,6 +157,7 @@ const getItemTypeDisplayName = (type: string | null | undefined): string | null 
         persons: 'Person',
         user: 'User',
         group: 'Group',
+        account: 'Account',
         heatmap: 'Heatmap',
         sql_editor: 'SQL query',
         logs: 'Logs',
@@ -220,7 +221,7 @@ interface SearchContextValue {
     isSearching: boolean
     isActive: boolean
     inputRef: RefObject<HTMLInputElement>
-    handleItemClick: (item: SearchItem) => void
+    handleItemClick: (item: SearchItem, openInNewTab?: boolean) => void
     showAskAiLink: boolean
     onAskAiClick?: () => void
     highlightedItemRef: MutableRefObject<SearchItem | null>
@@ -370,8 +371,8 @@ export interface SearchRootProps {
     logicKey?: SearchLogicProps['logicKey']
     /** Whether the search is active (for placeholder animation) */
     isActive?: boolean
-    /** Callback when an item is selected */
-    onItemSelect?: (item: SearchItem) => void
+    /** Callback when an item is selected. `openInNewTab` is true when activated with Cmd/Ctrl. */
+    onItemSelect?: (item: SearchItem, openInNewTab?: boolean) => void
     /** Whether to show the Ask AI link */
     showAskAiLink?: boolean
     /** Callback when Ask AI is clicked */
@@ -414,6 +415,9 @@ function SearchRoot({
     const inputRef = useRef<HTMLInputElement>(null!)
     const actionsRef = useRef<Autocomplete.Root.Actions>(null)
     const highlightedItemRef = useRef<SearchItem | null>(null)
+    // Kept current with the flat, DOM-order item list so a click handler can report
+    // the selected item's position without depending on it (it's computed further down).
+    const orderedItemsRef = useRef<SearchItem[]>([])
 
     const allItems = useMemo(() => {
         const items: SearchItem[] = []
@@ -497,9 +501,21 @@ function SearchRoot({
     }, [isActive, setSearch])
 
     const handleItemClick = useCallback(
-        (item: SearchItem) => {
+        (item: SearchItem, openInNewTab: boolean = false) => {
             if (item.disabledReason) {
                 return
+            }
+            if (openInNewTab && !canOpenInNewTab(item)) {
+                return
+            }
+            if (logicKey === 'command') {
+                const position = orderedItemsRef.current.findIndex((i) => i.id === item.id)
+                posthog.capture('command menu item selected', {
+                    category: item.category,
+                    item_type: item.itemType ?? null,
+                    result_position: position >= 0 ? position : null,
+                    opened_in_new_tab: openInNewTab,
+                })
             }
             if (item.id === SETTINGS_THEME_ITEM_ID) {
                 const record = item.record as { themeMode?: UserTheme; toggleTheme?: boolean } | undefined
@@ -517,12 +533,16 @@ function SearchRoot({
                 }
             }
             if (onItemSelect) {
-                onItemSelect(item)
+                onItemSelect(item, openInNewTab)
             } else if (item.href) {
-                router.actions.push(item.href)
+                if (openInNewTab) {
+                    newInternalTab(item.href)
+                } else {
+                    router.actions.push(item.href)
+                }
             }
         },
-        [onItemSelect, onAskAiClick, updateUser, toggleTheme]
+        [onItemSelect, onAskAiClick, updateUser, toggleTheme, logicKey]
     )
 
     const groupedItems = useMemo(() => {
@@ -589,6 +609,7 @@ function SearchRoot({
     // exactly matches the DOM render order. Without this, Base UI's keyboard navigation
     // breaks at group boundaries where the two orderings diverge.
     const orderedItems = useMemo(() => stableGroupedItems.flatMap((g) => g.items), [stableGroupedItems])
+    orderedItemsRef.current = orderedItems
 
     const contextValue: SearchContextValue = useMemo(
         () => ({
@@ -650,7 +671,17 @@ export interface SearchInputProps {
 }
 
 function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
-    const { searchValue, setSearchValue, isActive, inputRef, showAskAiLink, onAskAiClick } = useSearchContext()
+    const {
+        searchValue,
+        setSearchValue,
+        isActive,
+        inputRef,
+        showAskAiLink,
+        onAskAiClick,
+        handleItemClick,
+        highlightedItemRef,
+        filteredItems,
+    } = useSearchContext()
 
     const { text: placeholderText, isVisible: placeholderVisible } = useRotatingPlaceholder(isActive && !searchValue)
 
@@ -667,9 +698,24 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
                 e.preventDefault()
                 onAskAiClick?.()
                 router.actions.push(urls.ai(undefined, searchValue.trim()))
+                return
+            }
+            // Cmd/Ctrl+Enter opens the highlighted result in a new tab. Base UI's combobox input
+            // ignores modified Enter (so plain Enter still navigates in place), leaving this to us.
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                const highlighted = highlightedItemRef.current
+                if (
+                    highlighted &&
+                    !highlighted.disabledReason &&
+                    canOpenInNewTab(highlighted) &&
+                    filteredItems.some((item) => item.id === highlighted.id)
+                ) {
+                    e.preventDefault()
+                    handleItemClick(highlighted, true)
+                }
             }
         },
-        [showAskAiLink, searchValue, onAskAiClick]
+        [showAskAiLink, searchValue, onAskAiClick, handleItemClick, highlightedItemRef, filteredItems]
     )
 
     useEffect(() => {
@@ -873,6 +919,9 @@ function SearchResults({
                                                         <Autocomplete.Item
                                                             value={item}
                                                             onClick={(e) => {
+                                                                // Plain clicks only. LinkPrimitive returns early on
+                                                                // metaKey/ctrlKey, so modifier clicks never get here and
+                                                                // are handled in the capture phase below instead.
                                                                 e.preventDefault()
                                                                 handleItemClick(item)
                                                             }}
@@ -885,7 +934,24 @@ function SearchResults({
                                                                     highlightedItemRef.current = item
                                                                 }
                                                                 return (
-                                                                    <div className="px-2">
+                                                                    <div
+                                                                        className="px-2"
+                                                                        onClickCapture={(e) => {
+                                                                            // LinkPrimitive swallows modifier clicks
+                                                                            // (stopPropagation, then return) before its
+                                                                            // own onClick runs, so the capture phase is
+                                                                            // the only place we still see them. Route
+                                                                            // them through the same call as
+                                                                            // Cmd/Ctrl+Enter so a mouse and a keyboard
+                                                                            // new-tab behave identically: the palette
+                                                                            // closes, the selection is captured, and
+                                                                            // action items stay inert.
+                                                                            if (e.metaKey || e.ctrlKey) {
+                                                                                e.preventDefault()
+                                                                                handleItemClick(item, true)
+                                                                            }
+                                                                        }}
+                                                                    >
                                                                         <Link
                                                                             // No `to` when disabled: Link only applies its
                                                                             // disabled state and reason tooltip without one
@@ -992,7 +1058,7 @@ function SearchFooter({ children }: SearchFooterProps): JSX.Element {
     const { searchValue } = useSearchContext()
 
     return (
-        <div className="border-t px-2 py-1 text-xxs text-tertiary font-medium select-none flex items-center gap-1">
+        <div className="border-t px-2 py-1 text-xxs text-tertiary font-medium select-none flex flex-wrap items-center gap-1">
             {children ?? (
                 <>
                     {filteredItems.length > 1 && (
@@ -1003,6 +1069,11 @@ function SearchFooter({ children }: SearchFooterProps): JSX.Element {
                     <span>
                         <KeyboardShortcut enter /> to activate
                     </span>
+                    {filteredItems.some(canOpenInNewTab) && (
+                        <span>
+                            <KeyboardShortcut command enter /> to open in new tab
+                        </span>
+                    )}
                     {searchValue.trim() && (
                         <span>
                             <KeyboardShortcut tab /> to ask AI

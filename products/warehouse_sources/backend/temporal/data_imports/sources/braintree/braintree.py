@@ -7,13 +7,13 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.settings import (
     BRAINTREE_ENDPOINTS,
     BraintreeEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 BRAINTREE_HOSTS = {
     "production": "https://payments.braintree-api.com/graphql",
@@ -22,7 +22,10 @@ BRAINTREE_HOSTS = {
 # GraphQL API version (date-versioned header, required). Opaque vendor labels — never parsed.
 BRAINTREE_VERSION_2019_01_01 = "2019-01-01"
 BRAINTREE_VERSION_2026_07_14 = "2026-07-14"
-PAGE_SIZE = 100
+# Braintree's GraphQL search fields reject `first` above 50, so this is a vendor
+# ceiling rather than a tuning knob.
+MAX_PAGE_SIZE = 50
+PAGE_SIZE = MAX_PAGE_SIZE
 # Braintree recommends generous timeouts due to async transaction processing.
 REQUEST_TIMEOUT_SECONDS = 120
 MAX_RETRY_ATTEMPTS = 5
@@ -70,8 +73,10 @@ def _format_created_at(value: Any) -> str:
 
 
 def _build_query(config: BraintreeEndpointConfig) -> str:
+    # Braintree's search fields declare `input` as non-null, even though every
+    # field within the input type is optional (an empty object matches everything).
     return f"""
-query ($input: {config.input_type}, $first: Int!, $after: String) {{
+query ($input: {config.input_type}!, $first: Int!, $after: String) {{
   search {{
     {config.search_field} (input: $input, first: $first, after: $after) {{
       pageInfo {{ hasNextPage }}
@@ -164,7 +169,7 @@ def get_rows(
         return _execute(session, url, query, variables, logger)
 
     while True:
-        data = execute({"input": search_input or None, "first": PAGE_SIZE, "after": after})
+        data = execute({"input": search_input, "first": PAGE_SIZE, "after": after})
         connection = ((data.get("search") or {}).get(config.search_field)) or {}
         edges = connection.get("edges") or []
         items = [edge.get("node") for edge in edges if edge.get("node")]

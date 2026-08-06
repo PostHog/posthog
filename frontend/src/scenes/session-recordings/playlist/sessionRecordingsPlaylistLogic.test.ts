@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -24,9 +26,11 @@ import { playlistFiltersLogic } from './playlistFiltersLogic'
 import {
     DEFAULT_RECORDING_FILTERS,
     DEFAULT_RECORDING_FILTERS_ORDER_BY,
+    asUniversalFilters,
     convertLegacyFiltersToUniversalFilters,
     convertUniversalFiltersToRecordingsQuery,
     getDefaultFilters,
+    preferredRecordingsSortStorage,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
 
@@ -953,6 +957,47 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         otherRecordings: [bRecording],
                     })
             })
+
+            it('clears a stale selection when filters change, instead of deleting recordings the user can no longer see', async () => {
+                await expectLogic(logic)
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ otherRecordings: [aRecording, bRecording] })
+
+                logic.actions.setSelectedRecordingsIds(['abc', 'def'])
+                await expectLogic(logic).toMatchValues({ selectedRecordingsIds: ['abc', 'def'] })
+
+                logic.actions.setFilters({ date_from: '-30d' })
+
+                await expectLogic(logic).toMatchValues({ selectedRecordingsIds: [] })
+            })
+
+            it('ignores a second delete request while one is already in flight', async () => {
+                let resolveDelete: (value: {
+                    success: boolean
+                    deleted_count: number
+                    total_requested: number
+                    failed_ids: string[]
+                }) => void = () => {}
+                jest.spyOn(api.recordings, 'bulkDeleteRecordings').mockReturnValue(
+                    new Promise((resolve) => {
+                        resolveDelete = resolve
+                    })
+                )
+
+                await expectLogic(logic)
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ otherRecordings: [aRecording, bRecording] })
+
+                logic.actions.setSelectedRecordingsIds(['abc', 'def'])
+
+                logic.actions.handleDeleteSelectedRecordings(undefined)
+                logic.actions.handleDeleteSelectedRecordings(undefined)
+
+                resolveDelete({ success: true, deleted_count: 2, total_requested: 2, failed_ids: [] })
+                await expectLogic(logic).toDispatchActions(['addDeletedRecordings'])
+
+                expect(api.recordings.bulkDeleteRecordings).toHaveBeenCalledTimes(1)
+            })
         })
     })
 
@@ -1039,6 +1084,39 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     },
                 })
             }).toMatchValues({ totalFiltersCount: 1 })
+        })
+    })
+
+    describe('matchingEventsMatchType', () => {
+        it('classifies a bare event-property filter as backend', () => {
+            // The shape the experiments server-side-flag exposure fallback produces
+            // ($feature/<key> with no event filter). Classifying it as 'none' would silently
+            // drop match indicators and skip-to-first-matching-event for those lists.
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: 'match-type-tests',
+                filters: {
+                    ...DEFAULT_RECORDING_FILTERS,
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        key: '$feature/my-flag',
+                                        type: PropertyFilterType.Event,
+                                        value: ['test'],
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            })
+            logic.mount()
+
+            expect(logic.values.matchingEventsMatchType.matchType).toBe('backend')
         })
     })
 
@@ -1191,6 +1269,29 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 properties: [],
                 session_ids: ['session-1', 'session-2', 'session-3'],
             })
+        })
+    })
+
+    describe('asUniversalFilters', () => {
+        // A playlist saved before universal filters stores only `events`. Left unconverted it has no
+        // filter_group, so the query converter finds nothing to filter on and the list returns
+        // everything while the UI shows no criteria.
+        it('carries a legacy saved filter through to the recordings query', () => {
+            const legacy = { events: [{ id: '$rageclick', type: 'events', order: 0 }] }
+
+            const query = convertUniversalFiltersToRecordingsQuery(asUniversalFilters(legacy as any)!)
+
+            expect(query.events).toEqual([expect.objectContaining({ id: '$rageclick', type: 'events' })])
+        })
+
+        it('leaves filters that are already universal untouched', () => {
+            const universal = getDefaultFilters()
+
+            expect(asUniversalFilters(universal)).toBe(universal)
+        })
+
+        it('returns undefined when there are no stored filters', () => {
+            expect(asUniversalFilters(undefined)).toBeUndefined()
         })
     })
 
@@ -1447,6 +1548,51 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     })
             }
         )
+
+        describe('preferred sort', () => {
+            it.each<[string, () => void, string, string]>([
+                [
+                    'an explicitly chosen sort overrides the relevance default',
+                    () => preferredRecordingsSortStorage.set({ order: 'start_time', order_direction: 'DESC' }),
+                    DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                    'DESC',
+                ],
+                [
+                    'the chosen direction is kept',
+                    () => preferredRecordingsSortStorage.set({ order: 'start_time', order_direction: 'ASC' }),
+                    DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                    'ASC',
+                ],
+                [
+                    'an unparseable stored preference is ignored',
+                    () => localStorage.setItem(`${MOCK_TEAM_ID}__replay_list_preferred_sort`, 'not json'),
+                    'surfacing_score',
+                    'DESC',
+                ],
+                [
+                    'a stored order outside the valid set is ignored',
+                    () =>
+                        localStorage.setItem(
+                            `${MOCK_TEAM_ID}__replay_list_preferred_sort`,
+                            JSON.stringify({ order: 'unknown', order_direction: 'DESC' })
+                        ),
+                    'surfacing_score',
+                    'DESC',
+                ],
+            ])('%s', (_name, setup, expectedOrder, expectedDirection) => {
+                mockFlags({ [FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE]: true })
+                setup()
+                const result = getDefaultFilters()
+                expect(result.order).toBe(expectedOrder)
+                expect(result.order_direction).toBe(expectedDirection)
+            })
+
+            it('keeps recency on person pages regardless of the stored preference', () => {
+                mockFlags({ [FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE]: true })
+                preferredRecordingsSortStorage.set({ order: 'activity_score', order_direction: 'DESC' })
+                expect(getDefaultFilters('some-person-uuid').order).toBe(DEFAULT_RECORDING_FILTERS_ORDER_BY)
+            })
+        })
     })
 
     describe('pinnedFilters', () => {

@@ -41,7 +41,15 @@ function HeatmapMouseInfo({
 
     const containerMousePosition = useMousePosition(containerRef?.current)
     const viewportMousePosition = useMousePosition()
-    const value = heatmapJsRef.current?.getValueAt(containerMousePosition)
+    let value: number | undefined
+    try {
+        value = heatmapJsRef.current?.getValueAt(containerMousePosition)
+    } catch {
+        // heatmap.js throws reading its canvas if it was created while the container had
+        // zero height (IndexSizeError in Chromium, raw NS_ERROR_FAILURE in Firefox);
+        // this runs on every mouse move, so swallow rather than crash the scene
+        value = undefined
+    }
 
     const hasValue = !!(containerMousePosition && (value || shiftPressed)) && !heatmapTooltipSuppressed
 
@@ -193,11 +201,16 @@ export function HeatmapCanvas({
             return
         }
 
-        heatmapsJsRef.current?.configure({
-            ...HEATMAP_CONFIG,
-            container: heatmapsJsContainerRef.current,
-            gradient: heatmapJSColorGradient,
-        })
+        try {
+            heatmapsJsRef.current?.configure({
+                ...HEATMAP_CONFIG,
+                container: heatmapsJsContainerRef.current,
+                gradient: heatmapJSColorGradient,
+            })
+        } catch (e) {
+            // configure re-renders the canvas, which throws if it was created zero-height
+            console.error('error configuring heatmap', e)
+        }
     }, [heatmapJSColorGradient])
 
     if (!heatmapFilters.enabled) {

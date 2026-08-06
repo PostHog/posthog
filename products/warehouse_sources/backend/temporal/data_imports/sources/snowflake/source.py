@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snowflake import (
+    SnowflakeSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake import (
     SnowflakeImplementation,
     get_connection_metadata as get_connection_metadata_snowflake,
@@ -81,6 +83,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.SNOWFLAKE,
             category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["sql"],
             caption="Enter your Snowflake credentials to automatically pull your Snowflake data into the PostHog Data warehouse.",
             iconPath="/static/services/snowflake.png",
             docsUrl="https://posthog.com/docs/cdp/sources/snowflake",
@@ -280,7 +283,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # until the user restores the object or re-grants access. The object name and query id in
             # the message are volatile, so we match on the stable trailing phrase.
             "does not exist or not authorized": "A table or schema this source syncs no longer exists in Snowflake, or your role is no longer authorized to access it. Check that the object still exists and that your Snowflake role has access, then resync.",
-            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
+            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/core/arrow_utils.py`
             # when an integer column's source type was widened (e.g. a narrower NUMBER widened
             # to a larger NUMBER/BIGINT) after the destination table was created with the
             # narrower type. Delta Lake can't widen an existing column in place, so retrying
@@ -290,6 +293,27 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # matches the columns its query produces, so the view itself fails to compile. This is
             # a broken object on the source side that retrying can't repair.
             "but view query produces": "A Snowflake view in your source is invalid — the columns it declares no longer match the columns its query returns. Please recreate the view in Snowflake so the two agree, then resync.",
+            # Snowflake connector error 290403 (ER_HTTP_GENERAL_ERROR + 403): a request to Snowflake
+            # returned HTTP 403 Forbidden and kept doing so through the connector's own retry budget.
+            # The connector treats 403 as retryable and retries within the request timeout, so a
+            # ForbiddenError reaching us means the 403 is persistent — an access-denied condition
+            # (a network policy/firewall/proxy blocking PostHog, or the role's access to the data
+            # being revoked), not a transient blip. Retrying the whole sync can't fix it. The errno
+            # prefix and host are volatile, so we match the stable status text.
+            "HTTP 403: Forbidden": "Snowflake refused the request with an HTTP 403 (forbidden). This usually means a network policy or firewall on your account is blocking PostHog's access, or your role's access to the data was revoked. Check your Snowflake network access rules and role grants, then resync.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        return {
+            # Snowflake connector error 290400 (ER_HTTP_GENERAL_ERROR + 400): downloading a query
+            # result chunk got HTTP 400, which the connector's own `is_retryable_http_code` already
+            # retries with backoff before re-raising the plain `BadRequest` once its download retry
+            # budget is exhausted (`result_batch.py::_download`). Unlike the persistent-403 case
+            # above, every Temporal-level retry of `get_rows` opens a fresh connection and re-executes
+            # the query from scratch, getting a brand new set of chunk URLs — a stale one from the
+            # previous attempt doesn't carry over. Self-recovering, so keep retrying instead of
+            # stopping the sync. The errno prefix is volatile, so we match the stable status text.
+            "HTTP 400: Bad Request",
         }
 
     def reconcile_schema_metadata(
@@ -308,7 +332,11 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
         return get_connection_metadata_snowflake(config)
 
     def validate_credentials(
-        self, config: SnowflakeSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SnowflakeSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if config.auth_type.selection == "password" and (not config.auth_type.user or not config.auth_type.password):
             return False, "Missing required parameters: username, password"
@@ -318,7 +346,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             return False, "Missing required parameters: username, private key"
 
         try:
-            self.get_schemas(config, team_id)
+            self.get_schemas(config, team_id, api_version=api_version)
         except (ProgrammingError, DatabaseError, ForbiddenError, HttpError) as e:
             error_msg = e.msg or e.raw_msg or ""
             for key, value in SnowflakeErrors.items():

@@ -7,7 +7,11 @@ use std::time::{Duration, Instant};
 
 use rand::Rng;
 use tokio::sync::OwnedSemaphorePermit;
-use tracing::warn;
+// Per-item retry/overload/reroute logs are debug, not warn: they fire O(items × attempts)
+// exactly when the resolution pool is already overloaded, and the
+// `cymbal_remote_resolution_requests_total` outcomes carry the same signal. Endpoint-level
+// state changes (stream broke, endpoint ejected) stay at warn in the pool/mux.
+use tracing::{debug, warn};
 
 use cymbal_proto::cymbal::resolution::v1::{resolve_outcome, ErrorKind, ResolveOutcome};
 use tonic::Status;
@@ -92,7 +96,7 @@ pub(super) async fn resolve_work_item(
                     "reason" => err.reason_tag(),
                 )
                 .increment(1);
-                warn!(
+                debug!(
                     endpoint = %endpoint,
                     token = work_item.token,
                     attempt,
@@ -153,6 +157,7 @@ pub(super) async fn resolve_work_item(
                 return Ok(ResolvedRemoteItem {
                     event_slot: work_item.event_slot,
                     exception_slot: work_item.exception_slot,
+                    target: work_item.target,
                     exception,
                 });
             }
@@ -160,7 +165,7 @@ pub(super) async fn resolve_work_item(
                 metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "overloaded_item")
                     .increment(1);
                 metrics::counter!(REMOTE_RESOLUTION_OVERLOAD_ESCALATIONS).increment(1);
-                warn!(
+                debug!(
                     endpoint = %endpoint,
                     token = work_item.token,
                     attempt,
@@ -181,7 +186,7 @@ pub(super) async fn resolve_work_item(
             } => {
                 metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "retryable_item")
                     .increment(1);
-                warn!(
+                debug!(
                     endpoint = %endpoint,
                     token = work_item.token,
                     attempt,
@@ -349,7 +354,7 @@ fn classify_outcome(
 fn terminal_item_error(token: u64, message: String) -> UnhandledError {
     metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "items_failed").increment(1);
     UnhandledError::Other(format!(
-        "remote resolution item {token} failed terminally; failing batch under all-or-nothing rollout policy ({message})"
+        "remote resolution item {token} failed terminally; failing batch ({message})"
     ))
 }
 
@@ -509,6 +514,7 @@ mod tests {
             routing_key: "team:1".to_string(),
             event_slot: 0,
             exception_slot: 0,
+            target: super::super::ResolutionTarget::Canonical,
             item: cymbal_proto::cymbal::resolution::v1::ResolveItem {
                 id: token,
                 team_id: 1,

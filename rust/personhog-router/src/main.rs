@@ -36,6 +36,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Failed to install rustls crypto provider");
 
     let config = Config::init_from_env().expect("Invalid configuration");
+    if let Err(e) = config.validate_lease_timescales() {
+        panic!("invalid lease configuration: {e}");
+    }
+    preregister_metrics();
 
     // Initialize tracing
     let log_layer = fmt::layer()
@@ -67,7 +71,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let mut manager = Manager::builder("personhog-router")
-        .with_global_shutdown_timeout(Duration::from_secs(30))
+        // Below the pod's 30s termination grace so shutdown always
+        // concludes process-side — reaching the routing table's lease
+        // revoke — rather than racing the kubelet's SIGKILL.
+        .with_global_shutdown_timeout(Duration::from_secs(25))
         .build();
 
     // Shutdown order is the inverse of the leader's: the gRPC server
@@ -199,6 +206,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 RESPONSE_SIZE_BUCKETS,
             )
             .unwrap()
+            // Handoff phase timings are a stall detector: healthy phases
+            // complete in seconds, and the interesting tail is minutes.
+            // Sub-second buckets at the bottom because the source is
+            // millisecond-precise; the top still reaches far past the
+            // handoff deadline so a stall is never collapsed into +Inf.
+            .set_buckets_for_metric(
+                metrics_exporter_prometheus::Matcher::Full(
+                    "personhog_coordination_handoff_phase_reached_ms".into(),
+                ),
+                &[
+                    50.0, 250.0, 1000.0, 2000.0, 5000.0, 10000.0, 30000.0, 60000.0, 120000.0,
+                    300000.0, 600000.0,
+                ],
+            )
+            .unwrap()
+            .set_buckets_for_metric(
+                metrics_exporter_prometheus::Matcher::Full(
+                    "personhog_coordination_handoff_phase_duration_ms".into(),
+                ),
+                &[
+                    50.0, 250.0, 1000.0, 2000.0, 5000.0, 10000.0, 30000.0, 60000.0, 120000.0,
+                    300000.0, 600000.0,
+                ],
+            )
+            .unwrap()
             .install_recorder()
             .expect("Failed to install metrics recorder");
 
@@ -265,30 +297,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             router_name: config.pod_name.clone(),
             lease_ttl: config.lease_ttl,
             heartbeat_interval: config.heartbeat_interval(),
+            participant_stall_threshold: config.participant_stall_threshold(),
+            reconcile_failure_budget: config.router_reconcile_failure_budget,
+            run_retry_budget: config.router_run_retry_budget,
+            run_retry_backoff: Duration::from_millis(config.router_run_retry_backoff_ms),
+            reconcile_interval: config.router_reconcile_interval(),
         };
 
         let coordination_routing_table =
             RoutingTable::new(Arc::clone(&store), routing_table_config);
 
         let shared_table = coordination_routing_table.table_handle();
-        let leader_port = config.leader_port;
-        // Pods may register with an explicit `host:port` name (local
-        // multi-leader setups, where a single fleet-wide port cannot hold);
-        // those resolve as-is. Bare pod names resolve via DNS on the
-        // fleet-wide leader port.
+        // Addresses come from the same etcd records that carry ownership
+        // (each pod registers its advertised host:port, and the
+        // coordinator copies it into handoffs and assignments), so a
+        // routable owner is always dialable — there is no separate
+        // discovery or DNS step to lag behind the routing table.
+        let leader_addresses = coordination_routing_table.addresses_handle();
         let leader_backend = Arc::new(LeaderBackend::new(
             shared_table,
             Arc::new(move |pod_name: &str| {
-                if pod_name.contains(':') {
-                    Some(format!("http://{pod_name}"))
-                } else {
-                    Some(format!("http://{pod_name}:{leader_port}"))
-                }
+                leader_addresses
+                    .read()
+                    .expect("addresses lock poisoned")
+                    .get(pod_name)
+                    .map(|address| format!("http://{address}"))
             }),
             LeaderBackendConfig {
                 num_partitions,
                 timeout: config.backend_timeout(),
-                retry_config: config.retry_config(),
             },
             StashTable::with_bounds(
                 config.stash_max_messages_per_partition,
@@ -349,6 +386,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     election_retry_interval: config.coordinator_election_retry_interval(),
                     rebalance_debounce_interval: config.coordinator_rebalance_debounce_interval(),
                     reconcile_interval: config.coordinator_reconcile_interval(),
+                    handoff_deadline: config.coordinator_handoff_deadline(),
+                    warming_deadline: config.coordinator_warming_deadline(),
                 },
                 Arc::new(StickyBalancedStrategy),
                 k8s_awareness,
@@ -412,4 +451,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     monitor_guard.wait().await?;
     Ok(())
+}
+
+/// Touch the deploy-burst counters so their series exist with zero
+/// samples before any burst. metrics registration is lazy: a counter
+/// that first fires between two scrapes materializes with the burst
+/// already inside it, and no rate function can recover a delta that
+/// precedes a series' first sample. Only enumerable label sets are
+/// touched; series with dynamic labels (client names) stay lazy.
+fn preregister_metrics() {
+    use metrics::counter;
+    counter!("personhog_router_stash_enqueued_total").increment(0);
+    counter!("personhog_router_stash_replayed_total").increment(0);
+    counter!("personhog_router_forward_retries_exhausted_total").increment(0);
+    for outcome in ["success", "error", "expired"] {
+        counter!("personhog_router_stash_drained_total", "outcome" => outcome).increment(0);
+    }
+    for cause in ["max_messages", "max_bytes"] {
+        counter!("personhog_router_stash_rejected_total", "cause" => cause).increment(0);
+    }
+    counter!("personhog_router_stash_dropped_total", "reason" => "receiver_gone").increment(0);
+    for reason in ["unrouted", "fenced", "transport"] {
+        counter!("personhog_router_forward_retries_total", "path" => "direct", "reason" => reason)
+            .increment(0);
+    }
+    for reason in ["unrouted", "fenced", "transport", "cancelled"] {
+        counter!("personhog_router_forward_retries_total", "path" => "stash", "reason" => reason)
+            .increment(0);
+    }
+    personhog_coordination::preregister_router_coordination_metrics();
 }

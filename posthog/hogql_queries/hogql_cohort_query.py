@@ -36,7 +36,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery, SelectSetNode, SelectSetQuery
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.constants import HogQLGlobalSettings, HogQLQuerySettings, LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -47,7 +47,7 @@ from posthog.constants import PropertyOperatorType
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Filter, Property, Team
+from posthog.models import Filter, Property, Team, User
 from posthog.models.property import OperatorInterval, PropertyGroup
 from posthog.ph_client import feature_enabled_or_false
 from posthog.types import AnyPropertyFilter
@@ -81,6 +81,28 @@ def parse_and_validate_positive_integer(value: Optional[Union[str, int]], value_
     if parsed_value <= 0:
         raise ValueError(f"{value_name} must be greater than 0, got {value}")
     return parsed_value
+
+
+def _require_select_query(query: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
+    # A constant `select=["id"]` actors query never yields a set query. Fail loudly rather than
+    # via a strippable assert if that invariant ever breaks.
+    if not isinstance(query, ast.SelectQuery):
+        raise ValueError("Expected a single SELECT query from the actors query, got a set query")
+    return query
+
+
+def _apply_in_order_aggregation(query: ast.SelectQuery) -> ast.SelectQuery:
+    """Set optimize_aggregation_in_order on the inner argMax-dedup subquery.
+
+    The behavioral subqueries fix team_id + condition in WHERE and GROUP BY the trailing
+    precalculated_events sort-key columns (date, distinct_id, uuid), so ClickHouse can stream
+    the dedup in primary-key order instead of materializing a full hash table over every
+    matched event. Mirrors select_from_person_distinct_id_overrides_table.
+    """
+    inner = query.select_from.table if query.select_from else None
+    if isinstance(inner, ast.SelectQuery):
+        inner.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
+    return query
 
 
 def unwrap_cohort(filter: Filter, team_id: int, team: Optional[Team] = None, cohort: Optional[Cohort] = None) -> Filter:
@@ -223,6 +245,20 @@ def convert(prop: PropertyGroup) -> PropertyGroupFilterValue:
     return r
 
 
+def _person_test_account_properties(team: Team) -> list[Property]:
+    """Person-property filters from team.test_account_filters.
+
+    Event/element/hogql-scoped test filters can't be standalone cohort conditions, and
+    cohort-typed ones are excluded here to avoid self-referential cohorts (a team test
+    filter can point at the very cohort being calculated).
+    """
+    return [
+        Property(**prop)
+        for prop in (team.test_account_filters or [])
+        if isinstance(prop, dict) and prop.get("type") == "person"
+    ]
+
+
 class HogQLCohortQuery:
     def __init__(
         self,
@@ -243,7 +279,18 @@ class HogQLCohortQuery:
                 self.team,
                 cohort,
             )
-            self.property_groups = unwrapped.property_groups
+            property_groups = unwrapped.property_groups
+            if (cohort.filters or {}).get("filterTestAccounts"):
+                test_props = _person_test_account_properties(self.team)
+                if test_props:
+                    property_groups = PropertyGroup(
+                        type=PropertyOperatorType.AND,
+                        values=[
+                            property_groups,
+                            PropertyGroup(type=PropertyOperatorType.AND, values=test_props),
+                        ],
+                    )
+            self.property_groups = property_groups
         elif filter is not None:
             if team is None:
                 raise ValueError("HogQLCohortQuery requires a team when constructed from a filter")
@@ -253,7 +300,9 @@ class HogQLCohortQuery:
         else:
             raise ValueError("HogQLCohortQuery requires either a cohort or a filter")
 
-    def get_query_executor(self) -> HogQLQueryExecutor:
+    def get_query_executor(
+        self, *, user: Optional[User] = None, bypass_warehouse_access_control: bool = False
+    ) -> HogQLQueryExecutor:
         return HogQLQueryExecutor(
             query_type="HogQLCohortQuery",
             query=self.get_query(),
@@ -261,6 +310,8 @@ class HogQLCohortQuery:
             team=self.team,
             limit_context=LimitContext.COHORT_CALCULATION,
             settings=HogQLGlobalSettings(),
+            user=user,
+            bypass_warehouse_access_control=bypass_warehouse_access_control,
         )
 
     def get_query(self) -> SelectQuery | SelectSetQuery:
@@ -284,7 +335,7 @@ class HogQLCohortQuery:
             source=source,
             select=["id"],
         )
-        return ActorsQueryRunner(team=self.team, query=actors_query).to_query()
+        return _require_select_query(ActorsQueryRunner(team=self.team, query=actors_query).to_query())
 
     def get_performed_event_condition(self, prop: Property, first_time: bool = False) -> ast.SelectQuery:
         math = None
@@ -529,7 +580,7 @@ class HogQLCohortQuery:
             select=["id"],
         )
         query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
-        return query_runner.to_query()
+        return _require_select_query(query_runner.to_query())
 
     def get_person_metadata_condition(self, prop: Property) -> ast.SelectQuery:
         # type = "person_metadata"
@@ -543,7 +594,7 @@ class HogQLCohortQuery:
             select=["id"],
         )
         query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
-        return query_runner.to_query()
+        return _require_select_query(query_runner.to_query())
 
     def get_static_cohort_condition(self, prop: Property) -> ast.SelectQuery:
         # Convert the cohort id to an int (not the no-op typing.cast) and bind it as a parameter.
@@ -695,7 +746,7 @@ class HogQLCohortQuery:
                 select=["id"],
             )
             query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
-            return query_runner.to_query()
+            return _require_select_query(query_runner.to_query())
 
         def build_conditions(
             prop: Optional[Union[PropertyGroup, Property]],
@@ -1079,15 +1130,28 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         if date_to_datetime:
             date_filter = "date >= toDate({date_from}) AND date <= toDate({date_to})"
 
-        # Build query using precalculated_events
+        # Build query using precalculated_events. person_id is resolved with argMax over
+        # (distinct_id, date, uuid) rather than read raw: a person merge re-emits the row for
+        # the same key with a new person_id, and ReplacingMergeTree only collapses the stale
+        # copy on its own schedule, not synchronously with the write. Without this, a merged-away
+        # person keeps matching until the background merge happens to run.
         query_str = f"""
             SELECT DISTINCT
                 person_id as id
-            FROM precalculated_events
-            WHERE
-                team_id = {{team_id}}
-                AND condition = {{condition_hash}}
-                AND {date_filter}
+            FROM
+            (
+                SELECT
+                    distinct_id,
+                    date,
+                    uuid,
+                    argMax(person_id, _timestamp) as person_id
+                FROM precalculated_events
+                WHERE
+                    team_id = {{team_id}}
+                    AND condition = {{condition_hash}}
+                    AND {date_filter}
+                GROUP BY date, distinct_id, uuid
+            )
         """
 
         query_params: dict[str, ast.Expr] = {
@@ -1098,7 +1162,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         if date_to_datetime:
             query_params["date_to"] = ast.Constant(value=date_to_datetime)
 
-        return cast(ast.SelectQuery, parse_select(query_str, query_params))
+        return _apply_in_order_aggregation(cast(ast.SelectQuery, parse_select(query_str, query_params)))
 
     def get_performed_event_multiple(self, prop: Property) -> ast.SelectQuery:
         """
@@ -1162,11 +1226,20 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         query_str = f"""
             SELECT
                 person_id as id
-            FROM precalculated_events
-            WHERE
-                team_id = {{team_id}}
-                AND condition = {{condition_hash}}
-                AND {date_filter}
+            FROM
+            (
+                SELECT
+                    distinct_id,
+                    date,
+                    uuid,
+                    argMax(person_id, _timestamp) as person_id
+                FROM precalculated_events
+                WHERE
+                    team_id = {{team_id}}
+                    AND condition = {{condition_hash}}
+                    AND {date_filter}
+                GROUP BY date, distinct_id, uuid
+            )
             GROUP BY person_id
             HAVING count() {sql_operator} {{min_matches}}
         """
@@ -1180,9 +1253,11 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         if date_to_datetime:
             query_params["date_to"] = ast.Constant(value=date_to_datetime)
 
-        return cast(
-            ast.SelectQuery,
-            parse_select(query_str, query_params),
+        return _apply_in_order_aggregation(
+            cast(
+                ast.SelectQuery,
+                parse_select(query_str, query_params),
+            )
         )
 
     def get_dynamic_cohort_condition(self, prop: Property) -> ast.SelectQuery:

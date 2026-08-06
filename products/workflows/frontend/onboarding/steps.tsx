@@ -7,7 +7,7 @@ import {
     WorkflowsSDKTagOverrides,
 } from 'scenes/onboarding/legacy/sdks/workflows/WorkflowsSDKInstructions'
 import { type ProductOnboardingProvider } from 'scenes/onboarding/legacy/types'
-import { useWizardCommand } from 'scenes/onboarding/shared/SetupWizardBanner'
+import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'

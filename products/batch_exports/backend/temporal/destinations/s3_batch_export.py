@@ -20,7 +20,7 @@ if typing.TYPE_CHECKING:
 from django.conf import settings
 
 from structlog.contextvars import bind_contextvars
-from temporalio import activity, workflow
+from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models.integration import (
@@ -43,10 +43,10 @@ from products.batch_exports.backend.service import (
     S3BatchExportInputs,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
-    OverBillingLimitError,
     StartBatchExportRunInputs,
     default_fields,
     get_data_interval,
+    is_over_billing_limit_error,
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.destinations.constants import (
@@ -66,7 +66,7 @@ from products.batch_exports.backend.temporal.pipeline.transformer import (
     get_json_stream_transformer,
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
-from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
+from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
 NON_RETRYABLE_ERROR_TYPES = (
@@ -78,6 +78,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "NoSuchBucket",
     # Couldn't connect to custom S3 endpoint
     "EndpointConnectionError",
+    # TLS handshake failed against a custom S3 endpoint
+    "SSLError",
     # User provided an invalid S3 key
     "InvalidS3Key",
     # Invalid S3 endpoint URL
@@ -293,16 +295,14 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to S3 bucket."""
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
-        data_interval_start, data_interval_end = get_data_interval(
-            inputs.interval, inputs.data_interval_end, inputs.timezone
-        )
+        data_interval = get_data_interval(inputs.interval, inputs.data_interval_end, inputs.timezone)
         should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
-            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
-            data_interval_end=data_interval_end.isoformat(),
+            data_interval_start=data_interval.start.isoformat() if not should_backfill_from_beginning else None,
+            data_interval_end=data_interval.end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
@@ -319,8 +319,10 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                     non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
                 ),
             )
-        except OverBillingLimitError:
-            return
+        except exceptions.ActivityError as e:
+            if is_over_billing_limit_error(e):
+                return
+            raise
 
         insert_inputs = S3InsertInputs(
             bucket_name=inputs.bucket_name,
@@ -331,8 +333,8 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,
             endpoint_url=inputs.endpoint_url or None,
-            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
-            data_interval_end=data_interval_end.isoformat(),
+            data_interval_start=data_interval.start.isoformat() if not should_backfill_from_beginning else None,
+            data_interval_end=data_interval.end.isoformat(),
             compression=inputs.compression,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
@@ -573,7 +575,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
 
             if isinstance(integration, AwsS3RoleBasedIntegration):
                 team = await Team.objects.aget(id=inputs.team_id)
-                organization_id = str(team.organization_id)
+                external_id = f"posthog-{team.organization_id}"
 
                 bucket_name = inputs.bucket_name
                 key_prefix = get_absolute_key_prefix(
@@ -620,7 +622,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
 
                 credentials = await get_credentials_using_user_aws_role(
                     integration.aws_role_arn,
-                    organization_id,
+                    external_id,
                     session_name=f"PostHog-batch-exports-{inputs.batch_export_id}",
                     policy_statements=policy_statements,
                 )
@@ -706,6 +708,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
                 s3_inputs=inputs,
                 part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
                 max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
+                checksum_algorithm="CRC64NVME" if endpoint_url is None else None,
             )
 
             result = await run_consumer_from_stage(
@@ -748,11 +751,11 @@ class ConcurrentS3Consumer(Consumer):
         data_interval_end: str,
         batch_export_model: BatchExportModel | None,
         file_format: str,
+        checksum_algorithm: str | None = None,
         kms_key_id: str | None = None,
         max_file_size_mb: int | None = None,
         compression: str | None = None,
         encryption: str | None = None,
-        endpoint_url: str | None = None,
         use_virtual_style_addressing: bool = False,
         part_size: int = 50 * 1024 * 1024,  # 50MB parts
         max_concurrent_uploads: int = 5,
@@ -767,6 +770,8 @@ class ConcurrentS3Consumer(Consumer):
         self.data_interval_end = data_interval_end
         self.batch_export_model = batch_export_model
 
+        self.checksum_algorithm = checksum_algorithm
+
         self.file_format = file_format
         self.compression = compression
         self.encryption = encryption
@@ -776,7 +781,6 @@ class ConcurrentS3Consumer(Consumer):
         self.max_file_size_mb = max_file_size_mb
 
         self.kms_key_id = kms_key_id
-        self.endpoint_url = endpoint_url
         self.use_virtual_style_addressing = use_virtual_style_addressing
 
         self.part_size = part_size
@@ -808,6 +812,7 @@ class ConcurrentS3Consumer(Consumer):
         s3_inputs: S3InsertInputs,
         part_size: int = 50 * 1024 * 1024,
         max_concurrent_uploads: int = 5,
+        checksum_algorithm: str | None = None,
     ):
         return cls(
             s3_client=s3_client,
@@ -817,12 +822,12 @@ class ConcurrentS3Consumer(Consumer):
             data_interval_start=s3_inputs.data_interval_start,
             data_interval_end=s3_inputs.data_interval_end,
             batch_export_model=s3_inputs.batch_export_model,
+            checksum_algorithm=checksum_algorithm,
             file_format=s3_inputs.file_format,
             compression=s3_inputs.compression,
             encryption=s3_inputs.encryption,
             max_file_size_mb=s3_inputs.max_file_size_mb,
             kms_key_id=s3_inputs.kms_key_id,
-            endpoint_url=s3_inputs.endpoint_url,
             use_virtual_style_addressing=s3_inputs.use_virtual_style_addressing,
             part_size=part_size,
             max_concurrent_uploads=max_concurrent_uploads,
@@ -911,8 +916,8 @@ class ConcurrentS3Consumer(Consumer):
             raise NoUploadInProgressError()
 
         optional_kwargs = {}
-        if self.endpoint_url is None:
-            optional_kwargs["ChecksumAlgorithm"] = "CRC64NVME"
+        if self.checksum_algorithm:
+            optional_kwargs["ChecksumAlgorithm"] = self.checksum_algorithm
 
         try:
             self.logger.debug(
@@ -1102,8 +1107,8 @@ class ConcurrentS3Consumer(Consumer):
             optional_kwargs["ServerSideEncryption"] = self.encryption
         if self.kms_key_id:
             optional_kwargs["SSEKMSKeyId"] = self.kms_key_id
-        if self.endpoint_url is None:
-            optional_kwargs["ChecksumAlgorithm"] = "CRC64NVME"
+        if self.checksum_algorithm:
+            optional_kwargs["ChecksumAlgorithm"] = self.checksum_algorithm
 
         current_key = self._get_current_key()
         with TRACER.start_as_current_span(
@@ -1156,8 +1161,8 @@ class ConcurrentS3Consumer(Consumer):
         manifest_key: str,
     ):
         optional_kwargs = {}
-        if self.endpoint_url is None:
-            optional_kwargs["ChecksumAlgorithm"] = "CRC64NVME"
+        if self.checksum_algorithm:
+            optional_kwargs["ChecksumAlgorithm"] = self.checksum_algorithm
 
         with TRACER.start_as_current_span("batch_export.s3.upload_manifest"):
             await self.s3_client.put_object(

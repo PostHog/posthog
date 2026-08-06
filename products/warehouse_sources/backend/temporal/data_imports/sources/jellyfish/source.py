@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,7 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import JellyfishSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jellyfish import (
+    JellyfishSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.jellyfish.jellyfish import (
     JellyfishResumeConfig,
     jellyfish_source,
@@ -87,6 +86,7 @@ Generate a token in Jellyfish under **Settings → Data Connections → API Expo
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full-refresh: the export API filters by date window rather than an
         # updated-since cursor, and windowed aggregates can be restated, so each sync rebuilds the
@@ -108,7 +108,11 @@ Generate a token in Jellyfish under **Settings → Data Connections → API Expo
         return schemas
 
     def validate_credentials(
-        self, config: JellyfishSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: JellyfishSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_jellyfish_credentials(config.api_token):
             return True, None

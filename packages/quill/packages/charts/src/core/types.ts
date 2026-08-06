@@ -412,6 +412,15 @@ export interface BarsConfig {
     /** Inner gap between bars as a fraction of the band slot (0–1). Outer padding is half this
      *  value, so `step = range / N`. Defaults to `DEFAULT_BAND_PADDING` in `scales.ts`. */
     bandPadding?: number
+    /** Floor (px) on a bar's thickness along the value axis, so a present-but-tiny value stays
+     *  visible instead of collapsing to a sub-pixel sliver — e.g. a single error in a volume bucket
+     *  whose neighbours are in the thousands. Zero-valued bars are never floored: the point is to
+     *  keep small data readable, not to draw a bar where there is no data. On a stacked chart only
+     *  the outermost segment is floored: flooring an interior one would oversize a rect that the
+     *  segment above immediately overpaints, while still capturing the hover and clicks meant for
+     *  that segment. So a multi-series (breakdown) stack floors only its top segment — this is aimed
+     *  at single-series volume charts and grouped bars. Defaults to 0 (exact heights). */
+    minBarSize?: number
     /** Horizontal bar charts only — minimum px per row. When many rows would otherwise crush into
      *  an unreadable strip, the chart expands its container height so each row has at least this
      *  much vertical space (label height + breathing room). Defaults to `24`. Pass `0` to opt out. */
@@ -504,8 +513,9 @@ export interface ChartDrawArgs {
     /** Restart the hover-fade at progress 0; returns the new value to use this frame.
      *  Call when the chart type detects a visible-state change at the same hoverIndex. */
     resetHoverFade: () => number
-    /** Live pixel range of an in-progress drag-to-zoom selection, x-axis only. Null when
-     *  no drag is active. Only the hover overlay reads this — the static layer ignores it. */
+    /** Live pixel range of an in-progress selection: x-axis drag-to-zoom, plus the vertical
+     *  range on a 2D (`onAreaSelect`) brush. Null when no drag is active. Only the hover
+     *  overlay reads this — the static layer ignores it. */
     dragRect?: DragRect | null
 }
 
@@ -513,13 +523,31 @@ export interface ChartDrawArgs {
 export interface DragRect {
     x0: number
     x1: number
+    /** Present only during a 2D (`onAreaSelect`) drag — the vertical pixel range, unordered.
+     *  When absent the selection spans the full plot height. */
+    y0?: number
+    y1?: number
 }
 
-export interface DateRangeZoomData {
+/** An x-axis range resolved to labels — the shared shape of the drag-selection payloads. */
+export interface LabelRange {
     startLabel: string
     endLabel: string
     startIndex: number
     endIndex: number
+}
+
+export type DateRangeZoomData = LabelRange
+
+/** Payload of a completed 2D brush ({@link ChartProps.onAreaSelect}). The x axis resolves to
+ *  labels like `onDateRangeZoom`; the y axis stays in canvas pixels — the core is label-generic
+ *  and has no y-band concept, so chart-type adapters map the pixel range onto their own scales
+ *  (e.g. the Heatmap converts it to row indices). */
+export interface AreaSelectData extends LabelRange {
+    /** Top of the dragged range in canvas pixels (always <= yPixel1). */
+    yPixel0: number
+    /** Bottom of the dragged range in canvas pixels. */
+    yPixel1: number
 }
 
 /** `true` = drew a visible highlight; `false` = nothing visible (freeze the fade timer). */

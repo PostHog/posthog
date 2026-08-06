@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -18,16 +18,19 @@ from products.customer_analytics.backend.facade import (
     contracts,
 )
 from products.customer_analytics.backend.logic.custom_property_values import (
+    MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES,
     VALUE_SUGGESTIONS_LIMIT,
     CustomPropertyDefinitionNotFound,
     CustomPropertyValueConflict,
     InvalidCustomPropertyValue,
     list_active_custom_property_values,
     list_custom_property_value_suggestions,
+    record_last_slack_message_at,
     set_account_custom_properties_by_id,
     set_custom_property_value,
 )
 from products.customer_analytics.backend.models import (
+    CANONICAL_LAST_SLACK_MESSAGE_AT,
     Account,
     CustomPropertyDefinition,
     CustomPropertyValue,
@@ -378,9 +381,7 @@ class TestCustomPropertyValueFacade(BaseTest):
     def test_set_returns_a_contract_with_the_typed_value(self, _name, display_type, value, expected_value):
         definition = create_custom_property_definition(team_id=self.team.id, name=_name, display_type=display_type)
 
-        result = facade.set_custom_property_value(
-            self.team.id, self.account.id, definition.id, value, created_by_id=self.user.id
-        )
+        result = facade.set_custom_property_value(self.team.id, self.account.id, definition.id, value, actor=self.user)
 
         assert isinstance(result, contracts.CustomPropertyValue)
         assert result.value == expected_value
@@ -400,6 +401,175 @@ class TestCustomPropertyValueFacade(BaseTest):
         assert isinstance(result[0], contracts.CustomPropertyValue)
         assert result[0].value == "enterprise"
         assert result[0].definition_id == plan.id
+
+
+class TestRecordLastSlackMessageAt(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.account = create_account(team_id=self.team.id, _properties={"slack_channel_id": "C_ACME"})
+        self.at = datetime(2026, 7, 29, 12, tzinfo=UTC)
+
+    def _record(self, timestamp: datetime) -> bool:
+        return record_last_slack_message_at(team_id=self.team.id, account_id=self.account.id, timestamp=timestamp)
+
+    def _active_values(self) -> list[datetime | None]:
+        return list(
+            CustomPropertyValue.objects.for_team(self.team.id)
+            .filter(is_deleted=False)
+            .values_list("value_datetime", flat=True)
+        )
+
+    def _row_count(self) -> int:
+        return CustomPropertyValue.objects.for_team(self.team.id).count()
+
+    def test_first_message_creates_the_canonical_definition(self):
+        assert self._record(self.at) is True
+
+        definition = CustomPropertyDefinition.objects.for_team(self.team.id).get(name=CANONICAL_LAST_SLACK_MESSAGE_AT)
+        assert definition.display_type == DisplayType.DATETIME
+        assert definition.created_by_id is None
+        assert self._active_values() == [self.at]
+
+    def test_message_within_the_interval_does_not_write(self):
+        self._record(self.at)
+
+        assert self._record(self.at + MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES - timedelta(minutes=1)) is False
+        assert self._active_values() == [self.at]
+        assert self._row_count() == 1
+
+    def test_message_after_the_interval_supersedes_the_value(self):
+        self._record(self.at)
+        later = self.at + MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES
+
+        assert self._record(later) is True
+        assert self._active_values() == [later]
+        # The superseded row stays for history.
+        assert self._row_count() == 2
+
+    def test_out_of_order_message_does_not_move_the_value_backwards(self):
+        self._record(self.at)
+
+        assert self._record(self.at - timedelta(days=1)) is False
+        assert self._active_values() == [self.at]
+
+    @patch(f"{LOGIC_MODULE}._set_value")
+    def test_losing_the_active_row_race_retries_instead_of_dropping_the_timestamp(self, mock_set_value):
+        later = self.at + MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES
+        mock_set_value.side_effect = [CustomPropertyValueConflict("rival won the active row"), None]
+
+        assert self._record(later) is True
+        assert mock_set_value.call_count == 2
+
+    @patch(f"{LOGIC_MODULE}._set_value")
+    def test_a_rival_storing_a_newer_value_stops_the_retry(self, mock_set_value):
+        # The rival's value lands before the retry re-reads, so the retry must skip rather than
+        # drag the stored value back to this older message.
+        newer = self.at + 2 * MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES
+
+        def store_newer_then_conflict(**kwargs):
+            self._set_active_value(newer)
+            raise CustomPropertyValueConflict("rival won the active row")
+
+        mock_set_value.side_effect = store_newer_then_conflict
+
+        assert self._record(self.at + MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES) is False
+        assert self._active_values() == [newer]
+        # The retry re-read the rival's value and skipped, rather than writing again.
+        assert mock_set_value.call_count == 1
+
+    def _set_active_value(self, timestamp: datetime) -> None:
+        """Store a value the way a rival task would. Writes through the ORM, not the logic's own
+        write path — this test doubles that path, so going through it would store nothing."""
+        definition = CustomPropertyDefinition.objects.for_team(self.team.id).get(name=CANONICAL_LAST_SLACK_MESSAGE_AT)
+        rows = CustomPropertyValue.objects.for_team(self.team.id)
+        rows.filter(account_id=self.account.id, definition_id=definition.id, is_deleted=False).update(is_deleted=True)
+        rows.create(
+            team_id=self.team.id,
+            account_id=self.account.id,
+            definition_id=definition.id,
+            value_datetime=timestamp,
+        )
+
+    def test_a_conflicting_definition_type_rejects_the_write(self):
+        create_custom_property_definition(
+            team_id=self.team.id, name=CANONICAL_LAST_SLACK_MESSAGE_AT, display_type=DisplayType.TEXT
+        )
+
+        with pytest.raises(InvalidCustomPropertyValue):
+            self._record(self.at)
+
+    def test_facade_records_the_value(self):
+        assert (
+            facade.record_last_slack_message_at(team_id=self.team.id, account_id=self.account.id, timestamp=self.at)
+            is True
+        )
+        assert self._active_values() == [self.at]
+
+
+class TestCanonicalCustomPropertyDefinition(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.definition = create_custom_property_definition(
+            team_id=self.team.id, name=CANONICAL_LAST_SLACK_MESSAGE_AT, display_type=DisplayType.DATETIME
+        )
+
+    def _update(self, fields: dict) -> None:
+        with team_scope(self.team.id):
+            facade.update_custom_property_definition(
+                team_id=self.team.id,
+                definition_id=str(self.definition.id),
+                fields=fields,
+                organization_id=self.organization.id,
+                user=self.user,
+                was_impersonated=False,
+            )
+
+    @parameterized.expand([("name", "Something else"), ("display_type", DisplayType.TEXT.value)])
+    def test_posthog_owned_fields_cannot_be_changed(self, field, value):
+        with pytest.raises(facade.CanonicalCustomPropertyReadOnlyError):
+            self._update({field: value})
+
+        self.definition.refresh_from_db()
+        assert self.definition.name == CANONICAL_LAST_SLACK_MESSAGE_AT
+        assert self.definition.display_type == DisplayType.DATETIME
+
+    def test_the_rest_of_the_definition_stays_editable(self):
+        self._update({"description": "When the customer last posted in Slack"})
+
+        self.definition.refresh_from_db()
+        assert self.definition.description == "When the customer last posted in Slack"
+
+    @parameterized.expand([(CANONICAL_LAST_SLACK_MESSAGE_AT, True), ("Plan", False)])
+    def test_the_view_marks_canonical_definitions(self, name, expected):
+        definition = self.definition if expected else create_custom_property_definition(team_id=self.team.id, name=name)
+
+        with team_scope(self.team.id):
+            view = facade.get_custom_property_definition(
+                self.team.id, str(definition.id), user_access_control=self._uac()
+            )
+
+        assert view is not None
+        assert view.is_canonical is expected
+
+    def _uac(self):
+        uac = MagicMock()
+        uac.check_access_level_for_resource.return_value = True
+        return uac
+
+    def test_a_non_canonical_definition_can_be_renamed(self):
+        plan = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        with team_scope(self.team.id):
+            facade.update_custom_property_definition(
+                team_id=self.team.id,
+                definition_id=str(plan.id),
+                fields={"name": "Tier"},
+                organization_id=self.organization.id,
+                user=self.user,
+                was_impersonated=False,
+            )
+
+        plan.refresh_from_db()
+        assert plan.name == "Tier"
 
 
 class TestSetExternalAccountCustomProperties(BaseTest):

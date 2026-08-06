@@ -11,10 +11,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.braintree import (
     BRAINTREE_VERSION_2019_01_01,
     BRAINTREE_VERSION_2026_07_14,
@@ -36,7 +32,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BraintreeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.braintree import (
+    BraintreeSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -117,14 +116,19 @@ You can find your public and private keys in the [Braintree control panel](https
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: BraintreeSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BraintreeSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_braintree_credentials(
-            config.environment, config.public_key, config.private_key, self.resolve_api_version(None)
+            config.environment, config.public_key, config.private_key, self.resolve_api_version(api_version)
         ):
             return True, None
 

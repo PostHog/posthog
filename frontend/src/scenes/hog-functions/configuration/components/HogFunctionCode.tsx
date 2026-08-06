@@ -13,6 +13,7 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
+import { truncateHogFunctionContext } from '../../hog-function-utils'
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
 import { HogFunctionTemplateOptions } from './HogFunctionTemplateOptions'
 
@@ -42,7 +43,11 @@ export function HogFunctionCode(): JSX.Element {
     const sourceCodeRef = useRef<HTMLDivElement>(null)
 
     useAttachedContext([
-        { type: 'hog_code', value: JSON.stringify(configuration.hog ?? ''), label: 'Current Hog code' },
+        {
+            type: 'hog_code',
+            value: truncateHogFunctionContext(JSON.stringify(configuration.hog ?? '')),
+            label: 'Current Hog code',
+        },
     ])
 
     const content = (
@@ -101,8 +106,9 @@ export function HogFunctionCode(): JSX.Element {
                             ) : null}
                             {mightDropEvents && (
                                 <LemonBanner type="warning" className="mt-2">
-                                    <b>Warning:</b> Returning null or undefined will drop the event. If this is
-                                    unintentional, return the event object instead.
+                                    <b>Warning:</b> Returning null or undefined will drop the{' '}
+                                    {type === 'transformation_log' ? 'record' : 'event'}. If this is unintentional,
+                                    return the {type === 'transformation_log' ? 'record' : 'event'} object instead.
                                 </LemonBanner>
                             )}
                             {type === 'source_webhook' && (

@@ -396,6 +396,7 @@ mod tests {
                     AppliedOffsets::default(),
                 ),
             )],
+            membership_registers: vec![],
             forward_hops: 0,
 
             person_dedup: None,

@@ -1,3 +1,4 @@
+pub mod aperture;
 pub mod config;
 pub mod consumer;
 pub mod debug_recorder;

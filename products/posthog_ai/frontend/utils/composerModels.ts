@@ -14,6 +14,7 @@ export interface ComposerEffortOption {
 // intentionally absent. Add new Claude models here as they ship.
 export const COMPOSER_MODELS: ComposerModelOption[] = [
     { value: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
+    { value: 'claude-opus-5', label: 'Claude Opus 5' },
     { value: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
 ]
 
@@ -26,6 +27,7 @@ const EFFORT_LABELS: Record<ReasoningEffortEnumApi, string> = {
     [ReasoningEffortEnumApi.High]: 'High',
     [ReasoningEffortEnumApi.Xhigh]: 'Extra high',
     [ReasoningEffortEnumApi.Max]: 'Max',
+    [ReasoningEffortEnumApi.Ultracode]: 'Ultracode',
 }
 
 // Mirrors backend CLAUDE_REASONING_EFFORTS_BY_MODEL (products/tasks/backend/temporal/process_task/utils.py):
@@ -37,8 +39,24 @@ const EFFORTS_BY_MODEL: Record<string, ReasoningEffortEnumApi[]> = {
         ReasoningEffortEnumApi.High,
         ReasoningEffortEnumApi.Xhigh,
         ReasoningEffortEnumApi.Max,
+        ReasoningEffortEnumApi.Ultracode,
     ],
-    'claude-sonnet-5': [ReasoningEffortEnumApi.Low, ReasoningEffortEnumApi.Medium, ReasoningEffortEnumApi.High],
+    'claude-opus-5': [
+        ReasoningEffortEnumApi.Low,
+        ReasoningEffortEnumApi.Medium,
+        ReasoningEffortEnumApi.High,
+        ReasoningEffortEnumApi.Xhigh,
+        ReasoningEffortEnumApi.Max,
+        ReasoningEffortEnumApi.Ultracode,
+    ],
+    'claude-sonnet-5': [
+        ReasoningEffortEnumApi.Low,
+        ReasoningEffortEnumApi.Medium,
+        ReasoningEffortEnumApi.High,
+        ReasoningEffortEnumApi.Xhigh,
+        ReasoningEffortEnumApi.Max,
+        ReasoningEffortEnumApi.Ultracode,
+    ],
 }
 
 const FALLBACK_EFFORTS: ReasoningEffortEnumApi[] = [

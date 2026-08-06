@@ -90,7 +90,7 @@ impl Harness {
                 total_size: None,
             })
             .collect();
-        let job_state = JobState { parts };
+        let job_state = JobState { parts, trial: None };
 
         let model = JobModel {
             id: job_id,

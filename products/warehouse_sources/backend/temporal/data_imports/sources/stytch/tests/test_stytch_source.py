@@ -4,7 +4,7 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import StytchSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stytch import StytchSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.stytch.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.stytch.source import StytchSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stytch.stytch import StytchResumeConfig

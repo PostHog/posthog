@@ -29,6 +29,10 @@ describe('router-utils', () => {
         const altered = addProjectIdIfMissing('/feature_flags/123', 123)
         expect(altered).toEqual('/project/123/feature_flags/123')
     })
+    it('does not redirect the cohorts staff tools URL nested under feature flags staff', () => {
+        const altered = addProjectIdIfMissing('/feature_flags/staff/cohorts', 123)
+        expect(altered).toEqual('/feature_flags/staff/cohorts')
+    })
 
     describe('relative path normalization', () => {
         it('normalizes ../ prefix to absolute path with project id', () => {

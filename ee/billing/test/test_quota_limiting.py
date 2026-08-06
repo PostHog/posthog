@@ -31,6 +31,7 @@ from ee.billing.quota_limiting import (
     get_team_attribute_by_quota_resource,
     list_limited_team_attributes,
     org_quota_limited_until,
+    refresh_org_self_driving_quota,
     replace_limited_team_tokens,
     set_org_usage_summary,
     update_all_orgs_billing_quotas,
@@ -975,6 +976,30 @@ class TestQuotaLimiting(BaseTest):
 
         # reset for subsequent tests
         self.organization.never_drop_data = False
+
+    def test_update_org_billing_quotas_invalidates_llm_gateway_quota_cache(self) -> None:
+        gateway_redis_url = "redis://llm-gateway-redis-test/"
+        cache_keys = [
+            f"quota:posthog_code_credits:team:{self.team.id}",
+            f"quota:ai_credits:team:{self.team.id}",
+            f"quota:code_usage_billing:team:{self.team.id}",
+        ]
+        with self.settings(LLM_GATEWAY_REDIS_URL=gateway_redis_url):
+            gateway_redis = get_client(gateway_redis_url)
+            gateway_redis.mset(dict.fromkeys(cache_keys, "stale"))
+            # Seed the central Redis too: eviction must target the gateway's own
+            # instance, not the default client (which would silently no-op in prod).
+            self.redis_client.mset(dict.fromkeys(cache_keys, "central"))
+            self.organization.usage = {
+                "events": {"usage": 1, "limit": 100},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+
+            update_org_billing_quotas(self.organization)
+
+            assert gateway_redis.mget(cache_keys) == [None] * len(cache_keys)
+            assert self.redis_client.mget(cache_keys) == [b"central"] * len(cache_keys)
+        self.redis_client.delete(*cache_keys)
 
     def test_update_org_billing_quotas(self):
         with freeze_time("2021-01-01T12:59:59Z"):
@@ -2845,3 +2870,99 @@ class TestSignalsRefundQuotaOffset(BaseTest):
         with patch("ee.billing.quota_limiting.get_signals_credited_refund_credits_for_org") as mock_offset:
             org_quota_limited_until(self.organization, QuotaResource.EVENTS, [], [])
         mock_offset.assert_not_called()
+
+
+class TestRefreshOrgSelfDrivingQuota(BaseTest):
+    def _set_self_driving_usage(self, usage: int, *, todays_usage: int = 0, limit: int = 4500) -> None:
+        self.organization.usage = {
+            "signals_credits": {"usage": usage, "todays_usage": todays_usage, "limit": limit},
+            "period": ["2026-06-01T00:00:00Z", "2026-07-01T00:00:00Z"],
+        }
+        self.organization.customer_trust_scores = {}
+        self.organization.save()
+
+    @patch("posthoganalytics.capture")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    @freeze_time("2026-06-15T12:00:00Z")
+    def test_refresh_patches_todays_usage_and_flips_the_limiter(self, _feature_enabled, _capture) -> None:
+        # The event-driven path exists because the cron-patched todays_usage predates the PR that
+        # just landed: a stale value here means the flag doesn't flip until the next cron tick.
+        self._set_self_driving_usage(3000, todays_usage=0)
+        with patch(
+            "ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org", return_value=1500
+        ) as live_mock:
+            refresh_org_self_driving_quota(str(self.organization.id))
+
+        assert live_mock.call_args.args[0] == self.organization.id
+        self.organization.refresh_from_db()
+        assert self.organization.usage is not None
+        assert self.organization.usage["signals_credits"]["todays_usage"] == 1500
+        # 3000 recorded + 1500 live == the 4500 limit: the team must now be in the limited zset.
+        assert self.team.api_token in list_limited_team_attributes(
+            QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+
+    @patch("posthoganalytics.capture")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    @freeze_time("2026-06-15T12:00:00Z")
+    def test_stale_concurrent_refresh_cannot_lower_usage_or_unpause(self, _feature_enabled, _capture) -> None:
+        # Two refreshes can overlap when two PRs land close together; the one that counted usage
+        # before the newer PR can finish last. Its stale, lower count must not overwrite the
+        # fresher value and momentarily reopen the gates for an over-limit org.
+        self._set_self_driving_usage(3000, todays_usage=1500)
+        replace_limited_team_tokens(
+            QuotaResource.SIGNALS_CREDITS,
+            {self.team.api_token: 1750323600},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+        with patch("ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org", return_value=100):
+            refresh_org_self_driving_quota(str(self.organization.id))
+
+        self.organization.refresh_from_db()
+        assert self.organization.usage is not None
+        assert self.organization.usage["signals_credits"]["todays_usage"] == 1500
+        assert self.team.api_token in list_limited_team_attributes(
+            QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+
+    @patch("posthoganalytics.capture")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    @freeze_time("2026-06-15T12:00:00Z")
+    def test_quota_cron_recounts_live_instead_of_writing_its_stale_snapshot(self, _feature_enabled, _capture) -> None:
+        # The cron snapshots fleet usage before its org loop, so a push-refresh that fires while
+        # the loop runs (a PR landing) writes a fresher, higher todays_usage than the snapshot.
+        # Writing the snapshot back would unpause the over-limit org until the next tick; the
+        # cron must recount candidates live at decision time instead.
+        self._set_self_driving_usage(3000, todays_usage=1500)
+        # Score must be in the frozen clock's future: candidate selection reads the zset
+        # through `list_limited_team_attributes`, which drops expired entries.
+        replace_limited_team_tokens(
+            QuotaResource.SIGNALS_CREDITS,
+            {self.team.api_token: 1798761600},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+        with (
+            patch(
+                "ee.billing.quota_limiting.get_teams_with_signals_credits_used_in_period",
+                return_value=[(self.team.id, 100)],
+            ),
+            patch(
+                "ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org", return_value=1500
+            ) as live_mock,
+        ):
+            update_all_orgs_billing_quotas()
+
+        assert live_mock.call_args.args[0] == str(self.organization.id)
+        self.organization.refresh_from_db()
+        assert self.organization.usage is not None
+        assert self.organization.usage["signals_credits"]["todays_usage"] == 1500
+        assert self.team.api_token in list_limited_team_attributes(
+            QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+
+    def test_refresh_is_a_noop_without_self_driving_usage(self) -> None:
+        self.organization.usage = {"events": {"usage": 1, "todays_usage": 0, "limit": None}}
+        self.organization.save()
+        with patch("ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org") as live_mock:
+            refresh_org_self_driving_quota(str(self.organization.id))
+        live_mock.assert_not_called()

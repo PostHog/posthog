@@ -210,25 +210,6 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             )
         )
 
-    def mark_for_recheck(self, *, reset_state: bool = False) -> list[str]:
-        """Returns list of field names that were modified (for use with update_fields)."""
-        updated: list[str] = []
-        if reset_state:
-            self.state = AlertState.NOT_FIRING
-            updated.append("state")
-        self.next_check_at = None
-        updated.append("next_check_at")
-        return updated
-
-    def save(self, *args, **kwargs) -> None:
-        if not self.enabled:
-            # When disabling an alert, set the state to not firing
-            self.state = AlertState.NOT_FIRING
-            if "update_fields" in kwargs:
-                kwargs["update_fields"].append("state")
-
-        super().save(*args, **kwargs)
-
     def _get_event_properties(self) -> dict:
         detector_config = self.detector_config or {}
         detector_type = detector_config.get("type")

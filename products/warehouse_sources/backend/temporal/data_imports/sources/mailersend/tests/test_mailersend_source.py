@@ -7,7 +7,9 @@ from parameterized import parameterized
 from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MailerSendSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailersend import (
+    MailerSendSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend.mailersend import (
     MailerSendResumeConfig,

@@ -9,6 +9,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
+from posthog.permissions import AccessControlPermission
 
 from ..models.clustering_config import ClusteringConfig
 from .metrics import llma_track_latency
@@ -44,9 +45,9 @@ class ClusteringConfigSetEventFiltersSerializer(serializers.Serializer):
 class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Team-level clustering configuration (event filters for automated pipelines)."""
 
-    scope_object = "llm_analytics"
+    scope_object = "ai_observability_clusters"
     serializer_class = _FallbackSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AccessControlPermission]
 
     @extend_schema(responses={200: ClusteringConfigSerializer})
     @llma_track_latency("llma_clustering_config_list")
@@ -57,7 +58,7 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(serializer.data)
 
     @extend_schema(request=ClusteringConfigSetEventFiltersSerializer, responses={200: ClusteringConfigSerializer})
-    @action(detail=False, methods=["post"], required_scopes=["llm_analytics:write"])
+    @action(detail=False, methods=["post"], required_scopes=["ai_observability_clusters:write"])
     @llma_track_latency("llma_clustering_config_set_event_filters")
     @monitor(feature=None, endpoint="llma_clustering_config_set_event_filters", method="POST")
     def set_event_filters(self, request: Request, **kwargs) -> Response:

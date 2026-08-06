@@ -1,4 +1,3 @@
-import math
 import uuid
 import threading
 from collections.abc import Sequence
@@ -23,30 +22,34 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
+from posthog.hogql.database.schema.exchange_rate import convert_currency_call
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.models import PropertyDefinition, Team, User
 
 from products.access_control.backend.property_access_control import get_restricted_property_names
-from products.actions.backend.models.action import Action
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
-    ensure_precomputed,
 )
 
 from .adapters.factory import MarketingSourceFactory
+from .attribution_weights import (
+    DAY_IN_SECONDS,
+    build_linear_weights,
+    build_position_based_weights,
+    build_time_decay_weights,
+)
+from .conversion_goal_conditions import (
+    action_match_expr,
+    add_conversion_goal_property_filters,
+    conversion_goal_match_expr,
+)
 from .marketing_analytics_config import MarketingAnalyticsConfig
+from .marketing_lazy_precompute import marketing_ensure_precomputed
 from .metrics import CONVERSION_GOAL_PRECOMPUTE_FALLBACK_COUNTER
-
-DAY_IN_SECONDS = 86400
-LN2 = math.log(2)  # ≈ 0.693, used in half-life formula: weight = exp(-ln(2) * t / half_life)
-# Half-life = attribution_window / 4, so a 90-day window gives ~22.5-day half-life.
-# At t = half_life, weight = exp(-ln(2)) = 0.5 (exactly half).
-# This follows the industry standard (Google Analytics, Adobe, Mixpanel all use 7-day half-life).
-TIME_DECAY_HALF_LIFE_DIVISOR = 4
+from .utils import build_source_normalization_expr
 
 # Freshness windows for the precompute read path. The Dagster warmer
 # (products/marketing_analytics/dags/marketing_precompute.py) MUST drive ensure_precomputed with this
@@ -181,7 +184,7 @@ class SharedTouchpointsPrecompute:
             if self._result is None:
                 window = timedelta(days=self._config.attribution_window_days)
                 self._range = (date_from, date_to)
-                self._result = ensure_precomputed(
+                self._result = marketing_ensure_precomputed(
                     team=self._team,
                     insert_query=build_touchpoints_precompute_query(),
                     time_range_start=date_from - window,
@@ -221,6 +224,9 @@ class ConversionGoalProcessor:
     # processor owns a clone (see HogQLTimings.clone_for_subquery); the runner merges them back once
     # the pool has joined. Defaults to a standalone instance for callers outside the read path.
     timings: HogQLTimings = dataclass_field(default_factory=HogQLTimings)
+    # Set when this goal's precompute was served from expired-within-grace rows instead of rebuilt. Read
+    # by the runner after the goal pool joins, to schedule one background revalidation for the read.
+    precompute_stale: bool = False
 
     _UTM_LEVEL_FIELD_MAP: ClassVar[dict[MarketingAnalyticsDrillDownLevel, str]] = {
         MarketingAnalyticsDrillDownLevel.MEDIUM: "medium",
@@ -292,38 +298,70 @@ class ConversionGoalProcessor:
 
         if self.goal.kind == "DataWarehouseNode":
             property_field = ast.Field(chain=[math_property])
+            timestamp_field = self.goal.schema_map.get("timestamp_field", "timestamp")
+            timestamp_expr: ast.Expr = ast.Field(chain=[timestamp_field])
         else:
             property_field = ast.Field(chain=["events", "properties", math_property])
+            timestamp_expr = ast.Field(chain=["events", "timestamp"])
+
+        value_per_row = self._to_base_currency(property_field, timestamp_expr)
 
         return ast.Call(
             name="round",
             args=[
-                ast.Call(name="sum", args=[ast.Call(name="toFloat", args=[property_field])]),
+                ast.Call(name="sum", args=[value_per_row]),
                 ast.Constant(value=self.config.decimal_precision),
             ],
         )
 
+    def _to_base_currency(self, property_field: ast.Expr, timestamp_expr: ast.Expr) -> ast.Expr:
+        """Turn a raw revenue property into a float in the team's base currency.
+
+        When the goal declares a math_property_revenue_currency, convert each value at the exchange
+        rate of its own event day. Without it, the value is assumed to already be in the base currency
+        and is only cast to float, which keeps goals that never set a currency behaving as before.
+        """
+        amount = ast.Call(name="toFloat", args=[property_field])
+        currency = self.goal.math_property_revenue_currency
+        if currency is None:
+            return amount
+
+        base_currency = ast.Constant(value=self.team.base_currency)
+        date = ast.Call(name="_toDate", args=[timestamp_expr])
+
+        if currency.property:
+            if self.goal.kind == "DataWarehouseNode":
+                currency_from: ast.Expr = ast.Field(chain=[currency.property])
+            else:
+                currency_from = ast.Field(chain=["events", "properties", currency.property])
+            currency_from = ast.Call(
+                name="nullIf", args=[ast.Call(name="upper", args=[currency_from]), ast.Constant(value="")]
+            )
+            # A row can be missing the currency property or carry an empty string; treat those as already
+            # in the base currency rather than letting convertCurrency null the whole amount out.
+            return ast.Call(
+                name="if",
+                args=[
+                    ast.Call(name="isNull", args=[currency_from]),
+                    amount,
+                    ast.Call(name="toFloat", args=[convert_currency_call(amount, currency_from, base_currency, date)]),
+                ],
+            )
+
+        if currency.static:
+            currency_from = ast.Constant(value=currency.static.value)
+            return ast.Call(name="toFloat", args=[convert_currency_call(amount, currency_from, base_currency, date)])
+
+        return amount
+
     def get_base_where_conditions(self) -> list[ast.Expr]:
         """Build base WHERE conditions for conversion goal filtering"""
-        conditions: list[ast.Expr] = []
+        if self.goal.kind == "ActionsNode":
+            # A goal whose action is gone matches nothing, so the Dashboard's other goals still render.
+            return [action_match_expr(self.goal, self.team) or ast.Constant(value=False)]
 
-        if self.goal.kind == "EventsNode":
-            event_name = self.goal.event
-            if event_name:
-                conditions.append(
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["events", "event"]),
-                        op=ast.CompareOperationOp.Eq,
-                        right=ast.Constant(value=event_name),
-                    )
-                )
-        elif self.goal.kind == "ActionsNode":
-            action_id = self.goal.id
-            if action_id:
-                action = Action.objects.get(pk=int(action_id), team__project_id=self.team.project_id)
-                conditions.append(action_to_expr(action))
-
-        return conditions
+        match = conversion_goal_match_expr(self.goal, self.team)
+        return [match] if match is not None else []
 
     def get_date_field(self) -> str:
         """Get appropriate timestamp field based on goal type"""
@@ -469,6 +507,11 @@ class ConversionGoalProcessor:
         math_property = getattr(self.goal, "math_property", None)
         if math_property:
             props.add(math_property)
+        # A property-sourced currency is folded into conversion_math_value by _to_base_currency, so the
+        # converted amount leaks it just as directly as math_property itself.
+        currency = getattr(self.goal, "math_property_revenue_currency", None)
+        if currency is not None and currency.property:
+            props.add(currency.property)
         return props
 
     def _precompute_properties_restricted_for_user(self) -> bool:
@@ -568,7 +611,7 @@ class ConversionGoalProcessor:
             return None
 
         with self.timings.measure("ma_ensure_conversions"):
-            conversions_result = ensure_precomputed(
+            conversions_result = marketing_ensure_precomputed(
                 team=self.team,
                 insert_query=self.build_conversions_precompute_query(),
                 time_range_start=date_from,
@@ -578,6 +621,11 @@ class ConversionGoalProcessor:
             )
         if not conversions_result.ready:
             return None
+
+        # Either ensure may have been served from expired-within-grace rows rather than rebuilt. The
+        # runner collects this once the goal pool has joined and schedules the revalidation.
+        if touchpoints_result.stale or conversions_result.stale:
+            self.precompute_stale = True
 
         with self.timings.measure("ma_attribution_pipeline_precomputed"):
             array_collection = self._build_array_collection_from_precomputes(
@@ -1193,13 +1241,8 @@ class ConversionGoalProcessor:
         # For ActionsNode (when conversion_event is None), we need to use the action condition
         # instead of matching all events
         if self.goal.kind == "ActionsNode":
-            action_id = self.goal.id
-            if action_id:
-                try:
-                    action = Action.objects.get(pk=int(action_id), team__project_id=self.team.project_id)
-                    return action_to_expr(action)
-                except Action.DoesNotExist:
-                    return ast.Constant(value=False)
+            # A goal whose action is gone matches nothing, so the Dashboard's other goals still render.
+            return action_match_expr(self.goal, self.team) or ast.Constant(value=False)
 
         # Fallback for other cases
         return ast.Constant(value=True)
@@ -1214,8 +1257,8 @@ class ConversionGoalProcessor:
             math_property = self.goal.math_property
             if math_property:
                 property_field = ast.Field(chain=["events", "properties", math_property])
-                to_float_expr = ast.Call(name="toFloat", args=[property_field])
-                return ast.Call(name="coalesce", args=[to_float_expr, ast.Constant(value=0.0)])
+                value = self._to_base_currency(property_field, ast.Field(chain=["events", "timestamp"]))
+                return ast.Call(name="coalesce", args=[value, ast.Constant(value=0.0)])
 
         return ast.Call(name="toFloat", args=[ast.Constant(value=1)])
 
@@ -1478,228 +1521,17 @@ class ConversionGoalProcessor:
         filtered_ts = ast.Field(chain=[filtered_timestamps_alias])
 
         if self.config.attribution_mode == AttributionMode.LINEAR:
-            return self._build_linear_weights(filtered_ts)
+            return build_linear_weights(filtered_ts)
         elif self.config.attribution_mode == AttributionMode.TIME_DECAY:
-            return self._build_time_decay_weights(filtered_ts, attribution_window_seconds)
+            conversion_time = ast.ArrayAccess(
+                array=ast.Field(chain=["conversion_timestamps"]),
+                property=ast.Field(chain=["i"]),
+            )
+            return build_time_decay_weights(filtered_ts, conversion_time, attribution_window_seconds)
         elif self.config.attribution_mode == AttributionMode.POSITION_BASED:
-            return self._build_position_based_weights(filtered_ts)
+            return build_position_based_weights(filtered_ts)
 
         raise ValueError(f"Unknown multi-touch attribution mode: {self.config.attribution_mode}")
-
-    def _build_linear_weights(self, filtered_ts: ast.Expr) -> ast.Expr:
-        """Equal weight for all touchpoints: 1.0 / n."""
-        n = ast.Call(name="toFloat", args=[ast.Call(name="length", args=[filtered_ts])])
-        return ast.Call(
-            name="arrayMap",
-            args=[
-                ast.Lambda(
-                    args=["_x"],
-                    expr=ast.ArithmeticOperation(
-                        left=ast.Constant(value=1.0),
-                        op=ast.ArithmeticOperationOp.Div,
-                        right=ast.Call(name="greatest", args=[n, ast.Constant(value=1.0)]),
-                    ),
-                ),
-                filtered_ts,
-            ],
-        )
-
-    def _build_time_decay_weights(self, filtered_ts: ast.Expr, attribution_window_seconds: int) -> ast.Expr:
-        """Exponential half-life decay: weight = exp(-ln(2) * delta / half_life).
-
-        At t = half_life, weight = 0.5 (exactly half). This matches the industry
-        standard used by Google Analytics, Adobe Analytics, and Mixpanel.
-        The half-life scales with the attribution window (window / 4).
-        Weights are normalized so they sum to 1.
-        """
-        half_life_seconds = max(attribution_window_seconds // TIME_DECAY_HALF_LIFE_DIVISOR, DAY_IN_SECONDS)
-        conversion_time = ast.ArrayAccess(
-            array=ast.Field(chain=["conversion_timestamps"]),
-            property=ast.Field(chain=["i"]),
-        )
-        # weight = exp(-ln(2) * (conversion_time - ts) / half_life)
-        raw_weights = ast.Call(
-            name="arrayMap",
-            args=[
-                ast.Lambda(
-                    args=["ts"],
-                    expr=ast.Call(
-                        name="exp",
-                        args=[
-                            ast.ArithmeticOperation(
-                                left=ast.Constant(value=-LN2),
-                                op=ast.ArithmeticOperationOp.Mult,
-                                right=ast.ArithmeticOperation(
-                                    left=ast.ArithmeticOperation(
-                                        left=conversion_time,
-                                        op=ast.ArithmeticOperationOp.Sub,
-                                        right=ast.Field(chain=["ts"]),
-                                    ),
-                                    op=ast.ArithmeticOperationOp.Div,
-                                    right=ast.Constant(value=half_life_seconds),
-                                ),
-                            ),
-                        ],
-                    ),
-                ),
-                filtered_ts,
-            ],
-        )
-        # Normalize: divide each weight by sum of all weights.
-        # Note: raw_weights AST node is referenced twice (in arraySum and as the
-        # arrayMap input), so ClickHouse evaluates the exp() computation twice per row.
-        # This is acceptable because touchpoint arrays are small (typically 3-10 elements).
-        weight_sum = ast.Call(name="arraySum", args=[raw_weights])
-        return ast.Call(
-            name="arrayMap",
-            args=[
-                ast.Lambda(
-                    args=["w"],
-                    expr=ast.ArithmeticOperation(
-                        left=ast.Field(chain=["w"]),
-                        op=ast.ArithmeticOperationOp.Div,
-                        right=ast.Call(name="greatest", args=[weight_sum, ast.Constant(value=0.000001)]),
-                    ),
-                ),
-                raw_weights,
-            ],
-        )
-
-    def _build_position_based_weights(self, filtered_ts: ast.Expr) -> ast.Expr:
-        """40% first touch, 40% last touch, 20% distributed among middle touchpoints.
-
-        Uses arrayMin/arrayMax to identify first/last by timestamp value,
-        avoiding dependency on array ordering (groupArray doesn't guarantee order).
-
-        Edge cases:
-        - 0 touchpoints: empty array (ARRAY JOIN produces no rows)
-        - 1 touchpoint: [1.0]
-        - 2 touchpoints: [0.5, 0.5]
-        - Duplicate timestamps: if multiple touchpoints share min/max timestamp,
-          all get 0.4 weight before normalization. Normalization rescues the total
-          to 1.0, but credit distribution may deviate from the intended 40/20/40.
-        """
-        n = ast.Call(name="toFloat", args=[ast.Call(name="length", args=[filtered_ts])])
-        middle_weight = ast.ArithmeticOperation(
-            left=ast.Constant(value=0.2),
-            op=ast.ArithmeticOperationOp.Div,
-            right=ast.Call(
-                name="greatest",
-                args=[
-                    ast.ArithmeticOperation(
-                        left=n,
-                        op=ast.ArithmeticOperationOp.Sub,
-                        right=ast.Constant(value=2.0),
-                    ),
-                    ast.Constant(value=1.0),
-                ],
-            ),
-        )
-
-        min_ts = ast.Call(name="arrayMin", args=[filtered_ts])
-        max_ts = ast.Call(name="arrayMax", args=[filtered_ts])
-
-        position_weights = ast.Call(
-            name="arrayMap",
-            args=[
-                ast.Lambda(
-                    args=["ts"],
-                    expr=ast.Call(
-                        name="if",
-                        args=[
-                            ast.CompareOperation(
-                                left=ast.Field(chain=["ts"]),
-                                op=ast.CompareOperationOp.Eq,
-                                right=min_ts,
-                            ),
-                            ast.Constant(value=0.4),
-                            ast.Call(
-                                name="if",
-                                args=[
-                                    ast.CompareOperation(
-                                        left=ast.Field(chain=["ts"]),
-                                        op=ast.CompareOperationOp.Eq,
-                                        right=max_ts,
-                                    ),
-                                    ast.Constant(value=0.4),
-                                    middle_weight,
-                                ],
-                            ),
-                        ],
-                    ),
-                ),
-                filtered_ts,
-            ],
-        )
-
-        # Normalize so weights always sum to 1.0.
-        # Handles edge cases like duplicate timestamps where multiple elements
-        # match arrayMin/arrayMax.
-        # Wrap in ifNull to handle Nullable(Float64) from HogQL casts.
-        non_nullable_weights = ast.Call(
-            name="arrayMap",
-            args=[
-                ast.Lambda(
-                    args=["_pw"],
-                    expr=ast.Call(name="ifNull", args=[ast.Field(chain=["_pw"]), ast.Constant(value=0.0)]),
-                ),
-                position_weights,
-            ],
-        )
-        weight_sum = ast.Call(name="arraySum", args=[non_nullable_weights])
-        normalized_weights = ast.Call(
-            name="arrayMap",
-            args=[
-                ast.Lambda(
-                    args=["w"],
-                    expr=ast.ArithmeticOperation(
-                        left=ast.Field(chain=["w"]),
-                        op=ast.ArithmeticOperationOp.Div,
-                        right=ast.Call(name="greatest", args=[weight_sum, ast.Constant(value=0.000001)]),
-                    ),
-                ),
-                non_nullable_weights,
-            ],
-        )
-
-        return ast.Call(
-            name="if",
-            args=[
-                # n == 0: no touchpoints in window, empty weights (ARRAY JOIN produces no rows)
-                ast.CompareOperation(
-                    left=ast.Call(name="length", args=[filtered_ts]),
-                    op=ast.CompareOperationOp.Eq,
-                    right=ast.Constant(value=0),
-                ),
-                ast.Array(exprs=[]),
-                ast.Call(
-                    name="if",
-                    args=[
-                        # n == 1: single touchpoint gets all credit
-                        ast.CompareOperation(
-                            left=ast.Call(name="length", args=[filtered_ts]),
-                            op=ast.CompareOperationOp.Eq,
-                            right=ast.Constant(value=1),
-                        ),
-                        ast.Array(exprs=[ast.Constant(value=1.0)]),
-                        ast.Call(
-                            name="if",
-                            args=[
-                                # n == 2: [0.5, 0.5]
-                                ast.CompareOperation(
-                                    left=ast.Call(name="length", args=[filtered_ts]),
-                                    op=ast.CompareOperationOp.Eq,
-                                    right=ast.Constant(value=2),
-                                ),
-                                ast.Array(exprs=[ast.Constant(value=0.5), ast.Constant(value=0.5)]),
-                                # n >= 3: assign by min/max timestamp, normalized
-                                normalized_weights,
-                            ],
-                        ),
-                    ],
-                ),
-            ],
-        )
 
     def _build_multi_touch_array_join_subquery(
         self, inner_query: ast.SelectQuery, attribution_window_seconds: int
@@ -1989,38 +1821,10 @@ class ConversionGoalProcessor:
         Case-insensitive matching - 'YouTube', 'youtube', 'YOUTUBE' all map to 'google'.
         Includes both adapter-defined sources and team-configured custom sources.
         """
-        # Convert source to lowercase for case-insensitive matching
-        lowercase_source = ast.Call(name="lower", args=[source_expr])
-
-        # Build nested if expressions for each mapping
-        normalized_expr = source_expr
-
-        # Get combined source mappings (adapter defaults + team custom sources)
         source_mappings = MarketingSourceFactory.get_all_source_identifier_mappings(
             team_config=self.team.marketing_analytics_config
         )
-        for primary_source, alternative_sources in source_mappings.items():
-            # Skip the primary source itself in the alternatives list
-            alternatives_only = [s.lower() for s in alternative_sources if s != primary_source]
-
-            if alternatives_only:
-                # If lowercase source is in alternatives, return primary; otherwise continue
-                normalized_expr = ast.Call(
-                    name="if",
-                    args=[
-                        ast.Call(
-                            name="in",
-                            args=[
-                                lowercase_source,
-                                ast.Array(exprs=[ast.Constant(value=alt) for alt in alternatives_only]),
-                            ],
-                        ),
-                        ast.Constant(value=primary_source),
-                        normalized_expr,
-                    ],
-                )
-
-        return normalized_expr
+        return build_source_normalization_expr(source_expr, source_mappings)
 
     def _build_final_aggregation_query(self, attribution_query: ast.SelectQuery) -> ast.SelectQuery:
         """Build final aggregation query with organic defaults"""
@@ -2056,6 +1860,19 @@ class ConversionGoalProcessor:
                 ),
             ]
             group_by: list[ast.Expr] = [channel_type_expr]
+        elif level == MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE:
+            channel_type_expr = self._build_channel_type_expr(field_exprs=field_exprs)
+            select_columns = [
+                ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.campaign_field, expr=channel_type_expr),
+                ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.source_field, expr=source_expr),
+                ast.Alias(
+                    alias=self.config.get_conversion_goal_column_name(self.index),
+                    expr=self._get_aggregation_expr(),
+                ),
+            ]
+            group_by = [channel_type_expr, source_expr]
         elif level == MarketingAnalyticsDrillDownLevel.SOURCE:
             # At source level, group by source_name only
             select_columns = [
@@ -2116,6 +1933,21 @@ class ConversionGoalProcessor:
             args=[
                 ast.Call(name="notEmpty", args=[ast.Field(chain=[field_name])]),
                 ast.Field(chain=[field_name]),
+                ast.Constant(value=default_value),
+            ],
+        )
+
+    def _apply_organic_default(self, expr: ast.Expr, default_value: str) -> ast.Call:
+        """Fall back to the organic default when the value is NULL or empty, matching the
+        events attribution path so all goal kinds classify unattributed conversions alike."""
+        return ast.Call(
+            name="if",
+            args=[
+                ast.Call(
+                    name="notEmpty",
+                    args=[ast.Call(name="coalesce", args=[expr, ast.Constant(value="")])],
+                ),
+                expr,
                 ast.Constant(value=default_value),
             ],
         )
@@ -2206,11 +2038,9 @@ class ConversionGoalProcessor:
         where_conditions.extend(additional_conditions)
 
         # Campaign expression with organic default
-        campaign_expr = ast.Call(
-            name="coalesce", args=[utm_campaign_expr, ast.Constant(value=self.config.organic_campaign)]
-        )
+        campaign_expr = self._apply_organic_default(utm_campaign_expr, self.config.organic_campaign)
         source_expr = self._normalize_source_field(
-            ast.Call(name="coalesce", args=[utm_source_expr, ast.Constant(value=self.config.organic_source)])
+            self._apply_organic_default(utm_source_expr, self.config.organic_source)
         )
 
         # Build field expressions for all tracked fields
@@ -2234,6 +2064,16 @@ class ConversionGoalProcessor:
                 ast.Alias(alias=self.config.get_conversion_goal_column_name(self.index), expr=select_field),
             ]
             group_by: list[ast.Expr] = [channel_type_expr]
+        elif level == MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE:
+            channel_type_expr = self._build_channel_type_expr(field_exprs=field_exprs)
+            select_columns = [
+                ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.campaign_field, expr=channel_type_expr),
+                ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.source_field, expr=source_expr),
+                ast.Alias(alias=self.config.get_conversion_goal_column_name(self.index), expr=select_field),
+            ]
+            group_by = [channel_type_expr, source_expr]
         elif level == MarketingAnalyticsDrillDownLevel.SOURCE:
             select_columns = [
                 ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
@@ -2385,18 +2225,3 @@ class ConversionGoalProcessor:
                 return event_value == conversion_event or event_value == "$pageview"
 
         return False
-
-
-def add_conversion_goal_property_filters(
-    conditions: list[ast.Expr],
-    conversion_goal: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3,
-    team: Team,
-) -> list[ast.Expr]:
-    """Add property filters for conversion goals"""
-    conversion_goal_properties = conversion_goal.properties
-    if conversion_goal_properties:
-        property_expr = property_to_expr(conversion_goal_properties, team=team, scope="event")
-        if property_expr:
-            conditions.append(property_expr)
-
-    return conditions

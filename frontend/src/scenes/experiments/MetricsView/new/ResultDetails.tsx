@@ -11,7 +11,11 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { FunnelChart } from 'scenes/experiments/charts/funnel/FunnelChart'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
-import { applySessionLinkability, getViewRecordingFilters } from 'scenes/experiments/utils'
+import { applySessionLinkability, getExposureFallbackFilter, getViewRecordingFilters } from 'scenes/experiments/utils'
+import {
+    EXPOSURE_UNLINKABLE_REASON,
+    viewRecordingsLinkabilityLogic,
+} from 'scenes/experiments/viewRecordingsLinkabilityLogic'
 
 import {
     CachedNewExperimentQueryResponse,
@@ -41,7 +45,6 @@ import {
     isBayesianResult,
     isFrequentistResult,
 } from '../shared/utils'
-import { viewRecordingsLinkabilityLogic } from './viewRecordingsLinkabilityLogic'
 
 /**
  * Convert new experiment results directly to DataDrivenFunnel format
@@ -261,9 +264,14 @@ export function ResultDetails({
                     filters: safeFilters,
                     droppedMetricEventCount,
                     exposureUnlinkable,
+                    usedExposureFallback,
                 } = linkabilityLoaded
-                    ? applySessionLinkability(filters, unlinkableEventNames)
-                    : { filters, droppedMetricEventCount: 0, exposureUnlinkable: false }
+                    ? applySessionLinkability(
+                          filters,
+                          unlinkableEventNames,
+                          getExposureFallbackFilter(experiment, variantKey)
+                      )
+                    : { filters, droppedMetricEventCount: 0, exposureUnlinkable: false, usedExposureFallback: false }
 
                 const filterGroup: Partial<RecordingUniversalFilters> = {
                     filter_group: {
@@ -285,17 +293,22 @@ export function ResultDetails({
                         filters={filterGroup}
                         size="xsmall"
                         type="secondary"
-                        tooltip={
-                            droppedMetricEventCount > 0
-                                ? `Watch recordings of people who were exposed to this variant. Excluded ${droppedMetricEventCount} server-side ${
-                                      droppedMetricEventCount === 1 ? 'event' : 'events'
-                                  } captured without a session ID, which can't match recordings.`
-                                : 'Watch recordings of people who were exposed to this variant.'
-                        }
+                        tooltip={[
+                            usedExposureFallback
+                                ? "Watch recordings of sessions where this variant's flag was active. The exposure event is captured server-side without a session ID, so exact exposures can't be matched."
+                                : 'Watch recordings of people who were exposed to this variant.',
+                            ...(droppedMetricEventCount > 0
+                                ? [
+                                      `Excluded ${droppedMetricEventCount} server-side ${
+                                          droppedMetricEventCount === 1 ? 'event' : 'events'
+                                      } captured without a session ID, which can't match recordings.`,
+                                  ]
+                                : []),
+                        ].join(' ')}
                         disabled={safeFilters.length === 0}
                         disabledReason={
                             exposureUnlinkable
-                                ? "This experiment's exposure event is captured server-side without a session ID, so recordings can't be matched."
+                                ? EXPOSURE_UNLINKABLE_REASON
                                 : filters.length === 0
                                   ? 'Unable to identify recordings for this metric'
                                   : undefined

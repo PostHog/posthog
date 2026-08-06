@@ -20,6 +20,7 @@ from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import Actor
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
+from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.property_access import restricted_property_names
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinition
 
@@ -45,6 +46,7 @@ from ee.hogai.chat_agent.taxonomy.virtual_properties import (
     virtual_group_for_entity,
     virtual_property_no_values_message,
 )
+from ee.hogai.utils.helpers import sanitize_event_description
 from ee.hogai.utils.prompt import format_prompt_string
 
 MaxSupportedQueryKind = Literal["trends", "funnel", "retention", "sql"]
@@ -161,8 +163,46 @@ class TaxonomyAgentToolkit:
 
         return "\n".join(output_parts)
 
-    def _enrich_props_with_descriptions(self, entity: str, props: Iterable[tuple[str, str | None]]):
-        return enrich_props_with_descriptions(entity, props)
+    def _enrich_props_with_descriptions(
+        self,
+        entity: str,
+        props: Iterable[tuple[str, str | None]],
+        stored_descriptions: dict[str, str] | None = None,
+    ):
+        return enrich_props_with_descriptions(entity, props, stored_descriptions)
+
+    def _get_stored_property_descriptions(
+        self,
+        property_type: PropertyDefinition.Type,
+        names: list[str],
+        group_type_index: int | None = None,
+    ) -> dict[str, str]:
+        """Map property name -> sanitized user-authored description from the team's property definitions.
+
+        Only the enterprise `PropertyDefinition` model carries a `description` field, so this is a
+        no-op on non-EE builds. Descriptions live only in Postgres and never influence which
+        properties are surfaced — the list still comes from ClickHouse / stored definitions. Runs a
+        single batched query.
+        """
+        if not EE_AVAILABLE or not names:
+            return {}
+
+        from ee.models.property_definition import (
+            EnterprisePropertyDefinition,  # noqa: PLC0415 — EE-only model, keep off the OSS import path
+        )
+
+        qs = (
+            EnterprisePropertyDefinition.objects.filter(team=self._team, type=property_type, name__in=names)
+            .exclude(description__isnull=True)
+            .exclude(description="")
+        )
+        if group_type_index is not None:
+            qs = qs.filter(group_type_index=group_type_index)
+        return {
+            name: sanitize_event_description(description)
+            for name, description in qs.values_list("name", "description")
+            if description
+        }
 
     def retrieve_entity_properties(self, entity: str, max_properties: int = 500) -> str:
         """
@@ -184,7 +224,10 @@ class TaxonomyAgentToolkit:
             stored_props += list_virtual_properties(
                 "person_properties", exclude={name for name, _ in stored_props} | restricted
             )
-            props = self._enrich_props_with_descriptions("person", stored_props)
+            stored_descriptions = self._get_stored_property_descriptions(
+                PropertyDefinition.Type.PERSON, [name for name, _ in stored_props]
+            )
+            props = self._enrich_props_with_descriptions("person", stored_props, stored_descriptions)
         elif entity == "session":
             # Session properties are not in the DB.
             props = self._enrich_props_with_descriptions(
@@ -209,7 +252,12 @@ class TaxonomyAgentToolkit:
                 if p[0] not in restricted
             ]
             stored_props += list_virtual_properties("groups", exclude={name for name, _ in stored_props} | restricted)
-            props = self._enrich_props_with_descriptions(entity, stored_props)
+            stored_descriptions = self._get_stored_property_descriptions(
+                PropertyDefinition.Type.GROUP,
+                [name for name, _ in stored_props],
+                group_type_index=group_type_index,
+            )
+            props = self._enrich_props_with_descriptions(entity, stored_props, stored_descriptions)
 
         if not props:
             return f"Properties do not exist in the taxonomy for the entity {entity}."
@@ -276,9 +324,14 @@ class TaxonomyAgentToolkit:
         if not props:
             return f"Properties do not exist in the taxonomy for the {verbose_name}."
 
+        stored_descriptions = self._get_stored_property_descriptions(
+            PropertyDefinition.Type.EVENT, [name for name, _ in props]
+        )
         return format_prompt_string(
             PROPERTIES_EXAMPLE_PROMPT,
-            result=self._generate_properties_output(self._enrich_props_with_descriptions("event", props)),
+            result=self._generate_properties_output(
+                self._enrich_props_with_descriptions("event", props, stored_descriptions)
+            ),
         )
 
     def _format_property_values(

@@ -26,11 +26,18 @@ if (not match(inputs.webhookUrl, '^https://discord.com/api/webhooks/.*')) {
     throw Error('Invalid URL. The URL should match the format: https://discord.com/api/webhooks/...')
 }
 
+let allowedParse := [];
+if (inputs.allowedMentions == 'roles_users') {
+    allowedParse := ['roles', 'users'];
+} else if (inputs.allowedMentions == 'everyone') {
+    allowedParse := ['everyone', 'roles', 'users'];
+}
+
 let res := fetch(inputs.webhookUrl, {
     'body': {
         'content': inputs.content,
         'allowed_mentions': {
-            'parse': []
+            'parse': allowedParse
         }
     },
     'method': 'POST',
@@ -58,6 +65,29 @@ if (res.status >= 400) {
             "label": "Content",
             "description": "(see https://support.discord.com/hc/en-us/articles/210298617-Markdown-Text-101-Chat-Formatting-Bold-Italic-Underline)",
             "default": "**{person.name}** triggered event: '{event.event}'",
+            "secret": False,
+            "required": True,
+        },
+        {
+            "key": "allowedMentions",
+            "type": "choice",
+            "label": "Allowed mentions",
+            "description": "Control which mentions in the message actually ping people. By default mentions are shown as text and nobody is pinged, which avoids accidental pings from event data. Enable roles and users to ping @roles and @users, or allow @everyone / @here too.",
+            "choices": [
+                {
+                    "label": "None (mentions shown as text, nobody is pinged)",
+                    "value": "none",
+                },
+                {
+                    "label": "Roles and users (@role and @user mentions ping)",
+                    "value": "roles_users",
+                },
+                {
+                    "label": "Everyone, roles and users (also allows @everyone and @here)",
+                    "value": "everyone",
+                },
+            ],
+            "default": "none",
             "secret": False,
             "required": True,
         },

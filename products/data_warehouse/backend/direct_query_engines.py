@@ -1,32 +1,52 @@
-"""Engine-keyed adapters for direct-query table materialization.
+"""Engine-keyed adapters for SQL-source engine behaviour.
 
-The presentation layer must not branch on source type. Direct-query behaviour varies by SQL
-*engine* (postgres/mysql/snowflake/redshift), not by source type, and the same engine can back
-more than one source type, so it dispatches here via ``source.direct_engine``
-(``DIRECT_ENGINE_BY_SOURCE_TYPE``). Each adapter bundles the engine-specific pieces of building a
-live-query ``DataWarehouseTable``: resolving the upstream location, mapping columns, and
-creating / reprojecting / hiding the row. Warehouse-domain orchestration (filtering enabled
-columns, saving the row) stays in the view.
+The presentation layer must not branch on source type. This behaviour varies by SQL *engine*
+(postgres/mysql/snowflake/redshift), not by source type, and the same engine can back more than
+one source type, so it dispatches here via ``source.direct_engine`` (``DIRECT_ENGINE_BY_SOURCE_TYPE``,
+defined for every SQL source regardless of access method). Each adapter bundles the engine-specific
+pieces of: building a live-query ``DataWarehouseTable`` (resolving the upstream location, mapping
+columns, creating / reprojecting / hiding the row) and reconciling schema rows on refresh. Warehouse
+-domain orchestration (filtering enabled columns, saving the row) stays in the view.
 """
 
 from abc import ABC, abstractmethod
 from typing import Any
 
+from products.data_warehouse.backend.clickhouse_helpers import (
+    get_clickhouse_source_location,
+    reconcile_clickhouse_schemas,
+    reproject_direct_clickhouse_table,
+)
+from products.data_warehouse.backend.direct_clickhouse import (
+    hide_direct_clickhouse_table,
+    upsert_direct_clickhouse_table,
+)
 from products.data_warehouse.backend.direct_mysql import hide_direct_mysql_table, upsert_direct_mysql_table
 from products.data_warehouse.backend.direct_postgres import hide_direct_postgres_table, upsert_direct_postgres_table
 from products.data_warehouse.backend.direct_redshift import hide_direct_redshift_table, upsert_direct_redshift_table
 from products.data_warehouse.backend.direct_snowflake import hide_direct_snowflake_table, upsert_direct_snowflake_table
-from products.data_warehouse.backend.mysql_helpers import get_mysql_source_location, reproject_direct_mysql_table
+from products.data_warehouse.backend.mysql_helpers import (
+    get_mysql_source_location,
+    reconcile_mysql_schemas,
+    reproject_direct_mysql_table,
+)
 from products.data_warehouse.backend.postgres_helpers import (
     get_postgres_source_location,
+    reconcile_postgres_schemas,
     reproject_direct_postgres_table,
 )
+from products.data_warehouse.backend.postgres_warehouse_migration import reconcile_refresh_name_substitutions
 from products.data_warehouse.backend.redshift_helpers import (
     get_redshift_source_location,
+    reconcile_redshift_schemas,
     reproject_direct_redshift_table,
 )
-from products.data_warehouse.backend.snowflake_helpers import reproject_direct_snowflake_table
+from products.data_warehouse.backend.snowflake_helpers import (
+    reconcile_snowflake_schemas,
+    reproject_direct_snowflake_table,
+)
 from products.warehouse_sources.backend.facade.api import (
+    clickhouse_columns_to_dwh_columns,
     mysql_columns_to_dwh_columns,
     postgres_columns_to_dwh_columns,
     snowflake_columns_to_dwh_columns,
@@ -92,6 +112,21 @@ class DirectQueryEngine(ABC):
     def hide_table(self, table: Any) -> None:
         raise NotImplementedError()
 
+    @abstractmethod
+    def reconcile_schemas(self, *, source: Any, source_schemas: list[Any], team_id: int) -> list[str]:
+        """Dedupe/rebuild this engine's schema rows against discovered schemas on refresh; returns
+        the extra schema names deleted during reconciliation."""
+        raise NotImplementedError()
+
+    def refresh_name_substitutions(
+        self, *, source: Any, source_schemas: list[Any], team_id: int
+    ) -> dict[str, str] | None:
+        """Engine-specific legacy-row name remapping applied before schema sync. ``None`` means the
+        engine has none, so the caller falls back to the generic multi-schema migration. Only
+        Postgres overrides this (its bespoke legacy-dedup); an empty dict from Postgres still counts
+        as "handled" and suppresses the generic path."""
+        return None
+
 
 class _PostgresEngine(DirectQueryEngine):
     engine = "postgres"
@@ -123,6 +158,12 @@ class _PostgresEngine(DirectQueryEngine):
 
     def hide_table(self, table):
         hide_direct_postgres_table(table)
+
+    def reconcile_schemas(self, *, source, source_schemas, team_id):
+        return reconcile_postgres_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
+
+    def refresh_name_substitutions(self, *, source, source_schemas, team_id):
+        return reconcile_refresh_name_substitutions(source=source, source_schemas=source_schemas, team_id=team_id)
 
 
 class _MySQLEngine(DirectQueryEngine):
@@ -158,6 +199,9 @@ class _MySQLEngine(DirectQueryEngine):
 
     def hide_table(self, table):
         hide_direct_mysql_table(table)
+
+    def reconcile_schemas(self, *, source, source_schemas, team_id):
+        return reconcile_mysql_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
 
 
 class _SnowflakeEngine(DirectQueryEngine):
@@ -199,6 +243,9 @@ class _SnowflakeEngine(DirectQueryEngine):
     def hide_table(self, table):
         hide_direct_snowflake_table(table)
 
+    def reconcile_schemas(self, *, source, source_schemas, team_id):
+        return reconcile_snowflake_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
+
 
 class _RedshiftEngine(DirectQueryEngine):
     engine = "redshift"
@@ -234,9 +281,54 @@ class _RedshiftEngine(DirectQueryEngine):
     def hide_table(self, table):
         hide_direct_redshift_table(table)
 
+    def reconcile_schemas(self, *, source, source_schemas, team_id):
+        return reconcile_redshift_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
+
+
+class _ClickHouseEngine(DirectQueryEngine):
+    engine = "clickhouse"
+
+    def source_table_location(self, *, schema_name, source_schema, default_schema, default_catalog=None):
+        # ClickHouse has no catalog level; database occupies the "schema" slot, catalog stays None.
+        database, table = get_clickhouse_source_location(
+            schema_name=schema_name,
+            schema_metadata=_location_metadata(source_schema),
+            default_database=default_schema,
+        )
+        return None, database, table
+
+    def columns_to_dwh_columns(self, source_columns):
+        return clickhouse_columns_to_dwh_columns(source_columns)
+
+    def upsert_table(
+        self, existing_table, *, schema_name, source, columns, source_catalog, source_schema, source_table_name
+    ):
+        # source_schema carries the ClickHouse database; there is no catalog.
+        return upsert_direct_clickhouse_table(
+            existing_table,
+            schema_name=schema_name,
+            source=source,
+            columns=columns,
+            source_database=source_schema,
+            source_table_name=source_table_name,
+        )
+
+    def reproject_table(self, schema_row, *, source, enabled_columns):
+        return reproject_direct_clickhouse_table(schema_row, source=source, enabled_columns=enabled_columns)
+
+    def hide_table(self, table):
+        hide_direct_clickhouse_table(table)
+
+    def reconcile_schemas(self, *, source, source_schemas, team_id):
+        return reconcile_clickhouse_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
+
+    # No refresh_name_substitutions override — like MySQL/Snowflake/Redshift, ClickHouse has no
+    # bespoke legacy-row remapping (only Postgres does), so it falls through to the generic path.
+
 
 _ENGINES: dict[str, DirectQueryEngine] = {
-    engine.engine: engine for engine in (_PostgresEngine(), _MySQLEngine(), _SnowflakeEngine(), _RedshiftEngine())
+    engine.engine: engine
+    for engine in (_PostgresEngine(), _MySQLEngine(), _SnowflakeEngine(), _RedshiftEngine(), _ClickHouseEngine())
 }
 
 

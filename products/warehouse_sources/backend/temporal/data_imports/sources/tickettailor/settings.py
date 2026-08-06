@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 
+from products.warehouse_sources.backend.types import IncrementalField
+
 
 @dataclass
 class TicketTailorEndpointConfig:
@@ -31,4 +33,4 @@ TICKET_TAILOR_ENDPOINTS: dict[str, TicketTailorEndpointConfig] = {
 
 ENDPOINTS = tuple(TICKET_TAILOR_ENDPOINTS.keys())
 
-INCREMENTAL_FIELDS: dict[str, list[dict[str, str]]] = {}
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

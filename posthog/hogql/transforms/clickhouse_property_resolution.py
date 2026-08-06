@@ -48,9 +48,7 @@ from posthog.clickhouse.events_json import (
     EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
     PERSON_PROPERTIES_JSON_SUBCOLUMNS,
 )
-from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns, get_materialized_column_for_property
 from posthog.clickhouse.property_groups import property_groups
-from posthog.property_columns import PropertyName, TableColumn
 from posthog.schema_enums import MaterializationMode, PropertyGroupsMode
 
 # In non-nullable materialized columns these stored strings are treated as NULL.
@@ -137,10 +135,10 @@ def resolve_materialized_property_source(
         return None
 
     # 1) static materialized column (mat_* / pmat_*)
-    materialized_column = get_materialized_column_for_property(
-        cast(TablesWithMaterializedColumns, table_name),
-        cast(TableColumn, field_name),
-        cast(PropertyName, property_name),
+    materialized_column = (
+        context.property_metadata.materialized_column(table_name, field_name, property_name)
+        if context.property_metadata is not None
+        else None
     )
     if materialized_column is not None:
         return MaterializedPropertySource(
@@ -154,9 +152,9 @@ def resolve_materialized_property_source(
             has_bloom_filter_lower_index=materialized_column.has_bloom_filter_lower_index,
         )
 
-    # 2) dmat (dynamic materialized) slot — events.properties only, resolved from the property swapper
-    if context.property_swapper is not None and table_name == "events" and field_name == "properties":
-        property_info = context.property_swapper.event_properties.get(property_name)
+    # 2) dmat (dynamic materialized) slot — events.properties only, resolved from the property metadata
+    if context.property_metadata is not None and table_name == "events" and field_name == "properties":
+        property_info = context.property_metadata.event_properties.get(property_name)
         if property_info and (dmat_column := property_info.get("dmat")):
             return MaterializedPropertySource(kind="dmat", column=dmat_column, is_nullable=True)
 
@@ -1148,8 +1146,8 @@ class ClickHousePropertyResolver(CloningVisitor):
             return None
 
         is_dynamic_json_string_comparison = allow_dynamic_json and _is_dynamic_json_source(source)
-        if self.context.property_swapper is not None:
-            prop_info = self.context.property_swapper.event_properties.get(property_name)
+        if self.context.property_metadata is not None:
+            prop_info = self.context.property_metadata.event_properties.get(property_name)
             if (
                 prop_info is not None
                 and prop_info.get("type") not in (None, "String")

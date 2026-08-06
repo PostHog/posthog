@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
 from requests import Response
 
@@ -18,6 +18,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lever.leve
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lever.settings import ENDPOINTS
 
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the lever module.
+LEVER_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.lever.lever.make_tracked_session"
+)
+
 
 def _make_response(body: Any, status_code: int = 200) -> Response:
     resp = Response()
@@ -27,11 +34,48 @@ def _make_response(body: Any, status_code: int = 200) -> Response:
     return resp
 
 
-def _page(items: list[dict[str, Any]], has_next: bool, next_offset: str | None = None) -> dict[str, Any]:
+def _page(items: list[dict[str, Any]], has_next: bool, next_offset: str | None = None) -> Response:
     body: dict[str, Any] = {"data": items, "hasNext": has_next}
     if next_offset is not None:
         body["next"] = next_offset
-    return body
+    return _make_response(body)
+
+
+def _make_manager(resume_state: LeverResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
+
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session, returning a list that captures each request's params AT SEND TIME.
+
+    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the
+    run shows only the final state — snapshot a copy when each request is prepared instead.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
+
+
+def _drive(endpoint: str, manager: mock.MagicMock, responses: list[Response], **kwargs: Any):
+    """Run ``lever_source`` against a mocked session and return (param snapshots, yielded batches)."""
+    with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
+        session = MockSession.return_value
+        params = _wire(session, responses)
+        source_response = lever_source(
+            "key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs
+        )
+        yielded = list(cast("Iterable[Any]", source_response.items()))
+    return params, yielded
 
 
 class TestNormalizeItem:
@@ -84,7 +128,7 @@ class TestValidateCredentials:
             (500, False),
         ],
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.lever.lever.make_tracked_session")
+    @mock.patch(LEVER_SESSION_PATCH)
     def test_status_code_mapping(self, mock_session_factory, status_code: int, expected_valid: bool) -> None:
         mock_session = mock_session_factory.return_value
         mock_session.get.return_value = _make_response({}, status_code=status_code)
@@ -97,7 +141,20 @@ class TestValidateCredentials:
         else:
             assert error is not None
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.lever.lever.make_tracked_session")
+    @mock.patch(LEVER_SESSION_PATCH)
+    def test_bad_key_message_distinct_from_unexpected_status(self, mock_session_factory) -> None:
+        mock_session = mock_session_factory.return_value
+
+        mock_session.get.return_value = _make_response({}, status_code=401)
+        _, unauthorized_error = validate_credentials("test_key")
+
+        mock_session.get.return_value = _make_response({}, status_code=500)
+        _, unexpected_error = validate_credentials("test_key")
+
+        assert unauthorized_error == "Invalid Lever API key. Please check your key and try again."
+        assert "500" in (unexpected_error or "")
+
+    @mock.patch(LEVER_SESSION_PATCH)
     def test_network_error_is_not_valid(self, mock_session_factory) -> None:
         mock_session = mock_session_factory.return_value
         mock_session.get.side_effect = Exception("boom")
@@ -105,18 +162,18 @@ class TestValidateCredentials:
         is_valid, error = validate_credentials("test_key")
 
         assert is_valid is False
-        assert error == "boom"
+        assert error is not None
 
 
 class TestLeverSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_primary_keys_match_settings(self, endpoint: str) -> None:
-        response = lever_source("key", endpoint, MagicMock(), MagicMock())
+        response = lever_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
         assert response.primary_keys == LEVER_ENDPOINTS[endpoint].primary_keys
 
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_partitioning_only_when_partition_key_present(self, endpoint: str) -> None:
-        response = lever_source("key", endpoint, MagicMock(), MagicMock())
+        response = lever_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
         partition_key = LEVER_ENDPOINTS[endpoint].partition_key
 
         if partition_key:
@@ -131,49 +188,28 @@ class TestLeverSourceResponse:
             assert LEVER_ENDPOINTS[endpoint].partition_key != "updatedAt"
 
     def test_sort_mode_is_ascending(self) -> None:
-        response = lever_source("key", "opportunities", MagicMock(), MagicMock())
+        response = lever_source("key", "opportunities", team_id=1, job_id="j", resumable_source_manager=_make_manager())
         assert response.sort_mode == "asc"
 
 
 class TestLeverPaginationAndResume:
-    """Drive ``get_rows`` (via ``lever_source``) with a mocked HTTP session."""
-
-    def _drive(
-        self, endpoint: str, manager: MagicMock, responses: list[Response]
-    ) -> tuple[list[dict[str, Any]], list[Any]]:
-        """Returns (params sent per request, batches yielded by the source)."""
-        sent_params: list[dict[str, Any]] = []
-        yielded: list[Any] = []
-        response_iter = iter(responses)
-
-        def fake_get(url: str, *_args: Any, **kwargs: Any) -> Response:
-            sent_params.append(dict(kwargs.get("params", {})))
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.lever.lever.make_tracked_session"
-        ) as mock_factory:
-            mock_factory.return_value.get.side_effect = fake_get
-
-            response = lever_source("key", endpoint, MagicMock(), manager)
-            yielded.extend(cast(Iterable[Any], response.items()))
-
-        return sent_params, yielded
+    """Drive ``lever_source`` with a mocked HTTP session at the rest_client boundary."""
 
     def test_fresh_run_paginates_and_normalizes(self) -> None:
-        manager = MagicMock()
-        manager.can_resume.return_value = False
+        manager = _make_manager()
 
         responses = [
-            _make_response(_page([{"id": "o1", "createdAt": 1700000000000}], True, "offset_2")),
-            _make_response(_page([{"id": "o2", "createdAt": 1700000005000}], False)),
+            _page([{"id": "o1", "createdAt": 1700000000000}], True, "offset_2"),
+            _page([{"id": "o2", "createdAt": 1700000005000}], False),
         ]
 
-        sent_params, yielded = self._drive("opportunities", manager, responses)
+        sent_params, yielded = _drive("opportunities", manager, responses)
 
         # First request has no offset; second request uses the saved offset token.
         assert sent_params[0].get("offset") is None
         assert sent_params[1].get("offset") == "offset_2"
+        # `limit` rides in the query params on every request.
+        assert sent_params[0]["limit"] == 100
 
         # Timestamps were converted ms -> seconds in the yielded rows.
         flat = [row for batch in yielded for row in batch]
@@ -183,47 +219,58 @@ class TestLeverPaginationAndResume:
         ]
 
     def test_saves_offset_after_each_non_terminal_page(self) -> None:
-        manager = MagicMock()
-        manager.can_resume.return_value = False
+        manager = _make_manager()
 
         responses = [
-            _make_response(_page([{"id": "o1"}], True, "offset_2")),
-            _make_response(_page([{"id": "o2"}], True, "offset_3")),
-            _make_response(_page([{"id": "o3"}], False)),
+            _page([{"id": "o1"}], True, "offset_2"),
+            _page([{"id": "o2"}], True, "offset_3"),
+            _page([{"id": "o3"}], False),
         ]
-        self._drive("opportunities", manager, responses)
+        _drive("opportunities", manager, responses)
 
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [LeverResumeConfig(offset="offset_2"), LeverResumeConfig(offset="offset_3")]
 
     def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock()
-        manager.can_resume.return_value = False
+        manager = _make_manager()
 
-        responses = [_make_response(_page([{"id": "only"}], False))]
-        self._drive("opportunities", manager, responses)
+        responses = [_page([{"id": "only"}], False)]
+        _drive("opportunities", manager, responses)
 
         manager.save_state.assert_not_called()
 
     def test_resume_seeds_first_request_with_saved_offset(self) -> None:
-        manager = MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = LeverResumeConfig(offset="saved_offset")
+        manager = _make_manager(LeverResumeConfig(offset="saved_offset"))
 
-        responses = [_make_response(_page([{"id": "o5"}], False))]
-        sent_params, _ = self._drive("opportunities", manager, responses)
+        responses = [_page([{"id": "o5"}], False)]
+        sent_params, _ = _drive("opportunities", manager, responses)
 
         assert sent_params[0].get("offset") == "saved_offset"
 
+    def test_incremental_filter_param_sent_to_api(self) -> None:
+        manager = _make_manager()
+
+        responses = [_page([{"id": "o1"}], False)]
+        sent_params, _ = _drive(
+            "opportunities",
+            manager,
+            responses,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=1700000000,
+            incremental_field="updatedAt",
+        )
+
+        # Watermark seconds are converted to Lever's millisecond filter param.
+        assert sent_params[0]["updated_at_start"] == 1700000000000
+
     def test_hasnext_without_next_token_raises(self) -> None:
-        manager = MagicMock()
-        manager.can_resume.return_value = False
+        manager = _make_manager()
 
         # hasNext is True but no `next` token -> fail loudly rather than silently
         # truncating the sync with partial data.
-        responses = [_make_response(_page([{"id": "o1"}], True))]
+        responses = [_page([{"id": "o1"}], True)]
         with pytest.raises(Exception, match="hasNext was true but no next offset token"):
-            self._drive("opportunities", manager, responses)
+            _drive("opportunities", manager, responses)
 
         manager.save_state.assert_not_called()
 

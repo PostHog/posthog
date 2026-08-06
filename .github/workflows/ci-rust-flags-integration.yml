@@ -34,7 +34,7 @@ permissions:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
-    cancel-in-progress: true
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
     # Django SECRET_KEY for cryptographic signing (sessions, CSRF, etc.) - test-only, not used in production
@@ -49,8 +49,8 @@ env:
 
 jobs:
     rust-flags-integration:
-        name: Rust /flags Integration Tests (depot-ubuntu-latest)
-        runs-on: depot-ubuntu-latest
+        name: Rust /flags Integration Tests (depot-ubuntu-24.04)
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 30
 
         services:

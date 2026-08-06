@@ -31,6 +31,7 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     StringJSONDatabaseField,
     Table,
+    UUIDDatabaseField,
     VirtualTable,
 )
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
@@ -191,6 +192,8 @@ def convert_field_or_table_to_type_string(
     if isinstance(field_or_table, FloatDatabaseField):
         return "Float"
     if isinstance(field_or_table, StringDatabaseField):
+        return "String"
+    if isinstance(field_or_table, UUIDDatabaseField):
         return "String"
     if isinstance(field_or_table, DateTimeDatabaseField):
         return "DateTime"

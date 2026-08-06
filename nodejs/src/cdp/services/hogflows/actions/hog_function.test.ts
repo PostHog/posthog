@@ -12,10 +12,13 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { CyclotronJobInvocationHogFlow, DBHogFunctionTemplate } from '../../../types'
+import { HogExecutorAsyncService } from '../../hog-executor-async.service'
 import { HogExecutorService } from '../../hog-executor.service'
 import { HogInputsService } from '../../hog-inputs.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
+import { RecipientsManagerService } from '../../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
+import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../../messaging/email-suppression.service'
 import { EmailValidationService } from '../../messaging/email-validation.service'
 import { EmailService } from '../../messaging/email.service'
 import { EmailTrackingCodeSigner } from '../../messaging/helpers/tracking-code'
@@ -29,7 +32,7 @@ describe('HogFunctionHandler', () => {
     let hub: Hub
     let team: Team
     let hogFunctionHandler: HogFunctionHandler
-    let mockHogFunctionExecutor: HogExecutorService
+    let mockHogFunctionExecutor: HogExecutorAsyncService
     let mockHogFunctionTemplateManager: HogFunctionTemplateManagerService
     let mockHogFlowFunctionsService: HogFlowFunctionsService
     let mockRecipientPreferencesService: RecipientPreferencesService
@@ -56,26 +59,34 @@ describe('HogFunctionHandler', () => {
                 sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
                 sesRegion: hub.SES_REGION,
                 sesEndpoint: hub.SES_ENDPOINT,
+                sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
+                sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                sesTenantAttributionEnabled: false,
             },
             hub.integrationManager,
             new TeamWorkflowsConfigService(hub.postgres),
             hub.ENCRYPTION_SALT_KEYS,
             hub.SITE_URL,
-            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
+            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+            new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+            new RecipientsManagerService(hub.postgres)
         )
-        mockHogFunctionExecutor = new HogExecutorService(
+        mockHogFunctionExecutor = new HogExecutorAsyncService(
+            new HogExecutorService({ executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),
             {
-                hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
                 googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                siteUrl: hub.SITE_URL,
             },
-            { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
-            hogInputsService,
-            emailService,
-            recipientTokensService,
-            undefined as any
+            {
+                teamManager: hub.teamManager,
+                hogInputsService,
+                emailService,
+                recipientTokensService,
+                pushNotificationService: undefined as any,
+            }
         )
         mockHogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
         mockHogFlowFunctionsService = new HogFlowFunctionsService(
@@ -84,7 +95,7 @@ describe('HogFunctionHandler', () => {
             mockHogFunctionExecutor
         )
         mockRecipientPreferencesService = {
-            shouldSkipAction: jest.fn().mockResolvedValue(false),
+            shouldSkipAction: jest.fn().mockResolvedValue(null),
         } as any
         mockEmailValidationService = {
             getSkipReason: jest.fn().mockResolvedValue(null),
@@ -370,8 +381,8 @@ describe('HogFunctionHandler', () => {
         expect(calledConfig.mappings).toEqual([{ name: 'input mapping field' }])
     })
 
-    it('should skip execution if recipient preferences service returns true', async () => {
-        ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce(true)
+    it('should skip execution and log an opt-out message when recipient preferences returns opted_out', async () => {
+        ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce('opted_out')
 
         const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queue: 'hog',
@@ -388,6 +399,39 @@ describe('HogFunctionHandler', () => {
         expect(invocationResult.logs[0].message).toContain(
             `[Action:function] Recipient has opted out, skipping message delivery.`
         )
+        // Opt-out skips do not emit an app metric — no billable_invocation, no email_suppressed.
+        expect(invocationResult.metrics).toEqual([])
+        expect(mockFetch).not.toHaveBeenCalled()
+    })
+
+    // Guards the fix that split suppression from opt-out: previously both branches collapsed to a
+    // single "opted out" log with no metric, so a customer couldn't tell why a workflow send was
+    // skipped or measure suppression volume from the app-metrics view.
+    it('should skip execution, log a suppression message, and emit email_suppressed when recipient preferences returns suppressed', async () => {
+        ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce('suppressed')
+
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        expect(handlerResult.nextAction?.id).toBe('exit')
+        expect(invocationResult.logs).toHaveLength(1)
+        expect(invocationResult.logs[0].message).toContain(
+            `[Action:function] Skipping send: recipient is on the suppression list.`
+        )
+        expect(invocationResult.metrics).toEqual([
+            {
+                team_id: team.id,
+                app_source_id: invocation.functionId,
+                instance_id: action.id,
+                metric_kind: 'email',
+                metric_name: 'email_suppressed',
+                count: 1,
+            },
+        ])
         expect(mockFetch).not.toHaveBeenCalled()
     })
 
@@ -456,6 +500,41 @@ describe('HogFunctionHandler', () => {
         }
     )
 
+    // Live edits reach runs already in flight, so a run that entered on one version can send its
+    // message under a newer one. The conversion belongs to the version whose message the person
+    // received — the same version `email_sent` is counted under — so a send re-pins the attribution
+    // version. A non-message step must leave it alone.
+    it.each([
+        { billingType: 'email' as const, expected: 3 },
+        { billingType: 'push' as const, expected: 3 },
+        { billingType: 'fetch' as const, expected: 1 },
+    ])(
+        'a completed $billingType step leaves the attribution version at $expected',
+        async ({ billingType, expected }) => {
+            const handler = new HogFunctionHandler(
+                mockHogFlowFunctionsService,
+                mockRecipientPreferencesService,
+                mockEmailValidationService,
+                billingType
+            )
+            // The run entered on v1; v3 is what is live now and what this step executes under.
+            const republished = {
+                ...invocation,
+                hogFlow: { ...invocation.hogFlow, version: 3 },
+                state: { ...invocation.state, flowVersion: 1 },
+            }
+
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(republished, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+
+            await handler.execute({ invocation: republished, action, result: invocationResult })
+
+            expect(invocationResult.invocation.state.flowVersion).toBe(expected)
+        }
+    )
+
     it('should not emit a billable_invocation metric if function is not finished', async () => {
         // Mock the executeWithAsyncFunctions to return a non-finished result
         jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockResolvedValueOnce({
@@ -465,7 +544,7 @@ describe('HogFunctionHandler', () => {
             metrics: [],
             capturedPostHogEvents: [],
             warehouseWebhookPayloads: [],
-            emailAssets: [],
+            messageAssets: [],
         })
 
         const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
@@ -483,7 +562,7 @@ describe('HogFunctionHandler', () => {
     })
 
     it('should not emit a billable_invocation metric when recipient opts out', async () => {
-        ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce(true)
+        ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce('opted_out')
 
         const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queue: 'hog',

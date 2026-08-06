@@ -1,17 +1,23 @@
 import { useActions, useValues } from 'kea'
+import type { ReactNode } from 'react'
 
+import { IconHeart, IconHeartFilled } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
-import type { SavedTicketView, TicketViewFilters } from '../../types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { type SavedTicketView, type TicketViewFilters, normalizeAssigneeFilter } from '../../types'
+import { AssigneeLabelDisplay, AssigneeResolver } from '../Assignee'
 import { type TicketViewsLogicProps, ticketViewsLogic } from './ticketViewsLogic'
 
 function FiltersSummary({ filters }: { filters: TicketViewFilters }): JSX.Element {
-    const lines: { label: string; value: string }[] = []
+    const lines: { label: string; value: ReactNode }[] = []
 
     if (filters.status?.length) {
         lines.push({ label: 'Status', value: filters.status.join(', ') })
@@ -34,14 +40,27 @@ function FiltersSummary({ filters }: { filters: TicketViewFilters }): JSX.Elemen
     if (filters.tagsExclude?.length) {
         lines.push({ label: 'Exclude tags', value: filters.tagsExclude.join(', ') })
     }
-    if (filters.assignee && filters.assignee !== 'all') {
-        const val =
-            filters.assignee === 'unassigned'
-                ? 'Unassigned'
-                : typeof filters.assignee === 'object'
-                  ? `${filters.assignee.type}:${filters.assignee.id}`
-                  : String(filters.assignee)
-        lines.push({ label: 'Assignee', value: val })
+    const assigneeEntries = normalizeAssigneeFilter(filters.assignee)
+    if (assigneeEntries.length) {
+        lines.push({
+            label: 'Assignee',
+            value: assigneeEntries.map((entry, index) => (
+                <span key={typeof entry === 'string' ? entry : `${entry.type}:${entry.id}`}>
+                    {index > 0 ? ', ' : ''}
+                    {entry === 'unassigned' ? (
+                        'Unassigned'
+                    ) : entry === 'me' ? (
+                        'Me (current user)'
+                    ) : (
+                        <AssigneeResolver assignee={entry}>
+                            {({ assignee }) => (
+                                <AssigneeLabelDisplay assignee={assignee} placeholder={`${entry.type}:${entry.id}`} />
+                            )}
+                        </AssigneeResolver>
+                    )}
+                </span>
+            )),
+        })
     }
     if (filters.dateFrom) {
         lines.push({ label: 'Date from', value: filters.dateFrom })
@@ -64,6 +83,8 @@ function FiltersSummary({ filters }: { filters: TicketViewFilters }): JSX.Elemen
 function SaveViewModal({ id }: TicketViewsLogicProps): JSX.Element {
     const { isSaveModalOpen, viewName, currentFilters } = useValues(ticketViewsLogic({ id }))
     const { closeSaveModal, setViewName, saveView } = useActions(ticketViewsLogic({ id }))
+    const editDisabledReason =
+        getAccessControlDisabledReason(AccessControlResourceType.Ticket, AccessControlLevel.Editor) ?? undefined
 
     return (
         <LemonModal
@@ -78,7 +99,7 @@ function SaveViewModal({ id }: TicketViewsLogicProps): JSX.Element {
                     <LemonButton
                         type="primary"
                         onClick={saveView}
-                        disabledReason={!viewName.trim() ? 'Enter a name' : undefined}
+                        disabledReason={editDisabledReason ?? (!viewName.trim() ? 'Enter a name' : undefined)}
                     >
                         Save view
                     </LemonButton>
@@ -91,7 +112,8 @@ function SaveViewModal({ id }: TicketViewsLogicProps): JSX.Element {
                     value={viewName}
                     onChange={setViewName}
                     autoFocus
-                    onPressEnter={saveView}
+                    disabledReason={editDisabledReason}
+                    onPressEnter={editDisabledReason ? undefined : saveView}
                 />
                 <FiltersSummary filters={currentFilters} />
             </div>
@@ -100,10 +122,41 @@ function SaveViewModal({ id }: TicketViewsLogicProps): JSX.Element {
 }
 
 export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
-    const { isModalOpen, views, viewsLoading, currentFilters } = useValues(ticketViewsLogic({ id }))
-    const { closeModal, openSaveModal, deleteView, loadView, updateView } = useActions(ticketViewsLogic({ id }))
+    const { isModalOpen, filteredViews, viewsLoading, currentFilters, favoritingShortIds, searchTerm } = useValues(
+        ticketViewsLogic({ id })
+    )
+    const { closeModal, openSaveModal, deleteView, loadView, updateView, toggleFavorite, setSearchTerm } = useActions(
+        ticketViewsLogic({ id })
+    )
+    const editDisabledReason =
+        getAccessControlDisabledReason(AccessControlResourceType.Ticket, AccessControlLevel.Editor) ?? undefined
 
     const columns: LemonTableColumns<SavedTicketView> = [
+        {
+            title: '',
+            key: 'favorite',
+            width: 0,
+            render: (_, view) => (
+                <LemonButton
+                    size="xsmall"
+                    loading={favoritingShortIds.includes(view.short_id)}
+                    onClick={() => toggleFavorite(view)}
+                    disabledReason={editDisabledReason}
+                    icon={
+                        view.is_favorited ? (
+                            <IconHeartFilled className="text-danger" />
+                        ) : (
+                            <IconHeart className="text-secondary" />
+                        )
+                    }
+                    tooltip={
+                        view.is_favorited
+                            ? 'Remove from your favorites (only visible to you)'
+                            : 'Add to your favorites (only visible to you)'
+                    }
+                />
+            ),
+        },
         {
             title: 'Name',
             dataIndex: 'name',
@@ -135,6 +188,7 @@ export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
                         Load
                     </LemonButton>
                     <More
+                        disabledReason={editDisabledReason}
                         overlay={
                             <LemonMenuOverlay
                                 items={[
@@ -224,7 +278,7 @@ export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
                 width={720}
                 footer={
                     <div className="flex justify-between w-full">
-                        <LemonButton type="primary" onClick={openSaveModal}>
+                        <LemonButton type="primary" onClick={openSaveModal} disabledReason={editDisabledReason}>
                             Save current view
                         </LemonButton>
                         <LemonButton type="secondary" onClick={closeModal}>
@@ -233,14 +287,23 @@ export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
                     </div>
                 }
             >
-                <LemonTable
-                    columns={columns}
-                    dataSource={views}
-                    rowKey="id"
-                    loading={viewsLoading}
-                    emptyState="No saved views yet."
-                    size="small"
-                />
+                <div className="space-y-2">
+                    <LemonInput
+                        type="search"
+                        placeholder="Search views"
+                        value={searchTerm}
+                        onChange={setSearchTerm}
+                        autoFocus
+                    />
+                    <LemonTable
+                        columns={columns}
+                        dataSource={filteredViews}
+                        rowKey="id"
+                        loading={viewsLoading}
+                        emptyState={searchTerm ? 'No matching views.' : 'No saved views yet.'}
+                        size="small"
+                    />
+                </div>
             </LemonModal>
             <SaveViewModal id={id} />
         </>

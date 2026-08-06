@@ -14,10 +14,10 @@ from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 logger = structlog.get_logger(__name__)
 
 ####
-# Deprecated insight `dashboards` field: two-phase removal. While False (phase 1), every caller
-# still receives the field and usage is metered by access method; flipping to True (phase 2)
-# enforces the `include_dashboards` opt-in for non-first-party callers. Env-toggleable so the
-# enforcement can be reverted without a code change.
+# Deprecated insight `dashboards` field: session-authenticated callers always need to opt in with
+# `include_dashboards`. While False, API-token callers still receive the field; flipping to True
+# enforces the opt-in for them too. Env-toggleable so token enforcement can be reverted without a
+# code change.
 INSIGHT_DASHBOARDS_OPT_IN_ENFORCED = get_from_env("INSIGHT_DASHBOARDS_OPT_IN_ENFORCED", False, type_cast=str_to_bool)
 
 ####
@@ -42,6 +42,7 @@ PRODUCTS_APPS = [
     "products.analytics_platform.backend.apps.AnalyticsPlatformConfig",
     "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
     "products.tasks.backend.apps.TasksConfig",
+    "products.canvas.backend.apps.CanvasConfig",
     "products.stamphog.backend.apps.StamphogConfig",
     "products.links.backend.apps.LinksConfig",
     "products.field_notes.backend.apps.FieldNotesConfig",
@@ -57,6 +58,7 @@ PRODUCTS_APPS = [
     "products.notebooks.backend.apps.NotebooksConfig",
     "products.surveys.backend.apps.SurveysConfig",
     "products.data_warehouse.backend.apps.DataWarehouseConfig",
+    "products.managed_warehouse.backend.apps.ManagedWarehouseConfig",
     "products.data_modeling.backend.apps.DataModelingConfig",
     "products.live_debugger.backend.apps.LiveDebuggerConfig",
     "products.experiments.backend.apps.ExperimentsConfig",
@@ -77,6 +79,7 @@ PRODUCTS_APPS = [
     "products.logs.backend.apps.LogsConfig",
     "products.tracing.backend.apps.TracingConfig",
     "products.metrics.backend.apps.MetricsConfig",
+    "products.apm.backend.apps.ApmConfig",
     "products.notifications.backend.apps.NotificationsConfig",
     "products.dashboards.backend.apps.DashboardsConfig",
     "products.messaging.backend.apps.MessagingConfig",
@@ -87,7 +90,6 @@ PRODUCTS_APPS = [
     "products.access_control.backend.apps.AccessControlConfig",
     "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
     "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
-    "products.agent_platform.backend.apps.AgentPlatformConfig",
     "products.web_analytics.backend.apps.WebAnalyticsConfig",
     "products.warehouse_sources.backend.apps.WarehouseSourcesConfig",
     "products.data_tools.backend.apps.DataToolsConfig",
@@ -351,15 +353,15 @@ SESSION_RISK_ENABLED = get_from_env("SESSION_RISK_ENABLED", not TEST, type_cast=
 # Off by default: it must stay off until the launch fill-rate/failure alert is in place, and v0 is
 # US-only. Fire-and-forget from signup, so this only gates whether the workflow is dispatched at all.
 GROWTH_SIGNUP_ENRICHMENT_ENABLED = get_from_env("GROWTH_SIGNUP_ENRICHMENT_ENABLED", False, type_cast=str_to_bool)
+# The internal analytics project the enrichment pipeline reads/writes bridge and mirror data
+# against (products/growth/backend/enrichment). Defaults to project 2, the internal project the
+# enrichment group properties are projected onto; env-overridable since that id differs across
+# cloud deployments.
+GROWTH_ENRICHMENT_INTERNAL_TEAM_ID = get_from_env("GROWTH_ENRICHMENT_INTERNAL_TEAM_ID", 2, type_cast=int)
 # Session keys for risk-based step-up (posthog/session/risk.py). Named so every reader/writer shares
 # one source of truth, like SESSION_COOKIE_CREATED_AT_KEY above.
 SESSION_STEP_UP_REQUIRED_KEY = get_from_env("SESSION_STEP_UP_REQUIRED_KEY", "step_up_required")
 SESSION_LAST_REAUTH_AT_KEY = get_from_env("SESSION_LAST_REAUTH_AT_KEY", "last_reauth_at")
-# Dedup state for risk telemetry/enforcement: the last-emitted anomaly signature and when. A flagged
-# session is re-scored every request, but we only re-emit/re-enforce on a new signature or after the
-# cooldown, so one persistent anomaly can't fire on every request. Cleared on (re)login by post_login.
-SESSION_RISK_LAST_SIG_KEY = get_from_env("SESSION_RISK_LAST_SIG_KEY", "risk_last_sig")
-SESSION_RISK_LAST_EMIT_AT_KEY = get_from_env("SESSION_RISK_LAST_EMIT_AT_KEY", "risk_last_emit_at")
 
 # Impossible-travel risk thresholds (see posthog/session/risk.py). Tunable without a code change.
 RISK_DISTANCE_FLOOR_KM = get_from_env("RISK_DISTANCE_FLOOR_KM", 500.0, type_cast=float)
@@ -415,6 +417,18 @@ STATIC_URL = "/static/"
 STATICFILES_DIRS = [
     os.path.join(BASE_DIR, "frontend/dist"),
 ]
+if DEBUG:
+    # Vite copies frontend/public into dist only on a production build, so in dev
+    # nothing serves `/static/services/*`. Those paths aren't bundler imports — they
+    # arrive as strings in API payloads (warehouse source `iconPath`, CDP destination
+    # `icon_url`), so the bundler never sees them and can't rewrite them. The request
+    # falls through to the SPA catch-all, the <img> is handed HTML, and every one of
+    # those logos silently swaps to its error placeholder.
+    #
+    # DEBUG-only on purpose: in production dist already holds these files, and adding
+    # a second source for 1300+ identical assets would make collectstatic warn about
+    # duplicate destinations for no gain.
+    STATICFILES_DIRS.append(os.path.join(BASE_DIR, "frontend/public"))
 STORAGES = {
     "default": {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
@@ -545,8 +559,12 @@ SPECTACULAR_SETTINGS = {
         #    path (drf-spectacular generates the x-spec-enum-id from the same tuples).
         # --- Model class paths (ChoiceField x-spec-enum-id hashes) ---
         "SignalReportRefundReasonEnum": "products.signals.backend.models.SignalReportRefund.Reason",
+        "ScoutConfigStatusEnum": "products.signals.backend.models.SignalScoutConfig.Status",
+        "ScoutConfigPauseReasonEnum": "products.signals.backend.models.SignalScoutConfig.PauseReason",
+        "ScoutConfigNetworkAccessEnum": "products.signals.backend.models.SignalScoutConfig.NetworkAccess",
         "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
         "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
+        "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",
         "RestrictionLevelEnum": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
         "OrganizationMembershipLevelEnum": "posthog.models.organization.OrganizationMembership.Level",
         "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
@@ -562,24 +580,64 @@ SPECTACULAR_SETTINGS = {
         "EvaluationTargetEnum": "products.ai_observability.backend.models.evaluations.EvaluationTarget",
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
+        # Shared by Ticket.priority and TicketViewFilters.priority (same choice set).
+        "TicketPriorityEnum": "products.conversations.backend.models.constants.Priority",
+        "TicketChannelFilterEnum": "products.conversations.backend.api.ticket_filters.TICKET_CHANNEL_FILTER_CHOICES",
+        "TicketSlaFilterEnum": "products.conversations.backend.api.ticket_filters.TICKET_SLA_FILTER_CHOICES",
+        "TicketTagsMatchEnum": "products.conversations.backend.api.ticket_filters.TICKET_TAGS_MATCH_CHOICES",
+        "TicketSortOrderEnum": "products.conversations.backend.api.ticket_filters.TICKET_SORT_ORDER_CHOICES",
         "BatchImportStatusEnum": "products.managed_migrations.backend.models.batch_imports.BatchImport.Status",
+        # Shared by ExperimentMetricsRecalculation.status and ActiveRecalculationRun.status (same choice set).
+        "MetricsRecalculationStatusEnum": (
+            "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Status"
+        ),
+        "AnnouncementStatusEnum": "products.customer_analytics.backend.models.announcement.Announcement.Status",
+        "AnnouncementDeliveryStatusEnum": "products.customer_analytics.backend.models.announcement_delivery.AnnouncementDelivery.Status",
         "HealthIssueStatusEnum": "posthog.models.health_issue.HealthIssue.Status",
         "HealthIssueSeverityEnum": "posthog.models.health_issue.HealthIssue.Severity",
         "IngestionWarningSeverityEnum": "posthog.api.ingestion_warnings_v2.INGESTION_WARNING_SEVERITIES",
         # Disambiguates from the same-valued inline enum on the signals LogsAlertStateChangeSignalExtra contract.
         "LogsAlertThresholdOperatorEnum": "products.logs.backend.models.LogsAlertConfiguration.ThresholdOperator",
+        # Shared by _LogsGroupByBody.groupBySource and _LogsGroupByDimension.source (labels == values).
+        "LogsGroupBySourceEnum": "products.logs.backend.group_by_query_runner.GROUP_SOURCES",
         "LLMProviderEnum": "products.ai_observability.backend.models.provider_keys.LLMProvider",
         "EvaluationReportFrequencyEnum": (
             "products.ai_observability.backend.models.evaluation_reports.EvaluationReport.Frequency"
         ),
         "HogFlowStatusEnum": "products.workflows.backend.models.hog_flow.hog_flow.HogFlow.State",
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
+        "UtmIssueKindEnum": "products.marketing_analytics.backend.services.types.UTM_ISSUE_KIND_CHOICES",
+        # Shared by ConversionGoalSummary.kind and GoalExplanation.kind (same choice set).
+        "ConversionGoalKindEnum": "products.marketing_analytics.backend.hogql_queries.constants.CONVERSION_GOAL_KIND_CHOICES",
         "MCPInstallationScopeEnum": ["personal", "shared"],
+        "MCPServiceAccountStatusEnum": "products.mcp_store.backend.models.SERVICE_ACCOUNT_STATUS_CHOICES",
+        "MCPServerCategoryEnum": "products.mcp_store.backend.models.CATEGORY_CHOICES",
+        "MCPToolApprovalStateEnum": "products.mcp_store.backend.models.APPROVAL_STATES",
+        "MCPPolicyPresetEnum": "products.mcp_store.backend.models.POLICY_PRESET_CHOICES",
+        "MCPAuditDecisionEnum": "products.mcp_store.backend.models.AUDIT_DECISION_CHOICES",
+        # Keeps agent_platform's approval-request enum on its pre-collision name now
+        # that mcp_store also has a "decision" field.
+        "DecisionEnum": ["approve", "reject"],
+        # Disambiguates from data_modeling's node_type (table/view/matview/endpoint).
+        "NotebookSQLV2NodeTypeEnum": ["hogql", "python"],
+        "NotebookSQLV2RefKindEnum": ["hogql", "local"],
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
         # Inline-choices variant of TaskRun.Status (labels == values), shared by
         # TaskRunUpdate.status and ExperimentFlagCleanupTask.run_status.
         "RunStatusEnum": ["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
         "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",
+        "ReasoningEffortEnum": ["low", "medium", "high", "xhigh", "max", "ultracode", None],
+        "TaskRunReasoningEffortEnum": [
+            "off",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultracode",
+            None,
+        ],
         "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",
         "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
         "ScannerModelEnum": "products.replay_vision.backend.models.replay_scanner.ScannerModel",
@@ -604,6 +662,14 @@ SPECTACULAR_SETTINGS = {
         "TargetTypeEnum": "products.exports.backend.models.subscription.Subscription.SubscriptionTarget",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
+        # `bucket` is a generic field name; name the experiment recordings bucket set explicitly.
+        "ExperimentSessionBucketEnum": ["fired_any", "no_metric_activity", "funnel_dropoff"],
+        # Account.slack_summary_cadence and AccountChannelSummary.cadence share the same
+        # daily/weekly/monthly choice set; pin one name for both.
+        "SlackSummaryCadenceEnum": ["daily", "weekly", "monthly"],
+        # Canvas source diagnostics and marketing-analytics UTM issues share the same
+        # error/warning severity pair; pin one shared name for the choice set.
+        "DiagnosticSeverityEnum": ["error", "warning"],
         # ReviewHog findings expose the same priority set on two fields (effective_priority +
         # reviewer_priority); pin one shared name for the choice set.
         "ReviewIssuePriorityEnum": ["must_fix", "should_fix", "consider"],
@@ -636,13 +702,13 @@ SPECTACULAR_SETTINGS = {
         "InvestigationVerdictEnum": ["true_positive", "false_positive", "inconclusive"],
         # Preserve Replay Vision's existing verdict type name after introducing the shared enum above.
         "VerdictEnum": ["yes", "no", "inconclusive"],
-        # AgentRevision.state (model ChoiceField) and RevisionNotDraftError.state (the
-        # bundle-edit 409 body) share one choice set — pin them to a single named enum.
-        "AgentRevisionStateEnum": ["draft", "ready", "live", "archived"],
         # Tracing's span-filter `type` and attribute-breakdown `breakdownType` share one
         # choice set (top-level column vs span attribute vs resource attribute).
         "SpanPropertyTypeEnum": ["span", "span_attribute", "span_resource_attribute"],
         "LogsViewColumnTypeEnum": ["timestamp", "level", "source", "trace_id", "span_id", "message", "custom"],
+        # LoopTriggerWrite.type and LoopPreviewRequest.trigger_type share the same
+        # schedule/github/api choice set — pin them to a single named enum.
+        "LoopTriggerTypeEnum": ["schedule", "github", "api"],
         "CustomPropertyDisplayTypeEnum": [
             "text",
             "number",
@@ -693,7 +759,7 @@ SPECTACULAR_SETTINGS = {
         # SignalReportBulkStateRequest) that both expose the same `state` ChoiceField. Pin the
         # shared enum to a stable name so it doesn't collide with the other `state` enums
         # (tasks, cdp) into a component-prefixed auto-name.
-        "SignalReportStateEnum": ["suppressed", "potential"],
+        "SignalReportStateEnum": ["suppressed", "potential", "resolved"],
         # Two serializers now expose an `op` ChoiceField (metrics filters and email-template design
         # patches). Pin both to stable names so neither gets a component-prefixed auto-name on collision.
         # "OpEnum" keeps the metrics filter enum at its pre-existing generated name.
@@ -737,11 +803,11 @@ SPECTACULAR_SETTINGS = {
             "span_attribute",
             "span_resource_attribute",
             "revenue_analytics",
+            "account_custom_property",
             "flag",
             "workflow_variable",
         ],
         "AssigneeTypeEnum": ["user", "role"],
-        "AgentSessionStateEnum": ["queued", "running", "completed", "closed", "cancelled", "failed"],
         "ScoutOriginEnum": ["canonical", "custom"],
         "FileFormatEnum": ["Parquet", "JSONLines"],
         "MetricAttributeScopeEnum": ["resource", "attribute", "auto"],
@@ -797,7 +863,20 @@ SPECTACULAR_SETTINGS = {
         "DescriptionContentTypeEnum": ["text", "html"],
         # Field-name collisions: multiple different choice sets use the same field name
         # across different serializer components.
-        "StringMatchOperatorEnum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
+        "StringMatchOperatorEnum": [
+            "exact",
+            "is_not",
+            "icontains",
+            "not_icontains",
+            "starts_with",
+            "not_starts_with",
+            "ends_with",
+            "not_ends_with",
+            "regex",
+            "not_regex",
+        ],
+        # Survey url/device match types keep the operator subset without starts_with/ends_with.
+        "SurveyMatchTypeEnum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
         "DateOperatorEnum": ["is_date_exact", "is_date_before", "is_date_after"],
         "DetailModeValueEnum": ["minimal", "detailed"],
         "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
@@ -909,7 +988,11 @@ DOMAIN_CONNECT_KEY_ID: str = os.getenv("DOMAIN_CONNECT_KEY_ID", "_dcpubkeyv1")
 ####
 # CDP
 
+# Deprecated compatibility fallback for the image CDN. New deployments should configure the
+# API-specific credentials below so a publishable key can never be reused for authenticated API calls.
 LOGO_DEV_TOKEN = get_from_env("LOGO_DEV_TOKEN", "")
+LOGO_DEV_PUBLISHABLE_KEY = get_from_env("LOGO_DEV_PUBLISHABLE_KEY", LOGO_DEV_TOKEN)
+LOGO_DEV_SECRET_KEY = get_from_env("LOGO_DEV_SECRET_KEY", "")
 
 ####
 # Feature flag billing analytics
@@ -953,8 +1036,7 @@ API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_t
 # /api/environments deprecation
 
 # Requests to /api/environments/* are served through the equivalent /api/projects/*
-# viewset via an in-process path rewrite, gated by the `api-environments-redirect`
-# feature flag — see posthog.middleware.EnvironmentsRewriteMiddleware.
+# viewset via an in-process path rewrite — see posthog.middleware.EnvironmentsRewriteMiddleware.
 # ISO date announced to integrators via the `Sunset` response header (RFC 8594) on
 # /api/environments/* responses. Empty string omits the header.
 API_ENVIRONMENTS_SUNSET_DATE = get_from_env("API_ENVIRONMENTS_SUNSET_DATE", "2026-07-31")
@@ -1157,20 +1239,34 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS: list[int] = [
     for team_id in get_list(get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
 ]
 
-# Teams allowed to precompute *any* web analytics query, not just the
-# single-`$host`-exact filter shape the general gate permits. For these teams the
-# eligibility gate skips the filter-shape restriction (arbitrary property filters
-# become distinct cache keys via `property_to_expr`) and flips the per-query
-# toggle from opt-in to opt-out (precompute runs unless the user explicitly turns
-# it off). Membership here also implies precompute enrollment, so a team need not
-# also appear in `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS`. Same Cloud-only
-# default (project 2) and comma-separated env-var override as the enrollment list.
-WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS: list[int] = [
+# Upper bound on the number of distinct precompute shapes (query cache keys) a single
+# team may have live at once. Any filter combination becomes its own shape, so a
+# pathological team could otherwise mint unbounded namespaces. This is a coarse backstop,
+# not a quota: a team builds shapes freely until it reaches this many, after which only
+# *new* shapes fall back to the live query — existing shapes keep serving and refreshing.
+# Sized well above any realistic team; 0 disables the cap.
+WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM: int = get_from_env(
+    "WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM", 1000, type_cast=int
+)
+
+# Cohort the weekly AI path-cleaning-suggestion job runs for. Defaults to the precompute enrollment
+# list (the teams "selected to test out precomputed analytics tables") so the two cohorts track each
+# other unless explicitly overridden. Comma-separated env-var override, like the lists above.
+WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS_TEAM_IDS: list[int] = [
     int(team_id)
     for team_id in get_list(
-        get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS)
+        get_from_env(
+            "WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS_TEAM_IDS",
+            ",".join(str(t) for t in WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS),
+        )
     )
 ]
+
+# Model the path-cleaning-suggestion job sends to the LLM gateway. Must be in the `web_analytics`
+# product allowlist in services/llm-gateway/src/llm_gateway/products/config.py.
+WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS_MODEL: str = get_from_env(
+    "WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS_MODEL", "claude-haiku-4-5"
+)
 
 # Teams whose web analytics queries (overview, paths tile) skip the events↔sessions join
 # when nothing in the query (property filters, conversion goal, test-account filters,

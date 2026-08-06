@@ -62,6 +62,35 @@ describe('alertFormSchema', () => {
         ).toBe(false)
     })
 
+    it('requires the lower threshold to be below the upper threshold', () => {
+        const errors = getAlertFormValidationErrors({
+            ...baseAlert,
+            threshold: {
+                configuration: {
+                    type: InsightThresholdType.ABSOLUTE,
+                    bounds: { lower: 5, upper: 1 },
+                },
+            },
+        })
+
+        expect(errors.threshold).toBe('The “Less than” value must be lower than the “More than” value')
+    })
+
+    it('rejects negative thresholds for relative conditions', () => {
+        const errors = getAlertFormValidationErrors({
+            ...baseAlert,
+            condition: { type: AlertConditionType.RELATIVE_DECREASE },
+            threshold: {
+                configuration: {
+                    type: InsightThresholdType.ABSOLUTE,
+                    bounds: { upper: -1 },
+                },
+            },
+        })
+
+        expect(errors.threshold).toBe('Enter zero or a positive change value')
+    })
+
     it('treats cleared threshold inputs as missing bounds', () => {
         expect(
             thresholdAlertHasBounds({
@@ -76,7 +105,7 @@ describe('alertFormSchema', () => {
         ).toBe(false)
     })
 
-    it('skips threshold bounds when detector_config is set', () => {
+    it.each([{}, null])('skips threshold bounds when detector_config is set and bounds are %p', (bounds) => {
         expect(
             getAlertFormValidationErrors({
                 ...baseAlert,
@@ -84,7 +113,7 @@ describe('alertFormSchema', () => {
                 threshold: {
                     configuration: {
                         type: InsightThresholdType.ABSOLUTE,
-                        bounds: {},
+                        bounds,
                     },
                 },
             })
