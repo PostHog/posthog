@@ -94,6 +94,7 @@ import type {
 import { getPrInfoByUrlOutput, prConversationCommentSchema } from "./schemas";
 
 const FETCH_THROTTLE_MS = 30_000;
+const GITHUB_REF_LOOKUP_TIMEOUT_MS = 10_000;
 /** Max PRs per GraphQL request – stays well under GitHub's complexity ceiling. */
 const PR_DIFF_STATS_BATCH_CHUNK_SIZE = 25;
 
@@ -1958,7 +1959,9 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
       kind === "pr"
         ? "number,title,state,url,isDraft"
         : "number,title,state,labels,url";
-    const result = await execGh([...args, "--json", jsonFields]);
+    const result = await execGh([...args, "--json", jsonFields], {
+      timeoutMs: GITHUB_REF_LOOKUP_TIMEOUT_MS,
+    });
     if (result.exitCode !== 0) return [];
 
     try {

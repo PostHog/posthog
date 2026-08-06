@@ -36,6 +36,40 @@ describe("GitService", () => {
     ).resolves.toEqual([]);
   });
 
+  it("bounds GitHub pull request lookups so editor chips do not load forever", async () => {
+    execGhMock.mockResolvedValue(
+      ghResult({
+        stdout: JSON.stringify({
+          number: 123,
+          title: "Fix pull request title resolution",
+          state: "OPEN",
+          url: "https://github.com/posthog/posthog/pull/123",
+          isDraft: false,
+        }),
+      }),
+    );
+
+    await expect(
+      new GitService().getGithubPullRequest("posthog", "posthog", 123),
+    ).resolves.toMatchObject({
+      number: 123,
+      title: "Fix pull request title resolution",
+    });
+
+    expect(execGhMock).toHaveBeenCalledWith(
+      [
+        "pr",
+        "view",
+        "123",
+        "--repo",
+        "posthog/posthog",
+        "--json",
+        "number,title,state,url,isDraft",
+      ],
+      { timeoutMs: 10_000 },
+    );
+  });
+
   it("returns changed files from a successful comparison", async () => {
     execGhMock
       .mockResolvedValueOnce(ghResult({ stdout: "main\n" }))
