@@ -163,10 +163,24 @@ const PERSIST_PROMPT_SUB_TOOLS = new Set([
     'workflows-create-email-template',
 ])
 
-/** Whether a permission request resolves to a create-family persist tool from `PERSIST_PROMPT_SUB_TOOLS`. */
+/**
+ * Whether a permission request resolves to a create-family persist tool from `PERSIST_PROMPT_SUB_TOOLS`.
+ *
+ * Unwraps `posthog-connection-call` the same way `isPostHogDestructiveSubTool` does: the wrapper
+ * persists exactly what the tool in its `tool` argument persists, and a survey launched in someone
+ * else's project is no less worth a foreground prompt than one launched here. An unreadable target
+ * is not provably safe, so it prompts.
+ */
 export function isPersistPromptTool(record: PermissionRequestRecord): boolean {
-    const { innerToolName } = resolveToolCall(record.rawToolCall)
-    return innerToolName != null && PERSIST_PROMPT_SUB_TOOLS.has(innerToolName)
+    const { innerToolName, innerInput } = resolveToolCall(record.rawToolCall)
+    if (innerToolName == null) {
+        return false
+    }
+    if (innerToolName.toLowerCase() === POSTHOG_CONNECTION_CALL_TOOL) {
+        const forwardedTool = innerInput?.['tool']
+        return typeof forwardedTool !== 'string' || PERSIST_PROMPT_SUB_TOOLS.has(forwardedTool)
+    }
+    return PERSIST_PROMPT_SUB_TOOLS.has(innerToolName)
 }
 
 /** The optionId to auto-send when allowing — prefers the one-shot allow over `allow_always`. */

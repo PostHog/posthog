@@ -220,6 +220,55 @@ describe('toolPolicy', () => {
             ['query-trends (read-only)', makeRecord({ input: { command: 'call query-trends {}' } }), false],
             // An exec call that can't resolve to a concrete sub-tool has no `innerToolName` to match on.
             ['unresolvable exec call', makeRecord({ input: { command: 'call --json' } }), false],
+            // posthog-connection-call persists whatever the tool it forwards persists — in *another*
+            // account. Matching the wrapper name alone would auto-approve a cross-account launch in
+            // exactly the watched run this gate exists for.
+            [
+                'posthog-connection-call running survey-launch',
+                makeRecord({
+                    input: {
+                        command:
+                            'call posthog-connection-call {"connection_id":"1","tool":"survey-launch","arguments":{}}',
+                    },
+                }),
+                true,
+            ],
+            [
+                'posthog-connection-call running dashboard-create',
+                makeRecord({
+                    input: {
+                        command:
+                            'call posthog-connection-call {"connection_id":"1","tool":"dashboard-create","arguments":{"name":"x"}}',
+                    },
+                }),
+                true,
+            ],
+            [
+                'posthog-connection-call running a read-only tool',
+                makeRecord({
+                    input: {
+                        command:
+                            'call posthog-connection-call {"connection_id":"1","tool":"execute-sql","arguments":{}}',
+                    },
+                }),
+                false,
+            ],
+            // The three ways the forwarded name can be unreadable all fail closed to a prompt.
+            [
+                'posthog-connection-call with no tool argument',
+                makeRecord({ input: { command: 'call posthog-connection-call {"connection_id":"1"}' } }),
+                true,
+            ],
+            [
+                'posthog-connection-call with a non-string tool argument',
+                makeRecord({ input: { command: 'call posthog-connection-call {"connection_id":"1","tool":42}' } }),
+                true,
+            ],
+            [
+                'posthog-connection-call with unparseable arguments',
+                makeRecord({ input: { command: 'call posthog-connection-call {not json' } }),
+                true,
+            ],
         ])('%s → %s', (_case, record, expected) => {
             expect(isPersistPromptTool(record)).toEqual(expected)
         })

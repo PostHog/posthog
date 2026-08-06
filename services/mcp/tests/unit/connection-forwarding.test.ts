@@ -99,7 +99,7 @@ describe('posthog connection forwarding', () => {
 
             await forwarding.request({ method: 'POST', path: '/api/projects/4242/query/', body: { query: 'select 1' } })
 
-            expect(request.mock.calls[0][0].body).toEqual({
+            expect(request.mock.calls[0]![0].body).toEqual({
                 method: 'POST',
                 path: 'api/projects/4242/query/',
                 data: { query: 'select 1' },
@@ -167,7 +167,7 @@ describe('posthog connection forwarding', () => {
             })
 
             const forwardCall = request.mock.calls.find(([opts]: any[]) => opts.path === FORWARD_PATH)
-            expect(forwardCall[0].body).toEqual({
+            expect(forwardCall![0].body).toEqual({
                 method: 'POST',
                 path: 'api/projects/4242/query/',
                 data: { query: 'select 1 from events limit 5' },
