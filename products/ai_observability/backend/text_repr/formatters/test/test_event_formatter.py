@@ -431,6 +431,12 @@ class TestSpanToolResultFormatting:
         assert "[TOOL RESULT] search (success)" in result
         assert MISSING_TOOL_OUTPUT_NOTE in result
 
+    def test_tool_result_with_a_falsey_payload_is_kept(self):
+        state = {"type": "tool", "name": "count", "status": "success", "content": 0}
+        result = format_event_text_repr(self._span(state))
+        assert "0" in result
+        assert MISSING_TOOL_OUTPUT_NOTE not in result
+
     def test_tool_result_content_blocks_render_as_text(self):
         state = {
             "type": "tool",
