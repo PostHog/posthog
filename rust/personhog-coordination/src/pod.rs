@@ -18,6 +18,7 @@ use assignment_coordination::store::parse_watch_value;
 use k8s_awareness::types::{ControllerKind, ControllerRef};
 use k8s_awareness::{DepartureReason, K8sAwareness};
 
+use crate::authority::AuthorityClock;
 use crate::error::{Error, Result};
 use crate::store::{self, PersonhogStore};
 use crate::types::{
@@ -126,6 +127,25 @@ pub trait HandoffHandler: Send + Sync {
     /// the leader's warm does — because a cancelled warm is never
     /// released: the pod only tracks a warm once this returns.
     async fn warm_partition(&self, partition: u32) -> Result<()>;
+
+    /// Owner: confirm this pod still holds whatever a partition needs in
+    /// order to serve it, and re-take anything missing.
+    ///
+    /// Called on every convergence to `Serving`, including reconcile
+    /// ticks, so it is the repair path for state the handoff protocol has
+    /// no way back from — the leader uses it to re-take a changelog fence
+    /// evicted by a broker rejection or lost to a failed abort. Running
+    /// under `Serving` is what makes it safe: the pod re-takes only what
+    /// the durable assignment says it owns, rather than what its local
+    /// caches happen to still hold.
+    ///
+    /// Idempotent and cheap when nothing is missing, since it runs
+    /// per-partition on every tick.
+    /// Returns whether repair work was applied, so the convergence can
+    /// count it as progress.
+    async fn verify_serving(&self, _partition: u32) -> Result<bool> {
+        Ok(false)
+    }
 
     /// Old owner: release the partition from this pod's local state (drop cache,
     /// close consumers, etc.).
@@ -248,18 +268,25 @@ pub struct PodHandle {
     /// not reflect lost ownership, so the run supervisor must not retry
     /// in place — only a process restart clears this.
     fence_poisoned: AtomicBool,
+    /// This pod's claim to serve, shared with the data plane and reset
+    /// at each lease grant. Reads as invalid until the first grant.
+    authority: Arc<AuthorityClock>,
     /// Optional K8s awareness for departure classification during shutdown.
     k8s_awareness: Option<Arc<K8sAwareness>>,
 }
 
 impl PodHandle {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         store: Arc<PersonhogStore>,
         config: PodConfig,
         handler: Arc<dyn HandoffHandler>,
         k8s_awareness: Option<Arc<K8sAwareness>>,
+        // Shared with the data plane, which holds it from process start
+        // and consults it per request.
+        authority: Arc<AuthorityClock>,
     ) -> Self {
-        let renewal_margin = Duration::from_secs(config.lease_ttl.max(0) as u64).mul_f64(2.0 / 3.0);
+        let renewal_margin = AuthorityClock::renewal_margin(config.lease_ttl);
         assert!(
             config.heartbeat_interval < renewal_margin,
             "heartbeat_interval ({:?}) must be well under the keepalive renewal margin \
@@ -277,8 +304,15 @@ impl PodHandle {
             drain_notify: Notify::new(),
             warm_slots,
             fence_poisoned: AtomicBool::new(false),
+            authority,
             k8s_awareness,
         }
+    }
+
+    /// This pod's claim to serve, for the data plane to consult on the
+    /// request path. Invalid until the first lease is granted.
+    pub fn authority(&self) -> Arc<AuthorityClock> {
+        Arc::clone(&self.authority)
     }
 
     /// Run the pod's coordination, supervised at two levels so a
@@ -339,15 +373,59 @@ impl PodHandle {
             // session split exists to close. It keeps running through the
             // drain phase too, so the coordinator sees a Draining pod
             // rather than a crashed one.
+            // A new lease is a new claim: reset the shared clock rather
+            // than replacing it, so the data plane's handle carries the
+            // new session without re-plumbing.
+            self.authority.begin_session(
+                AuthorityClock::renewal_margin(self.config.lease_ttl),
+                granted_at,
+            );
+
+            // The keepalive learns of a revoked lease on its next round,
+            // which is up to a heartbeat away — and in that window the
+            // coordinator has already seen the deletion and can reassign,
+            // warm a successor, and let it start accepting writes while
+            // this pod still answers reads from a cache that is no longer
+            // the truth. Watching our own registration collapses that
+            // window to a watch delivery.
+            //
+            // Deliberately best-effort: it accelerates detection, it does
+            // not own it. If the stream never establishes or dies, the
+            // keepalive's margin remains the guarantee, exactly as before.
             let heartbeat_cancel = CancellationToken::new();
+            let registration_cancel = CancellationToken::new();
+            let registration_watch = {
+                let store = Arc::clone(&self.store);
+                let authority = Arc::clone(&self.authority);
+                let pod_name = self.config.pod_name.clone();
+                let token = registration_cancel.child_token();
+                // Ending the session is the keepalive's job, so the watch
+                // ends it the same way rather than inventing a second
+                // path: stopping the heartbeat makes the attempt loop
+                // take the lease-loss branch it already has, which
+                // fences, releases, and registers anew.
+                let end_session = heartbeat_cancel.clone();
+                tokio::spawn(async move {
+                    watch_own_registration(store, pod_name, authority, end_session, token).await;
+                })
+            };
+
             let mut heartbeat_handle = {
                 let store = Arc::clone(&self.store);
                 let interval = self.config.heartbeat_interval;
                 let lease_ttl = self.config.lease_ttl;
                 let token = heartbeat_cancel.child_token();
+                let authority = Arc::clone(&self.authority);
                 tokio::spawn(async move {
                     util::run_lease_keepalive(
-                        store, lease_id, interval, lease_ttl, granted_at, "pod", token,
+                        store,
+                        lease_id,
+                        interval,
+                        lease_ttl,
+                        granted_at,
+                        "pod",
+                        Some(authority),
+                        token,
                     )
                     .await
                 })
@@ -480,6 +558,16 @@ impl PodHandle {
                         "pre-revoke self-fence failed; refusing in-place recovery"
                     );
                 }
+                // Only now do we stop being the owner. On this path the
+                // lease is still alive and the registration still stands:
+                // surrendering before the drain would refuse reads the
+                // protocol deliberately keeps serving — the old owner's
+                // cache is the latest state right up to cutover — while
+                // the coordinator, seeing a live owner, reassigns
+                // nothing.
+                self.authority.surrender();
+                registration_cancel.cancel();
+                drop(registration_watch.await);
                 heartbeat_cancel.cancel();
                 drop(heartbeat_handle.await);
                 drop(self.store.revoke_lease(lease_id).await);
@@ -494,6 +582,15 @@ impl PodHandle {
                 // expiry, and a fence still draining past it loses the
                 // race it exists to win. Overshoot poisons, and the
                 // process restart clears stragglers by death.
+                // Authority is already gone, so stop serving as the owner
+                // before the drain rather than after it: the coordinator
+                // may be reassigning right now, and a drain can take
+                // seconds. A stale stamp merely expires; lease loss is a
+                // fact that must not be undone by a renewal racing in
+                // behind us, which is why this latches.
+                self.authority.surrender();
+                registration_cancel.cancel();
+                drop(registration_watch.await);
                 let runway = Duration::from_secs(self.config.lease_ttl.max(0) as u64) / 3;
                 if let Err(e) = self
                     .self_fence_locally(runway.min(self.config.drain_timeout))
@@ -506,6 +603,21 @@ impl PodHandle {
                         "local self-fence failed; refusing in-place recovery"
                     );
                 }
+                // Usually the lease is already dead here and this is a
+                // dropped error. The registration watch also lands on
+                // this branch when the key was deleted out from under a
+                // live lease (an operator `del`, not a revoke) — without
+                // this, that lease would sit alive and unreferenced for
+                // its full TTL while the next session grants a second
+                // one. Strictly after the self-fence and bounded: this
+                // is cleanup, an unhealthy etcd is the usual reason for
+                // being on this branch, and the store has no request
+                // timeouts of its own — unbounded it could hold up the
+                // fence or the next session for as long as the outage.
+                drop(
+                    tokio::time::timeout(Duration::from_secs(5), self.store.revoke_lease(lease_id))
+                        .await,
+                );
             }
 
             if let Some(e) = fatal {
@@ -943,6 +1055,13 @@ impl PodHandle {
                         .insert(partition, WarmProvenance::Serving);
                     did_work = true;
                 }
+                // Whatever the branch above did, the pod is meant to be
+                // serving this partition now — so let the handler repair
+                // anything it needs and no longer has. Repair applied is
+                // progress like any other applied work.
+                if self.handler.verify_serving(partition).await? {
+                    did_work = true;
+                }
                 // Resume any local fence regardless of which branch ran:
                 // a crash-restart inside the TTL can leave a partition
                 // fenced but unwarmed (re-fenced through the Drained arm
@@ -951,6 +1070,7 @@ impl PodHandle {
                 // admission depend on an undocumented handler side
                 // effect. Resuming after a warm that already unfenced is
                 // an idempotent no-op.
+                //
                 // Clear the local record only once the handler has
                 // actually resumed: `resume_partition` can fail (it may
                 // re-take broker-side state), and forgetting the fence
@@ -1332,6 +1452,93 @@ impl PodHandle {
 enum Trigger {
     Event,
     Reconcile,
+}
+
+/// Surrender the moment this pod's own registration disappears.
+///
+/// A lease revoked or expired out from under a pod deletes its keys
+/// immediately, but the pod only learns on its next keepalive round.
+/// The coordinator sees the deletion at once and can reassign inside
+/// that gap, so the pod can be answering reads from a cache the new
+/// owner is already changing. This closes the gap to a watch delivery.
+///
+/// It is an accelerator, not the guarantee: a stream that never
+/// establishes, or dies, simply leaves detection to the keepalive margin
+/// as before, which is why nothing here retries or escalates.
+async fn watch_own_registration(
+    store: Arc<PersonhogStore>,
+    pod_name: String,
+    authority: Arc<AuthorityClock>,
+    end_session: CancellationToken,
+    cancel: CancellationToken,
+) {
+    // Establishment is raced against the token just like the stream
+    // reads below: the session teardown joins this task, so an etcd call
+    // stalling here would otherwise hold up the join — and behind it the
+    // self-fence — for as long as the stall lasts.
+    let revision = tokio::select! {
+        _ = cancel.cancelled() => return,
+        revision = store.current_revision() => match revision {
+            Ok(revision) => revision,
+            Err(e) => {
+                tracing::warn!(pod = %pod_name, error = %e, "registration watch unavailable");
+                return;
+            }
+        },
+    };
+    let mut stream = tokio::select! {
+        _ = cancel.cancelled() => return,
+        stream = store.watch_pods_from(revision + 1) => match stream {
+            Ok(stream) => stream,
+            Err(e) => {
+                tracing::warn!(pod = %pod_name, error = %e, "registration watch unavailable");
+                return;
+            }
+        },
+    };
+    let registration_key = store.pod_registration_key(&pod_name);
+    loop {
+        let message = tokio::select! {
+            _ = cancel.cancelled() => return,
+            message = stream.message() => message,
+        };
+        let Ok(Some(response)) = message else { return };
+        for event in response.events() {
+            if event.event_type() != EventType::Delete {
+                continue;
+            }
+            // Exactly the key `register` writes — this is a prefix
+            // watch, and matching anything looser (say, a final path
+            // segment) would let an unrelated deletion under the prefix
+            // cost this pod its session.
+            let deleted_us = event
+                .kv()
+                .and_then(|kv| from_utf8(kv.key()).ok())
+                .is_some_and(|key| key == registration_key);
+            if deleted_us {
+                counter!("personhog_coordination_registration_deleted_total").increment(1);
+                tracing::error!(
+                    pod = %pod_name,
+                    "registration deleted; surrendering serving authority immediately"
+                );
+                // Deliberately redundant: the session teardown below
+                // surrenders too, so deleting this line leaves every
+                // test green. What it buys is the interval — the pod
+                // stops answering on the watch event rather than
+                // whenever teardown finishes, and until it does it is
+                // serving strong reads on a claim the cluster has
+                // already withdrawn. The residual gap is etcd's watch
+                // delivery latency, which no call can close.
+                authority.surrender();
+                // Surrendering alone would leave a pod that holds a live
+                // lease, refuses every read, and never registers again —
+                // silently idle with nothing to escalate. Ending the
+                // session is what puts it back to work.
+                end_session.cancel();
+                return;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
