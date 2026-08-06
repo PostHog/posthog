@@ -47,13 +47,9 @@ describe("GitHubRepoPicker", () => {
 
   it("keeps results visible and delays the load more spinner", () => {
     vi.useFakeTimers();
+    const onLoadMore = vi.fn();
     const { rerender } = render(
-      <GitHubRepoPicker
-        {...pickerProps}
-        isLoading
-        isLoadingMore
-        onLoadMore={vi.fn()}
-      />,
+      <GitHubRepoPicker {...pickerProps} onLoadMore={onLoadMore} />,
     );
     const loadMoreButton = screen
       .getByText("Load more repositories")
@@ -61,6 +57,18 @@ describe("GitHubRepoPicker", () => {
     if (!loadMoreButton) {
       throw new Error("Expected the load more button to render");
     }
+
+    fireEvent.click(loadMoreButton);
+    expect(onLoadMore).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <GitHubRepoPicker
+        {...pickerProps}
+        isLoading
+        isLoadingMore={false}
+        onLoadMore={onLoadMore}
+      />,
+    );
 
     expect(screen.getByText("posthog/repository-0")).toBeInTheDocument();
     expect(screen.queryByText("Loading repositories")).not.toBeInTheDocument();
@@ -81,8 +89,9 @@ describe("GitHubRepoPicker", () => {
             (_, index) => `posthog/repository-${index + 50}`,
           ),
         ]}
+        isLoading={false}
         isLoadingMore={false}
-        onLoadMore={vi.fn()}
+        onLoadMore={onLoadMore}
       />,
     );
 
