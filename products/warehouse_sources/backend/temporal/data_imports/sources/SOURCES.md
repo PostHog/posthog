@@ -420,6 +420,7 @@ the row lists both.
 | monday                           | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | mongodb                          | DB protocol                 | pymongo                                                         | ➖                          |
 | monte_carlo                      | HTTP (GraphQL)              | requests                                                        | ✅                          |
+| motherduck                       | DB protocol                 | duckdb (MotherDuck `md:` connection)                            | ➖                          |
 | mssql                            | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
 | mux                              | HTTP                        | requests                                                        | ✅                          |
 | my_hours                         | HTTP                        | requests                                                        | ✅                          |
@@ -1149,7 +1150,6 @@ doesn't conflict with concurrent PRs.
 - moneybird
 - mono
 - moodle
-- motherduck
 - motion
 - moxie
 - mycase
