@@ -1,4 +1,4 @@
-import urllib.parse
+import json
 from datetime import datetime
 from typing import Any, cast
 from uuid import uuid4
@@ -1125,15 +1125,27 @@ class TestBillingUsageRequestSerializer(TestCase):
 
     def test_passthrough_fields(self):
         data = {
-            "usage_types": urllib.parse.quote('["event_count_in_period","recording_count_in_period"]'),
-            "team_ids": urllib.parse.quote("[1,2,3]"),
-            "breakdowns": urllib.parse.quote("[type,team]"),
+            "usage_types": '["event_count_in_period","recording_count_in_period"]',
+            "team_ids": "[1,2,3]",
+            "breakdowns": '["type","team"]',
             "interval": "week",
         }
         serializer = BillingUsageRequestSerializer(data=data)
         self.assertTrue(serializer.is_valid(), serializer.errors)
         for key, value in data.items():
             self.assertEqual(serializer.validated_data[key], value)
+
+    def test_usage_types_rejects_comma_separated_values(self):
+        serializer = BillingUsageRequestSerializer(
+            data={"usage_types": "event_count_in_period, recording_count_in_period"}
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("usage_types", serializer.errors)
+
+    def test_usage_types_rejects_json_non_array(self):
+        serializer = BillingUsageRequestSerializer(data={"usage_types": '"event_count_in_period"'})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("usage_types", serializer.errors)
 
     def test_empty_and_null_dates_are_valid(self):
         serializer = BillingUsageRequestSerializer(data={"start_date": "", "end_date": None})
@@ -1240,7 +1252,12 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         mock_get_spend_data.return_value = self.MOCK_SPEND_DATA
 
         response = self.client.get(
-            f"/api/billing/spend/?start_date=2025-01-01&usage_types=events&team_ids=[{self.team.pk}]"
+            "/api/billing/spend/",
+            {
+                "start_date": "2025-01-01",
+                "usage_types": '["event_count_in_period"]',
+                "team_ids": f"[{self.team.pk}]",
+            },
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), self.MOCK_SPEND_DATA)
@@ -1249,19 +1266,18 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(call_args[0], self.organization)
         passed_params = call_args[1]
         self.assertEqual(passed_params["start_date"], "2025-01-01")
-        self.assertEqual(passed_params["usage_types"], "events")
+        self.assertEqual(json.loads(passed_params["usage_types"]), ["event_count_in_period"])
         self.assertEqual(passed_params["team_ids"], f"[{str(self.team.pk)}]")
         self.assertEqual(passed_params["teams_map"], {self.team.pk: self.team.name})
 
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
     def test_get_usage_allows_wildcard_personal_api_key_for_admin(self, mock_get_usage_data):
         mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
-        headers = self._personal_api_key_headers(["*"])
 
         response = self.client.get(
             "/api/billing/usage/",
             {"start_date": "2025-01-01", "team_ids": f"[{self.team.pk}]"},
-            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+            **self._personal_api_key_headers(["*"]),
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -1404,6 +1420,17 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_update_billing.assert_not_called()
+
+    def test_mutating_action_rejects_wildcard_personal_api_key(self):
+        response = self.client.patch(
+            "/api/billing//",
+            data={"custom_limits_usd": {"events": 10}},
+            content_type="application/json",
+            **self._personal_api_key_headers(["*"]),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("personal API key", response.json()["detail"])
 
     def test_get_usage_permission_denied_for_member(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER

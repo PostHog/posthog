@@ -1,4 +1,5 @@
-from typing import Any, Optional
+import json
+from typing import Any, Optional, get_args
 from zoneinfo import ZoneInfo
 
 from django.http import HttpResponse
@@ -24,6 +25,7 @@ from posthog.permissions import get_authenticator_scopes, posthog_feature_flag_e
 from posthog.utils import get_trusted_client_ip, relative_date_parse
 
 from ee.billing.billing_manager import BillingManager
+from ee.billing.billing_types import UsageType
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 
@@ -144,7 +146,16 @@ class BillingUsageRequestSerializer(serializers.Serializer):
 
     start_date = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     end_date = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    usage_types = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    usage_types = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text=(
+            "JSON-encoded array of usage type identifiers to filter on. Valid values: "
+            + ", ".join(get_args(UsageType))
+            + '. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.'
+        ),
+    )
     team_ids = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     breakdowns = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     interval = serializers.CharField(required=False, allow_blank=True, allow_null=True)
@@ -169,6 +180,20 @@ class BillingUsageRequestSerializer(serializers.Serializer):
     def validate_end_date(self, value: Optional[str]) -> Optional[str]:
         """Validate and normalize the end_date."""
         return self._parse_date(value, "end_date")
+
+    def validate_usage_types(self, value: Optional[str]) -> Optional[str]:
+        if not value:
+            return value
+
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            raise serializers.ValidationError("Value must be a JSON array of usage type identifiers.")
+
+        if not isinstance(parsed, list) or any(not isinstance(usage_type, str) for usage_type in parsed):
+            raise serializers.ValidationError("Value must be a JSON array of usage type identifiers.")
+
+        return value
 
 
 class BillingPeriodResponseSerializer(serializers.Serializer):
@@ -651,6 +676,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         res = billing_manager.coupons_overview(organization)
         return Response(res, status=status.HTTP_200_OK)
 
+    @extend_schema(parameters=[BillingUsageRequestSerializer])
     @action(
         methods=["GET"],
         detail=False,
@@ -688,6 +714,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             else:
                 raise
 
+    @extend_schema(parameters=[BillingUsageRequestSerializer])
     @action(
         methods=["GET"],
         detail=False,

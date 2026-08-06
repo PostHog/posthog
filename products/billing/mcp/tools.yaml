@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Billing
 feature: billing
-url_prefix: /billing
+url_prefix: /organization/billing
 ui_apps: {}
 tools:
     billing-activate-authorize-create:
@@ -71,7 +71,66 @@ tools:
         enabled: false
     billing-list:
         operation: billing_list
-        enabled: false
+        enabled: true
+        scopes:
+            - billing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get billing overview
+        description: >
+            Fetch the organization's current billing state: subscribed products and addons, available features, plan
+            tier, usage summary against limits, spending limits, and trial status. Use this to understand what the
+            customer is paying for, which features they have access to, or aggregate usage for the current billing
+            period. For time-series breakdowns of usage call billing-usage-retrieve; for cost (spend) breakdowns call
+            billing-spend-retrieve. To check whether the customer has access to a specific feature (e.g. group
+            analytics, white-labelling), inspect `available_features` in the response.
+        exclude_params:
+            - limit
+            - offset
+        url_prefix: /organization/billing/overview
+        response:
+            exclude:
+                - license
+                - stripe_portal_url
+                - account_owner
+                - customer_trust_scores
+                - never_drop_data
+                - amount_off_expires_at
+                - products.*.image_url
+                - products.*.screenshot_url
+                - products.*.headline
+                - products.*.icon_key
+                - products.*.plans
+                - products.*.tiers
+                - products.*.features
+                - products.*.free_allocation
+                - products.*.price_description
+                - products.*.display_decimals
+                - products.*.display_divisor
+                - products.*.display_unit
+                - products.*.contact_support
+                - products.*.tiered
+                - products.*.trial
+                - products.*.inclusion_only
+                - products.*.legacy_product
+                - products.*.current_amount_usd_before_addons
+                - products.*.addons.*.image_url
+                - products.*.addons.*.icon_key
+                - products.*.addons.*.plans
+                - products.*.addons.*.tiers
+                - products.*.addons.*.features
+                - products.*.addons.*.free_allocation
+                - products.*.addons.*.price_description
+                - products.*.addons.*.display_decimals
+                - products.*.addons.*.display_divisor
+                - products.*.addons.*.display_unit
+                - products.*.addons.*.contact_support
+                - products.*.addons.*.tiered
+                - products.*.addons.*.trial
+                - products.*.addons.*.inclusion_only
+                - products.*.addons.*.legacy_product
     billing-partial-update:
         operation: billing_partial_update
         enabled: false
@@ -83,7 +142,40 @@ tools:
         enabled: false
     billing-spend-retrieve:
         operation: billing_spend_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - billing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get spend breakdown
+        description: >
+            Fetch time-series spend (cost in USD) breakdowns for the organization across a date range. Same dimensional
+            parameters as billing-usage-retrieve, but values are dollar amounts rather than usage volumes. Requires org
+            admin-level access. Use this to investigate cost spikes, compare spend across periods, or attribute spend to
+            specific products or teams.
+        param_overrides:
+            start_date:
+                description: Start date (YYYY-MM-DD), or "all" for earliest available data.
+            end_date:
+                description: End date (YYYY-MM-DD), inclusive.
+            team_ids:
+                description: Comma-separated team (project) IDs to filter by. Omit for all teams in the org.
+            usage_types:
+                description: >
+                    JSON-encoded array of usage type identifiers to filter on, NOT a comma-separated string. Pass as
+                    e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit
+                    for all usage types.
+            breakdowns:
+                description: >
+                    JSON-encoded array of dimensions to break down by, NOT a comma-separated string. Valid dimensions
+                    are "type" (by usage type) and "team" (by project). Pass as e.g. `["type","team"]` or `["team"]`.
+                    Omit for a single aggregate series. Sending a bare string like "type,team" will fail with a 400
+                    error.
+            interval:
+                description: Time bucket size, one of "day" or "week". Default "day".
+        url_prefix: /organization/billing/spend
     billing-startups-apply-create:
         operation: billing_startups_apply_create
         enabled: false
@@ -98,4 +190,37 @@ tools:
         enabled: false
     billing-usage-retrieve:
         operation: billing_usage_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - billing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get usage breakdown
+        description: >
+            Fetch time-series usage breakdowns for the organization across a date range. Supports per-team (project) and
+            per-usage-type dimensions. Requires org admin-level access. Use this to investigate usage spikes, compare
+            periods, or attribute usage to specific projects. For a single-snapshot aggregate view call billing-list;
+            for cost (spend) breakdowns call billing-spend-retrieve.
+        param_overrides:
+            start_date:
+                description: Start date (YYYY-MM-DD), or "all" for earliest available data.
+            end_date:
+                description: End date (YYYY-MM-DD), inclusive.
+            team_ids:
+                description: Comma-separated team (project) IDs to filter by. Omit for all teams in the org.
+            usage_types:
+                description: >
+                    JSON-encoded array of usage type identifiers to filter on, NOT a comma-separated string. Pass as
+                    e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit
+                    for all usage types.
+            breakdowns:
+                description: >
+                    JSON-encoded array of dimensions to break down by, NOT a comma-separated string. Valid dimensions
+                    are "type" (by usage type) and "team" (by project). Pass as e.g. `["type","team"]` or `["team"]`.
+                    Omit for a single aggregate series. Sending a bare string like "type,team" will fail with a 400
+                    error.
+            interval:
+                description: Time bucket size, one of "day" or "week". Default "day".
+        url_prefix: /organization/billing/usage
