@@ -92,6 +92,7 @@ class TestFirestoreValueDecoding:
             ({"arrayValue": {"values": [{"stringValue": "a"}, {"integerValue": "2"}]}}, ["a", 2]),
             ({"arrayValue": {}}, []),
             ({"mapValue": {"fields": {"inner": {"stringValue": "x"}}}}, {"inner": "x"}),
+            ({"doubleValue": "not-a-number"}, None),
             ({"pipelineValue": {}}, None),
             ("not-a-wrapper", None),
         ],
@@ -204,6 +205,9 @@ class TestAccessTokens:
         [
             (FakeResponse(status_code=400, payload={"error": "invalid_grant"}), "invalid_grant"),
             (FakeResponse(status_code=403, payload={"error": {"status": "PERMISSION_DENIED"}}), "PERMISSION_DENIED"),
+            # A gateway can answer with HTML or an empty body; the status alone still has to surface.
+            (FakeResponse(status_code=502), "status=502"),
+            (FakeResponse(status_code=400, payload={"nothing": "useful"}), "status=400"),
             (FakeResponse(payload={"token_type": "Bearer"}), "did not contain an access token"),
         ],
     )
@@ -565,6 +569,21 @@ class TestSourceResponseShape:
         assert (response.partition_mode == "datetime") is partitioned
         assert (response.partition_keys == [FIRESTORE_CREATE_TIME_COLUMN]) is partitioned
 
+    def test_realtime_database_table_is_dispatched_by_its_configured_path(self, logger: FilteringBoundLogger) -> None:
+        session = FakeSession(
+            request_responses=[FakeResponse(payload={"k1": {"n": 1}})],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+        configured = credentials(
+            realtime_database_url="https://demo-default-rtdb.firebaseio.com",
+            realtime_database_paths=("rooms",),
+        )
+
+        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
+            batches = list(get_rows(configured, "realtime_database_rooms", FakeResumeManager(), logger))
+
+        assert [row[REALTIME_DATABASE_KEY_COLUMN] for row in batches[0]] == ["k1"]
+
     def test_unknown_table_is_rejected(self, logger: FilteringBoundLogger) -> None:
         with mock.patch(_SESSION_FACTORY, return_value=FakeSession().as_session()):
             with pytest.raises(FirebaseConfigError, match="not configured"):
@@ -586,6 +605,16 @@ class TestCredentialValidation:
 
         assert valid is False
         assert message is not None and "invalid_grant" in message
+
+    def test_unreachable_google_is_not_reported_as_a_bad_key(self) -> None:
+        session = mock.MagicMock()
+        session.post.side_effect = requests.ConnectionError("boom")
+
+        with mock.patch(_SESSION_FACTORY, return_value=session):
+            valid, message = validate_credentials(credentials())
+
+        assert valid is False
+        assert message == "Could not reach Google with the provided Firebase service account key."
 
     @pytest.mark.parametrize(
         "overrides,message",
