@@ -42,11 +42,13 @@ pub async fn load_person_from_pg(
     // whose PG-expanded rendering serde_json rejects, and the leniency
     // lives in our parse step (see below). The cost is identical — sqlx's
     // jsonb decode parses the same text under the hood.
+    // A tombstoned person must not be re-served on a cache miss; not-found
+    // is the truthful answer for a deleted person.
     let row = sqlx::query(&format!(
         "SELECT id, team_id, uuid::text, properties::text AS properties, created_at, version, \
          is_identified
          FROM {table}
-         WHERE team_id = $1 AND id = $2",
+         WHERE team_id = $1 AND id = $2 AND is_deleted = false",
     ))
     .bind(team_id_i32)
     .bind(key.person_id)
