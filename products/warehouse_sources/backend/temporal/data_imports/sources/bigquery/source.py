@@ -281,6 +281,16 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # user must fix the view or table definition. Matched on BigQuery's stable wording, not
             # the volatile column name or [row:col] location.
             "is ambiguous": "BigQuery couldn't run a query for this source because a column name in the table or view being synced is ambiguous. This usually happens when a view joins tables that share a column name, or two columns differ only by letter case. Retrying won't help — please update the view or table definition to remove the naming conflict (for example by aliasing the duplicate column), then reconnect the source.",
+            # Raised as a 400 BadRequest (reason `invalidQuery`) when a query we build references a
+            # column that no longer exists on the table, e.g. "Unrecognized name: ingested_at at
+            # [1:37]". We only reference columns the customer configured — the incremental field, an
+            # enabled column, or a row filter — so this means that column was renamed or dropped from
+            # the source table after the source (or its incremental field) was set up. It's a
+            # deterministic mismatch between our stored config and the customer's live schema: the
+            # same query fails identically on every retry. The user must update the source's column
+            # selection or incremental field to match the table's current schema. Matched on
+            # BigQuery's stable wording, not the volatile column name or [row:col] location.
+            "Unrecognized name:": "BigQuery couldn't run a query for this source because it referenced a column that no longer exists on the table — usually the configured incremental field, or a column selected for syncing, was renamed or removed. Retrying won't help — please update the source's column selection or incremental field to match the table's current schema, then reconnect the source.",
         }
 
     def validate_credentials(
