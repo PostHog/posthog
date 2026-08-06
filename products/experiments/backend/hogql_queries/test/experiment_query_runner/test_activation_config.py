@@ -16,6 +16,7 @@ from posthog.schema import (
     ExperimentQueryResponse,
 )
 
+from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
@@ -66,16 +67,7 @@ class TestExperimentActivationConfig(ExperimentQueryRunnerBaseTest):
         experiment.exposure_criteria = ACTIVATION_CRITERIA
         return experiment
 
-    @freeze_time("2020-01-10T12:00:00Z")
-    @snapshot_clickhouse_queries
-    def test_mean_metric_anchors_exposure_on_activation_event(self):
-        feature_flag = self.create_feature_flag()
-        experiment = self._create_activation_experiment(feature_flag)
-
-        metric = ExperimentMeanMetric(source=EventsNode(event="purchase"))
-        experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
-
+    def _seed_mean_scenario(self, feature_flag):
         for variant, extra_purchases in (("control", 0), ("test", 1)):
             for i in range(3):
                 user = f"user_{variant}_{i}"
@@ -108,6 +100,7 @@ class TestExperimentActivationConfig(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
+    def _assert_mean_scenario_results(self, experiment, metric):
         query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
         result = cast(ExperimentQueryResponse, ExperimentQueryRunner(query=query, team=self.team).calculate())
 
@@ -122,6 +115,37 @@ class TestExperimentActivationConfig(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.number_of_samples, 3)
         self.assertEqual(control_variant.sum, 3)
         self.assertEqual(test_variant.sum, 6)
+
+    @freeze_time("2020-01-10T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_mean_metric_anchors_exposure_on_activation_event(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self._create_activation_experiment(feature_flag)
+
+        metric = ExperimentMeanMetric(source=EventsNode(event="purchase"))
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        self._seed_mean_scenario(feature_flag)
+        self._assert_mean_scenario_results(experiment, metric)
+
+    @freeze_time("2020-01-10T12:00:00Z")
+    def test_team_precomputation_does_not_change_activation_results(self):
+        self._setup_precomputation_test(True)
+
+        feature_flag = self.create_feature_flag()
+        experiment = self._create_activation_experiment(feature_flag)
+
+        metric = ExperimentMeanMetric(source=EventsNode(event="purchase"))
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, True)
+
+        self._seed_mean_scenario(feature_flag)
+        # The per-day exposure cache is built from the flag predicate alone: reading it would
+        # pull flag-only and pre-activation users into the denominator and anchor metrics on
+        # the flag time. Activation mode must produce identical results with precompute on.
+        self._assert_mean_scenario_results(experiment, metric)
+        self.assertEqual(PreaggregationJob.objects.count(), 0)
 
     @freeze_time("2020-01-10T12:00:00Z")
     @snapshot_clickhouse_queries
