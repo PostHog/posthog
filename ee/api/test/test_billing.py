@@ -1226,6 +1226,27 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         mock_get_teams_map.assert_called_once()
 
 
+class TestBillingPeriodAPI(APILicensedTest):
+    def test_member_can_read_synced_organization_period(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.organization.usage = {
+            "period": ["2026-07-09T00:00:00Z", "2026-08-09T00:00:00Z"],
+        }
+        self.organization.save()
+
+        response = self.client.get("/api/billing/period/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json(),
+            {
+                "current_period_start": "2026-07-09T00:00:00Z",
+                "current_period_end": "2026-08-09T00:00:00Z",
+            },
+        )
+
+
 class TestBillingPermissionDeniedForMembers(APILicensedTest):
     """Verify that billing-modifying actions reject member-level users with 403."""
 

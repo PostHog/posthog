@@ -62255,11 +62255,6 @@ export namespace Schemas {
       limited: QuotaLimitsResponseLimited;
       /** Whether the team's organization pays for PostHog Desktop usage: billing grants the `posthog_code_usage` product feature only on the Desktop usage product's paid plan, synced into the organization's available features. Consumers gate paid-tier Desktop behavior on this; an org unknown to billing reads as not paying. */
       code_usage_billing_active: boolean;
-      /**
-         * End of the organization's current billing period. Null when billing has not synced a period.
-         * @nullable
-         */
-      billing_period_end: string | null;
     }
 
     export interface Rapid7InsightvmScannerFindingSignalExtra {

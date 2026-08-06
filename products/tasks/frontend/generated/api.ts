@@ -47,7 +47,6 @@ import type {
     PatchedTaskRunUpdateApi,
     PatchedTaskWriteApi,
     PinnedTaskIdsResponseApi,
-    QuotaLimitsResponseApi,
     RepositoryReadinessResponseApi,
     SandboxCustomImageBuildApi,
     SandboxCustomImageDTOApi,
@@ -376,21 +375,6 @@ export const loopsTriggerCreate = async (
         ...options,
         method: 'POST',
         body: JSON.stringify(loopsTriggerCreateBody),
-    })
-}
-
-export const getQuotaLimitsListUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/quota_limits/`
-}
-
-/**
- * Return the current quota-limit state for the team identified in the URL, keyed by `QuotaResource` value. Used by the LLM gateway to gate billable products on AI credits exhaustion.
- * @summary Get a team's quota-limit state
- */
-export const quotaLimitsList = async (projectId: string, options?: RequestInit): Promise<QuotaLimitsResponseApi> => {
-    return apiMutator<QuotaLimitsResponseApi>(getQuotaLimitsListUrl(projectId), {
-        ...options,
-        method: 'GET',
     })
 }
 

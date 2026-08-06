@@ -679,38 +679,6 @@ export interface LoopSkillBundlesWriteApi {
     bundles: LoopSkillBundleUploadApi[]
 }
 
-export interface QuotaResourceLimitApi {
-    /** True when the team is currently over its quota for this resource and limits are in effect. */
-    limited: boolean
-    /**
-     * Units of this resource the organization has used so far this billing period, in the resource's native unit (credits for credit buckets). Null when billing hasn't synced usage for the resource.
-     * @nullable
-     */
-    usage: number | null
-    /**
-     * The organization's limit for this resource in the same unit. Null when unlimited or unknown.
-     * @nullable
-     */
-    limit: number | null
-}
-
-/**
- * Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`.
- */
-export type QuotaLimitsResponseApiLimited = { [key: string]: QuotaResourceLimitApi }
-
-export interface QuotaLimitsResponseApi {
-    /** Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`. */
-    limited: QuotaLimitsResponseApiLimited
-    /** Whether the team's organization pays for PostHog Desktop usage: billing grants the `posthog_code_usage` product feature only on the Desktop usage product's paid plan, synced into the organization's available features. Consumers gate paid-tier Desktop behavior on this; an org unknown to billing reads as not paying. */
-    code_usage_billing_active: boolean
-    /**
-     * End of the organization's current billing period. Null when billing has not synced a period.
-     * @nullable
-     */
-    billing_period_end: string | null
-}
-
 /**
  * @nullable
  */

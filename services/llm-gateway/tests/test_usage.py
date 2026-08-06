@@ -12,6 +12,7 @@ from llm_gateway.rate_limiting.cost_throttles import (
     UserCostBurstThrottle,
     UserCostSustainedThrottle,
 )
+from llm_gateway.services.billing_period_resolver import OrganizationBillingPeriod
 from llm_gateway.services.plan_resolver import BillingPeriod, PlanInfo
 from llm_gateway.services.quota_resolver import QuotaResourceStatus
 from tests.conftest import create_test_app
@@ -134,13 +135,18 @@ class TestUsageEndpoint:
     def test_org_usage_billing_period_wins_without_a_seat(self, authenticated_usage_client: TestClient) -> None:
         app = authenticated_usage_client.app
         app.state.plan_resolver.get_plan = AsyncMock(return_value=PlanInfo(plan_key=None, seat_created_at=None))
+        app.state.billing_period_resolver.get_period = AsyncMock(
+            return_value=OrganizationBillingPeriod(
+                current_period_start="2026-07-09T00:00:00Z",
+                current_period_end="2026-08-09T00:00:00Z",
+            )
+        )
         app.state.quota_resolver.get_resource_status = AsyncMock(
             return_value=QuotaResourceStatus(
                 limited=False,
                 code_usage_billing_active=True,
                 used_usd=12.4,
                 limit_usd=50.0,
-                billing_period_end="2026-08-09T00:00:00Z",
             )
         )
 

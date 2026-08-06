@@ -154,9 +154,6 @@ tools:
     loops-trigger-create:
         operation: loops_trigger_create
         enabled: false
-    quota-limits-list:
-        operation: quota_limits_list
-        enabled: false
     sandbox-create:
         operation: sandbox_create
         enabled: false
