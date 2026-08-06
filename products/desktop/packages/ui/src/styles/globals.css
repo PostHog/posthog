@@ -806,6 +806,18 @@ body {
   text-decoration: underline;
 }
 
+/* Announcement modals center vertically; quill dialogs otherwise anchor near
+   the top of the window. Doubled selector to outrank .quill-dialog__content. */
+.quill-dialog__content.announcement-dialog {
+  top: 50%;
+  translate: -50% -50%;
+  max-height: calc(100dvh - 2rem);
+}
+
+[dir="rtl"] .quill-dialog__content.announcement-dialog {
+  translate: 50% -50%;
+}
+
 .rich-text-editor-content {
   /* font-family inherited from --font-sans via the global cascade */
   line-height: 1.6;

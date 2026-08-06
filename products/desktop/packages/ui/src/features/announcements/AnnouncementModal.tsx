@@ -12,10 +12,10 @@ import {
   type AnnouncementProperties,
 } from "@posthog/shared/analytics-events";
 import type { Announcement } from "@posthog/shared/announcements";
-import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { track } from "@posthog/ui/shell/analytics";
 import { useEffect } from "react";
 import { AnnouncementHero } from "./AnnouncementHero";
+import { AnnouncementMarkdown } from "./AnnouncementMarkdown";
 import { openAnnouncementCta } from "./announcementCta";
 import { useAnnouncementsStore } from "./announcementsStore";
 import { UpdateAction } from "./UpdateAction";
@@ -82,8 +82,14 @@ export function AnnouncementModal({
     >
       {/* DialogBody caps and scrolls the remote-length body so the actions in
           DialogFooter stay reachable on short windows — essential when the
-          modal is blocking and the footer is the only way out. */}
-      <DialogContent className="sm:max-w-md" showCloseButton={!blocking}>
+          modal is blocking and the footer is the only way out. initialFocus
+          off: default initial focus lands on the body's first link and draws
+          a focus ring on open. */}
+      <DialogContent
+        className="announcement-dialog sm:max-w-md"
+        showCloseButton={!blocking}
+        initialFocus={false}
+      >
         <AnnouncementHero hero={announcement.hero} defaultHedgehog="happy" />
         <DialogBody>
           <DialogTitle className="font-semibold text-[17px] text-gray-12 tracking-tight">
@@ -93,10 +99,10 @@ export function AnnouncementModal({
             render={<div />}
             className="mt-1.5 text-[13px] text-gray-11 leading-relaxed"
           >
-            <MarkdownRenderer content={announcement.body} />
+            <AnnouncementMarkdown content={announcement.body} />
           </DialogDescription>
         </DialogBody>
-        <DialogFooter>
+        <DialogFooter className="border-t-0 bg-transparent">
           {blocking ? (
             needsUpdate ? (
               <UpdateAction

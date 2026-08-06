@@ -8,10 +8,10 @@ import {
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Announcement } from "@posthog/shared/announcements";
-import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { track } from "@posthog/ui/shell/analytics";
 import { useEffect } from "react";
 import { AnnouncementHero } from "./AnnouncementHero";
+import { AnnouncementMarkdown } from "./AnnouncementMarkdown";
 import { UpdateAction } from "./UpdateAction";
 
 type RequiredUpdate = Extract<Announcement, { kind: "required-update" }>;
@@ -38,7 +38,11 @@ export function RequiredUpdateModal({
 
   return (
     <Dialog open>
-      <DialogContent className="sm:max-w-md" showCloseButton={false}>
+      <DialogContent
+        className="announcement-dialog sm:max-w-md"
+        showCloseButton={false}
+        initialFocus={false}
+      >
         <AnnouncementHero
           hero={announcement.hero}
           defaultHedgehog="builder"
@@ -52,10 +56,10 @@ export function RequiredUpdateModal({
             render={<div />}
             className="mt-1.5 text-[13px] text-gray-11 leading-relaxed"
           >
-            <MarkdownRenderer content={announcement.body} />
+            <AnnouncementMarkdown content={announcement.body} />
           </DialogDescription>
         </DialogBody>
-        <DialogFooter>
+        <DialogFooter className="border-t-0 bg-transparent">
           <UpdateAction
             analytics={{
               announcement_id: announcement.id,

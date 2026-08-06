@@ -31,7 +31,9 @@ export function AnnouncementBanner() {
   );
 }
 
-function BannerRow({
+/** The pure banner row — exported for Storybook; the app renders it through
+ * AnnouncementBanner's selection gate above. */
+export function BannerRow({
   announcement,
   needsUpdate,
 }: {
