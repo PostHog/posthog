@@ -1660,14 +1660,16 @@ impl FeatureFlagMatcher {
                 } else {
                     let props = property_context.resolve_for_filter(filter);
                     // Person properties that were never fetched (DB prep didn't run for this
-                    // evaluation, e.g. a transient failure elsewhere in the batch) must not be
-                    // treated as "person has no properties", because an absent key would then
-                    // make negative operators (is_not, not_icontains, ...) and is_not_set match
-                    // by accident. partial_props makes match_property error on a missing key
-                    // instead of matching it; the unwrap_or(false) below turns that error into
-                    // no-match, so the condition fails closed. Only Pending gets this: Skipped
-                    // and Fetched property maps are authoritative, so an absent key there
-                    // genuinely means the person lacks the property. Cohort filters (evaluated
+                    // evaluation) must not be treated as "person has no properties", because
+                    // an absent key would then make negative operators (is_not, not_icontains,
+                    // ...) and is_not_set match by accident. partial_props makes match_property
+                    // error on a missing key instead of matching it; the unwrap_or(false) below
+                    // turns that error into no-match, so the condition fails closed. Only
+                    // Pending gets this: Skipped and Fetched property maps are authoritative,
+                    // so an absent key there genuinely means the person lacks the property.
+                    // This is defense in depth: in the batch flow a prep failure errors those
+                    // flags out before evaluation, so the guard protects any path that reaches
+                    // evaluation with the state still Pending. Cohort filters (evaluated
                     // separately below) don't get this guard; under Pending they're currently
                     // safe only because cohorts are never loaded when person prep hasn't run.
                     let partial_props = filter.prop_type != PropertyType::Group
