@@ -321,14 +321,110 @@ class TestEngineActivities(BaseTest):
 
     def test_emit_noops_without_delivery(self) -> None:
         # No destinations configured → nothing to emit; the run row itself is the in-app artifact.
+        # No telemetry either: an in-app-only digest was not "sent" anywhere.
         action = _action(self.team)
         run = VisionActionRun(vision_action=action, team=self.team, idempotency_key="k2", output={"slack": "x"})
         run.save()
 
-        with patch.object(act, "produce_internal_event") as mock_emit:
+        with (
+            patch.object(act, "produce_internal_event") as mock_emit,
+            patch.object(act.posthoganalytics, "capture") as capture,
+        ):
             act._emit(EmitActionReadyInputs(run_id=run.id, team_id=self.team.id))
 
         mock_emit.assert_not_called()
+        capture.assert_not_called()
+
+    def test_emit_captures_sent_telemetry_per_destination(self) -> None:
+        # Adoption dashboards count sends per destination and join on organization_id, and an
+        # activity retry after a successful produce must not double-count, so the uuid has to be
+        # deterministic per (run, target).
+        action = _action(
+            self.team,
+            delivery_config=[
+                {"type": "slack", "integration_id": 1, "channel": "#general"},
+                {"type": "webhook", "url": "https://example.com/hook"},
+            ],
+        )
+        run = VisionActionRun(
+            vision_action=action, team=self.team, idempotency_key="k", observation_count=3, output={"slack": "x"}
+        )
+        run.save()
+
+        with (
+            patch.object(act, "produce_internal_event"),
+            patch.object(act.posthoganalytics, "capture") as capture,
+        ):
+            act._emit(EmitActionReadyInputs(run_id=run.id, team_id=self.team.id))
+            first_uuids = [call.kwargs["uuid"] for call in capture.call_args_list]
+            act._emit(EmitActionReadyInputs(run_id=run.id, team_id=self.team.id))
+
+        self.assertEqual(capture.call_count, 4)
+        kwargs = capture.call_args_list[0].kwargs
+        self.assertEqual(kwargs["event"], "replay_vision_digest_sent")
+        self.assertEqual(kwargs["distinct_id"], f"replay-vision:{self.team.id}")
+        properties = kwargs["properties"]
+        self.assertEqual(properties["destination_type"], "slack")
+        self.assertEqual(properties["observation_count"], 3)
+        self.assertTrue(properties["success"])
+        self.assertEqual(properties["scanner_id"], str(action.scanner_id))
+        self.assertEqual(properties["team_id"], self.team.id)
+        self.assertEqual(properties["organization_id"], str(self.team.organization_id))
+        self.assertEqual(kwargs["groups"]["organization"], str(self.team.organization_id))
+        self.assertEqual(capture.call_args_list[1].kwargs["properties"]["destination_type"], "webhook")
+        self.assertEqual(len(set(first_uuids)), 2)
+        self.assertEqual([call.kwargs["uuid"] for call in capture.call_args_list[2:]], first_uuids)
+
+    @parameterized.expand(
+        [
+            ("fired", {}, False),
+            ("recovered", {"recovered": True}, True),
+        ]
+    )
+    def test_emit_captures_alert_sent(self, _label: str, extra_output: dict, expected_recovery: bool) -> None:
+        action = _action(
+            self.team,
+            mode="alert",
+            alert_config=EVERY_MATCH,
+            delivery_config=[{"type": "webhook", "url": "https://example.com/hook"}],
+        )
+        run = VisionActionRun(
+            vision_action=action,
+            team=self.team,
+            idempotency_key=f"k-{_label}",
+            output={"slack": "fired", **extra_output},
+        )
+        run.save()
+
+        with (
+            patch.object(act, "produce_internal_event"),
+            patch.object(act.posthoganalytics, "capture") as capture,
+        ):
+            act._emit(EmitActionReadyInputs(run_id=run.id, team_id=self.team.id))
+
+        capture.assert_called_once()
+        self.assertEqual(capture.call_args.kwargs["event"], "replay_vision_alert_sent")
+        self.assertEqual(capture.call_args.kwargs["properties"]["is_recovery"], expected_recovery)
+
+    def test_emit_produce_failure_captures_failed_send(self) -> None:
+        # The failed attempt still surfaces in telemetry (success=false), and it must not carry the
+        # dedup uuid: a later successful retry is a distinct, countable send.
+        action = _action(self.team, delivery_config=[{"type": "slack", "integration_id": 1, "channel": "#c"}])
+        run = VisionActionRun(vision_action=action, team=self.team, idempotency_key="k", output={"slack": "x"})
+        run.save()
+
+        with (
+            patch.object(act, "produce_internal_event", side_effect=RuntimeError("kafka down")),
+            patch.object(act.posthoganalytics, "capture") as capture,
+        ):
+            with self.assertRaises(RuntimeError):
+                act._emit(EmitActionReadyInputs(run_id=run.id, team_id=self.team.id))
+
+        capture.assert_called_once()
+        kwargs = capture.call_args.kwargs
+        self.assertEqual(kwargs["event"], "replay_vision_digest_sent")
+        self.assertFalse(kwargs["properties"]["success"])
+        self.assertIsNone(kwargs["uuid"])
 
 
 # --- workflow orchestration (activities mocked at the temporalio.workflow boundary) ---

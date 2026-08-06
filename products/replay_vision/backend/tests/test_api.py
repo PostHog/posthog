@@ -783,6 +783,21 @@ class TestScannerDigestProvisioning(_VisionAPITestCase):
         self.assertEqual(digest.created_by_id, self.user.id)
         self.assertTrue(digest.enabled)
 
+    def test_provisioned_digest_reports_auto_created(self) -> None:
+        # The built-in digest must stay distinguishable from a user configuring one, or setup-intent
+        # analyses would count every scanner creation as digest adoption.
+        with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+            resp = self.client.post(self.scanners_url, data=self._CREATE_BODY, format="json")
+
+        self.assertEqual(resp.status_code, 201, resp.json())
+        events = [call.args[1] for call in report.call_args_list]
+        self.assertEqual(events, ["replay_vision_digest_created", "replay_vision_scanner_created"])
+        digest_properties = report.call_args_list[0].args[2]
+        self.assertTrue(digest_properties["auto_provisioned"])
+        self.assertTrue(digest_properties["is_scanner_digest"])
+        self.assertEqual(digest_properties["destination_type"], None)
+        self.assertEqual(digest_properties["organization_id"], str(self.team.organization_id))
+
     def test_no_digest_when_actions_flag_off(self) -> None:
         # Teams without the actions feature must not accrue billable synthesis runs they can't see.
         with patch(

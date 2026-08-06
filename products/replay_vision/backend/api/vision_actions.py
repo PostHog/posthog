@@ -27,6 +27,7 @@ from rest_framework.serializers import BaseSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
+from posthog.event_usage import report_user_action
 from posthog.models.integration import Integration
 from posthog.models.user import User
 
@@ -52,6 +53,7 @@ from products.replay_vision.backend.models.vision_action import (
 )
 from products.replay_vision.backend.rrule import validate_rrule, validate_timezone
 from products.replay_vision.backend.scanner_access import is_uuid, readable_scanner_ids
+from products.replay_vision.backend.telemetry import vision_action_lifecycle_properties, vision_action_noun
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 
 logger = structlog.get_logger(__name__)
@@ -719,6 +721,15 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         with transaction.atomic():
             action = serializer.save()
             provision_delivery(action, request=self.request, team=self.team)
+        # Reported after the atomic block so a provisioning rollback can't report a create that never
+        # committed. Web and MCP callers land here alike; `source` (from the request) tells them apart.
+        report_user_action(
+            cast(User, self.request.user),
+            f"replay_vision_{vision_action_noun(action)}_created",
+            {**vision_action_lifecycle_properties(action, self.team), "auto_provisioned": False},
+            team=self.team,
+            request=self.request,
+        )
 
     def perform_update(self, serializer: BaseSerializer) -> None:
         instance = cast(VisionAction, serializer.instance)
@@ -735,6 +746,8 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         old_delivery = instance.delivery_config
         old_enabled = instance.enabled
         old_name = instance.name
+        # The UI PATCHes the whole form on save, so edits are detected by comparing values, not keys.
+        before = {field: getattr(instance, field) for field in serializer.validated_data}
         # Atomic so a re-provision failure rolls the action edit back too (parity with perform_create).
         with transaction.atomic():
             action = serializer.save()
@@ -743,10 +756,29 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # edits don't touch the destinations, so they must not churn them.
             if action.delivery_config != old_delivery or action.enabled != old_enabled or action.name != old_name:
                 provision_delivery(action, request=self.request, team=self.team)
+        changed_fields = sorted(field for field, value in before.items() if getattr(action, field) != value)
+        if changed_fields:
+            report_user_action(
+                cast(User, self.request.user),
+                f"replay_vision_{vision_action_noun(action)}_edited",
+                {**vision_action_lifecycle_properties(action, self.team), "edited_fields": changed_fields},
+                team=self.team,
+                request=self.request,
+            )
 
     def perform_destroy(self, instance: VisionAction) -> None:
+        # Snapshot the event name and lifecycle props before the row is deleted.
+        event = f"replay_vision_{vision_action_noun(instance)}_deleted"
+        properties = vision_action_lifecycle_properties(instance, self.team)
         archive_delivery(instance, team=self.team)
         super().perform_destroy(instance)
+        report_user_action(
+            cast(User, self.request.user),
+            event,
+            properties,
+            team=self.team,
+            request=self.request,
+        )
 
     @extend_schema(
         request=None,

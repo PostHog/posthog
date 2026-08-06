@@ -832,6 +832,109 @@ class TestVisionActionRunNow(_VisionActionAPITestCase):
         start_workflow.assert_not_called()
 
 
+class TestVisionActionLifecycleTelemetry(_VisionActionAPITestCase):
+    _ALERT_OVERRIDES: dict[str, Any] = {
+        "name": "rage-alert",
+        "mode": "alert",
+        "alert_config": {"frequency": "every_match", "metric": "count"},
+    }
+
+    def test_create_digest_reports_config_choices(self) -> None:
+        # Consumption dashboards join on organization_id and break down by destination_type, so a
+        # dropped property or a silent non-fire makes those reads a lie. Asserted at the capture
+        # boundary, where the source tag lands.
+        with patch("posthoganalytics.capture") as capture:
+            resp = self.client.post(self.actions_url, data=self._create_payload(), format="json")
+
+        self.assertEqual(resp.status_code, 201, resp.content)
+        created = [
+            call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_digest_created"
+        ]
+        self.assertEqual(len(created), 1)
+        properties = created[0].kwargs["properties"]
+        self.assertEqual(properties["vision_action_id"], resp.json()["id"])
+        self.assertEqual(properties["scanner_id"], str(self.scanner.id))
+        self.assertEqual(properties["mode"], "group_summary")
+        self.assertEqual(properties["destination_type"], "slack")
+        self.assertEqual(properties["rrule"], "FREQ=DAILY")
+        self.assertEqual(properties["timezone"], "UTC")
+        self.assertFalse(properties["auto_provisioned"])
+        self.assertEqual(properties["team_id"], self.team.id)
+        self.assertEqual(properties["organization_id"], str(self.team.organization_id))
+        self.assertEqual(properties["source"], "web")
+
+    def test_create_alert_reports_alert_config(self) -> None:
+        with patch("posthoganalytics.capture") as capture:
+            resp = self.client.post(self.actions_url, data=self._create_payload(**self._ALERT_OVERRIDES), format="json")
+
+        self.assertEqual(resp.status_code, 201, resp.content)
+        created = [call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_alert_created"]
+        self.assertEqual(len(created), 1)
+        properties = created[0].kwargs["properties"]
+        self.assertEqual(properties["mode"], "alert")
+        self.assertEqual(properties["alert_frequency"], "every_match")
+        self.assertEqual(properties["alert_metric"], "count")
+        self.assertEqual(properties["organization_id"], str(self.team.organization_id))
+        self.assertNotIn("rrule", properties)
+
+    @parameterized.expand(
+        [
+            ("rename", {"name": "renamed"}, ["name"]),
+            ("toggle", {"enabled": False}, ["enabled"]),
+        ]
+    )
+    def test_edit_reports_only_actually_changed_fields(
+        self, _name: str, mutation: dict[str, Any], expected_fields: list[str]
+    ) -> None:
+        # The UI PATCHes the entire form on save, so submitted-but-unchanged fields must not be
+        # reported as edits.
+        create = self.client.post(self.actions_url, data=self._create_payload(), format="json")
+        self.assertEqual(create.status_code, 201, create.content)
+        with patch("products.replay_vision.backend.api.vision_actions.report_user_action") as report:
+            resp = self.client.patch(
+                f"{self.actions_url}{create.json()['id']}/",
+                data={**self._create_payload(), **mutation},
+                format="json",
+            )
+
+        self.assertEqual(resp.status_code, 200, resp.content)
+        report.assert_called_once()
+        self.assertEqual(report.call_args.args[1], "replay_vision_digest_edited")
+        self.assertEqual(report.call_args.args[2]["edited_fields"], expected_fields)
+
+    def test_full_body_save_with_no_changes_reports_nothing(self) -> None:
+        create = self.client.post(self.actions_url, data=self._create_payload(), format="json")
+        self.assertEqual(create.status_code, 201, create.content)
+        with patch("products.replay_vision.backend.api.vision_actions.report_user_action") as report:
+            resp = self.client.patch(
+                f"{self.actions_url}{create.json()['id']}/", data=self._create_payload(), format="json"
+            )
+
+        self.assertEqual(resp.status_code, 200, resp.content)
+        report.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("digest", {}, "replay_vision_digest_deleted"),
+            ("alert", _ALERT_OVERRIDES, "replay_vision_alert_deleted"),
+        ]
+    )
+    def test_delete_reports_props_snapshotted_before_removal(
+        self, _name: str, overrides: dict[str, Any], expected_event: str
+    ) -> None:
+        create = self.client.post(self.actions_url, data=self._create_payload(**overrides), format="json")
+        self.assertEqual(create.status_code, 201, create.content)
+        with patch("products.replay_vision.backend.api.vision_actions.report_user_action") as report:
+            resp = self.client.delete(f"{self.actions_url}{create.json()['id']}/")
+
+        self.assertEqual(resp.status_code, 204)
+        report.assert_called_once()
+        self.assertEqual(report.call_args.args[1], expected_event)
+        properties = report.call_args.args[2]
+        self.assertEqual(properties["vision_action_id"], create.json()["id"])
+        self.assertEqual(properties["organization_id"], str(self.team.organization_id))
+
+
 class TestDeliveryTargetSerializer(SimpleTestCase):
     @parameterized.expand(
         [

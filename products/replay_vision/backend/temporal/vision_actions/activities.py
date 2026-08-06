@@ -1,16 +1,18 @@
 """Supporting activities for the vision-action engine: per-scanner eligibility/claim, run lifecycle, and emit."""
 
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 
 import structlog
+import posthoganalytics
 from temporalio import activity
 
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
+from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
@@ -207,33 +209,73 @@ def _emit(inputs: EmitActionReadyInputs) -> None:
     # internal_destination HogFunction filtered on vision_action_id delivers it. This is non-forgeable
     # with the public project token, and (unlike capture) it does NOT land in the analytics events
     # table — VisionActionRun is the durable history. `uuid=run.id` keeps the emit idempotent on retry.
-    produce_internal_event(
-        team_id=team.id,
-        event=InternalEventEvent(
-            event=_EVENT_NAME,
+    try:
+        produce_internal_event(
+            team_id=team.id,
+            event=InternalEventEvent(
+                event=_EVENT_NAME,
+                distinct_id=replay_vision_distinct_id(team.id),
+                uuid=str(run.id),
+                properties={
+                    "vision_action_id": str(action.id),
+                    "scanner_id": str(action.scanner_id) if action.scanner_id else None,
+                    "vision_action_run_id": str(run.id),
+                    "slack_text": output.get("slack", ""),
+                    # Pre-split section blocks so the full report renders as ONE Slack message; None (not
+                    # []) when absent so Slack falls back to slack_text rather than rejecting empty blocks.
+                    "slack_blocks": output.get("slack_blocks") or None,
+                    # Structured fields the webhook body references, so consumers get clean JSON rather than
+                    # the Slack-formatted text. The report is the canonical markdown, not the mrkdwn variant.
+                    "event_kind": event_kind,
+                    "is_recovery": is_recovery,
+                    "action_name": action.name,
+                    "scanner_name": action.scanner.name if action.scanner_id else None,
+                    "observation_count": run.observation_count,
+                    "report_markdown": run.synthesized_markdown,
+                    "run_url": _run_url(team.id, str(action.id), str(run.id)),
+                    "emitted_at": (run.scheduled_at or run.created_at).isoformat(),
+                },
+            ),
+        )
+    except Exception:
+        _capture_sent_telemetry(run, action, team, is_recovery=is_recovery, success=False)
+        raise
+    _capture_sent_telemetry(run, action, team, is_recovery=is_recovery, success=True)
+
+
+def _capture_sent_telemetry(
+    run: VisionActionRun, action: VisionAction, team: Team, *, is_recovery: bool, success: bool
+) -> None:
+    """Internal cross-customer telemetry mirroring `replay_vision_scan_completed`: one event per
+    delivery target, because the CDP handoff is a single produce but each configured destination is
+    a send. `region`/`environment`/`service` attach as posthoganalytics super properties."""
+    event = "replay_vision_alert_sent" if action.mode == ActionMode.ALERT else "replay_vision_digest_sent"
+    for index, target in enumerate(action.delivery_config):
+        posthoganalytics.capture(
             distinct_id=replay_vision_distinct_id(team.id),
-            uuid=str(run.id),
+            event=event,
+            # Deterministic uuid (dedup key) so an activity retry after a successful produce can't
+            # double-count a send. Failed attempts carry no uuid: each retry is a distinct attempt.
+            uuid=str(uuid5(NAMESPACE_URL, f"replay-vision-sent:{run.id}:{index}")) if success else None,
             properties={
                 "vision_action_id": str(action.id),
-                "scanner_id": str(action.scanner_id) if action.scanner_id else None,
                 "vision_action_run_id": str(run.id),
-                "slack_text": output.get("slack", ""),
-                # Pre-split section blocks so the full report renders as ONE Slack message; None (not
-                # []) when absent so Slack falls back to slack_text rather than rejecting empty blocks.
-                "slack_blocks": output.get("slack_blocks") or None,
-                # Structured fields the webhook body references, so consumers get clean JSON rather than
-                # the Slack-formatted text. The report is the canonical markdown, not the mrkdwn variant.
-                "event_kind": event_kind,
+                "scanner_id": str(action.scanner_id) if action.scanner_id else None,
                 "is_recovery": is_recovery,
-                "action_name": action.name,
-                "scanner_name": action.scanner.name if action.scanner_id else None,
+                "is_scanner_digest": action.is_scanner_digest,
+                "destination_type": target.get("type") if isinstance(target, dict) else None,
                 "observation_count": run.observation_count,
-                "report_markdown": run.synthesized_markdown,
-                "run_url": _run_url(team.id, str(action.id), str(run.id)),
-                "emitted_at": (run.scheduled_at or run.created_at).isoformat(),
+                "success": success,
+                "team_id": team.id,
+                "organization_id": str(team.organization_id),
             },
-        ),
-    )
+            # Mirrors posthog.event_usage.groups() without fetching the Organization row.
+            groups={
+                "instance": settings.SITE_URL,
+                "organization": str(team.organization_id),
+                "project": str(team.uuid),
+            },
+        )
 
 
 def _run_url(team_id: int, action_id: str, run_id: str) -> str:

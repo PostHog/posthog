@@ -24,4 +24,21 @@ A sub-product of Session Replay. Users configure named **scanners** that PostHog
 - `backend/feature_flag.py` — `replay-vision` flag check + permission.
 - `backend/admin.py` — Django admin registrations.
 - `backend/temporal/vision_actions/` + `backend/api/vision_actions.py` — scheduled follow-up actions over observations (under active development).
+- `backend/telemetry.py` — shared property shaping for the vision-action lifecycle events below.
 - `frontend/` — kea-first scenes and logics for the scanner management UI.
+
+## Telemetry
+
+Product-usage events follow the `replay_vision_*` snake_case convention, and every event carries `organization_id` (plus `team_id` and, where one exists, `scanner_id`) as event properties, because org-level analyses join on them.
+
+**Setup events** fire from the API layer via `report_user_action`, so the web UI and MCP tools land in the same events with `source` telling them apart:
+
+- `replay_vision_scanner_created` / `_edited` / `_enabled` / `_disabled` / `_viewed` / `_deleted` — `api/scanners.py`.
+- `replay_vision_digest_created` / `_edited` / `_deleted` and `replay_vision_alert_created` / `_edited` / `_deleted` — `api/vision_actions.py`; digests are `mode=group_summary` actions, alerts are `mode=alert`.
+  Digest events carry the schedule (`rrule`, `timezone`); alert events carry the alert config (`alert_frequency`, `alert_metric`, …); both carry `destination_type`.
+  The scanner's built-in daily digest also reports `replay_vision_digest_created`, flagged `auto_provisioned: true` so setup-intent analyses can exclude it.
+
+**Delivery events** fire server-side from the Temporal engine via `posthoganalytics.capture` (landing in PostHog's internal project, cross-customer, with `region`/`environment`/`service` attached as super properties):
+
+- `replay_vision_scan_completed` — one per succeeded scan; `temporal/activities/observation_state.py`.
+- `replay_vision_digest_sent` / `replay_vision_alert_sent` — one per delivery target on every send, with `observation_count` and a `success` boolean (false when the CDP handoff raises); `temporal/vision_actions/activities.py`.
