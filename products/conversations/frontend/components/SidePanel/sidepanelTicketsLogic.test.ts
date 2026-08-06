@@ -153,6 +153,52 @@ describe('sidepanelTicketsLogic', () => {
         expect(logic.values.canCreateTicket).toBe(true)
     })
 
+    // The error boundary offers to "email an engineer" on a crash. Blocking that on plan would break a
+    // promise we just made on screen, and a crash we surfaced ourselves is always worth hearing about.
+    it('lets an ineligible plan report a crash from the error boundary', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        setSubscriptionLevel('free')
+        expect(logic.values.canCreateTicket).toBe(false)
+        ;(posthog.capture as jest.Mock).mockClear()
+
+        await expectLogic(logic, () => {
+            supportLogic.actions.openSupportForm({
+                kind: 'bug',
+                isEmailFormOpen: true,
+                exception_event: { uuid: 'exc-1', event: '$exception' },
+                target: 'sidePanel',
+            })
+        }).toFinishAllListeners()
+
+        expect(logic.values.canCreateTicket).toBe(true)
+        expect(logic.values.view).toBe('new')
+        // Nothing was turned away, so there is no lost-submit to report
+        expect(
+            (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === 'support ticket send failed')
+        ).toHaveLength(0)
+    })
+
+    // The crash card promises "we'll attach the exception ID, stack trace and session replay". It sends
+    // an exception and no message, so a prefill guarded on the message alone dropped it silently.
+    it('carries the exception into the composer even when the CTA sends no message', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            supportLogic.actions.openSupportForm({
+                kind: 'bug',
+                isEmailFormOpen: true,
+                exception_event: { uuid: 'exc-1', event: '$exception' },
+                target: 'sidePanel',
+            })
+        }).toFinishAllListeners()
+
+        expect(JSON.stringify(logic.values.newTicketDraft)).toContain('Exception')
+    })
+
     it('keeps the billing exemption after the support form resets, so backing out of the composer is not a dead end', async () => {
         logic = sidepanelTicketsLogic.build()
         logic.mount()

@@ -219,7 +219,10 @@ export function appendExceptionToMessage(message: string, exception_event?: Supp
     if (!exception_event) {
         return message
     }
-    return `${message}\n\n-----\nException: ${parseExceptionEvent(exception_event)}`
+    const exception = `Exception: ${parseExceptionEvent(exception_event)}`
+    // The separator divides the user's own words from the machine context, so it only earns its place
+    // when there are words above it — an error boundary CTA carries an exception and nothing else.
+    return message ? `${message}\n\n-----\n${exception}` : exception
 }
 
 export const SUPPORT_KIND_TO_SUBJECT = {
@@ -273,6 +276,7 @@ export interface supportLogicValues {
     user: UserType | null // userLogic
     isBillingIssue: boolean
     isEmailFormOpen: boolean
+    isErrorReport: boolean
     isSendSupportRequestSubmitting: boolean
     isSendSupportRequestValid: boolean
     isSupportFormOpen: boolean
@@ -383,6 +387,7 @@ export interface supportLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         title: (arg: SupportFormFields) => string
         isBillingIssue: (sendSupportRequest: SupportFormFields) => boolean
+        isErrorReport: (sendSupportRequest: SupportFormFields) => boolean
         supportResponseTime: (
             billing: BillingType | null,
             billingPlan: BillingPlan | null,
@@ -490,6 +495,12 @@ export const supportLogic = kea<supportLogicType>([
         isBillingIssue: [
             (s) => [s.sendSupportRequest],
             (sendSupportRequest: SupportFormFields) => !!sendSupportRequest.billing_issue,
+        ],
+        // A crash we surfaced ourselves. The error boundary offers to email an engineer, so this
+        // earns a support exemption the same way a billing question does — see canCreateTicket.
+        isErrorReport: [
+            (s) => [s.sendSupportRequest],
+            (sendSupportRequest: SupportFormFields) => !!sendSupportRequest.exception_event,
         ],
         supportResponseTime: [
             (s) => [s.billing, s.billingPlan, s.supportPlans, s.user],

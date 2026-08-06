@@ -67,6 +67,7 @@ export interface sidepanelTicketsLogicValues {
     sidePanelOpen: boolean // sidePanelStateLogic
     isBillingIssue: boolean // supportLogic
     isEmailFormOpen: boolean // supportLogic
+    isErrorReport: boolean // supportLogic
     pendingViewTicket: {
         created_at: string
         id: string
@@ -76,7 +77,7 @@ export interface sidepanelTicketsLogicValues {
     supportResponseTime: string | null // supportLogic
     canCreateTicket: boolean
     currentTicket: ConversationTicket | null
-    hasBillingExemption: boolean
+    hasSupportExemption: boolean
     hasMoreMessages: boolean
     isBillingResolved: boolean
     messageSending: boolean
@@ -109,7 +110,7 @@ export interface sidepanelTicketsLogicActions {
     resetSendSupportRequest: (values?: SupportFormFields | undefined) => {
         values?: SupportFormFields
     } // supportLogic
-    grantBillingExemption: () => {
+    grantSupportExemption: () => {
         value: true
     }
     initTickets: () => {
@@ -191,8 +192,9 @@ export interface sidepanelTicketsLogicMeta {
         canCreateTicket: (
             billing: BillingType | null,
             isCurrentOrganizationNew: boolean,
-            hasBillingExemption: boolean,
-            isBillingIssue: boolean
+            hasSupportExemption: boolean,
+            isBillingIssue: boolean,
+            isErrorReport: boolean
         ) => boolean
         isBillingResolved: (billing: BillingType | null, billingLoading: boolean) => boolean
     }
@@ -212,7 +214,14 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             sidePanelStateLogic,
             ['sidePanelOpen'],
             supportLogic,
-            ['isEmailFormOpen', 'sendSupportRequest', 'pendingViewTicket', 'isBillingIssue', 'supportResponseTime'],
+            [
+                'isEmailFormOpen',
+                'sendSupportRequest',
+                'pendingViewTicket',
+                'isBillingIssue',
+                'isErrorReport',
+                'supportResponseTime',
+            ],
             billingLogic,
             ['billing', 'billingLoading'],
             organizationLogic,
@@ -226,7 +235,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         ],
     })),
     actions({
-        grantBillingExemption: true,
+        grantSupportExemption: true,
         initTickets: true,
         loadTickets: true,
         startPolling: true,
@@ -329,13 +338,13 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 setRestoreState: () => null,
             },
         ],
-        // Held for the life of the open panel rather than read off supportLogic's `isBillingIssue`,
-        // which resets the moment the intent is consumed — a plan that can't open tickets would
-        // otherwise lose the exemption mid-compose, and with it the composer it was just granted
-        hasBillingExemption: [
+        // Held for the life of the open panel rather than read off the support request, which resets
+        // the moment the intent is consumed — a plan that can't open tickets would otherwise lose the
+        // exemption mid-compose, and with it the composer it was just granted
+        hasSupportExemption: [
             false as boolean,
             {
-                grantBillingExemption: () => true,
+                grantSupportExemption: () => true,
                 closeSidePanel: () => false,
             },
         ],
@@ -349,12 +358,19 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         // the account isn't — free plans can end up with tickets via billing questions or PostHog AI
         // bug reports, and abandoning those threads helps nobody.
         canCreateTicket: [
-            (s) => [s.billing, s.isCurrentOrganizationNew, s.hasBillingExemption, s.isBillingIssue],
+            (s) => [
+                s.billing,
+                s.isCurrentOrganizationNew,
+                s.hasSupportExemption,
+                s.isBillingIssue,
+                s.isErrorReport,
+            ],
             (
                 billing: BillingType | null,
                 isCurrentOrganizationNew: boolean,
-                hasBillingExemption: boolean,
-                isBillingIssue: boolean
+                hasSupportExemption: boolean,
+                isBillingIssue: boolean,
+                isErrorReport: boolean
             ): boolean => {
                 const hasSupportTrial =
                     billing?.trial?.status === 'active' &&
@@ -364,11 +380,14 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     billing?.subscription_level === 'custom' ||
                     hasSupportTrial ||
                     isCurrentOrganizationNew ||
-                    // Billing questions are answered on every plan. Read live from the request as
-                    // well as the sticky reducer: CTAs that don't open the composer never reach
+                    // Billing questions are answered on every plan, and a crash we surfaced ourselves
+                    // is always worth hearing about — the error boundary offers to email an engineer,
+                    // so blocking that would break a promise we just made. Read live from the request
+                    // as well as the sticky reducer: CTAs that don't open the composer never reach
                     // `startTicketFromSupportForm`, so the reducer alone would miss them.
                     isBillingIssue ||
-                    hasBillingExemption
+                    isErrorReport ||
+                    hasSupportExemption
                 )
             },
         ],
@@ -625,10 +644,10 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         // supportLogic, which should land in this composer instead, carrying any prefilled message
         // with them
         startTicketFromSupportForm: () => {
-            // Billing problems are answered on every plan, so that CTA earns an exemption even when
-            // the plan itself doesn't include support
-            if (values.isBillingIssue) {
-                actions.grantBillingExemption()
+            // Billing problems are answered on every plan, and a crash the error boundary surfaced is
+            // always worth hearing about, so both earn an exemption even when the plan excludes support
+            if (values.isBillingIssue || values.isErrorReport) {
+                actions.grantSupportExemption()
             } else if (values.isBillingResolved && !values.canCreateTicket) {
                 // Still consume the intent (see below), just without opening the composer — the panel
                 // explains why and points at the community and upgrade options instead. Only ever on a
@@ -651,11 +670,11 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 return
             }
             const request = values.sendSupportRequest
-            const message = request?.message
-            if (message) {
-                actions.setNewTicketDraft(
-                    messageToRichContent(appendExceptionToMessage(message, request?.exception_event))
-                )
+            // Guarding on the message alone dropped the exception, because an error boundary CTA
+            // carries an exception and no message — and its crash card promises we attach it
+            const draft = appendExceptionToMessage(request?.message ?? '', request?.exception_event)
+            if (draft) {
+                actions.setNewTicketDraft(messageToRichContent(draft))
             }
             actions.setView('new')
             // Consume the support-form intent fully (or supportRouterLogic keeps treating the form as
