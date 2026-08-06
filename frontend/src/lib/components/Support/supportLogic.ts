@@ -143,9 +143,11 @@ function messagePreviewProperties(message?: string): Record<string, any> {
     }
 }
 
-// Shares its event name with the widget endpoint's own rejections so one alert covers client and
-// server. Note the backend tags itself `channel_source`, not `channel`.
-export function captureSupportTicketFailed({
+// Deliberately a different event from the widget endpoint's own `support ticket send failed`, which
+// reports requests the server rejected. That one names the offending field but has no session and no
+// draft, so only an engineer can act on it. This one means the message never left the browser, so it
+// carries what the customer wrote and someone can follow up. Two audiences, so keep them apart.
+export function captureSupportTicketBlocked({
     surface,
     reason,
     message,
@@ -160,7 +162,7 @@ export function captureSupportTicketFailed({
     is_new_ticket?: boolean
     can_create_ticket?: boolean
 }): void {
-    posthog.capture('support ticket send failed', {
+    posthog.capture('support ticket send blocked', {
         channel: 'conversations',
         surface,
         reason,
@@ -589,7 +591,7 @@ export const supportLogic = kea<supportLogicType>([
             // from "the send failed" (usually transient), because they need different advice and the
             // volume of each tells us whether the email fallback is carrying real traffic.
             const sendFailed = (reason: SupportSendFailureReason, error?: unknown): void => {
-                captureSupportTicketFailed({ surface: 'support_form', reason, message, error, kind })
+                captureSupportTicketBlocked({ surface: 'support_form', reason, message, error, kind })
                 if (reason === 'widget_unavailable') {
                     warnSupportWidgetUnavailable()
                     return
@@ -608,7 +610,7 @@ export const supportLogic = kea<supportLogicType>([
             // matches what the widget endpoint actually receives and rejects
             const outgoingMessage = appendExceptionToMessage(message, exception_event)
             if (warnIfMessageTooLong(outgoingMessage)) {
-                captureSupportTicketFailed({
+                captureSupportTicketBlocked({
                     surface: 'support_form',
                     reason: 'message_too_long',
                     message: outgoingMessage,
