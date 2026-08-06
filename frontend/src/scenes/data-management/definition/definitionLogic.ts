@@ -2,7 +2,7 @@ import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, r
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { tryDecodeURIComponent } from 'lib/utils/url'
@@ -335,7 +335,12 @@ export const definitionLogic = kea<definitionLogicType>([
                         }
                         breakpoint()
                     } catch (response: any) {
-                        actions.setDefinitionMissing()
+                        // Only a 404 means the definition genuinely doesn't exist; render the
+                        // not-found screen for that. A real server error is rethrown as-is so it
+                        // surfaces honestly instead of masquerading as "Event not found".
+                        if (response instanceof ApiError && response.status === 404) {
+                            actions.setDefinitionMissing()
+                        }
                         throw response
                     }
 
@@ -362,7 +367,14 @@ export const definitionLogic = kea<definitionLogicType>([
             {
                 loadMetrics: async ({ id }) => {
                     if (values.isEvent) {
-                        return await api.eventDefinitions.getMetrics({ eventDefinitionId: id })
+                        try {
+                            return await api.eventDefinitions.getMetrics({ eventDefinitionId: id })
+                        } catch {
+                            // Metrics are a secondary panel — a failed fetch shouldn't take down
+                            // the whole page (or raise a second server-error toast alongside the
+                            // definition load). Degrade to no metrics instead.
+                            return null
+                        }
                     }
 
                     // For properties, we currently don't have metrics in the same way as events.

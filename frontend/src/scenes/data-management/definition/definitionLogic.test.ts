@@ -25,6 +25,10 @@ describe('definitionLogic', () => {
         initKeaTests()
     })
 
+    afterEach(() => {
+        logic?.unmount()
+    })
+
     describe('event definition', () => {
         it('load definition on mount', async () => {
             router.actions.push(urls.eventDefinition('1'))
@@ -45,6 +49,50 @@ describe('definitionLogic', () => {
                 .toMatchValues({
                     definition: createNewDefinition(true),
                 })
+        })
+    })
+
+    describe('event definition not-found handling', () => {
+        it('marks definition missing on a 404 but not on a server error', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions/404id': () => [404, { detail: 'Not found' }],
+                    '/api/projects/:team/event_definitions/500id': () => [500, { detail: 'Server error' }],
+                    '/api/projects/:team/event_definitions/:id/metrics': { query_usage_30_day: 0 },
+                },
+            })
+
+            router.actions.push(urls.eventDefinition('404id'))
+            logic = definitionLogic({ id: '404id' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadDefinition', 'loadDefinitionFailure']).toMatchValues({
+                definitionMissing: true,
+            })
+            logic.unmount()
+
+            router.actions.push(urls.eventDefinition('500id'))
+            logic = definitionLogic({ id: '500id' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadDefinition', 'loadDefinitionFailure']).toMatchValues({
+                definitionMissing: false,
+            })
+        })
+
+        it('degrades to no metrics instead of failing when the metrics fetch errors', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions/:id': mockEventDefinitions[0],
+                    '/api/projects/:team/event_definitions/:id/metrics': () => [500, { detail: 'Server error' }],
+                },
+            })
+
+            router.actions.push(urls.eventDefinition('1'))
+            logic = definitionLogic({ id: '1' })
+            logic.mount()
+            await expectLogic(logic)
+                .toDispatchActions(['loadMetrics', 'loadMetricsSuccess'])
+                .toNotHaveDispatchedActions(['loadMetricsFailure'])
+                .toMatchValues({ metrics: null })
         })
     })
 

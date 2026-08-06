@@ -478,7 +478,13 @@ class EventDefinitionViewSet(
             uuid.UUID(str(self.kwargs["id"]))
         except ValueError:
             raise Http404("Event definition not found.")
-        return self._get_event_definition(id=self.kwargs["id"], team__project_id=self.project_id)
+        # A well-formed UUID with no matching row raises EventDefinition.DoesNotExist, which neither
+        # DRF nor our exception handler maps to a 404 — it escapes as a 500. Return a clean 404 so a
+        # stale link is reported honestly instead of as a server error.
+        try:
+            return self._get_event_definition(id=self.kwargs["id"], team__project_id=self.project_id)
+        except EventDefinition.DoesNotExist:
+            raise Http404("Event definition not found.")
 
     def _get_event_definition(self, **filters) -> EventDefinition:
         if EE_AVAILABLE:

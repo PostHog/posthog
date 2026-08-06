@@ -481,6 +481,19 @@ class TestEventDefinitionAPI(APIBaseTest):
         response = self.client.get("/api/projects/@current/event_definitions/undefined")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_retrieve_with_valid_uuid_but_no_row_returns_404(self):
+        # A stale link to a deleted event definition is a well-formed UUID with no matching row.
+        # EventDefinition.DoesNotExist must surface as a clean 404, not an unhandled 500.
+        missing_id = uuid4()
+        response = self.client.get(f"/api/projects/@current/event_definitions/{missing_id}")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_metrics_with_valid_uuid_but_no_row_returns_404(self):
+        # The metrics sub-resource loads the same object, so a stale link must 404 here too.
+        missing_id = uuid4()
+        response = self.client.get(f"/api/projects/@current/event_definitions/{missing_id}/metrics")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_by_name_missing_param(self):
         response = self.client.get("/api/projects/@current/event_definitions/by_name/")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
