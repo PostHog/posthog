@@ -1,8 +1,8 @@
 """Fire-and-forget dispatch of the signup enrichment workflow from the request path.
 
-Every guard lives here so the signup serializer stays a one-line call. Dispatch is gated by the
-kill switch and the Cloud region (self-hosted never dispatches), and never raises — a Temporal
-outage degrades to "enrichment did not run". The provider key lives on the workers only. Personal-domain
+Every guard lives here so the signup serializer stays a one-line call. Dispatch is
+gated by the kill switch and US-only for v0, and never raises — a Temporal outage
+degrades to "enrichment did not run". The provider key lives on the workers only. Personal-domain
 signups get no provider lookup, but the work-vs-personal email signal is recorded
 for every signup so consumers can read it either way.
 """
@@ -65,9 +65,8 @@ def start_signup_enrichment_workflow(
     # web pods silently never dispatching (also keeps the key off the public web fleet).
     if not settings.GROWTH_SIGNUP_ENRICHMENT_ENABLED:
         return
-    # Cloud only — self-hosted has no Harmonic key or internal project to score against. The
-    # flag above is the real per-region toggle; it stays unset in EU until enabled there.
-    if get_instance_region() not in ("US", "EU"):
+    # v0 is US-only.
+    if get_instance_region() != "US":
         return
 
     domain = domain_from_email(email)

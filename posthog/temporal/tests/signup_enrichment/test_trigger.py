@@ -60,23 +60,7 @@ def test_missing_harmonic_key_still_dispatches():
 
 
 @override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="key")
-def test_eu_region_dispatches_when_enabled():
-    on_commit, connect, run, region, record = _dispatch_mocks(region="EU")
-    with on_commit, connect as connect_mock, run, region, record:
-        start_signup_enrichment_workflow(organization_id="org-1", distinct_id="d1", email="founder@stripe.com")
-    connect_mock.assert_called_once()
-
-
-@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="key")
-def test_self_hosted_region_never_dispatches():
-    on_commit, connect, run, region, record = _dispatch_mocks(region="DEV")
-    with on_commit, connect as connect_mock, run, region, record:
-        start_signup_enrichment_workflow(organization_id="org-1", distinct_id="d1", email="founder@stripe.com")
-    connect_mock.assert_not_called()
-
-
-@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=False, HARMONIC_API_KEY="key")
-def test_kill_switch_off_never_dispatches_in_eu_either():
+def test_non_us_region_never_dispatches():
     on_commit, connect, run, region, record = _dispatch_mocks(region="EU")
     with on_commit, connect as connect_mock, run, region, record:
         start_signup_enrichment_workflow(organization_id="org-1", distinct_id="d1", email="founder@stripe.com")

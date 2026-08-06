@@ -350,11 +350,8 @@ SESSION_COOKIE_CREATED_AT_KEY = get_from_env("SESSION_COOKIE_CREATED_AT_KEY", "s
 # tests that assert posthoganalytics.feature_enabled call counts.
 SESSION_RISK_ENABLED = get_from_env("SESSION_RISK_ENABLED", not TEST, type_cast=str_to_bool)
 # Kill switch for the real-time signup enrichment workflow (products/growth/backend/enrichment).
-# Off by default: it must stay off until the launch fill-rate/failure alert is in place. Also the
-# de facto per-region toggle, since it is the only region-specific control — dispatch itself is
-# open to both US and EU (see get_instance_region gate in signup_enrichment/trigger.py), so a
-# region stays enrichment-free only by leaving this unset there. Fire-and-forget from signup, so
-# this only gates whether the workflow is dispatched at all.
+# Off by default: it must stay off until the launch fill-rate/failure alert is in place, and v0 is
+# US-only. Fire-and-forget from signup, so this only gates whether the workflow is dispatched at all.
 GROWTH_SIGNUP_ENRICHMENT_ENABLED = get_from_env("GROWTH_SIGNUP_ENRICHMENT_ENABLED", False, type_cast=str_to_bool)
 # The internal analytics project the enrichment pipeline reads/writes bridge and mirror data
 # against (products/growth/backend/enrichment). Defaults to project 2, the internal project the

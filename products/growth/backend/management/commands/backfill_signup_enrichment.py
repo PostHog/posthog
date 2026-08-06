@@ -44,9 +44,9 @@ class Command(BaseCommand):
         # must not defeat it if it was turned off for a compliance, cost, or vendor reason.
         if not settings.GROWTH_SIGNUP_ENRICHMENT_ENABLED:
             raise CommandError("Signup enrichment is disabled (GROWTH_SIGNUP_ENRICHMENT_ENABLED); refusing to dispatch")
-        # Cloud only, mirrors the signup-path region gate (posthog/temporal/signup_enrichment/trigger.py).
-        if get_instance_region() not in ("US", "EU"):
-            raise CommandError("Signup enrichment is US/EU-only; refusing to dispatch in this region")
+        # Enrichment is US-only for v0 (mirrors the signup-path region gate).
+        if get_instance_region() != "US":
+            raise CommandError("Signup enrichment is US-only; refusing to dispatch in this region")
 
         after = self._parse_datetime(options["after"])
         before = self._parse_datetime(options["before"])
