@@ -78,8 +78,7 @@ def _expected_heads(session: Mock) -> list[str]:
 
 
 def test_publishes_every_file_in_one_commit_with_urls_in_input_order(png: Path, tmp_path: Path, token: None) -> None:
-    # Batching is the contract, not an optimization: one commit per invocation is what keeps
-    # concurrent uploads from colliding on expectedHeadOid.
+    # One commit per invocation is what keeps concurrent uploads from colliding on expectedHeadOid.
     second = tmp_path / "after.png"
     second.write_bytes(b"\x89PNG second")
 

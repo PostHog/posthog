@@ -152,8 +152,7 @@ def _graphql(session: requests.Session, token: str, query: str, variables: dict[
 
 
 def _read_head(session: requests.Session, token: str) -> _Head:
-    # Only the commit can act on a failed operation, so a failed read becomes a plain error
-    # here rather than escaping the module as _OperationFailed.
+    # _OperationFailed is the retry signal for the mutation; a failed read has nothing to retry.
     try:
         data = _graphql(session, token, _HEAD_QUERY, {"owner": _OWNER, "name": _NAME})
     except _OperationFailed as exc:
@@ -170,7 +169,7 @@ def _commit(session: requests.Session, token: str, additions: list[dict[str, str
 
     The mutation names the head it expects to extend, so a commit that lands first fails
     this one with STALE_DATA and re-reading the head is the whole recovery. Committing
-    every file together keeps that rare: a burst of files is one commit, not one per file.
+    every file together keeps that rare: one invocation makes one commit.
     """
     head = _read_head(session, token)
     for _ in range(_MAX_ATTEMPTS):

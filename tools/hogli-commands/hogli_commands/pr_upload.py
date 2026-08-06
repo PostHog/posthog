@@ -17,7 +17,7 @@ from hogli_commands import pr_assets
 
 @dataclass(frozen=True, kw_only=True)
 class AssetKind:
-    """What one upload command accepts, and how it renders what it published."""
+    """What one upload command accepts, and how it renders the result."""
 
     noun: str
     caption_flag: str
