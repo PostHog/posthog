@@ -21,7 +21,7 @@ export const CohortsListQueryParams = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            'Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id\/name\/count.'
+            'Return a basic payload that omits the `query`, `groups`, `last_error_message`, and `experiment_set` fields (`filters` is kept). Useful for pickers that only need id\/name\/count.'
         ),
     hide_behavioral_cohorts: zod
         .boolean()
@@ -160,6 +160,7 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
                     .describe(
                         'AND\/OR group containing cohort filters. Named to avoid collision with analytics Group model.'
                     ),
+                filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
             }),
             zod.null(),
         ])
@@ -321,6 +322,7 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .describe(
                         'AND\/OR group containing cohort filters. Named to avoid collision with analytics Group model.'
                     ),
+                filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
             }),
             zod.null(),
         ])

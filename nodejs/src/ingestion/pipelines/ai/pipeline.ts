@@ -40,7 +40,6 @@ import { createFlushHogTransformerStep } from '~/ingestion/common/steps/event-pr
 import { createHogTransformEventStep } from '~/ingestion/common/steps/event-processing/hog-transform-event-step'
 import { createNormalizeEventStep } from '~/ingestion/common/steps/event-processing/normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from '~/ingestion/common/steps/event-processing/normalize-process-person-flag-step'
-import { createPrefetchHogFunctionsStep } from '~/ingestion/common/steps/event-processing/prefetch-hog-functions-step'
 import { createPrepareEventStep } from '~/ingestion/common/steps/event-processing/prepare-event-step'
 import { createReadOnlyProcessGroupsStep } from '~/ingestion/common/steps/event-processing/readonly-process-groups-step'
 import { createSplitAiEventsStep } from '~/ingestion/common/steps/event-processing/split-ai-events-step'
@@ -80,7 +79,6 @@ export interface AiIngestionPipelineConfig {
     overflowRedirectService: OverflowRedirectService
     overflowLaneTTLRefreshService: OverflowRedirectService
     concurrentBatches: number
-    cdpHogWatcherSampleRate: number
     eventSchemaEnforcementEnabled: boolean
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
     topHog: TopHogRegistry
@@ -129,7 +127,6 @@ export function createAiIngestionPipeline<
         overflowRedirectService,
         overflowLaneTTLRefreshService,
         concurrentBatches,
-        cdpHogWatcherSampleRate,
         eventSchemaEnforcementEnabled,
         eventSchemaEnforcementManager,
         topHog,
@@ -176,11 +173,13 @@ export function createAiIngestionPipeline<
             .pipeChunk(createApplyCookielessProcessingStep(cookielessManager))
             .pipeChunk(createOnlyCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
             .pipeChunk(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
-            // Read-only batch person fetch (no person writes).
-            .pipeChunk(createFetchPersonChunkStep(personRepository))
-            // Prefetch hog functions for the batch's teams so the transformer
-            // honors Hog watcher's disabled-function state (mirrors analytics).
-            .pipeChunk(createPrefetchHogFunctionsStep(hogTransformer, cdpHogWatcherSampleRate))
+            // Read-only batch person fetch (no person writes). The personhog
+            // client retries transient gRPC errors for ~150ms; this outer
+            // retry absorbs longer blips that would otherwise crash the
+            // worker via an unhandled rejection.
+            .pipeChunk(createFetchPersonChunkStep(personRepository), {
+                retry: { tries: 5, sleepMs: 100, name: 'fetch_person_chunk' },
+            })
             // Per-event chain. Retry is applied per step: only the steps
             // that do transient-failure-prone I/O (hog transform, group-type
             // fetch, emit) retry, matching the analytics per-distinct-id path.

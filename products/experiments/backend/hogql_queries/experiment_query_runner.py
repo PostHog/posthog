@@ -11,12 +11,15 @@ from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    ActionsNode,
     CachedExperimentQueryResponse,
+    EventsNode,
     ExperimentActorsQuery,
     ExperimentBreakdownResult,
     ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
+    ExperimentMetricMathType,
     ExperimentQuery,
     ExperimentQueryResponse,
     ExperimentRatioMetric,
@@ -48,12 +51,17 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY, get_baseline_variant_key
-from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
+from products.experiments.backend.hogql_queries.base_query_utils import (
+    experiment_window,
+    experiment_window_end,
+    is_session_property_metric,
+)
 from products.experiments.backend.hogql_queries.cuped_config import get_cuped_config
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
     ExperimentQueryBuilder,
     get_exposure_config_params_for_builder,
+    resolve_exposure_config_for_builder,
 )
 from products.experiments.backend.hogql_queries.experiment_query_context import ExperimentPrecomputationContext
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -349,12 +357,12 @@ class ExperimentQueryRunner(QueryRunner):
 
     def _ensure_metric_events_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
         """
-        Ensures lazy-computed funnel metric event data exists for this experiment.
+        Ensures lazy-computed metric event data exists for this experiment.
 
-        Stores one row per matching event with step indicators in the
-        experiment_metric_events_preaggregated table.
+        Stores one row per matching event in the experiment_metric_events_preaggregated
+        table: funnel metrics store step indicators, mean metrics the per-event value.
         """
-        query_string, placeholders = builder.get_funnel_metric_events_query_for_precomputation()
+        query_string, placeholders = builder.get_metric_events_query_for_precomputation()
 
         if not self.experiment.start_date:
             raise ValidationError("Experiment must have a start date for lazy computation")
@@ -362,7 +370,7 @@ class ExperimentQueryRunner(QueryRunner):
         date_from = self.experiment.start_date
         date_to = experiment_window_end(self.experiment, self.as_of)
 
-        # Extend time range by conversion window — funnel step events can occur after experiment end
+        # Extend time range by conversion window — metric events can occur after experiment end
         conversion_window_seconds = builder._get_conversion_window_seconds()
         if conversion_window_seconds > 0:
             date_to = date_to + timedelta(seconds=conversion_window_seconds)
@@ -423,14 +431,26 @@ class ExperimentQueryRunner(QueryRunner):
         return None  # precompute was attempted; a direct path means the build failed / wasn't ready
 
     def _metric_events_precompute_applicable(self) -> bool:
-        """Metric-events precompute only supports ordered funnels without breakdowns, CUPED, or data warehouse."""
-        return (
-            isinstance(self.metric, ExperimentFunnelMetric)
-            and (self.metric.funnel_order_type or "ordered") == "ordered"
-            and not self._get_breakdowns_for_builder()
-            and not self.cuped_config.enabled
-            and not self.is_data_warehouse_query
-        )
+        """
+        Metric-events precompute supports ordered funnels and count/sum-style mean
+        metrics, in both cases without breakdowns, CUPED, or data warehouse sources.
+        """
+        if self._get_breakdowns_for_builder() or self.cuped_config.enabled or self.is_data_warehouse_query:
+            return False
+        if isinstance(self.metric, ExperimentFunnelMetric):
+            return (self.metric.funnel_order_type or "ordered") == "ordered"
+        if isinstance(self.metric, ExperimentMeanMetric):
+            source = self.metric.source
+            if not isinstance(source, (EventsNode, ActionsNode)):
+                return False
+            # Session-property means aggregate via a per-session dedup CTE that the
+            # precomputed table can't feed; ID-valued math (unique session/DAU/group)
+            # and HogQL expressions don't fit the Float64 numeric_value column.
+            if is_session_property_metric(source):
+                return False
+            math_type = getattr(source, "math", None) or ExperimentMetricMathType.TOTAL
+            return math_type in (ExperimentMetricMathType.TOTAL, ExperimentMetricMathType.SUM)
+        return False
 
     def _get_experiment_query(self) -> ast.SelectQuery:
         """
@@ -446,7 +466,9 @@ class ExperimentQueryRunner(QueryRunner):
             exposure_config,
             multiple_variant_handling,
             filter_test_accounts,
-        ) = get_exposure_config_params_for_builder(self.experiment.exposure_criteria)
+        ) = get_exposure_config_params_for_builder(
+            self.experiment.exposure_criteria, self.team, self.experiment.start_date
+        )
 
         builder = ExperimentQueryBuilder(
             team=self.team,
@@ -495,10 +517,11 @@ class ExperimentQueryRunner(QueryRunner):
                     },
                 )
 
-            # Precompute metric events for ordered funnel metrics. CUPED extends the
-            # funnel scan back by `lookback_days` to source the pre-exposure covariate;
-            # the precomputed metric_events table only covers the experiment window, so
-            # skip precomputation here and let the builder issue a fresh scan.
+            # Precompute metric events for eligible metrics (ordered funnels, count/sum
+            # means). CUPED extends the metric scan back by `lookback_days` to source the
+            # pre-exposure covariate; the precomputed metric_events table only covers the
+            # experiment window, so skip precomputation here and let the builder issue a
+            # fresh scan.
             if self._metric_events_precompute_applicable():
                 try:
                     with tags_context(
@@ -846,21 +869,14 @@ class ExperimentQueryRunner(QueryRunner):
 
         exposure_config: ExperimentEventExposureConfig | ActionsNode
         if self.actors_query.exposureConfig is not None:
-            exposure_config = self.actors_query.exposureConfig
-        elif self.experiment.exposure_criteria and self.experiment.exposure_criteria.get("exposure_config"):
-            from products.experiments.backend.hogql_queries.experiment_query_builder import (
-                normalize_to_exposure_criteria,
+            exposure_config = resolve_exposure_config_for_builder(
+                self.actors_query.exposureConfig, self.team, self.experiment.start_date
             )
-
-            criteria = normalize_to_exposure_criteria(self.experiment.exposure_criteria)
-            if criteria and criteria.exposure_config:
-                exposure_config = criteria.exposure_config
-            else:
-                # Default to $feature_flag_called
-                exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
         else:
-            # Default to $feature_flag_called
-            exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
+            # Same resolution as the main experiment query, so the actor list matches the counts.
+            exposure_config, _, _ = get_exposure_config_params_for_builder(
+                self.experiment.exposure_criteria, self.team, self.experiment.start_date
+            )
 
         # Get multiple variant handling
         if self.actors_query.multipleVariantHandling is not None:

@@ -1,13 +1,17 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, configure, screen, waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
 
 import { dimensions, dragSelection, rawDrag, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { urls } from 'scenes/urls'
 
 import { ExportType } from '~/exporter/types'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 import {
     buildTrendsQuery,
     chart,
@@ -20,7 +24,7 @@ import {
     trendsSeries,
 } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
-import { AnnotationScope, ChartDisplayType } from '~/types'
+import { AnnotationScope, ChartDisplayType, InsightShortId } from '~/types'
 
 // The full InsightViz tree is heavy to mount under jsdom; on contended CI shards
 // the default 1s waitFor / findBy timeout is too tight and flakes randomly.
@@ -107,6 +111,46 @@ describe('TrendsLineChart', () => {
             expect(tooltip.row('Spike')).toContain('3')
         })
 
+        it('prefixes rows with the series name when multiple series share a breakdown', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [
+                        { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                    ],
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                }),
+            })
+
+            await chart.clickAtIndex(2)
+
+            // Each breakdown value appears once per series; without the prefix the rows
+            // would be indistinguishable (e.g. two bare "Spike" rows).
+            const tooltip = createInsightTooltipAccessor(chart.getTooltip()!)
+            expect(tooltip.row('Pageview · Spike')).toContain('90')
+            expect(tooltip.row('Napped · Spike')).toContain('3')
+        })
+
+        it('adds series letters when same-named series share a breakdown', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [
+                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                    ],
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                }),
+            })
+
+            await chart.clickAtIndex(2)
+
+            // The name alone can't tell the two series apart, so rows get the A/B
+            // letters from the insight editor.
+            const tooltip = createInsightTooltipAccessor(chart.getTooltip()!)
+            const spikeRows = tooltip.rows().filter((label) => label.includes('Spike'))
+            expect(spikeRows.map((label) => label[0]).sort()).toEqual(['A', 'B'])
+        })
+
         it('shows every breakdown value when a formula is applied', async () => {
             renderInsight({
                 query: buildTrendsQuery({
@@ -122,6 +166,24 @@ describe('TrendsLineChart', () => {
             expect(tooltip.row('Spike')).toContain('3')
             expect(tooltip.row('Bramble')).toContain('1')
             expect(tooltip.row('Prickles')).toContain('1')
+        })
+
+        it('prefixes rows with the formula name when multiple formulas share a breakdown', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                    trendsFilter: { formulas: ['A', 'A*2'] },
+                }),
+            })
+
+            await chart.clickAtIndex(2)
+
+            // Formula rows carry no `action`; their `order` is what keeps the repeated
+            // breakdown values from separate formulas attributable.
+            const tooltip = createInsightTooltipAccessor(chart.getTooltip()!)
+            expect(tooltip.row('Formula (A) · Spike')).toContain('3')
+            expect(tooltip.row('Formula (A*2) · Spike')).toContain('6')
         })
 
         it('shows current and previous period rows in compare mode', async () => {
@@ -522,6 +584,22 @@ describe('TrendsLineChart', () => {
             expect(screen.queryByLabelText(/chart with/i)).not.toBeInTheDocument()
         })
 
+        it('renders the chart when the first series is empty but a later one has data', async () => {
+            // Regresses the bug this PR fixes: the old check only looked at
+            // indexedResults[0], so a leading empty series blanked the whole chart even when a
+            // later series (here, ActiveSeries) had real counts.
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'ZeroCounts', name: 'ZeroCounts' }],
+                }),
+            })
+
+            await waitFor(() => {
+                expect(screen.getByLabelText(/chart with/i)).toBeInTheDocument()
+            })
+            expect(screen.queryByTestId('insight-empty-state')).not.toBeInTheDocument()
+        })
+
         it('uses context.emptyStateHeading override when provided', async () => {
             renderInsight({
                 query: buildTrendsQuery({
@@ -629,6 +707,75 @@ describe('TrendsLineChart', () => {
                 // Sharing-token auth can't run person-level queries, so shared views must not offer the drill-down.
                 expect(personsModal.get()).not.toBeInTheDocument()
             })
+        })
+    })
+
+    describe('formula insights with drill-down disabled', () => {
+        const multiSeriesFormulaQuery = buildTrendsQuery({
+            series: [
+                { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+            ],
+            trendsFilter: { formula: 'A/B' },
+        })
+
+        /** Mirrors how InsightCard hands a dashboard tile's real short_id and query down through
+         *  `context.insightProps.cachedInsight` (see InsightCard.tsx / InsightMeta.tsx). */
+        const dashboardTileContext = (shortId: InsightShortId): QueryContext<InsightVizNode> => ({
+            insightProps: {
+                dashboardItemId: shortId,
+                dashboardId: 42,
+                cachedInsight: {
+                    short_id: shortId,
+                    query: { kind: NodeKind.InsightVizNode, source: multiSeriesFormulaQuery } as InsightVizNode,
+                },
+            },
+        })
+
+        it('offers no click affordance and does not open the persons modal', async () => {
+            renderInsight({ query: multiSeriesFormulaQuery })
+
+            await chart.hoverTooltip(2)
+
+            expect(chart.getTooltip()?.textContent).not.toContain('Click to view')
+            await chart.clickTooltipRow('Pageview')
+            expect(personsModal.get()).not.toBeInTheDocument()
+        })
+
+        it('navigates to the insight on click when rendered as a dashboard/card tile', async () => {
+            const shortId = 'formula-insight-1' as InsightShortId
+            renderInsight({
+                query: multiSeriesFormulaQuery,
+                embedded: true,
+                context: dashboardTileContext(shortId),
+            })
+
+            await chart.hoverTooltip(2)
+            expect(chart.getTooltip()?.textContent).toContain('Click to view the insight')
+
+            await chart.clickTooltipRow('Pageview')
+
+            await waitFor(() => {
+                const path = removeProjectIdIfPresent(router.values.location.pathname) + router.values.location.search
+                expect(path).toEqual(urls.insightView(shortId, 42))
+            })
+            expect(personsModal.get()).not.toBeInTheDocument()
+        })
+
+        it('does not navigate on click when rendered in shared mode', async () => {
+            const shortId = 'formula-insight-2' as InsightShortId
+            renderInsight({
+                query: multiSeriesFormulaQuery,
+                embedded: true,
+                inSharedMode: true,
+                context: dashboardTileContext(shortId),
+            })
+            const pathnameBeforeClick = router.values.location.pathname
+
+            await chart.hoverTooltip(2)
+            await chart.clickTooltipRow('Pageview')
+
+            expect(router.values.location.pathname).toEqual(pathnameBeforeClick)
         })
     })
 
