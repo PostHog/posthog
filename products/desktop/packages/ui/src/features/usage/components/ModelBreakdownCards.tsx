@@ -31,7 +31,7 @@ export function ModelBreakdownCards({
       icon={<Robot size={14} className="text-(--gray-9)" />}
       title="Cost by model"
     >
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
         {rows.map((row) => {
           const share =
             scopedCostUsd > 0
