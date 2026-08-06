@@ -51,6 +51,7 @@ import { IssueStatusButton } from '../../components/IssueStatusButton'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
+import { getIssueReplayDateRange } from '../../utils'
 import {
     ErrorTrackingIssueSceneCategory,
     errorTrackingIssueSceneConfigurationLogic,
@@ -124,8 +125,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                             <SceneMenuBarItem
                                                 onClick={() => {
                                                     const url = urls.replay(ReplayTabs.Home, {
-                                                        date_from: issue.first_seen ?? '-30d',
-                                                        date_to: lastSeen ? lastSeen.toISOString() : null,
+                                                        ...getIssueReplayDateRange(issue.first_seen, lastSeen),
                                                         filter_group: {
                                                             type: FilterLogicalOperator.And,
                                                             values: [
@@ -176,8 +176,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                 />
                                                 <ViewRecordingsPlaylistButton
                                                     filters={{
-                                                        date_from: issue.first_seen ?? '-30d',
-                                                        date_to: lastSeen ? lastSeen.toISOString() : null,
+                                                        ...getIssueReplayDateRange(issue.first_seen, lastSeen),
                                                         filter_group: {
                                                             type: FilterLogicalOperator.And,
                                                             values: [
@@ -302,6 +301,7 @@ const RightHandColumn = ({
 const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
     const { category } = useValues(errorTrackingIssueSceneConfigurationLogic)
     const { setCategory } = useActions(errorTrackingIssueSceneConfigurationLogic)
+    const { issueId } = useValues(errorTrackingIssueSceneLogic)
 
     const ref = useRef<HTMLDivElement>(null)
     const resizerLogicProps: ResizerLogicProps = {
@@ -329,7 +329,10 @@ const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
         >
             <TabsPrimitive
                 value={category}
-                onValueChange={(value) => setCategory(value as ErrorTrackingIssueSceneCategory)}
+                onValueChange={(value) => {
+                    setCategory(value as ErrorTrackingIssueSceneCategory)
+                    posthog.capture('error_tracking_issue_tab_viewed', { issue_id: issueId, tab: value })
+                }}
                 className="flex flex-col flex-1 min-h-0"
             >
                 <div>

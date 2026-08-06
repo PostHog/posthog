@@ -10,9 +10,9 @@ import { useChannelsSidebarStore } from "@posthog/ui/features/canvas/components/
 import { useChannelPaneSwipe } from "@posthog/ui/features/canvas/hooks/useChannelPaneSwipe";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useCurrentChannel } from "@posthog/ui/features/canvas/hooks/useCurrentChannel";
-import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useTrackChannelsSpaceViewed } from "@posthog/ui/features/canvas/hooks/useTrackChannelsSpaceViewed";
 import {
+  consumeKeepListForNextRoute,
   showChannelList,
   showChannelPane,
   useChannelPaneStore,
@@ -177,7 +177,9 @@ export function ChannelsSidebar() {
     setCurrentChannel(routeChannelId);
     // Landing on a channel — a deep link, a mention, ⌘1-9 — is a request to see
     // it, so the slider follows the route even if the list was being browsed.
-    showChannelPane();
+    // Unless the navigation said otherwise: opening a session from the list's
+    // tree loads it without taking the tree off the screen.
+    if (!consumeKeepListForNextRoute()) showChannelPane();
   }, [channelsLayout, routeChannelId, setCurrentChannel]);
 
   // Browsing the list is view state, not navigation: you stay in the channel
@@ -197,7 +199,7 @@ export function ChannelsSidebar() {
     // writes its channel and this later effect immediately overwrites it with
     // #me using the stale `currentChannelId` captured by that render.
     if (routeChannelId || autoScopedRef.current || currentChannelId) return;
-    const me = channels.find((c) => c.name === PERSONAL_CHANNEL_NAME);
+    const me = channels.find((c) => c.channelType === "personal");
     if (!me) return;
     autoScopedRef.current = true;
     setCurrentChannel(me.id);

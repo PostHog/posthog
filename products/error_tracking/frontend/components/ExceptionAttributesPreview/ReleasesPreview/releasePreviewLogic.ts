@@ -67,7 +67,8 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
                 if (uniqueRelatedReleasesIds.length === 1) {
                     return relatedReleases[0]
                 }
-                const kaboomFrame = frames.reverse()[0]
+                // canonical storage order: the crash site is the last frame
+                const kaboomFrame = frames[frames.length - 1]
                 if (stackFrameRecords[kaboomFrame?.raw_id]?.release) {
                     return stackFrameRecords[kaboomFrame.raw_id].release
                 }

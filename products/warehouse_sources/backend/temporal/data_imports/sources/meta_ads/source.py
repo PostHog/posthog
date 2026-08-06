@@ -51,6 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.schemas import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -156,7 +157,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MetaAdsResumeConfig]:
         return ResumableSourceManager[MetaAdsResumeConfig](inputs, MetaAdsResumeConfig)
@@ -208,7 +209,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                     ),
                     SourceFieldInputConfig(
                         name="sync_lookback_days",
-                        label="Sync history for insights (days) - applies to AdStats, AdsetStats, CampaignStats",
+                        label="Sync history for insights (days) - applies to every stats table",
                         type=SourceFieldInputConfigType.NUMBER,
                         required=False,
                         placeholder="90",
