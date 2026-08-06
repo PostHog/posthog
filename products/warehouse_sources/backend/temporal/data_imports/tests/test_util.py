@@ -7,13 +7,25 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import botocore.exceptions
 from parameterized import parameterized
 
+from posthog.temporal.common.errors import NonReportableError
+
 from products.warehouse_sources.backend.temporal.data_imports import util as util_module
 from products.warehouse_sources.backend.temporal.data_imports.util import (
+    NonRetryableException,
     _is_transient_s3_connection_error,
     prepare_s3_files_for_querying,
 )
 
 _UTIL_MODULE = "products.warehouse_sources.backend.temporal.data_imports.util"
+
+
+def test_non_retryable_exception_is_non_reportable_error():
+    # Every NonRetryableException raise site (handle_non_retryable_error, custom-source config
+    # errors, CDC failure classification) already vetted the error as a known customer/upstream
+    # condition before raising it. Subclassing NonReportableError is what keeps that already-known
+    # condition out of error tracking; without it, the activity interceptor reports a fresh
+    # "bug" for every occurrence of an error a source already classified as non-retryable.
+    assert issubclass(NonRetryableException, NonReportableError)
 
 
 def _fake_s3(**kwargs):
@@ -79,6 +91,63 @@ class TestPrepareS3FilesForQuerying:
 
         refresh_file_uris.assert_awaited_once()
         assert cp_file.await_args_list[-1].args[0] == "s3://bucket/job/my_table/part-1.parquet"
+
+    async def test_retries_past_a_second_consecutive_vanished_file(self):
+        # Regression for a race where a zombie compact/vacuum pass outlived a single retry:
+        # the source file vanished on both the first attempt and the retry (a different file
+        # each time), which a retry-once loop would give up on instead of trying a third time.
+        cp_file = AsyncMock(
+            side_effect=[
+                FileNotFoundError("s3://bucket/job/my_table/part-0.parquet"),
+                FileNotFoundError("s3://bucket/job/my_table/part-1.parquet"),
+                None,
+            ]
+        )
+        s3 = _fake_s3(_cp_file=cp_file)
+        refresh_file_uris = AsyncMock(
+            side_effect=[
+                ["s3://bucket/job/my_table/part-1.parquet"],
+                ["s3://bucket/job/my_table/part-2.parquet"],
+            ]
+        )
+
+        with (
+            patch.object(util_module, "aget_s3_client", return_value=_FakeS3CM(s3)),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            await prepare_s3_files_for_querying(
+                folder_path="job",
+                table_name="my_table",
+                file_uris=["s3://bucket/job/my_table/part-0.parquet"],
+                delete_existing=False,
+                refresh_file_uris=refresh_file_uris,
+            )
+
+        assert refresh_file_uris.await_count == 2
+        assert cp_file.await_args_list[-1].args[0] == "s3://bucket/job/my_table/part-2.parquet"
+
+    async def test_gives_up_after_max_attempts_exhausted(self):
+        # The retry loop is bounded: a source file that keeps vanishing on every attempt must
+        # eventually raise instead of retrying forever.
+        cp_file = AsyncMock(side_effect=FileNotFoundError("s3://bucket/job/my_table/part-0.parquet"))
+        s3 = _fake_s3(_cp_file=cp_file)
+        refresh_file_uris = AsyncMock(return_value=["s3://bucket/job/my_table/part-0.parquet"])
+
+        with (
+            patch.object(util_module, "aget_s3_client", return_value=_FakeS3CM(s3)),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            with pytest.raises(FileNotFoundError):
+                await prepare_s3_files_for_querying(
+                    folder_path="job",
+                    table_name="my_table",
+                    file_uris=["s3://bucket/job/my_table/part-0.parquet"],
+                    delete_existing=False,
+                    refresh_file_uris=refresh_file_uris,
+                )
+
+        assert cp_file.await_count == util_module._COPY_FILES_MAX_ATTEMPTS
+        assert refresh_file_uris.await_count == util_module._COPY_FILES_MAX_ATTEMPTS - 1
 
     async def test_propagates_vanished_source_file_without_refresh_callback(self):
         # Callers that don't pass refresh_file_uris keep today's behavior: the race still

@@ -3,8 +3,8 @@ import time
 import base64
 import hashlib
 from datetime import UTC, datetime, timedelta
-from typing import Optional
-from urllib.parse import parse_qs
+from typing import Optional, cast
+from urllib.parse import parse_qs, urlencode
 
 import pytest
 from freezegun import freeze_time
@@ -28,11 +28,14 @@ from posthog.egress.github.transport import (
     raise_if_github_rate_limited,
 )
 from posthog.egress.limiter.policies import Priority
+from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import GITHUB_BRANCH_CACHE_TTL_SECONDS, GITHUB_REPOSITORY_CACHE_TTL_SECONDS
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import (
     CONFIG_LEGACY_OAUTH_CLIENT,
     MISSING_CERT_PATH,
+    POSTHOG_CONNECT_DEFAULT_SCOPES,
+    POSTHOG_CONNECT_IDENTITY_SCOPES,
     TLS,
     Authority,
     AwsS3Integration,
@@ -46,6 +49,7 @@ from posthog.models.integration import (
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
     Integration,
+    JiraIntegration,
     LinearIntegration,
     OauthIntegration,
     PostgreSQLIntegration,
@@ -58,6 +62,7 @@ from posthog.models.integration import (
     invalidate_github_repository_caches_for_installation,
     oauth_refresh_failure_reason,
     oauth_refresh_terminal_counter,
+    refresh_backoff_active,
 )
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -76,11 +81,15 @@ def update_db_field_value(field, model_id, value):
     cursor.execute(f"update posthog_integration set {field}='{value}' where id='{model_id}';")
 
 
-def test_slack_oauth_scope_includes_canvas_scope_for_local_installs():
+def test_slack_oauth_requests_the_recently_approved_scopes_on_every_instance():
+    # These waited on Slack app-directory review and were only requested on DEV/local. They're
+    # approved now, so every instance asks for them — the features behind them (DM assistant,
+    # canvas and file artifact delivery, inbox channel creation) are dark without them.
     from posthog.models.integration import POSTHOG_SLACK_SCOPE
 
-    assert "canvases:write" in set(POSTHOG_SLACK_SCOPE.split(","))
-    assert "files:write" in set(POSTHOG_SLACK_SCOPE.split(","))
+    requested = set(POSTHOG_SLACK_SCOPE.split(","))
+
+    assert {"assistant:write", "im:history", "canvases:write", "files:write", "channels:manage"} <= requested
 
 
 class TestIntegrationModel(BaseTest):
@@ -139,6 +148,24 @@ class TestIntegrationModel(BaseTest):
     @parameterized.expand([("access_token",), ("refresh_token",)])
     def test_oauth_token_property_passes_through_decrypted_value(self, field_name: str) -> None:
         integration = Integration(team=self.team, kind="stripe", sensitive_config={field_name: "a-real-token"})
+        assert getattr(integration, field_name) == "a-real-token"
+
+    @parameterized.expand([("access_token",), ("refresh_token",)])
+    def test_oauth_token_property_recovers_an_over_encrypted_value(self, field_name: str) -> None:
+        # Saving an integration whose secret failed to decrypt re-encrypts the ciphertext, so the
+        # stored value ends up with an extra layer and one decrypt still leaves ciphertext behind.
+        # The secret is intact underneath, so the connection must keep working.
+        integration = self.create_integration("stripe", sensitive_config={field_name: "a-real-token"})
+        field = cast(EncryptedJSONField, Integration._meta.get_field("sensitive_config"))  # type: ignore[misc]
+        stored = json.loads(get_db_field_value("sensitive_config", integration.id))
+        update_db_field_value(
+            "sensitive_config",
+            integration.id,
+            json.dumps({**stored, field_name: field.encrypt(stored[field_name])}),
+        )
+
+        integration.refresh_from_db()
+
         assert getattr(integration, field_name) == "a-real-token"
 
     def test_slack_integration_config(self):
@@ -205,6 +232,70 @@ class TestLinearIntegrationModel(BaseTest):
         assert attachment_variables["issueId"] == "LIN-123"
         assert attachment_variables["title"] == "PostHog issue"
         assert attachment_variables["url"].endswith(f'/project/{self.team.id}/error_tracking/issue-id" }} mutation {{')
+
+
+class TestJiraIntegrationModel:
+    @staticmethod
+    def integration() -> MagicMock:
+        return MagicMock(
+            id=123,
+            team_id=456,
+            kind=Integration.IntegrationKind.JIRA,
+            config={"cloud_id": "cloud-id"},
+            sensitive_config={"access_token": "access-token"},
+        )
+
+    @patch("posthog.models.integration.capture_exception")
+    @patch("posthog.models.integration.requests.post")
+    def test_create_issue_captures_structured_error_details(self, mock_post, mock_capture_exception):
+        mock_post.return_value.status_code = 400
+        mock_post.return_value.headers = {"Content-Type": "application/json"}
+        mock_post.return_value.json.return_value = {
+            "errorMessages": ["Issue type is not available"],
+            "errors": {"summary": "Summary is required"},
+        }
+
+        with pytest.raises(ValidationError) as error:
+            JiraIntegration(self.integration()).create_issue(
+                {"project_key": "ENG", "title": "Checkout failed", "description": "Details"}
+            )
+
+        assert error.value.args[0] == (
+            "Could not create the Jira issue. Check the project's issue settings and try again."
+        )
+        captured_error = mock_capture_exception.call_args.args[0]
+        assert str(captured_error) == "Jira issue creation failed"
+        assert mock_capture_exception.call_args.kwargs["additional_properties"] == {
+            "jira_status_code": 400,
+            "jira_response_content_type": "application/json",
+            "integration_id": 123,
+            "team_id": 456,
+            "jira_error_messages": ["Issue type is not available"],
+            "jira_field_errors": {"summary": "Summary is required"},
+            "jira_response_keys": ["errorMessages", "errors"],
+        }
+
+    @patch("posthog.models.integration.capture_exception")
+    @patch("posthog.models.integration.requests.post")
+    def test_create_issue_captures_non_json_response_metadata(self, mock_post, mock_capture_exception):
+        mock_post.return_value.status_code = 502
+        mock_post.return_value.headers = {"Content-Type": "text/html"}
+        mock_post.return_value.json.side_effect = ValueError
+
+        with pytest.raises(ValidationError) as error:
+            JiraIntegration(self.integration()).create_issue(
+                {"project_key": "ENG", "title": "Checkout failed", "description": "Details"}
+            )
+
+        assert error.value.args[0] == (
+            "Could not create the Jira issue. Check the project's issue settings and try again."
+        )
+        assert mock_capture_exception.call_args.kwargs["additional_properties"] == {
+            "jira_status_code": 502,
+            "jira_response_content_type": "text/html",
+            "integration_id": 123,
+            "team_id": 456,
+        }
 
 
 class TestOauthIntegrationModel(BaseTest):
@@ -630,6 +721,41 @@ class TestOauthIntegrationModel(BaseTest):
         assert integration.errors == "TOKEN_REFRESH_FAILED"
 
         mock_reload.assert_not_called()
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_failed_refresh_leaves_stored_secrets_byte_identical(self, mock_post, mock_reload):
+        # A failed refresh has no new secrets to store, and rewriting the ones already there is how
+        # a secret that couldn't be decrypted (handed back as raw ciphertext by
+        # `ignore_decrypt_errors`) gains a permanent extra encryption layer.
+        mock_post.return_value.status_code = 401
+        mock_post.return_value.json.return_value = {"error": "BROKEN"}
+
+        integration = self.create_integration(kind="hubspot", config={"expires_in": 1000})
+        stored_before = get_db_field_value("sensitive_config", integration.id)
+
+        with self.settings(**self.mock_settings):
+            OauthIntegration(integration).refresh_access_token()
+
+        assert get_db_field_value("sensitive_config", integration.id) == stored_before
+        assert integration.errors == "TOKEN_REFRESH_FAILED"
+
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_with_unreadable_secret_goes_terminal_without_calling_the_provider(self, mock_post):
+        # Posting ciphertext as the refresh token just earns an invalid_grant every minute forever.
+        # Nothing about the stored secret can change, so the sweep must stop and the reconnect
+        # prompt must show instead.
+        integration = self.create_integration(kind="hubspot", sensitive_config={"refresh_token": "gAAAAAleftover=="})
+
+        with self.settings(**self.mock_settings):
+            OauthIntegration(integration).refresh_access_token()
+
+        mock_post.assert_not_called()
+        assert integration.errors == "TOKEN_REFRESH_FAILED"
+        assert refresh_backoff_active(integration) is True
+
+        integration.refresh_from_db()
+        assert integration.config["refresh_terminal"] is True
 
     def _mock_token_response(self, status_code: int, token: Optional[str]) -> MagicMock:
         response = MagicMock()
@@ -1245,6 +1371,148 @@ class TestOauthIntegrationModel(BaseTest):
             )
 
         assert "is_sandbox" not in integration.config
+
+
+class TestPosthogConnectIntegration(BaseTest):
+    connect_settings = {
+        "POSTHOG_CONNECT_BASE_URL_US": "https://us.posthog.com",
+        "POSTHOG_CONNECT_OAUTH_CLIENT_ID_US": "us-client-id",
+        "POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_US": "us-secret",
+        "POSTHOG_CONNECT_BASE_URL_EU": "https://eu.posthog.com",
+        "POSTHOG_CONNECT_OAUTH_CLIENT_ID_EU": "eu-client-id",
+        "POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_EU": "eu-secret",
+        "POSTHOG_CONNECT_BASE_URL_DEV": "http://localhost:8000",
+        "POSTHOG_CONNECT_OAUTH_CLIENT_ID_DEV": "dev-client-id",
+        "POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_DEV": "dev-secret",
+    }
+
+    @parameterized.expand(
+        [
+            ("US", "https://us.posthog.com/oauth/authorize", "us-client-id"),
+            ("EU", "https://eu.posthog.com/oauth/authorize", "eu-client-id"),
+            ("DEV", "http://localhost:8000/oauth/authorize", "dev-client-id"),
+        ]
+    )
+    def test_authorize_url_targets_selected_region(self, region, expected_base, expected_client_id):
+        with self.settings(**self.connect_settings):
+            url = OauthIntegration.authorize_url(
+                "posthog", token="tok", next="/projects/test", region=region, scopes=["task:read", "task:write"]
+            )
+            base, _, query = url.partition("?")
+            params = {k: v[0] for k, v in parse_qs(query).items()}
+            assert base == expected_base
+            assert params["client_id"] == expected_client_id
+            # User-selected scopes plus the always-appended identity scopes needed for /oauth/userinfo.
+            assert params["scope"] == "task:read task:write openid email"
+            # Host comes from SITE_URL, which differs by environment; assert the stable callback suffix.
+            assert params["redirect_uri"].endswith("/integrations/posthog/callback")
+            # posthog uses PKCE
+            assert params["code_challenge_method"] == "S256"
+            # Region is carried in state so the callback (on the connecting cell) exchanges the code
+            # against the correct target cell.
+            state = {k: v[0] for k, v in parse_qs(params["state"]).items()}
+            assert state["region"] == region
+            assert state["token"] == "tok"
+
+    def test_authorize_url_lowercases_region_input(self):
+        with self.settings(**self.connect_settings):
+            url = OauthIntegration.authorize_url("posthog", token="tok", region="eu", scopes=["task:read"])
+            assert url.startswith("https://eu.posthog.com/oauth/authorize")
+            outer = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+            state = {k: v[0] for k, v in parse_qs(outer["state"]).items()}
+            assert state["region"] == "EU"
+
+    def test_authorize_url_defaults_to_task_scopes_when_none_selected(self):
+        with self.settings(**self.connect_settings):
+            url = OauthIntegration.authorize_url("posthog", token="tok", region="US", scopes=None)
+            params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+            expected = " ".join([*POSTHOG_CONNECT_DEFAULT_SCOPES, *POSTHOG_CONNECT_IDENTITY_SCOPES])
+            assert params["scope"] == expected
+
+    def test_authorize_url_unknown_region_raises(self):
+        with self.settings(**self.connect_settings):
+            with pytest.raises(NotImplementedError):
+                OauthIntegration.authorize_url("posthog", token="tok", region="ASIA", scopes=["task:read"])
+
+    def test_authorize_url_unconfigured_region_raises(self):
+        unconfigured = {
+            **self.connect_settings,
+            "POSTHOG_CONNECT_OAUTH_CLIENT_ID_EU": "",
+            "POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_EU": "",
+        }
+        with self.settings(**unconfigured):
+            with pytest.raises(NotImplementedError):
+                OauthIntegration.authorize_url("posthog", token="tok", region="EU", scopes=["task:read"])
+
+    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.integration.requests.post")
+    def test_integration_from_oauth_response_persists_region_and_namespaces_id(self, mock_post, mock_get):
+        with self.settings(**self.connect_settings):
+            mock_post.return_value = MagicMock(status_code=200)
+            mock_post.return_value.json.return_value = {
+                "access_token": "AT",
+                "refresh_token": "RT",
+                "expires_in": 3600,
+                "scope": "task:read task:write openid email",
+            }
+            mock_get.return_value = MagicMock(status_code=200)
+            mock_get.return_value.json.return_value = {"sub": "user-uuid-123", "email": "person@posthog.com"}
+
+            # posthog is a PKCE flow; the authorize step caches a verifier keyed on the state token.
+            cache.set("oauth_pkce_verifier/tok", "the-verifier")
+            state = urlencode({"next": "/", "token": "tok", "region": "EU"})
+            integration = OauthIntegration.integration_from_oauth_response(
+                "posthog", self.team.id, self.user, {"code": "auth-code", "state": state}
+            )
+
+            # Token exchange must hit the region carried in state.
+            assert mock_post.call_args[0][0] == "https://eu.posthog.com/oauth/token"
+            assert integration.kind == "posthog"
+            assert integration.config["region"] == "EU"
+            # Dedup key is namespaced by region so the same account in two cells doesn't collide.
+            assert integration.integration_id == "EU:user-uuid-123"
+            assert integration.config["email"] == "person@posthog.com"
+            # Only the resource scopes are persisted (identity scopes dropped), for the caller-scope check.
+            assert integration.config["granted_scopes"] == ["task:read", "task:write"]
+            assert integration.sensitive_config["access_token"] == "AT"
+            assert integration.sensitive_config["refresh_token"] == "RT"
+
+    @patch("posthog.models.integration.requests.post")
+    def test_integration_from_oauth_response_fails_closed_without_pkce_verifier(self, mock_post):
+        # No cached verifier (as if the authorize step was skipped / replayed). A first-party posthog
+        # flow must fail closed rather than exchange the code without PKCE.
+        with self.settings(**self.connect_settings):
+            cache.delete("oauth_pkce_verifier/tok")
+            state = urlencode({"next": "/", "token": "tok", "region": "EU"})
+            with pytest.raises(ValidationError):
+                OauthIntegration.integration_from_oauth_response(
+                    "posthog", self.team.id, self.user, {"code": "auth-code", "state": state}
+                )
+            mock_post.assert_not_called()
+
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_access_token_uses_persisted_region(self, mock_post):
+        with self.settings(**self.connect_settings):
+            integration = Integration.objects.create(
+                team=self.team,
+                kind="posthog",
+                integration_id="EU:user-uuid-123",
+                config={"region": "EU", "refreshed_at": int(time.time()) - 4000, "expires_in": 3600},
+                sensitive_config={"refresh_token": "RT", "access_token": "OLD"},
+            )
+            mock_post.return_value = MagicMock(status_code=200)
+            mock_post.return_value.json.return_value = {
+                "access_token": "NEW",
+                "refresh_token": "RT2",
+                "expires_in": 3600,
+            }
+
+            OauthIntegration(integration).refresh_access_token()
+
+            # Refresh must target the persisted region's token endpoint, not a static one.
+            assert mock_post.call_args[0][0] == "https://eu.posthog.com/oauth/token"
+            integration.refresh_from_db()
+            assert integration.sensitive_config["access_token"] == "NEW"
 
 
 class TestGoogleCloudIntegrationModel(BaseTest):

@@ -24,6 +24,7 @@ import {
     type SessionRow,
     type ToolDailyRow,
 } from './mcpDashboardOverviewLogic'
+import { BUCKET_FORMAT } from './timeBuckets'
 
 jest.mock('lib/api')
 jest.mock('./generated/api', () => ({
@@ -81,6 +82,7 @@ describe('mcpDashboardOverviewLogic', () => {
             'opencode',
             'Kiro',
             'Desktop Commander',
+            'PostHog CLI',
         ]
 
         it.each(EXPECTED_HARNESS_LABELS)('HARNESS_BY_LABEL has an entry for backend label %s', (label) => {
@@ -388,6 +390,39 @@ describe('mcpDashboardOverviewLogic', () => {
                 { id: 'explorer', rule: 'most_exploratory' },
                 { id: 'firehose', rule: 'high_activity' },
             ])
+        })
+    })
+
+    describe('kpiIncompleteTail', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            initKeaTests()
+            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] })
+        })
+
+        // Reads the sparkline's own labels rather than the zero-filled axis: on a day with no calls
+        // yet the KPI series stops at yesterday, which is settled, so dashing its last point would
+        // mark a complete bucket as in progress.
+        it('tracks the KPI sparkline labels, not the chart axis', async () => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const bucket = (daysAgo: number): string =>
+                dayjs().tz(logic.values.timezone).subtract(daysAgo, 'day').startOf('day').format(BUCKET_FORMAT)
+            const row = (daysAgo: number): BucketRow => ({
+                bucket: bucket(daysAgo),
+                sessions: 3,
+                tool_calls: 30,
+                errors: 1,
+                p95: 100,
+            })
+
+            logic.actions.loadKPIsSuccess(buildKPIs([row(1), row(0)], bucket(1)))
+            expect(logic.values.kpiIncompleteTail).toBe(true)
+
+            logic.actions.loadKPIsSuccess(buildKPIs([row(3), row(2)], bucket(3)))
+            expect(logic.values.kpiIncompleteTail).toBe(false)
         })
     })
 

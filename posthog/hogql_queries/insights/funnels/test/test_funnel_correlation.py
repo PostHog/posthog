@@ -162,6 +162,50 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(events["positively_related"]["success_count"], 5)
         self.assertEqual(events["positively_related"]["correlation_type"], "success")
 
+    def test_days_of_week_does_not_filter_correlation_events(self):
+        # daysOfWeek scopes funnel step attribution, not the correlation event scan. Actors are
+        # already day-filtered, so correlation answers "what else did these people do while
+        # converting" over their whole window — a Saturday event still counts as a correlate.
+        # 2020-01-10 is a Friday, 2020-01-11 a Saturday, 2020-01-13 a Monday.
+        query = FunnelsQuery(
+            series=[EventsNode(event="user signed up"), EventsNode(event="paid")],
+            dateRange=DateRange(date_from="2020-01-06", date_to="2020-01-20", daysOfWeek=[1, 2, 3, 4, 5]),
+        )
+
+        # Converters: both steps on included weekdays, spanning a weekend, plus a Saturday event.
+        for i in range(5):
+            _create_person(distinct_ids=[f"converter_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"converter_{i}",
+                timestamp="2020-01-10T14:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="weekend_thing",
+                distinct_id=f"converter_{i}",
+                timestamp="2020-01-11T14:00:00Z",
+            )
+            _create_event(team=self.team, event="paid", distinct_id=f"converter_{i}", timestamp="2020-01-13T14:00:00Z")
+
+        # Non-converters, so failure_total is non-zero and odds ratios are computable.
+        for i in range(5):
+            _create_person(distinct_ids=[f"dropper_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"dropper_{i}",
+                timestamp="2020-01-10T14:00:00Z",
+            )
+
+        flush_persons_and_events()
+
+        result, _ = self._get_events_for_query(query)
+        events = {item["event"]: item for item in result}
+        self.assertIn("weekend_thing", events)
+        self.assertEqual(events["weekend_thing"]["success_count"], 5)
+
     def test_funnel_correlation_hogql_aggregation_rejects_injection(self):
         # funnelAggregateByHogQL is user-controlled — a value that isn't a single
         # bounded expression (e.g. an attempt to inject an extra JOIN) must be

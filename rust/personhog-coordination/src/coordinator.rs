@@ -122,6 +122,16 @@ pub struct Coordinator {
     k8s_awareness: Option<Arc<K8sAwareness>>,
 }
 
+/// What prompted a phase-advance evaluation. Only ack-triggered
+/// evaluations record the ack-to-advance span: a departure or tick can
+/// legitimately advance a handoff on acks that arrived long before, and
+/// that elapsed time measures the blocker, not coordinator reaction.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AdvanceTrigger {
+    Ack,
+    Other,
+}
+
 impl Coordinator {
     pub fn new(
         store: Arc<PersonhogStore>,
@@ -141,6 +151,7 @@ impl Coordinator {
     /// when elected, runs the coordination loop until leadership is lost
     /// or cancellation is requested.
     pub async fn run(&self, cancel: CancellationToken) -> Result<()> {
+        util::preregister_coordinator_metrics();
         loop {
             if cancel.is_cancelled() {
                 return Ok(());
@@ -223,6 +234,9 @@ impl Coordinator {
                     lease_ttl,
                     granted_at,
                     "coordinator",
+                    // The coordinator serves no partition data; there is
+                    // no request path to gate on its lease.
+                    None,
                     token.clone(),
                 ));
                 let failure = match inner.await {
@@ -472,7 +486,7 @@ impl Coordinator {
                                     // Nudge advancement here so they don't
                                     // stall waiting for an ack event that
                                     // will never arrive.
-                                    Self::check_phase_advance(&store, handoff.partition).await?;
+                                    Self::check_phase_advance(&store, handoff.partition, AdvanceTrigger::Other).await?;
                                 }
                                 Err(e) => {
                                     tracing::error!(error = %e, "failed to parse handoff event");
@@ -521,7 +535,7 @@ impl Coordinator {
                             });
 
                             if let Some(partition) = partition {
-                                Self::check_phase_advance(store, partition).await?;
+                                Self::check_phase_advance(store, partition, AdvanceTrigger::Ack).await?;
                             }
                         }
                     }
@@ -557,7 +571,7 @@ impl Coordinator {
                         .any(|e| e.event_type() == EventType::Delete);
                     if departed {
                         for handoff in store.list_handoffs().await? {
-                            Self::check_phase_advance(store, handoff.partition).await?;
+                            Self::check_phase_advance(store, handoff.partition, AdvanceTrigger::Other).await?;
                         }
                     }
                 }
@@ -585,7 +599,7 @@ impl Coordinator {
                     let handoffs = store.list_handoffs().await?;
                     for handoff in &handoffs {
                         Self::handle_handoff_update_static(&store, handoff).await?;
-                        Self::check_phase_advance(&store, handoff.partition).await?;
+                        Self::check_phase_advance(&store, handoff.partition, AdvanceTrigger::Other).await?;
                     }
                     // Advancement first, planning second: a handoff that
                     // can still progress gets every chance to before the
@@ -633,7 +647,11 @@ impl Coordinator {
     ///
     /// Called whenever an ack key is observed. Safe to call spuriously: reads
     /// are idempotent and transitions use CAS.
-    async fn check_phase_advance(store: &PersonhogStore, partition: u32) -> Result<()> {
+    async fn check_phase_advance(
+        store: &PersonhogStore,
+        partition: u32,
+        trigger: AdvanceTrigger,
+    ) -> Result<()> {
         let handoff = match store.get_handoff(partition).await? {
             Some(h) => h,
             None => return Ok(()),
@@ -655,10 +673,21 @@ impl Coordinator {
                         Some(_) => HandoffPhase::Draining,
                     };
                     let advanced = store
-                        .cas_handoff_phase(partition, HandoffPhase::Freezing, target)
+                        .cas_handoff_phase(
+                            partition,
+                            &handoff.handoff_id,
+                            HandoffPhase::Freezing,
+                            target,
+                        )
                         .await?;
                     if advanced {
                         record_phase_advance(&handoff, target);
+                        if trigger == AdvanceTrigger::Ack {
+                            util::record_ack_to_advance(
+                                "freezing",
+                                freeze_acks.iter().map(|a| a.acked_at_ms),
+                            );
+                        }
                         tracing::info!(
                             partition,
                             freeze_acks = freeze_acks.len(),
@@ -689,10 +718,21 @@ impl Coordinator {
                 let drained_acks = store.list_drained_acks(partition).await?;
                 if drain_satisfied(&pods, &drained_acks, &handoff) {
                     let advanced = store
-                        .cas_handoff_phase(partition, HandoffPhase::Draining, HandoffPhase::Warming)
+                        .cas_handoff_phase(
+                            partition,
+                            &handoff.handoff_id,
+                            HandoffPhase::Draining,
+                            HandoffPhase::Warming,
+                        )
                         .await?;
                     if advanced {
                         record_phase_advance(&handoff, HandoffPhase::Warming);
+                        if trigger == AdvanceTrigger::Ack {
+                            util::record_ack_to_advance(
+                                "draining",
+                                drained_acks.iter().map(|a| a.acked_at_ms),
+                            );
+                        }
                         tracing::info!(
                             partition,
                             old_owner = ?handoff.old_owner,
@@ -709,9 +749,18 @@ impl Coordinator {
                         new_owner = %handoff.new_owner,
                         "new owner warmed, completing handoff"
                     );
-                    match store.complete_handoff(partition).await {
+                    match store
+                        .complete_handoff(partition, &handoff.handoff_id, HandoffPhase::Warming)
+                        .await
+                    {
                         Ok(true) => {
                             record_phase_advance(&handoff, HandoffPhase::Complete);
+                            if trigger == AdvanceTrigger::Ack {
+                                util::record_ack_to_advance(
+                                    "warming",
+                                    warmed.iter().map(|a| a.acked_at_ms),
+                                );
+                            }
                         }
                         Ok(false) => {
                             tracing::warn!(partition, "handoff modified concurrently, skipping");
@@ -754,7 +803,8 @@ impl Coordinator {
             // watch_handoffs_loop's Put-driven path won't replay them.
             Self::handle_handoff_update_static(&self.store, handoff).await?;
             // Non-terminal handoffs may have their preconditions already met.
-            Self::check_phase_advance(&self.store, handoff.partition).await?;
+            Self::check_phase_advance(&self.store, handoff.partition, AdvanceTrigger::Other)
+                .await?;
         }
 
         Ok(())
@@ -1057,7 +1107,7 @@ impl Coordinator {
             .iter()
             .chain(replacements.iter().map(|r| &r.handoff))
         {
-            Self::check_phase_advance(store, handoff.partition).await?;
+            Self::check_phase_advance(store, handoff.partition, AdvanceTrigger::Other).await?;
         }
 
         Ok(())
@@ -1121,7 +1171,7 @@ impl Coordinator {
         handoff: &HandoffState,
     ) -> Result<()> {
         if handoff.phase == HandoffPhase::Complete {
-            // Same guarded-delete discipline as `cleanup_stale_handoffs`:
+            // Same guarded-delete discipline as the dead-new-owner cancellation:
             // the Complete observation may be stale by the time we act on
             // it, and the record at this key may already be a successor
             // handoff.

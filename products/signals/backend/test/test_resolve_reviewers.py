@@ -18,6 +18,7 @@ from posthog.models.user_integration import UserIntegration
 from products.signals.backend.models import SignalRepositoryAreaActivity
 from products.signals.backend.report_generation.repo_activity import ACTIVITY_WINDOW_DAYS, ContributorActivity
 from products.signals.backend.report_generation.resolve_reviewers import (
+    MAX_CONTRIBUTORS_FOR_OWNERSHIP,
     RECENCY_DECAY_FLOOR,
     RECENCY_FULL_WEIGHT_DAYS,
     STALE_BLAME_MULTIPLIER,
@@ -132,6 +133,23 @@ def test_skips_users_outside_organization(organization, team):
 # ── recency-aware scoring ─────────────────────────────────────────────────────
 
 
+def _area_contributor(
+    *,
+    days_since_last_commit: float,
+    commit_count: int = 12,
+    is_likely_owner_of_area: bool = True,
+) -> _AreaContributor:
+    return _AreaContributor(
+        name=None,
+        commit_count=commit_count,
+        days_since_last_commit=days_since_last_commit,
+        last_commit_sha="a" * 7,
+        last_commit_url="https://github.com/acme/app/commit/aaaaaaa",
+        area="products/signals",
+        is_likely_owner_of_area=is_likely_owner_of_area,
+    )
+
+
 class TestRecencyScoring:
     def test_recency_multiplier_shape(self):
         assert _recency_multiplier(None) == STALE_BLAME_MULTIPLIER
@@ -151,106 +169,87 @@ class TestRecencyScoring:
 
     def test_stale_blame_author_loses_to_active_area_contributor(self):
         weights = Counter({"old-timer": 10})
-        activity = {
-            "active-owner": _AreaContributor(
-                name="Active Owner",
-                commit_count=12,
-                days_since_last_commit=2,
-                last_commit_sha="a" * 7,
-                last_commit_url="https://github.com/acme/app/commit/aaaaaaa",
-                area="products/signals",
-            ),
-        }
+        activity = {"active-owner": _area_contributor(days_since_last_commit=2)}
 
         scores = _score_candidates(weights, activity)
 
         # old-timer authored the blame commits but has no recent commits in the area.
         assert scores["active-owner"] > scores["old-timer"]
 
-    def test_recently_active_blame_author_beats_activity_only_contributor(self):
-        def contributor(days_since: float) -> _AreaContributor:
-            return _AreaContributor(
-                name=None,
-                commit_count=12,
-                days_since_last_commit=days_since,
-                last_commit_sha="b" * 7,
-                last_commit_url="https://github.com/acme/app/commit/bbbbbbb",
-                area="products/signals",
-            )
-
+    def test_active_blame_author_suppresses_activity_only_candidates(self):
         weights = Counter({"active-author": 10})
         activity = {
-            "active-author": contributor(days_since=5),
-            "bystander": contributor(days_since=1),
+            "active-author": _area_contributor(days_since_last_commit=5),
+            "bystander": _area_contributor(days_since_last_commit=1),
         }
 
         scores = _score_candidates(weights, activity)
 
-        assert scores["active-author"] > scores["bystander"]
+        # The blame author is the live reviewer, so the fresher bystander is not proposed.
+        assert set(scores) == {"active-author"}
 
     def test_lightly_active_contributor_beats_stale_blame_even_with_tiny_blame_weight(self):
         # Regression: a single old blame commit (weight 1) used to crush activity-only
         # candidates via the cap, so the long-gone author still won the assign.
         weights = Counter({"long-gone": 1})
-        activity = {
-            "light-owner": _AreaContributor(
-                name=None,
-                commit_count=3,
-                days_since_last_commit=1,
-                last_commit_sha="c" * 7,
-                last_commit_url="",
-                area="posthog/migrations",
-            ),
-        }
+        activity = {"light-owner": _area_contributor(days_since_last_commit=1, commit_count=3)}
 
         scores = _score_candidates(weights, activity)
 
         assert scores["light-owner"] > scores["long-gone"]
 
+    def test_crowded_area_nominates_nobody_but_still_decays_blame(self):
+        weights = Counter({"old-timer": 10})
+        # The blame author is past the window, so only the crowded area keeps the stranger out.
+        activity = {
+            "old-timer": _area_contributor(
+                days_since_last_commit=ACTIVITY_WINDOW_DAYS + 5, is_likely_owner_of_area=False
+            ),
+            "prolific-stranger": _area_contributor(days_since_last_commit=1, is_likely_owner_of_area=False),
+        }
+
+        scores = _score_candidates(weights, activity)
+
+        assert set(scores) == {"old-timer"}
+        assert scores["old-timer"] < 10.0
+
     def test_half_stale_bystander_does_not_beat_stale_blame(self):
         weights = Counter({"long-gone": 1})
-        activity = {
-            "half-stale": _AreaContributor(
-                name=None,
-                commit_count=3,
-                days_since_last_commit=70,
-                last_commit_sha="c" * 7,
-                last_commit_url="",
-                area="posthog/migrations",
-            ),
-        }
+        activity = {"half-stale": _area_contributor(days_since_last_commit=70, commit_count=3)}
 
         scores = _score_candidates(weights, activity)
 
         assert scores["long-gone"] >= scores["half-stale"]
 
 
+def _seed_area(team: Team, area: str, entries: list[tuple[str, int, int]]) -> None:
+    """Seed one refreshed area row from (login, commit_count, days_ago) entries."""
+    with team_scope(team.id, canonical=True):
+        SignalRepositoryAreaActivity.objects.create(
+            team=team,
+            repository="acme/app",
+            area=area,
+            contributors=[
+                {
+                    "login": login,
+                    "name": login.title(),
+                    "commit_count": count,
+                    "last_commit_at": (timezone.now() - timedelta(days=days_ago)).isoformat(),
+                    "last_commit_sha": "a" * 7,
+                    "last_commit_url": "https://github.com/acme/app/commit/aaaaaaa",
+                }
+                for login, count, days_ago in entries
+            ],
+            refreshed_at=timezone.now(),
+        )
+
+
 @pytest.mark.django_db
 class TestAreaWalkUp:
     def test_empty_area_falls_back_to_parent_then_repo_wide(self, team):
-        def _row(area: str, logins: list[str]) -> None:
-            SignalRepositoryAreaActivity.objects.create(
-                team=team,
-                repository="acme/app",
-                area=area,
-                contributors=[
-                    {
-                        "login": login,
-                        "name": login.title(),
-                        "commit_count": 3,
-                        "last_commit_at": timezone.now().isoformat(),
-                        "last_commit_sha": "a" * 7,
-                        "last_commit_url": "https://github.com/acme/app/commit/aaaaaaa",
-                    }
-                    for login in logins
-                ],
-                refreshed_at=timezone.now(),
-            )
-
-        with team_scope(team.id, canonical=True):
-            _row("products/dead", [])  # refreshed, nobody active
-            _row("products", ["parent-owner"])
-            _row("*", ["repo-regular"])
+        _seed_area(team, "products/dead", [])  # refreshed, nobody active
+        _seed_area(team, "products", [("parent-owner", 3, 0)])
+        _seed_area(team, "*", [("repo-regular", 3, 0)])
 
         with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
             merged = _relevant_area_activity(team.id, "acme/app", ["products/dead/models.py"])
@@ -266,31 +265,44 @@ class TestAreaWalkUp:
 
         assert set(merged) == {"repo-regular"}
 
+    @pytest.mark.parametrize(
+        ("contributor_count", "is_likely_owner_of_area"),
+        [(MAX_CONTRIBUTORS_FOR_OWNERSHIP, True), (MAX_CONTRIBUTORS_FOR_OWNERSHIP + 1, False)],
+    )
+    def test_ownership_needs_a_focused_area(self, team, contributor_count, is_likely_owner_of_area):
+        _seed_area(team, "products/tasks", [(f"dev-{i}", 3, 0) for i in range(contributor_count)])
+
+        with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
+            merged = _relevant_area_activity(team.id, "acme/app", ["products/tasks/management/commands/demo.py"])
+
+        assert len(merged) == contributor_count
+        assert all(contributor.is_likely_owner_of_area is is_likely_owner_of_area for contributor in merged.values())
+
+    def test_fresher_crowded_commit_does_not_erase_focused_area_ownership(self, team):
+        _seed_area(team, "products/signals", [("alice", 4, 10)])
+        _seed_area(
+            team,
+            "*",
+            [("alice", 9, 1), *[(f"dev-{i}", 3, 2) for i in range(MAX_CONTRIBUTORS_FOR_OWNERSHIP)]],
+        )
+
+        with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
+            merged = _relevant_area_activity(
+                team.id, "acme/app", ["products/signals/backend/models.py", "bin/deploy.sh"]
+            )
+
+        # Evidence still follows alice's freshest commit, which landed repo-wide...
+        assert merged["alice"].area == "*"
+        assert merged["alice"].days_since_last_commit == pytest.approx(1, abs=0.01)
+        # ...but the claim she earned in products/signals survives it.
+        assert merged["alice"].is_likely_owner_of_area
+        assert not merged["dev-0"].is_likely_owner_of_area
+
 
 @pytest.mark.django_db
 class TestRankAssigneeCandidates:
-    def _seed_area(self, team, area: str, entries: list[tuple[str, int, int]]) -> None:
-        with team_scope(team.id, canonical=True):
-            SignalRepositoryAreaActivity.objects.create(
-                team=team,
-                repository="acme/app",
-                area=area,
-                contributors=[
-                    {
-                        "login": login,
-                        "name": login.title(),
-                        "commit_count": count,
-                        "last_commit_at": (timezone.now() - timedelta(days=days_ago)).isoformat(),
-                        "last_commit_sha": "a" * 7,
-                        "last_commit_url": "https://github.com/acme/app/commit/aaaaaaa",
-                    }
-                    for login, count, days_ago in entries
-                ],
-                refreshed_at=timezone.now(),
-            )
-
     def test_stale_agent_candidate_demoted_below_active_area_owner(self, team):
-        self._seed_area(team, "products/signals", [("active-owner", 12, 2)])
+        _seed_area(team, "products/signals", [("active-owner", 12, 2)])
 
         with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
             ranked = rank_assignee_candidates(
@@ -304,7 +316,7 @@ class TestRankAssigneeCandidates:
         assert ranked[1].commits == []
 
     def test_active_agent_candidate_keeps_top_spot(self, team):
-        self._seed_area(team, "products/signals", [("agent-pick", 5, 3), ("bystander", 12, 1)])
+        _seed_area(team, "products/signals", [("agent-pick", 5, 3), ("bystander", 12, 1)])
 
         with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
             ranked = rank_assignee_candidates(
@@ -316,7 +328,7 @@ class TestRankAssigneeCandidates:
         assert [candidate.login for candidate in ranked] == ["agent-pick"]
 
     def test_paths_alone_yield_activity_candidates(self, team):
-        self._seed_area(team, "products/signals", [("area-owner", 8, 1)])
+        _seed_area(team, "products/signals", [("area-owner", 8, 1)])
 
         with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
             ranked = rank_assignee_candidates(team.id, "acme/app", [], ["products/signals/backend/models.py"])
