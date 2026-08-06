@@ -17,7 +17,6 @@ from django.conf import settings
 from django.db.models import BooleanField, Case, Exists, OuterRef, Prefetch, Q, QuerySet, Value, When
 from django.utils.text import slugify
 
-import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from opentelemetry import trace
 from rest_framework import serializers, viewsets
@@ -36,7 +35,7 @@ from posthog.models.activity_logging.activity_page import ActivityLogPaginatedRe
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import is_service_auth
+from posthog.permissions import is_service_auth, posthog_feature_flag_enabled
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
@@ -1536,7 +1535,7 @@ class EnterpriseExperimentsViewSet(
         experiment: Experiment = self.get_object()
 
         if not self._session_event_deltas_enabled():
-            raise NotFound("Comparing an experiment's session behavior isn't available for this organization.")
+            raise NotFound()
 
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Comparing an experiment's session behavior requires session replay access.")
@@ -1565,32 +1564,15 @@ class EnterpriseExperimentsViewSet(
         return Response(ExperimentSessionEventDeltaResponseSerializer(result).data)
 
     def _session_event_deltas_enabled(self) -> bool:
-        # Scoped to the experiment's organization rather than the caller's current one: the read is
-        # heavy enough that who pays for it has to be decided by the data being read, not by which
-        # org the viewer happens to be looking at PostHog as. The org is the identity too, so every
-        # viewer in it resolves the same value under a percentage rollout.
-        organization_id = str(self.organization_id)
+        # Scoped to the experiment's organization rather than the caller's current one: a user in
+        # several orgs could otherwise switch their current org to a flagged-in one and read an
+        # experiment in an org that is not.
         try:
-            return bool(
-                posthoganalytics.feature_enabled(
-                    EXPERIMENT_BEHAVIOR_COMPARISON_FLAG,
-                    organization_id,
-                    groups={"organization": organization_id},
-                    # Without the group's own properties local evaluation of a group-targeted flag is
-                    # inconclusive, so every call would fall through to a synchronous request to
-                    # PostHog before the heaviest read on the tab even starts.
-                    group_properties={"organization": {"id": organization_id}},
-                    # Enforced rather than left to the properties above, the way
-                    # `resolve_default_exposure_event` does it on this same request path. The cost
-                    # of that is that the flag's release conditions have to stay locally decidable:
-                    # organization-group targeting only. A cohort or person-property condition makes
-                    # local evaluation inconclusive, which returns None and reads as False here, so
-                    # it would turn the endpoint off for every organization at once.
-                    only_evaluate_locally=True,
-                    # A gate, not a measurement: the $feature_flag_called this would otherwise
-                    # capture per request says nothing the endpoint's own query tags don't.
-                    send_feature_flag_events=False,
-                )
+            return posthog_feature_flag_enabled(
+                EXPERIMENT_BEHAVIOR_COMPARISON_FLAG,
+                str(cast(User, self.request.user).distinct_id),
+                organization_id=self.organization_id,
+                team_id=self.team.id,
             )
         except Exception:
             logger.warning("Failed to evaluate the experiment behavior comparison flag", exc_info=True)

@@ -467,11 +467,3 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
             response = self._post_deltas(experiment)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-
-    def test_is_unavailable_until_the_organization_is_rolled_out(self) -> None:
-        experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
-
-        with patch("posthoganalytics.feature_enabled", return_value=False):
-            response = self._post_deltas(experiment)
-
-        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()

@@ -50,8 +50,8 @@ from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHO
 from products.experiments.backend.session_buckets import MAX_BUCKET_SCAN_DAYS, MAX_SESSION_BUCKET_LIMIT, SessionBucket
 from products.experiments.backend.session_context import MAX_SESSION_CONTEXT_BATCH
 from products.experiments.backend.session_event_deltas import (
-    DOCUMENTED_SCAN_DAYS,
     MAX_CARD_RECORDINGS,
+    MAX_DELTA_SCAN_DAYS,
     DeltaStrength,
     WatchCardKind,
 )
@@ -1996,7 +1996,7 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
     date_from = serializers.DateTimeField(
         help_text=(
             f"Start of what was actually compared. The requested window is the experiment's run window clamped "
-            f"to its most recent {DOCUMENTED_SCAN_DAYS} days, but a busy experiment reaches the session ceiling "
+            f"to its most recent {MAX_DELTA_SCAN_DAYS} days, but a busy experiment reaches the session ceiling "
             "long before that, and this reports where the compared sessions really begin - often hours rather "
             "than days back. Display this, not the experiment's own dates."
         )

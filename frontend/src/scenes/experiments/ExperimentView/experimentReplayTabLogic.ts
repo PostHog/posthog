@@ -476,9 +476,6 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             () => [(_, props) => props.experiment],
             (experiment: Experiment): string[] => getExperimentVariants(experiment).map((variant) => variant.key),
         ],
-        // The comparison is rolled out per organization while its query cost is watched, and the
-        // endpoint refuses the call either way. Gated here rather than in the component so the
-        // panel and the request can't disagree about who has it.
         behaviorComparisonAvailable: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.EXPERIMENT_BEHAVIOR_COMPARISON],

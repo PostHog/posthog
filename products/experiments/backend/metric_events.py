@@ -19,9 +19,6 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Optional
 
-from django.db import models
-from django.db.models.functions import Coalesce
-
 import pydantic
 
 from posthog.schema import (
@@ -42,7 +39,6 @@ from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import EventProperty
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -272,28 +268,6 @@ def resolve_metric_events(experiment: Experiment) -> list[MetricEventSource]:
             )
         )
     return metric_sources
-
-
-def never_session_linked_events(team: Team, event_names: set[str]) -> set[str]:
-    """Event names never ingested with a `$session_id` property — only ever captured server-side, so
-    no recordings filter on them can match and no session-scoped card can see them.
-
-    The same `EventProperty` fact the taxonomy `seen_together` endpoint serves the tab, read directly
-    so the verdict doesn't depend on the caller knowing to check. Shared by every session-scoped
-    experiment surface: the two of them disagreeing on what "unlinkable" means would show up as one
-    endpoint refusing a metric the other silently answers as zero.
-    """
-    if not event_names:
-        return set()
-    seen = (
-        EventProperty.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        )
-        .filter(effective_project_id=team.project_id, event__in=sorted(event_names), property="$session_id")
-        .values_list("event", flat=True)
-        .distinct()
-    )
-    return event_names - set(seen)
 
 
 def build_source_condition(node: MetricSourceNode, team: Team) -> ast.Expr:

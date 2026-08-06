@@ -66,7 +66,6 @@ and stay cheap. It is still the heaviest read on the tab, which is why the calle
 load it on demand.
 """
 
-import os
 import json
 import math
 import hashlib
@@ -75,7 +74,6 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Optional
 
-from django.conf import settings
 from django.utils import timezone
 
 from posthog.schema import EventsNode, MultipleVariantHandling
@@ -94,34 +92,19 @@ from posthog.utils import get_safe_cache, safe_cache_set
 from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
-    DEFAULT_EXPOSURE_EVENT,
-    EXPERIMENT_EXPOSURE_EVENT,
-    build_exposure_event_conditions,
-    get_exposure_event_and_property,
     get_multiple_variant_handling_from_experiment,
     get_test_accounts_filter,
     normalize_to_exposure_criteria,
-    resolve_default_exposure_event,
 )
-from products.experiments.backend.metric_events import (
-    MetricEventSource,
-    SharedHogQLDatabase,
-    never_session_linked_events,
-    resolve_metric_events,
-)
+from products.experiments.backend.metric_events import MetricEventSource, SharedHogQLDatabase, resolve_metric_events
 from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.session_exposure import SessionExposure, resolve_session_exposure
 
 # Tighter than MAX_BUCKET_SCAN_DAYS. The bucket scan filters by event name in its WHERE, so
 # ClickHouse prunes on the events table's primary key; this one compares every event name there is
 # and has no such predicate, so the window is all that stands between it and the team's whole
 # recent history.
-#
-# Two names for one number, because the DEBUG block below widens the scan's copy for dev stacks:
-# the response serializer reads this into `help_text` at import time, and the generated OpenAPI
-# schema and MCP tool descriptions are built from a dev environment, so documenting the mutable one
-# ships the dev value as the documented window.
-DOCUMENTED_SCAN_DAYS = 14
-MAX_DELTA_SCAN_DAYS = DOCUMENTED_SCAN_DAYS
+MAX_DELTA_SCAN_DAYS = 14
 # Ceiling on the exposed sessions one comparison covers, most recent first. Bounds the aggregation
 # state rather than the rows read, and because the cut is on recency across both arms at once, the
 # arms stay covered over the same period — a comparison split across different stretches of time
@@ -161,8 +144,8 @@ RATIO_SMOOTHING = 0.5
 # ranking floor, not a significance claim, and it is deliberately past the conventional 1.96: one
 # comparison tests every event name in the project at once, so the loose threshold that reads as
 # "95% sure" for a single question is wrong by hundreds of tries here. On a production A/A pair the
-# 1.96 version still let a difference through with almost no margin; at this width the same data
-# cleared the floor by an order of magnitude.
+# 1.96 version still let a difference through, barely above the floor; at this width the same data
+# fell short of the floor and produced no cards at all.
 CONFIDENCE_Z = 2.58
 # ...and how big the conservative end of the ratio still has to be, in log space: about 1.35x. A
 # difference the reader cannot see while watching a recording is not worth a card telling them to.
@@ -177,50 +160,9 @@ MORE_LOG_RATIO = 0.4
 # resolution the key would change faster than the entry expires and the TTL would never apply,
 # leaving the heaviest read on the tab uncached in practice.
 DELTA_CACHE_TTL = 15 * 60
-# Rolled out per organization while the cost of the scan is watched on real projects. Kept beside
-# the scan rather than with the viewset's other constants so the flag and what it gates can't drift.
+# Kept beside the scan rather than with the viewset's other constants so the flag and what it gates
+# can't drift.
 EXPERIMENT_BEHAVIOR_COMPARISON_FLAG = "experiment-behavior-comparison"
-
-if settings.DEBUG and not settings.TEST:
-    # A dev stack's experiments have tens of people over a handful of days, which every floor above
-    # is built to reject — correctly, since tens of people establish nothing, but it also makes the
-    # shelf impossible to work on locally: it would only ever say "too early". So a dev server runs
-    # on floors sized for a dev stack, tunable from the environment. Guarded on DEBUG rather than
-    # on the env vars being set, so a deploy can't be talked into a weaker floor by a stray
-    # variable, and nothing here changes what production computes.
-    #
-    # `not TEST` is load-bearing: the test settings turn DEBUG on, and tests that assert on the
-    # floors have to be asserting on the production ones, or they stop covering what ships.
-    #
-    # Anything read from a local shelf is therefore evidence about the *rendering*, never about the
-    # difference: at these widths a coin flip clears the bar.
-    # A malformed value fails the import rather than falling back to the production floor. These
-    # knobs exist to change what the shelf shows, so one that silently didn't apply would leave a
-    # reader drawing conclusions from a floor they never set, which is worse than a dev server that
-    # refuses to start and names the variable.
-    def _dev_int(name: str, default: int) -> int:
-        raw = os.environ.get(name)
-        if raw is None:
-            return default
-        try:
-            return int(raw)
-        except ValueError:
-            raise ValueError(f"{name} must be a whole number, got {raw!r}") from None
-
-    def _dev_float(name: str, default: float) -> float:
-        raw = os.environ.get(name)
-        if raw is None:
-            return default
-        try:
-            return float(raw)
-        except ValueError:
-            raise ValueError(f"{name} must be a number, got {raw!r}") from None
-
-    MAX_DELTA_SCAN_DAYS = _dev_int("EXPERIMENT_WATCH_SCAN_DAYS", 30)
-    MIN_ARM_PERSONS = _dev_int("EXPERIMENT_WATCH_MIN_ARM_PERSONS", 10)
-    MIN_SUPPORT_PERSONS = _dev_int("EXPERIMENT_WATCH_MIN_SUPPORT_PERSONS", 3)
-    CONFIDENCE_Z = _dev_float("EXPERIMENT_WATCH_CONFIDENCE_Z", 1.64)
-    MIN_LOG_RATIO_LOWER_BOUND = _dev_float("EXPERIMENT_WATCH_MIN_SEPARATION", 0.2)
 
 # Events whose *name* carries no behavior, so a difference in how often people do them says nothing
 # about what they did. Page views and autocaptures are the interesting ones to leave out: they are
@@ -390,38 +332,26 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
     criteria = normalize_to_exposure_criteria(experiment.exposure_criteria)
     filter_test_accounts = bool(criteria.filterTestAccounts) if criteria else False
 
-    # The same rollout resolution the analysis queries and the session buckets apply, so the
-    # compared population is the one the experiment's own results count.
-    default_exposure_event = resolve_default_exposure_event(team, experiment.start_date)
-    exposure_event, variant_property = get_exposure_event_and_property(
-        experiment.feature_flag.key, experiment.exposure_criteria, default_exposure_event=default_exposure_event
-    )
     # Resolved once for the whole response, because each call reads the experiment's saved-metric
     # join again.
     metrics = resolve_metric_events(experiment)
     metric_event_names = _metric_event_names(metrics)
-    # One bounded EventProperty read covers both verdicts: whether the exposure event can match a
-    # session at all, and which metric events can never back a card. An action-based exposure
-    # source has no single event name to look up and fails open, same as the session buckets.
-    never_linked = never_session_linked_events(
-        team, metric_event_names | ({exposure_event} if exposure_event is not None else set())
-    )
-    # Both default exposure events mean "this user was enrolled via the flag", which the stamped
-    # flag property implies too, so either can take the fallback.
-    used_exposure_fallback = (
-        exposure_event in (DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT) and exposure_event in never_linked
-    )
-    if exposure_event in never_linked and not used_exposure_fallback:
+    # The same rollout resolution the analysis queries and the session buckets apply, so the
+    # compared population is the one the experiment's own results count.
+    exposure = resolve_session_exposure(team, experiment, event_names=frozenset(metric_event_names))
+    if exposure.is_unmatchable:
         raise SessionEventDeltasUnavailable(CUSTOM_EXPOSURE_UNCOMPARABLE_REASON)
 
     # The experiment's own metric events never enter the comparison — the module docstring's first
     # rule. They reappear below as shortcut cards, which claim nothing the results tab also claims.
     excluded_events = sorted(
-        UNCOMPARABLE_EVENTS | metric_event_names | ({exposure_event} if exposure_event is not None else set())
+        UNCOMPARABLE_EVENTS
+        | metric_event_names
+        | ({exposure.exposure_event} if exposure.exposure_event is not None else set())
     )
     multiple_variant_handling = get_multiple_variant_handling_from_experiment(experiment.exposure_criteria)
 
-    cache_key = _cache_key(team, user, experiment, window_start, window_end, default_exposure_event)
+    cache_key = _cache_key(team, user, experiment, window_start, window_end, exposure.default_exposure_event)
     cached = get_safe_cache(cache_key)
     if cached is not None:
         return cached
@@ -432,10 +362,7 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
         user=user,
         experiment=experiment,
         variant_keys=variant_keys,
-        variant_property=f"$feature/{experiment.feature_flag.key}" if used_exposure_fallback else variant_property,
-        exposure_event=exposure_event,
-        default_exposure_event=default_exposure_event,
-        used_exposure_fallback=used_exposure_fallback,
+        exposure=exposure,
         window_end=window_end,
         shared_hogql=SharedHogQLDatabase(
             # Postgres foreign-key lazy joins are the most expensive part of building the virtual
@@ -462,7 +389,7 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
     candidates: list[ExperimentWatchCard] = []
     if not too_early:
         candidates = _pick_behavior_cards(scan, arm_keys=qualified_arms)
-        candidates += _metric_card_candidates(metrics, arm_keys=qualified_arms, never_linked=never_linked)
+        candidates += _metric_card_candidates(metrics, arm_keys=qualified_arms, never_linked=exposure.never_linked)
 
     cards: list[ExperimentWatchCard] = []
     if candidates:
@@ -491,7 +418,7 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
         date_from=scan.covered_from,
         date_to=window_end,
         filter_test_accounts=filter_test_accounts,
-        used_exposure_fallback=used_exposure_fallback,
+        used_exposure_fallback=exposure.used_fallback,
         sessions_truncated=scan.sessions_truncated,
         events_truncated=scan.events_truncated,
         min_arm_persons=MIN_ARM_PERSONS,
@@ -527,49 +454,18 @@ class _QuerySetup:
     user: User
     experiment: Experiment
     variant_keys: list[str]
-    variant_property: str
-    exposure_event: Optional[str]
-    # What this experiment's default exposure resolves to under the $experiment_exposure rollout.
-    # Carried rather than re-resolved so every clause in one response agrees on the event, even if
-    # the flag flips mid-request.
-    default_exposure_event: str
-    used_exposure_fallback: bool
+    exposure: SessionExposure
     window_end: datetime
     shared_hogql: SharedHogQLDatabase
 
     def exposure_condition(self) -> ast.Expr:
-        # Exposure criteria resolved through the shared helpers — the single seam that keeps this
-        # surface in sync with the analysis, the buckets and the player's session context.
-        #
         # Every defined variant, not only the ones being compared: the multi-variant check has to
         # see a person who also saw a third arm, or that person reads as single-variant and is
         # attributed to an arm they only half belong to.
-        variant_condition = ast.CompareOperation(
-            op=ast.CompareOperationOp.In,
-            left=self.variant_value(),
-            right=ast.Constant(value=self.variant_keys),
-        )
-        if self.used_exposure_fallback:
-            # The default exposure event has only ever been captured server-side, so it can't match
-            # a session. posthog-js stamps `$feature/<flag_key>` on every client event captured
-            # after flags load, so the stamped property stands in — the same fallback the tab's list
-            # uses. It means "the flag was active in this session", not "this is where they were
-            # enrolled", and the variant is the flag's value per event rather than the exposure
-            # response, so a re-bucketed returning person can land in either arm.
-            return variant_condition
-        conditions = [
-            *build_exposure_event_conditions(
-                self.experiment.exposure_criteria,
-                self.team,
-                self.experiment.feature_flag.key,
-                default_exposure_event=self.default_exposure_event,
-            ),
-            variant_condition,
-        ]
-        return ast.And(exprs=conditions) if len(conditions) > 1 else conditions[0]
+        return self.exposure.condition(self.variant_keys)
 
     def variant_value(self) -> ast.Expr:
-        return ast.Call(name="toString", args=[ast.Field(chain=["properties", self.variant_property])])
+        return self.exposure.variant_value()
 
     def window_conditions(self, start: datetime) -> list[ast.Expr]:
         return [
@@ -595,7 +491,7 @@ class _QuerySetup:
         # than per exposed person.
         #
         # On the default path the exposure condition carries an event name, so ClickHouse prunes
-        # this on the events table's primary key. Under `used_exposure_fallback` there is no event
+        # this on the events table's primary key. Under the exposure fallback there is no event
         # name to prune on, only the stamped flag property, so it reads the window instead. That is
         # the same posture the session buckets take on their own fallback path, but it lands harder
         # here because three queries in one response each resolve this subquery.
@@ -976,7 +872,7 @@ def _pick_behavior_cards(scan: SessionEventDeltaScan, *, arm_keys: list[str]) ->
 
 
 def _metric_card_candidates(
-    metrics: list[MetricEventSource], *, arm_keys: list[str], never_linked: set[str]
+    metrics: list[MetricEventSource], *, arm_keys: list[str], never_linked: frozenset[str]
 ) -> list[ExperimentWatchCard]:
     """Shortcut cards to recordings around the experiment's own metric events, one per arm.
 
@@ -1028,7 +924,7 @@ def _recordings_for_cards(
         left=ast.Field(chain=["event"]),
         right=ast.Constant(value=wanted_events),
     )
-    if setup.used_exposure_fallback:
+    if setup.exposure.used_fallback:
         # The stamped flag property rides on the wanted events themselves, so their names are the
         # whole predicate.
         reachable_rows: ast.Expr = wanted_event_rows
