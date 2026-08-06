@@ -49,25 +49,20 @@ from products.marketing_analytics.backend.hogql_queries.marketing_analytics_base
 
 logger = structlog.get_logger(__name__)
 
-# Costs are materialized per grain because the source tables aren't roll-ups of each other (a
-# campaign-stats row is not the sum of its ads), so each grain is its own job and its own hash.
+# Source tables aren't roll-ups of each other, so each grain is its own job and hash.
 COST_MATERIALIZATION_GRAINS = (
     MarketingAnalyticsDrillDownLevel.CAMPAIGN,
     MarketingAnalyticsDrillDownLevel.AD_GROUP,
     MarketingAnalyticsDrillDownLevel.AD,
 )
 
-# One day per INSERT, matching the warmer: the framework merges a fully-missing range into a single
-# INSERT, so an unchunked rebuild would scan the whole requested range in one query.
+# One day per INSERT, matching the warmer: unchunked, the framework scans the range in one query.
 REBUILD_CHUNK_DAYS = 1
 
-# Widest range one invalidation request may clear. Deleting job rows is cheap, so this is a guard
-# against a typo'd range (or a client loop) wiping years of bookkeeping, not a cost limit.
+# A guard against a typo'd range wiping years of bookkeeping, not a cost limit.
 MAX_INVALIDATE_DAYS = 400
 
-# How far back a *rebuild* will reach, mirroring the warmer's rolling window. Read from the warmer's
-# env var so changing the warmed window moves both: rebuilding data outside it is unbounded work for
-# rows nothing keeps warm afterwards, so they would expire before anyone read them. Duplicated here
+# Mirrors the warmer's rolling window, read from its env var so both move together. Duplicated
 # rather than imported from the dag, which would make dagster a dependency of the API.
 REBUILD_MAX_WINDOW_DAYS = int(os.getenv("MARKETING_PRECOMPUTE_WINDOW_DAYS", "90"))
 
@@ -195,8 +190,7 @@ def invalidate_cost_precompute(
 ) -> CostInvalidation:
     """Drop the cost precompute jobs covering [date_from, date_to] so the next read recomputes them."""
     materializations = list(iter_cost_materializations(team, grains))
-    # One hash per (source, grain) — a source materializes separately at each grain, so keying this
-    # by source alone would collapse three hashes into one and leave two grains stranded.
+    # One hash per (source, grain): keying by source alone strands two of the three grains.
     hashes = [h for h in (cost_query_hash(team, m) for m in materializations) if h is not None]
     start, end = utc_day_bounds(date_from, date_to)
 

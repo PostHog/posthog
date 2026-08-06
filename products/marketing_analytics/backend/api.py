@@ -820,23 +820,18 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        # Nothing to rebuild on a dry run, and nothing to rebuild if no job was actually cleared —
-        # a rebuild would then just re-confirm windows that are already covered.
+        # A rebuild with nothing cleared just re-confirms windows already covered.
         rebuild_scheduled = (
             serializer.validated_data["rebuild"] and not dry_run and invalidation.result.jobs_deleted > 0
         )
         rebuild_window = None
         rebuild_notes: list[str] = []
         if rebuild_scheduled:
-            # Clamp to the window the warmer keeps hot, at both ends. Older data is unbounded work
-            # for something nothing keeps warm afterwards, so it would expire before being read;
-            # future days cannot have rows to insert at all, and the rebuild builds one job per
-            # source, grain and day either way.
+            # Both ends: older data expires before anything reads it, future days have no rows.
             today = date.today()
             rebuild_from = max(date_from, today - timedelta(days=REBUILD_MAX_WINDOW_DAYS))
             rebuild_to = min(date_to, today)
-            # An entirely stale range used to survive as `min(rebuild_from, date_to)` — a single day
-            # still outside the warmed window. Nothing to schedule rather than something useless.
+            # An entirely stale range survived as a single day still outside the warmed window.
             if rebuild_from > rebuild_to:
                 rebuild_scheduled = False
                 rebuild_notes.append(
@@ -852,11 +847,8 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             {
                 "requested_range": {"date_from": date_from, "date_to": date_to},
                 "effective_range": (
-                    # The span comes off job time ranges, which are datetimes, while the contract here
-                    # is whole UTC days — DRF's DateField refuses to coerce rather than silently drop
-                    # the time. `effective_end` is Max(time_range_end), the half-open *exclusive*
-                    # bound, so a job covering the 30th ends at the 31st at midnight; step back a day
-                    # or the response claims a day was invalidated that nothing touched.
+                    # `effective_end` is the half-open exclusive bound, so a job covering the 30th
+                    # ends at the 31st; step back a day or the response overstates the range.
                     {
                         "date_from": effective.effective_start.date(),
                         "date_to": (effective.effective_end - timedelta(days=1)).date(),

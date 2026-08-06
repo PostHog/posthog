@@ -32,14 +32,11 @@ COST_REBUILD_RUN = Counter(
     labelnames=["outcome"],
 )
 
-# A rebuild drives one ensure per (source, grain, day), each with the framework's 180s wait budget.
-# Generous because the point of the task is to absorb a cold range; the range cap on the endpoint is
-# what actually bounds the work.
+# One ensure per (source, grain, day) at 180s each. The endpoint's range cap bounds the work.
 COST_REBUILD_SOFT_TIME_LIMIT = 1800
 COST_REBUILD_TIME_LIMIT = COST_REBUILD_SOFT_TIME_LIMIT + 30
 
-# Drop a rebuild that sat in the queue this long — by then the range has likely been re-requested,
-# or the next read has materialized it anyway.
+# By then the range has been re-requested, or a read has materialized it.
 COST_REBUILD_EXPIRES_SECONDS = 30 * 60
 
 
@@ -48,8 +45,7 @@ COST_REBUILD_EXPIRES_SECONDS = 30 * 60
     # Same queue as insight cache warming, so this paces against ClickHouse with the other warmers.
     queue=CeleryQueue.ANALYTICS_LIMITED.value,
     expires=COST_REBUILD_EXPIRES_SECONDS,
-    # No retries: the range is already invalidated, so the next read or warmer tick converges. A retry
-    # would re-scan the whole range for the chunks that already landed.
+    # No retries: the next read or warmer tick converges, and a retry re-scans what already landed.
     max_retries=0,
     soft_time_limit=COST_REBUILD_SOFT_TIME_LIMIT,
     time_limit=COST_REBUILD_TIME_LIMIT,
@@ -67,8 +63,7 @@ def rebuild_marketing_cost_precompute(team_id: int, date_from: str, date_to: str
     started = time.monotonic()
     logger.info("marketing_cost_precompute_rebuild_started", team_id=team_id, date_from=date_from, date_to=date_to)
     try:
-        # Tag before the work so the ensures' ClickHouse queries are attributed to cache warming
-        # rather than to a user-facing read. Celery resets tags on task_postrun.
+        # Before the work, so the ensures' queries are attributed to warming, not a user read.
         tag_queries(team_id=team_id, feature=Feature.CACHE_WARMUP, product=Product.MARKETING_ANALYTICS)
         done, failures = rebuild_cost_precompute(team, date.fromisoformat(date_from), date.fromisoformat(date_to))
     except Exception:
