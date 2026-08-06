@@ -146,7 +146,9 @@ def _normalize_readiness_terms(raw: Any) -> frozenset[str]:
 
 
 def build_readiness_filter(source_config: dict[str, Any] | None) -> ReadinessFilter:
-    config = source_config or {}
+    # The serializer rejects non-object configs, but a legacy row could still hold one — coerce it
+    # to no filter rather than letting `.get()` raise inside the emission activity.
+    config = source_config if isinstance(source_config, dict) else {}
     return ReadinessFilter(
         labels=_normalize_readiness_terms(config.get(READINESS_LABEL_ALLOWLIST_KEY)),
         states=_normalize_readiness_terms(config.get(READINESS_STATE_ALLOWLIST_KEY)),

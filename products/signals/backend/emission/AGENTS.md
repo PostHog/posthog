@@ -64,7 +64,9 @@ A team can narrow which imported records become signals by adding allowlists to 
 - `label_allowlist` — keep only records carrying at least one of these labels (`extra["labels"]`).
 - `state_allowlist` — keep only records in one of these workflow states (`extra["state_name"]`).
 
-Both are lists of strings, matched case-insensitively. Set both and a record must clear both. Empty or absent means no restriction, so a source with no config emits every record as before. The `run_signal_pipeline` applies this before the LLM summarization/actionability stages, so unready records never cost an LLM call. Only sources whose emitters populate `labels`/`state_name` (e.g. Linear issues) are affected. This mirrors the per-evaluation `evaluation_ids` allowlist in `temporal/emit_eval_signal.py`.
+Both are lists of strings, matched case-insensitively. Set both and a record must clear both. Empty or absent means no restriction, so a source with no config emits every record as before. The `run_signal_pipeline` applies this before the LLM summarization/actionability stages, so unready records never cost an LLM call. This mirrors the per-evaluation `evaluation_ids` allowlist in `temporal/emit_eval_signal.py`.
+
+The filter matches on `extra["labels"]`/`extra["state_name"]`, which only the Linear issue emitter populates today. The serializer therefore rejects these keys for any other source with a 400 — accepting them elsewhere would silently drop every record. To extend readiness to another source, populate those same `extra` fields in its emitter and widen the serializer gate.
 
 ## Adding a new source
 

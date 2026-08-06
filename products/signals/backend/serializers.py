@@ -130,6 +130,8 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         source_type = attrs.get("source_type", getattr(self.instance, "source_type", None))
         enabled = attrs.get("enabled", getattr(self.instance, "enabled", False))
         config = attrs.get("config", {})
+        if not isinstance(config, dict):
+            raise serializers.ValidationError({"config": "config must be a JSON object"})
         if source_product == SignalSourceConfig.SourceProduct.SESSION_REPLAY and config:
             recording_filters = config.get("recording_filters")
             if recording_filters is not None and not isinstance(recording_filters, dict):
@@ -141,8 +143,7 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError({"config": "sample_rate must be a number between 0 and 1"})
                 if not (0 <= sample_rate <= 1):
                     raise serializers.ValidationError({"config": "sample_rate must be between 0 and 1"})
-        if isinstance(config, dict):
-            self._validate_readiness_allowlists(config)
+        self._validate_readiness_allowlists(config, source_product, source_type)
         if enabled and source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER:
             get_team = self.context.get("get_team")
             team = get_team() if get_team else None
@@ -155,13 +156,23 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         return attrs
 
     @staticmethod
-    def _validate_readiness_allowlists(config: dict) -> None:
+    def _validate_readiness_allowlists(config: dict, source_product: str | None, source_type: str | None) -> None:
         # Readiness allowlists gate which imported records become signals (see the emission pipeline's
-        # ReadinessFilter). Only sources whose records carry labels/state — e.g. Linear issues — act on them.
-        for key in ("label_allowlist", "state_allowlist"):
-            value = config.get(key)
-            if value is None:
-                continue
+        # ReadinessFilter). The filter matches on `extra["labels"]`/`extra["state_name"]`, which only the
+        # Linear issue emitter populates, so restrict the keys to that source — accepting them elsewhere
+        # would silently drop every record instead of filtering.
+        readiness_keys = [key for key in ("label_allowlist", "state_allowlist") if key in config]
+        if not readiness_keys:
+            return
+        if (
+            source_product != SignalSourceConfig.SourceProduct.LINEAR
+            or source_type != SignalSourceConfig.SourceType.ISSUE
+        ):
+            raise serializers.ValidationError(
+                {"config": "label_allowlist and state_allowlist are only supported for the Linear issue source"}
+            )
+        for key in readiness_keys:
+            value = config[key]
             if not isinstance(value, list) or not all(isinstance(term, str) for term in value):
                 raise serializers.ValidationError({"config": f"{key} must be a list of strings"})
 

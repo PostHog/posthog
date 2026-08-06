@@ -16,16 +16,22 @@ class TestSignalSourceConfigReadinessValidation(SimpleTestCase):
     # runs `validate()` is already covered by `TestSignalSourceConfigAPI.test_create_config_validation`.
     @parameterized.expand(
         [
-            ("valid_label_allowlist", {"label_allowlist": ["ready-for-dev"]}, True),
-            ("valid_state_allowlist", {"state_allowlist": ["Ready", "In review"]}, True),
-            ("empty_config", {}, True),
-            ("label_allowlist_not_list", {"label_allowlist": "ready"}, False),
-            ("state_allowlist_non_string_entry", {"state_allowlist": ["Ready", 3]}, False),
+            ("valid_label_allowlist", "linear", "issue", {"label_allowlist": ["ready-for-dev"]}, True),
+            ("valid_state_allowlist", "linear", "issue", {"state_allowlist": ["Ready", "In review"]}, True),
+            ("empty_config", "linear", "issue", {}, True),
+            ("label_allowlist_not_list", "linear", "issue", {"label_allowlist": "ready"}, False),
+            ("state_allowlist_non_string_entry", "linear", "issue", {"state_allowlist": ["Ready", 3]}, False),
+            # `state_name` is Linear-only, so the keys are rejected on any other source — otherwise an
+            # intuitive `state_allowlist` there would silently drop every record.
+            ("label_allowlist_rejected_on_github", "github", "issue", {"label_allowlist": ["bug"]}, False),
+            ("state_allowlist_rejected_on_github", "github", "issue", {"state_allowlist": ["open"]}, False),
+            # A non-object config is rejected outright, so the emission pipeline never calls `.get()` on it.
+            ("non_object_config", "linear", "issue", ["not", "a", "dict"], False),
         ]
     )
-    def test_readiness_allowlist_validation(self, _name, config, expected_valid):
+    def test_readiness_allowlist_validation(self, _name, source_product, source_type, config, expected_valid):
         serializer = SignalSourceConfigSerializer(
-            data={"source_product": "linear", "source_type": "issue", "config": config}
+            data={"source_product": source_product, "source_type": source_type, "config": config}
         )
         assert serializer.is_valid() is expected_valid, serializer.errors
         if not expected_valid:

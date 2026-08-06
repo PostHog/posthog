@@ -275,6 +275,8 @@ class TestReadinessFilter:
             ({}, False),
             ({"label_allowlist": ["", "  "]}, False),
             ({"label_allowlist": "ready"}, False),
+            # A legacy non-object config is coerced to no filter rather than raising on `.get()`.
+            (["not", "a", "dict"], False),
             ({"label_allowlist": ["ready-for-dev"]}, True),
             ({"state_allowlist": ["Ready"]}, True),
         ],
