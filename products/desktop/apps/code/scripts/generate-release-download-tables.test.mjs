@@ -86,17 +86,17 @@ describe("buildDownloadTables", () => {
     const markdown = buildDownloadTables("0.56.90", releaseChecksums());
 
     expect(downloadCells(markdown)).toEqual([
-      "[PostHog-Code-0.56.90-arm64-mac.dmg](https://github.com/PostHog/code/releases/download/v0.56.90/PostHog-Code-0.56.90-arm64-mac.dmg)",
-      "[PostHog-Code-0.56.90-arm64-mac.zip](https://github.com/PostHog/code/releases/download/v0.56.90/PostHog-Code-0.56.90-arm64-mac.zip)",
-      "[PostHog-Code-0.56.90-x64-mac.dmg](https://github.com/PostHog/code/releases/download/v0.56.90/PostHog-Code-0.56.90-x64-mac.dmg)",
-      "[PostHog-Code-0.56.90-x64-mac.zip](https://github.com/PostHog/code/releases/download/v0.56.90/PostHog-Code-0.56.90-x64-mac.zip)",
-      "[PostHog-Code-0.56.90-x64-win.exe](https://github.com/PostHog/code/releases/download/v0.56.90/PostHog-Code-0.56.90-x64-win.exe)",
-      "[PostHog-Code-0.56.90-x86_64-linux.AppImage](https://github.com/PostHog/code/releases/download/v0.56.90/PostHog-Code-0.56.90-x86_64-linux.AppImage)",
-      "[PostHog-Code-0.56.90-arm64-linux.AppImage](https://github.com/PostHog/code/releases/download/v0.56.90/PostHog-Code-0.56.90-arm64-linux.AppImage)",
-      "[PostHog-Code-0.56.90-amd64-linux.deb](https://github.com/PostHog/code/releases/download/v0.56.90/PostHog-Code-0.56.90-amd64-linux.deb)",
-      "[PostHog-Code-0.56.90-arm64-linux.deb](https://github.com/PostHog/code/releases/download/v0.56.90/PostHog-Code-0.56.90-arm64-linux.deb)",
-      "[PostHog-Code-0.56.90-x86_64-linux.rpm](https://github.com/PostHog/code/releases/download/v0.56.90/PostHog-Code-0.56.90-x86_64-linux.rpm)",
-      "[PostHog-Code-0.56.90-aarch64-linux.rpm](https://github.com/PostHog/code/releases/download/v0.56.90/PostHog-Code-0.56.90-aarch64-linux.rpm)",
+      "[PostHog-Code-0.56.90-arm64-mac.dmg](https://github.com/PostHog/posthog/releases/download/desktop-v0.56.90/PostHog-Code-0.56.90-arm64-mac.dmg)",
+      "[PostHog-Code-0.56.90-arm64-mac.zip](https://github.com/PostHog/posthog/releases/download/desktop-v0.56.90/PostHog-Code-0.56.90-arm64-mac.zip)",
+      "[PostHog-Code-0.56.90-x64-mac.dmg](https://github.com/PostHog/posthog/releases/download/desktop-v0.56.90/PostHog-Code-0.56.90-x64-mac.dmg)",
+      "[PostHog-Code-0.56.90-x64-mac.zip](https://github.com/PostHog/posthog/releases/download/desktop-v0.56.90/PostHog-Code-0.56.90-x64-mac.zip)",
+      "[PostHog-Code-0.56.90-x64-win.exe](https://github.com/PostHog/posthog/releases/download/desktop-v0.56.90/PostHog-Code-0.56.90-x64-win.exe)",
+      "[PostHog-Code-0.56.90-x86_64-linux.AppImage](https://github.com/PostHog/posthog/releases/download/desktop-v0.56.90/PostHog-Code-0.56.90-x86_64-linux.AppImage)",
+      "[PostHog-Code-0.56.90-arm64-linux.AppImage](https://github.com/PostHog/posthog/releases/download/desktop-v0.56.90/PostHog-Code-0.56.90-arm64-linux.AppImage)",
+      "[PostHog-Code-0.56.90-amd64-linux.deb](https://github.com/PostHog/posthog/releases/download/desktop-v0.56.90/PostHog-Code-0.56.90-amd64-linux.deb)",
+      "[PostHog-Code-0.56.90-arm64-linux.deb](https://github.com/PostHog/posthog/releases/download/desktop-v0.56.90/PostHog-Code-0.56.90-arm64-linux.deb)",
+      "[PostHog-Code-0.56.90-x86_64-linux.rpm](https://github.com/PostHog/posthog/releases/download/desktop-v0.56.90/PostHog-Code-0.56.90-x86_64-linux.rpm)",
+      "[PostHog-Code-0.56.90-aarch64-linux.rpm](https://github.com/PostHog/posthog/releases/download/desktop-v0.56.90/PostHog-Code-0.56.90-aarch64-linux.rpm)",
     ]);
   });
 
@@ -104,7 +104,7 @@ describe("buildDownloadTables", () => {
     [
       "links the blockmap when present",
       "arm64-mac.dmg](",
-      "[blockmap](https://github.com/PostHog/code/releases/download/v0.56.90/PostHog-Code-0.56.90-arm64-mac.dmg.blockmap)",
+      "[blockmap](https://github.com/PostHog/posthog/releases/download/desktop-v0.56.90/PostHog-Code-0.56.90-arm64-mac.dmg.blockmap)",
     ],
     ["shows a dash when the blockmap is absent", "amd64-linux.deb](", "| — |"],
   ])("%s", (_label, rowFragment, expected) => {
@@ -123,7 +123,7 @@ describe("buildDownloadTables", () => {
     const fullSha = checksums.get("PostHog-Code-0.56.90-x64-win.exe");
 
     expect(exeRow).toContain(
-      `[\`${fullSha.slice(0, 6)}\`](https://github.com/PostHog/code/releases/download/v0.56.90/PostHog-Code-0.56.90-x64-win.exe "${fullSha}")`,
+      `[\`${fullSha.slice(0, 6)}\`](https://github.com/PostHog/posthog/releases/download/desktop-v0.56.90/PostHog-Code-0.56.90-x64-win.exe "${fullSha}")`,
     );
     expect(exeRow).not.toContain(`\`${fullSha}\``);
   });
@@ -139,12 +139,15 @@ describe("buildDownloadTables", () => {
     );
   });
 
-  it("accepts a version with a leading v without doubling it in URLs", () => {
-    const markdown = buildDownloadTables("v0.56.90", releaseChecksums());
+  it.each(["0.56.90", "v0.56.90", "desktop-v0.56.90"])(
+    "normalizes version %s to one desktop tag prefix",
+    (version) => {
+      const markdown = buildDownloadTables(version, releaseChecksums());
 
-    expect(markdown).toContain("/releases/download/v0.56.90/");
-    expect(markdown).not.toContain("vv0.56.90");
-  });
+      expect(markdown).toContain("/releases/download/desktop-v0.56.90/");
+      expect(markdown).not.toContain("desktop-vdesktop-v");
+    },
+  );
 
   it("labels macOS architectures and skips empty sections", () => {
     const macOnly = new Map([
