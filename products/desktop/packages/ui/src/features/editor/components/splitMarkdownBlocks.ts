@@ -109,3 +109,93 @@ export function parseOpenFence(
   const code = afterMarker === -1 ? "" : block.slice(afterMarker + 1);
   return { before, code };
 }
+
+function findClosingBacktickRun(src: string, start: number): number {
+  let runLength = 1;
+  while (src[start + runLength] === "`") runLength++;
+
+  let cursor = start + runLength;
+  while (cursor < src.length) {
+    const next = src.indexOf("`", cursor);
+    if (next === -1) return src.length;
+    let closingLength = 1;
+    while (src[next + closingLength] === "`") closingLength++;
+    if (closingLength === runLength) return next + closingLength;
+    cursor = next + closingLength;
+  }
+  return src.length;
+}
+
+function isEscaped(src: string, index: number): boolean {
+  let backslashes = 0;
+  while (
+    index - backslashes - 1 >= 0 &&
+    src[index - backslashes - 1] === "\\"
+  ) {
+    backslashes++;
+  }
+  return backslashes % 2 === 1;
+}
+
+export function maskOpenLinkDestination(src: string): string {
+  let cursor = 0;
+
+  while (cursor < src.length) {
+    if (src[cursor] === "\\") {
+      cursor += 2;
+      continue;
+    }
+    if (src[cursor] === "`") {
+      cursor = findClosingBacktickRun(src, cursor);
+      continue;
+    }
+    if (src[cursor] !== "[") {
+      cursor++;
+      continue;
+    }
+
+    const linkStart =
+      cursor > 0 && src[cursor - 1] === "!" && !isEscaped(src, cursor - 1)
+        ? cursor - 1
+        : cursor;
+    const labelStart = cursor + 1;
+    let labelDepth = 1;
+    cursor++;
+
+    while (cursor < src.length && labelDepth > 0) {
+      if (src[cursor] === "\\") {
+        cursor += 2;
+        continue;
+      }
+      if (src[cursor] === "`") {
+        cursor = findClosingBacktickRun(src, cursor);
+        continue;
+      }
+      if (src[cursor] === "[") labelDepth++;
+      if (src[cursor] === "]") labelDepth--;
+      cursor++;
+    }
+
+    if (labelDepth > 0 || src[cursor] !== "(") continue;
+
+    const labelEnd = cursor - 1;
+    let destinationDepth = 1;
+    cursor++;
+
+    while (cursor < src.length && destinationDepth > 0) {
+      if (src[cursor] === "\\") {
+        cursor += 2;
+        continue;
+      }
+      if (src[cursor] === "(") destinationDepth++;
+      if (src[cursor] === ")") destinationDepth--;
+      cursor++;
+    }
+
+    if (destinationDepth > 0) {
+      return src.slice(0, linkStart) + src.slice(labelStart, labelEnd);
+    }
+  }
+
+  return src;
+}

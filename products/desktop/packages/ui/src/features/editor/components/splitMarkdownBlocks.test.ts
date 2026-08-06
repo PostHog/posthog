@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { parseOpenFence, splitMarkdownBlocks } from "./splitMarkdownBlocks";
+import {
+  maskOpenLinkDestination,
+  parseOpenFence,
+  splitMarkdownBlocks,
+} from "./splitMarkdownBlocks";
 
 describe("splitMarkdownBlocks", () => {
   it.each([
@@ -107,5 +111,63 @@ describe("parseOpenFence", () => {
       before: "```ts\ndone\n```\ntext\n",
       code: "partial",
     });
+  });
+});
+
+describe("maskOpenLinkDestination", () => {
+  it("shows the label while hiding an incomplete destination", () => {
+    expect(
+      maskOpenLinkDestination(
+        "Download [the report](https://example.com/a-very-long?token=secret",
+      ),
+    ).toBe("Download the report");
+  });
+
+  it("leaves a completed link unchanged", () => {
+    const markdown = "Download [the report](https://example.com/report) now";
+    expect(maskOpenLinkDestination(markdown)).toBe(markdown);
+  });
+
+  it("waits for nested destination parentheses to close", () => {
+    expect(maskOpenLinkDestination("See [docs](https://example.com/a(b)")).toBe(
+      "See docs",
+    );
+  });
+
+  it("ignores link syntax inside inline code", () => {
+    const markdown = "`[label](https://example.com/incomplete`";
+    expect(maskOpenLinkDestination(markdown)).toBe(markdown);
+  });
+
+  it("supports nested brackets and escaped destination parentheses", () => {
+    expect(
+      maskOpenLinkDestination("See [the [new] docs](https://example.com/a\\("),
+    ).toBe("See the [new] docs");
+  });
+
+  it("shows image alt text while hiding an incomplete destination", () => {
+    expect(
+      maskOpenLinkDestination("Preview: ![chart](https://example.com/ch"),
+    ).toBe("Preview: chart");
+  });
+
+  it("masks the destination at every streaming boundary", () => {
+    const markdown =
+      "Download [the report](https://example.com/report?token=secret)";
+    const destinationStart = markdown.indexOf("https://");
+
+    for (let end = destinationStart; end < markdown.length; end++) {
+      const rendered = maskOpenLinkDestination(markdown.slice(0, end));
+      expect(rendered).not.toContain("example.com");
+      expect(rendered).not.toContain("token=secret");
+    }
+
+    expect(maskOpenLinkDestination(markdown)).toBe(markdown);
+  });
+
+  it("does not treat an escaped exclamation mark as an image marker", () => {
+    expect(
+      maskOpenLinkDestination("\\![label](https://example.com/incomplete"),
+    ).toBe("\\!label");
   });
 });
