@@ -69,7 +69,10 @@ def _classification_payload(fingerprints: list[str], failure_class: str) -> str:
 
 class TestClassifyFingerprints(BaseTest):
     def test_returns_mapping_from_fingerprint_to_class(self) -> None:
-        fingerprints = ["timed out after seconds", "resource not found"]
+        items = {
+            "timed out after seconds": "Error: timed out after 45 seconds",
+            "resource not found": "Resource 123 not found",
+        }
         payload = json.dumps(
             {
                 "classifications": [
@@ -79,31 +82,37 @@ class TestClassifyFingerprints(BaseTest):
             }
         )
         with patch("products.mcp_analytics.backend.failure_classification.OpenAI") as mock_openai_cls:
-            mock_openai_cls.return_value.chat.completions.create.return_value = _openai_response(payload)
-            result = classify_fingerprints(fingerprints, self.team)
+            mock_create = mock_openai_cls.return_value.chat.completions.create
+            mock_create.return_value = _openai_response(payload)
+            result = classify_fingerprints(items, self.team)
 
         assert result == {"timed out after seconds": "timeout", "resource not found": "resource_not_found"}
+        # The prompt must carry the raw message (with its numbers), not the stripped fingerprint —
+        # the boundary rules pivot on codes like 429/-32601 that normalization removes.
+        prompt = mock_create.call_args.kwargs["messages"][1]["content"]
+        assert "timed out after 45 seconds" in prompt
 
     def test_batches_at_25_fingerprints(self) -> None:
-        fingerprints = [f"fingerprint {i}" for i in range(CLASSIFY_BATCH_SIZE + 1)]
+        items = {f"fingerprint {i}": f"raw message {i}" for i in range(CLASSIFY_BATCH_SIZE + 1)}
+        keys = list(items)
         with patch("products.mcp_analytics.backend.failure_classification.OpenAI") as mock_openai_cls:
             mock_create = mock_openai_cls.return_value.chat.completions.create
             mock_create.side_effect = [
-                _openai_response(_classification_payload(fingerprints[:CLASSIFY_BATCH_SIZE], "internal_error")),
-                _openai_response(_classification_payload(fingerprints[CLASSIFY_BATCH_SIZE:], "internal_error")),
+                _openai_response(_classification_payload(keys[:CLASSIFY_BATCH_SIZE], "internal_error")),
+                _openai_response(_classification_payload(keys[CLASSIFY_BATCH_SIZE:], "internal_error")),
             ]
-            result = classify_fingerprints(fingerprints, self.team)
+            result = classify_fingerprints(items, self.team)
 
         assert mock_create.call_count == 2
-        assert len(result) == len(fingerprints)
+        assert len(result) == len(items)
 
     def test_invalid_class_is_retried_then_marked_internal_error(self) -> None:
-        fingerprints = ["some fingerprint"]
+        items = {"some fingerprint": "some raw message"}
         invalid_payload = json.dumps({"classifications": [{"line_number": 1, "failure_class": "not_a_real_class"}]})
         with patch("products.mcp_analytics.backend.failure_classification.OpenAI") as mock_openai_cls:
             mock_create = mock_openai_cls.return_value.chat.completions.create
             mock_create.side_effect = [_openai_response(invalid_payload), _openai_response(invalid_payload)]
-            result = classify_fingerprints(fingerprints, self.team)
+            result = classify_fingerprints(items, self.team)
 
         assert mock_create.call_count == 2
         assert result == {"some fingerprint": FailureClass.INTERNAL_ERROR.value}

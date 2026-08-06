@@ -124,6 +124,11 @@ entitlement_gap wins. If genuinely no cause is recoverable, internal_error — n
 Each input line is numbered. Return exactly one classification per input line, in the same order, \
 naming the class for each."""
 
+# The LLM reads the raw representative message, never the normalized fingerprint: normalization
+# strips numbers, so the status and JSON-RPC codes the boundary rules pivot on (429, 403, -32601)
+# would be gone before classification. The fingerprint is only the grouping/cache key.
+MESSAGE_MAX_CHARS = 400
+
 
 class FingerprintClassification(BaseModel):
     line_number: int
@@ -134,19 +139,19 @@ class ClassificationBatch(BaseModel):
     classifications: list[FingerprintClassification]
 
 
-def _build_batch_prompt(fingerprints: list[str]) -> str:
-    numbered = "\n".join(f"{i + 1}. {fingerprint}" for i, fingerprint in enumerate(fingerprints))
-    return f"Failure message fingerprints:\n{numbered}"
+def _build_batch_prompt(messages: list[str]) -> str:
+    numbered = "\n".join(f"{i + 1}. {message[:MESSAGE_MAX_CHARS]}" for i, message in enumerate(messages))
+    return f"Failure messages:\n{numbered}"
 
 
-def _call_llm(client: OpenAI, fingerprints: list[str], team: Team) -> ClassificationBatch:
+def _call_llm(client: OpenAI, messages: list[str], team: Team) -> ClassificationBatch:
     response = client.chat.completions.create(  # type: ignore
         model=FAILURE_CLASS_MODEL,
         temperature=0,
         timeout=30,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": _build_batch_prompt(fingerprints)},
+            {"role": "user", "content": _build_batch_prompt(messages)},
         ],
         response_format={"type": "json_object"},
         user=f"team/{team.id}/mcp-analytics-failure-classifier",
@@ -158,11 +163,12 @@ def _call_llm(client: OpenAI, fingerprints: list[str], team: Team) -> Classifica
     return ClassificationBatch.model_validate_json(content)
 
 
-def _classify_batch(client: OpenAI, fingerprints: list[str], team: Team) -> dict[str, str]:
-    """Classify one batch, retrying once on a malformed or invalid-class response."""
+def _classify_batch(client: OpenAI, batch: list[tuple[str, str]], team: Team) -> dict[str, str]:
+    """Classify one (fingerprint, message) batch, retrying once on a malformed or invalid-class response."""
+    messages = [message for _, message in batch]
     for attempt in range(2):
         try:
-            parsed = _call_llm(client, fingerprints, team)
+            parsed = _call_llm(client, messages, team)
         except (openai.OpenAIError, ValidationError, ValueError):
             if attempt == 1:
                 break
@@ -170,28 +176,30 @@ def _classify_batch(client: OpenAI, fingerprints: list[str], team: Team) -> dict
         by_line = {item.line_number: item.failure_class.value for item in parsed.classifications}
         return {
             fingerprint: by_line.get(i + 1, FailureClass.INTERNAL_ERROR.value)
-            for i, fingerprint in enumerate(fingerprints)
+            for i, (fingerprint, _) in enumerate(batch)
         }
-    logger.warning("mcp_analytics.failure_classifier.batch_failed", team_id=team.id, batch_size=len(fingerprints))
-    return dict.fromkeys(fingerprints, FailureClass.INTERNAL_ERROR.value)
+    logger.warning("mcp_analytics.failure_classifier.batch_failed", team_id=team.id, batch_size=len(batch))
+    return dict.fromkeys((fingerprint for fingerprint, _ in batch), FailureClass.INTERNAL_ERROR.value)
 
 
-def classify_fingerprints(fingerprints: list[str], team: Team) -> dict[str, str]:
+def classify_fingerprints(messages_by_fingerprint: dict[str, str], team: Team) -> dict[str, str]:
     """Classify each fingerprint into one of the 14 failure classes via batched LLM calls.
 
-    One call per batch of ``CLASSIFY_BATCH_SIZE`` fingerprints. A batch that fails validation is
-    retried once; if it still fails, every fingerprint in that batch is marked ``internal_error``
-    rather than left unclassified.
+    ``messages_by_fingerprint`` maps each fingerprint to its representative raw message — the LLM
+    reads the message (see the note above ``MESSAGE_MAX_CHARS``), the fingerprint keys the result.
+    One call per batch of ``CLASSIFY_BATCH_SIZE``. A batch that fails validation is retried once;
+    if it still fails, every fingerprint in that batch is marked ``internal_error`` rather than
+    left unclassified.
     """
-    if not fingerprints:
+    if not messages_by_fingerprint:
         return {}
 
     client = OpenAI(posthog_client=posthoganalytics.default_client, base_url=settings.OPENAI_BASE_URL)
+    items = list(messages_by_fingerprint.items())
     result: dict[str, str] = {}
     with tags_context(
         product=Product.MCP_ANALYTICS, feature=Feature.QUERY, team_id=team.id, name="mcp_analytics_failure_classifier"
     ):
-        for start in range(0, len(fingerprints), CLASSIFY_BATCH_SIZE):
-            batch = fingerprints[start : start + CLASSIFY_BATCH_SIZE]
-            result.update(_classify_batch(client, batch, team))
+        for start in range(0, len(items), CLASSIFY_BATCH_SIZE):
+            result.update(_classify_batch(client, items[start : start + CLASSIFY_BATCH_SIZE], team))
     return result

@@ -137,7 +137,9 @@ class Command(BaseCommand):
             self._print_dry_run(aggregates)
             return
 
-        classifications = classify_fingerprints(list(aggregates.keys()), team)
+        classifications = classify_fingerprints(
+            {fingerprint: aggregate.example_message for fingerprint, aggregate in aggregates.items()}, team
+        )
         self._print_breakdown(aggregates, classifications, total_failures)
         if output:
             self._write_tsv(output, aggregates, classifications)
