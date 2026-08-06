@@ -43,7 +43,9 @@ ReviewHog runs end-to-end: label / UI / inbox triggers → the Temporal pipeline
 current focus is productionizing the reviewer-topology eval and tightening the finder/validator balance
 (validator strictness, fewer junk candidates, the coverage gap); the **loop** — a living, multi-turn review that
 re-checks on new commits/comments and implements fixes — is designed but not built. The single-turn pipeline
-below is its per-turn body.
+below is its per-turn body. The **resolution stage** — a post-review, standalone-capable stage that triages every
+unresolved review thread and implements the worth-and-safe ones directly on the PR branch — is also designed but
+not built (DECISIONS.md Stage 7; vocabulary in CONTEXT.md).
 
 The full roadmap — every open thread with its reasoning, the loop design, the grounded implementation maps, and
 the experiment backlog — is in [DECISIONS.md](./DECISIONS.md) (start at its "🎯 NEXT" section) and `eval/`
