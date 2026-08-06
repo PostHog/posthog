@@ -6051,6 +6051,52 @@ class TestExperimentService(APIBaseTest):
         )
         assert experiment.metrics is not None and len(experiment.metrics) == 1
 
+    def test_update_with_deleted_action_still_referenced_succeeds(self):
+        action = Action.objects.create(team=self.team, name="soon deleted action")
+        stale = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "ActionsNode", "id": action.id},
+        }
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Stale Action Resend",
+            feature_flag_key="stale-action-resend-flag",
+            metrics=[stale],
+        )
+        action.deleted = True
+        action.save()
+
+        updated = service.update_experiment(experiment, {"metrics": [stale], "metrics_secondary": []})
+
+        assert updated.metrics is not None and len(updated.metrics) == 1
+
+    def test_update_rejects_new_unknown_action_alongside_resent_stale_one(self):
+        action = Action.objects.create(team=self.team, name="another soon deleted action")
+        stale = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "ActionsNode", "id": action.id},
+        }
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Unknown Alongside Stale Action",
+            feature_flag_key="unknown-alongside-stale-action-flag",
+            metrics=[stale],
+        )
+        action.deleted = True
+        action.save()
+        fresh = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "ActionsNode", "id": 999999},
+        }
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(experiment, {"metrics": [stale, fresh]})
+
+        assert "999999" in str(ctx.exception.detail)
+
     def test_funnel_metric_with_empty_series_raises(self):
         # The experiment exposure event is prepended as step_0 at query time, so an
         # empty series would produce a degenerate single-step funnel with no conversion event.
