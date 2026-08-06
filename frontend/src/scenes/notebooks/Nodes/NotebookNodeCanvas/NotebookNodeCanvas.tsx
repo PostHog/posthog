@@ -108,6 +108,8 @@ const Settings = ({
         nameValue,
         contextValue,
         hasMetaChanges,
+        agentInstruction,
+        askingAgent,
         sourceLoading,
         sourceCode,
         hasSourceChanges,
@@ -115,8 +117,16 @@ const Settings = ({
         isBuilding,
         publishDiagnostics,
     } = useValues(logic)
-    const { loadSource, setEditedCode, publishSource, setEditedName, setEditedContext, saveCanvasMeta } =
-        useActions(logic)
+    const {
+        loadSource,
+        setEditedCode,
+        publishSource,
+        setEditedName,
+        setEditedContext,
+        saveCanvasMeta,
+        setAgentInstruction,
+        askAgent,
+    } = useActions(logic)
 
     useEffect(() => {
         if (id) {
@@ -171,6 +181,31 @@ const Settings = ({
                         disabledReason={canvasLoading ? 'Saving' : !hasMetaChanges ? 'No changes to save' : undefined}
                     >
                         Save name and instructions
+                    </LemonButton>
+                    <div className="flex-1">
+                        <LemonLabel info="Starts an agent task in the canvas's channel. The agent edits the canvas source and publishes a new build; the rendered page updates when it lands.">
+                            Ask the agent
+                        </LemonLabel>
+                        <LemonTextArea
+                            value={agentInstruction}
+                            onChange={setAgentInstruction}
+                            placeholder="Describe the change, for example: add a weekly signups chart split by plan."
+                            minRows={2}
+                        />
+                    </div>
+                    <LemonButton
+                        type="primary"
+                        onClick={() => askAgent()}
+                        loading={askingAgent}
+                        disabledReason={
+                            askingAgent
+                                ? 'Starting the agent'
+                                : !agentInstruction.trim()
+                                  ? 'Describe the change first'
+                                  : undefined
+                        }
+                    >
+                        Send to agent
                     </LemonButton>
                     <LemonLabel info="Publishing creates a new source version and rebuilds the page. The rendered canvas updates when the build is ready.">
                         Source ({CANVAS_COMPONENT_PATH})
