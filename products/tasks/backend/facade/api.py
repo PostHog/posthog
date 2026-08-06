@@ -4224,14 +4224,13 @@ def create_task(
     if (
         warm_branch_provided
         and validated_data["origin_product"] == Task.OriginProduct.USER_CREATED
-        and validated_data.get("repository")
         and len(validated_data.get("repositories", [])) <= 1
         and user_id is not None
     ):
         warm_run = _find_idling_warm_run(
             team_id,
             user_id,
-            repository=validated_data["repository"],
+            repository=validated_data.get("repository"),
             branch=warm_branch,
             runtime_adapter=warm_runtime_adapter,
             model=warm_model,
@@ -4608,7 +4607,7 @@ def _find_idling_warm_run(
 ) -> TaskRun | None:
     """Most-recent idling pre-warmed Run matching this user's cloud composing selection, or ``None``.
 
-    A warm Run is a non-terminal ``USER_CREATED`` Run for the same repo+branch still awaiting its
+    A warm Run is a non-terminal ``USER_CREATED`` Run for the same optional repo+branch still awaiting its
     first user message (the ``await_user_message`` state marker). This is the backend's single source
     of truth for the warm pool: it dedupes warm provisioning (so a repeated ``warm`` call reuses the
     live Run instead of spawning a second) and lets the normal create+run path transparently reuse a
@@ -4616,20 +4615,21 @@ def _find_idling_warm_run(
 
     Reuse also requires the warm Run's runtime, sandbox environment, and custom image selections to
     match the request. A mismatch returns ``None`` so the caller cold-creates on the correct sandbox.
-    The repo/branch/``await_user_message`` predicates stay in the query; the remaining selection is
+    The optional repo/branch/``await_user_message`` predicates stay in the query; the remaining selection is
     matched in Python over the small candidate set.
     """
-    if user_id is None or not repository:
+    if user_id is None:
         return None
+    repository_filter = {"task__repository__iexact": repository} if repository else {"task__repository__isnull": True}
     candidates = (
         TaskRun.objects.filter(  # nosemgrep: idor-lookup-without-team — team_id filter applied via the task FK below
             task__team_id=team_id,
             task__created_by_id=user_id,
             task__origin_product=Task.OriginProduct.USER_CREATED,
-            task__repository__iexact=repository,
             task__deleted=False,
             state__await_user_message=True,
             branch=branch or None,
+            **repository_filter,
         )
         .exclude(status__in=_TERMINAL_TASK_RUN_STATUSES)
         .select_related("task")
@@ -4760,8 +4760,8 @@ def warm_task_sandbox(
     team_id: int,
     user_id: int,
     *,
-    repository: str,
-    github_integration_id: int,
+    repository: str | None,
+    github_integration_id: int | None,
     branch: str | None,
     runtime_adapter: str | None = None,
     model: str | None = None,
@@ -4773,7 +4773,7 @@ def warm_task_sandbox(
     """Warm a full idling Run for a Code-app cloud task while the user composes.
 
     Births a draft Task (``USER_CREATED``), then ``SandboxWarmer.warm()`` provisions an interactive
-    Run that boots + clones + checks out ``branch`` + starts the agent on the selected
+    Run that boots, optionally clones and checks out ``branch``, then starts the agent on the selected
     ``runtime_adapter``/``model``/``reasoning_effort`` (carried on the Run state and read by the
     agent-server at launch, so the sandbox boots on the right runtime), then idles awaiting the first
     ``user_message``. The Run is dispatched with ``create_pr=True`` so that, once activated on submit,
@@ -4783,8 +4783,8 @@ def warm_task_sandbox(
     (``QuotaLimitExceeded``), product not enabled (``PermissionDenied``), or the warm pool is full
     (``Throttled``). The caller treats ``None`` as "no warm run; fall through to a cold create+run".
 
-    ``github_integration_id`` must already be re-scoped to ``team_id`` by the caller
-    (see :func:`resolve_team_github_integration_id`).
+    When present, ``github_integration_id`` must already be re-scoped to ``team_id`` by the caller
+    (see :func:`resolve_team_github_integration_id`). Repository-less warms omit it.
     """
     from rest_framework.exceptions import (  # noqa: PLC0415 — keep DRF exception types off the api import path
         PermissionDenied,
@@ -4803,8 +4803,12 @@ def warm_task_sandbox(
     )
 
     team = Team.objects.get(id=team_id)
-    github_integration = Integration.objects.filter(id=github_integration_id, team_id=team_id, kind="github").first()
-    if github_integration is None:
+    github_integration = None
+    if github_integration_id is not None:
+        github_integration = Integration.objects.filter(
+            id=github_integration_id, team_id=team_id, kind="github"
+        ).first()
+    if bool(repository) != bool(github_integration):
         return None
 
     sandbox_environment = None
