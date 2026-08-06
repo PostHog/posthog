@@ -1127,6 +1127,8 @@ class ModalSandbox(SandboxBase):
         auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
+        pr_draft: bool = True,
+        pr_labels: list[str] | None = None,
         agent_runtime: str | None = None,
         runtime_adapter: str | None = None,
         provider: str | None = None,
@@ -1169,6 +1171,11 @@ class ModalSandbox(SandboxBase):
         auto_publish_flag = " --autoPublish true" if auto_publish else ""
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
+        # Opt-in only (like --autoPublish): default draft + no labels emit nothing, so old snapshots
+        # that reject unknown flags are unaffected. The version guard in start_agent_server clears
+        # these back to the defaults when the installed binary predates the flags.
+        pr_draft_flag = "" if pr_draft else " --prDraft false"
+        pr_labels_flag = f" --prLabels {shlex.quote(','.join(pr_labels))}" if pr_labels else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
         repo_ready_flag = f" --repoReadyFile {shlex.quote(repo_ready_file)}" if repo_ready_file else ""
         exec_permission_flag = (
@@ -1185,8 +1192,8 @@ class ModalSandbox(SandboxBase):
             f"env {unset_flags}BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
-            f"{domains_flag}{repo_ready_flag}{exec_permission_flag}"
+            f"{create_pr_flag}{auto_publish_flag}{branch_flag}{pr_draft_flag}{pr_labels_flag}"
+            f"{mcp_servers_arg}{relay_mcp_servers_arg}{domains_flag}{repo_ready_flag}{exec_permission_flag}"
         )
 
         if repo_ready_file:
@@ -1260,6 +1267,8 @@ class ModalSandbox(SandboxBase):
         auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
+        pr_draft: bool = True,
+        pr_labels: list[str] | None = None,
         agent_runtime: str | None = None,
         runtime_adapter: str | None = None,
         provider: str | None = None,
@@ -1332,6 +1341,14 @@ class ModalSandbox(SandboxBase):
             )
             exec_permission_regex = None
 
+        if (pr_draft is False or pr_labels) and not self.agent_server_supports_pr_open_flags():
+            logger.warning(
+                f"Installed agent-server in sandbox {self.id} predates --prDraft/--prLabels; "
+                "falling back to the prompt-driven draft default with no labels"
+            )
+            pr_draft = True
+            pr_labels = None
+
         command = self._build_agent_server_command(
             repo_path,
             task_id,
@@ -1341,6 +1358,8 @@ class ModalSandbox(SandboxBase):
             auto_publish,
             interaction_origin,
             branch,
+            pr_draft,
+            pr_labels,
             agent_runtime,
             runtime_adapter,
             provider,

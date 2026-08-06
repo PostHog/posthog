@@ -163,6 +163,18 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
+def _normalize_signals_repo_key(repo: str) -> str:
+    """Normalize an 'organization/repository' config key, or raise ValidationError.
+
+    Auto-start looks repos up with ``repository.lower()``, so keys are stored lowercased and
+    must be a single ``org/repo`` pair with both halves present.
+    """
+    repo_key = (repo or "").strip()
+    if repo_key.count("/") != 1 or any(not part for part in repo_key.split("/")):
+        raise serializers.ValidationError(f"Repository keys must be in 'organization/repository' form, got '{repo}'.")
+    return repo_key.lower()
+
+
 class SignalTeamConfigSerializer(serializers.ModelSerializer):
     autostart_base_branches = serializers.DictField(
         child=serializers.CharField(max_length=255, allow_blank=True),
@@ -171,6 +183,34 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "Per-repository base branch overrides for auto-started inbox PRs, keyed by "
             "'organization/repository'. The branch is what the auto-PR targets; omit a repo "
             "(or send {}) to keep targeting the repo default branch."
+        ),
+    )
+    autostart_pr_draft = serializers.DictField(
+        child=serializers.BooleanField(),
+        required=False,
+        help_text=(
+            "Per-repository control over whether auto-started inbox PRs open as drafts, keyed by "
+            "'organization/repository'. A repo omitted from the map (or the whole map empty) opens "
+            "as a draft — the default. Set false for a repo to open its auto-PRs ready for review."
+        ),
+    )
+    autostart_pr_labels = serializers.DictField(
+        child=serializers.ListField(child=serializers.CharField(max_length=100, allow_blank=True)),
+        required=False,
+        help_text=(
+            "Per-repository labels applied when an auto-started inbox PR is opened, keyed by "
+            "'organization/repository'. Each value is a list of label names that must already exist "
+            "in the target repository. Omit a repo (or send {}) to apply no labels."
+        ),
+    )
+    autostart_pr_instructions = serializers.DictField(
+        child=serializers.CharField(max_length=4000, allow_blank=True),
+        required=False,
+        help_text=(
+            "Per-repository free-text instructions appended to the implementation agent's task for "
+            "auto-started inbox PRs, keyed by 'organization/repository'. Advisory only — used to "
+            "state repo PR conventions; it cannot override the task's safety rules. Omit a repo "
+            "(or send an empty string) to add none."
         ),
     )
 
@@ -182,6 +222,9 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "default_autostart_priority",
             "default_slack_notification_channel",
             "autostart_base_branches",
+            "autostart_pr_draft",
+            "autostart_pr_labels",
+            "autostart_pr_instructions",
             "created_at",
             "updated_at",
         ]
@@ -206,14 +249,38 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
     def validate_autostart_base_branches(self, value: dict) -> dict:
         cleaned: dict[str, str] = {}
         for repo, branch in value.items():
-            repo_key = (repo or "").strip()
-            if repo_key.count("/") != 1 or any(not part for part in repo_key.split("/")):
-                raise serializers.ValidationError(
-                    f"Repository keys must be in 'organization/repository' form, got '{repo}'."
-                )
+            repo_key = _normalize_signals_repo_key(repo)
             branch_value = (branch or "").strip()
             if branch_value:
-                cleaned[repo_key.lower()] = branch_value
+                cleaned[repo_key] = branch_value
+        return cleaned
+
+    def validate_autostart_pr_draft(self, value: dict) -> dict:
+        return {_normalize_signals_repo_key(repo): bool(draft) for repo, draft in value.items()}
+
+    def validate_autostart_pr_labels(self, value: dict) -> dict:
+        cleaned: dict[str, list[str]] = {}
+        for repo, labels in value.items():
+            repo_key = _normalize_signals_repo_key(repo)
+            # Dedupe while preserving order; drop blank entries (each label is trimmed first).
+            seen: set[str] = set()
+            deduped: list[str] = []
+            for raw in labels:
+                label = raw.strip()
+                if label and label not in seen:
+                    seen.add(label)
+                    deduped.append(label)
+            if deduped:
+                cleaned[repo_key] = deduped
+        return cleaned
+
+    def validate_autostart_pr_instructions(self, value: dict) -> dict:
+        cleaned: dict[str, str] = {}
+        for repo, text in value.items():
+            repo_key = _normalize_signals_repo_key(repo)
+            instructions = (text or "").strip()
+            if instructions:
+                cleaned[repo_key] = instructions
         return cleaned
 
 

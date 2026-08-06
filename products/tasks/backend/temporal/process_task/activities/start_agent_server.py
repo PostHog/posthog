@@ -346,6 +346,8 @@ def _invoke_start_agent_server(
             auto_publish=ctx.auto_publish,
             interaction_origin=ctx.interaction_origin,
             branch=params.protected_base_branch,
+            pr_draft=ctx.pr_draft,
+            pr_labels=ctx.pr_labels or None,
             agent_runtime=ctx.task_runtime,
             runtime_adapter=ctx.runtime_adapter,
             provider=ctx.provider,

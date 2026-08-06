@@ -4361,6 +4361,53 @@ describe("AgentServer HTTP Mode", () => {
       delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
     });
 
+    it("opens ready for review (no --draft) when prDraft is false", () => {
+      process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
+      server = new AgentServer({
+        port,
+        jwtPublicKey: TEST_PUBLIC_KEY,
+        repositoryPath: repo.path,
+        apiUrl: "http://localhost:8000",
+        apiKey: "test-api-key",
+        projectId: 1,
+        mode: "interactive",
+        taskId: "test-task-id",
+        runId: "test-run-id",
+        prDraft: false,
+      });
+      const prompt = (
+        server as unknown as TestableServer
+      ).buildCloudSystemPrompt();
+      expect(prompt).toContain("gh pr create`");
+      expect(prompt).not.toContain("gh pr create --draft");
+      expect(prompt).toContain("Open the PR ready for review");
+      delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
+    });
+
+    it("adds --label flags and a labels directive when prLabels are configured", () => {
+      process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
+      server = new AgentServer({
+        port,
+        jwtPublicKey: TEST_PUBLIC_KEY,
+        repositoryPath: repo.path,
+        apiUrl: "http://localhost:8000",
+        apiKey: "test-api-key",
+        projectId: 1,
+        mode: "interactive",
+        taskId: "test-task-id",
+        runId: "test-run-id",
+        prLabels: ["bot-review", "self-driving"],
+      });
+      const prompt = (
+        server as unknown as TestableServer
+      ).buildCloudSystemPrompt();
+      expect(prompt).toContain(
+        'gh pr create --draft --label "bot-review" --label "self-driving"',
+      );
+      expect(prompt).toContain("bot-review, self-driving");
+      delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
+    });
+
     it("disables auto-publish for Slack-origin runs when createPr is false", () => {
       process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
       server = new AgentServer({

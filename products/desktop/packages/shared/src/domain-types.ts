@@ -891,6 +891,12 @@ export interface SignalTeamConfig {
   /** Team-wide default `channel_id|#channel-name` target for inbox notifications. `null` = no team default. */
   default_slack_notification_channel?: string | null;
   autostart_base_branches?: Record<string, string> | null;
+  /** Per-repo control over whether auto-started PRs open as drafts, keyed by 'org/repo'. Absent repo opens as a draft. */
+  autostart_pr_draft?: Record<string, boolean> | null;
+  /** Per-repo labels applied when an auto-started PR opens, keyed by 'org/repo'. */
+  autostart_pr_labels?: Record<string, string[]> | null;
+  /** Per-repo advisory instructions appended to the implementation agent's task, keyed by 'org/repo'. */
+  autostart_pr_instructions?: Record<string, string> | null;
   created_at: string;
   updated_at: string;
 }

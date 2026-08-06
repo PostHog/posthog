@@ -844,6 +844,8 @@ class Task(DeletedMetaFields, models.Model):
         custom_image_id: str | None = None,
         github_read_access: bool = False,
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
+        pr_draft: bool = True,
+        pr_labels: list[str] | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import _normalize_slack_context, execute_task_processing_workflow
 
@@ -881,6 +883,14 @@ class Task(DeletedMetaFields, models.Model):
         )
 
         run_extra_state = dict(extra_state or {})
+        # How the agent should open the PR. Only persist non-defaults: absent keys keep today's
+        # behavior (draft PR, no labels), and omitting them means old sandbox images that don't yet
+        # understand the launch flags see nothing new. Read by TaskProcessingContext.pr_draft /
+        # .pr_labels and forwarded to the agent-server as `gh pr create` flags.
+        if pr_draft is False:
+            run_extra_state["pr_draft"] = False
+        if pr_labels:
+            run_extra_state["pr_labels"] = list(pr_labels)
         if github_read_access:
             # Read by TaskProcessingContext.github_read_access: provisioning injects a read-only
             # GitHub token into the (repo-less) sandbox instead of the full credential path.

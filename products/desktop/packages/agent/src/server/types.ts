@@ -53,6 +53,11 @@ export interface AgentServerConfig {
    */
   relayMcpServers?: string[];
   baseBranch?: string;
+  // How a PR this run opens should be shaped. Set by the backend from the caller's config (e.g.
+  // signals per-repo team config). prDraft defaults to true (draft) when unset; prDraft=false opens
+  // the PR ready for review. prLabels are applied at `gh pr create` time.
+  prDraft?: boolean;
+  prLabels?: string[];
   claudeCode?: ClaudeCodeConfig;
   allowedDomains?: string[];
   piRpcHostPath?: string;

@@ -265,6 +265,12 @@ export interface SignalTeamConfig {
     default_slack_notification_channel?: string | null
     /** Per-repo base-branch overrides for auto-started PRs, keyed by 'org/repo'. */
     autostart_base_branches?: Record<string, string>
+    /** Per-repo control over whether auto-started PRs open as drafts, keyed by 'org/repo'. Absent repo opens as a draft. */
+    autostart_pr_draft?: Record<string, boolean>
+    /** Per-repo labels applied when an auto-started PR opens, keyed by 'org/repo'. */
+    autostart_pr_labels?: Record<string, string[]>
+    /** Per-repo advisory instructions appended to the implementation agent's task, keyed by 'org/repo'. */
+    autostart_pr_instructions?: Record<string, string>
     created_at?: string
     updated_at?: string
 }

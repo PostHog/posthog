@@ -661,6 +661,49 @@ class TestDockerSandboxUnit:
         command = _agent_server_launch_command(mock_execute)
         assert expected_flag in command
 
+    @pytest.mark.parametrize(
+        ("pr_draft", "pr_labels", "supports_flags", "expected_present", "expected_absent"),
+        [
+            # Default (draft, no labels) emits nothing new, so old snapshots are unaffected.
+            (True, None, True, [], ["--prDraft", "--prLabels"]),
+            # Opt out of draft -> explicit flag.
+            (False, None, True, ["--prDraft false"], ["--prLabels"]),
+            # Labels -> one comma-joined --prLabels arg.
+            (True, ["bot-review", "self-driving"], True, ["--prLabels bot-review,self-driving"], ["--prDraft"]),
+            # Binary predates the flags: fall back to the draft default with no labels.
+            (False, ["bot-review"], False, [], ["--prDraft", "--prLabels"]),
+        ],
+    )
+    def test_start_agent_server_passes_pr_open_flags(
+        self, pr_draft, pr_labels, supports_flags, expected_present, expected_absent
+    ):
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._host_port = 12345
+
+        with (
+            patch.object(sandbox, "is_running", return_value=True),
+            patch.object(sandbox, "agent_server_supports_pr_open_flags", return_value=supports_flags),
+            patch.object(sandbox, "execute") as mock_execute,
+        ):
+            mock_execute.return_value = ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None)
+            sandbox.start_agent_server(
+                "posthog/posthog",
+                "task-123",
+                "run-456",
+                "background",
+                pr_draft=pr_draft,
+                pr_labels=pr_labels,
+            )
+
+        command = _agent_server_launch_command(mock_execute)
+        for fragment in expected_present:
+            assert fragment in command
+        for fragment in expected_absent:
+            assert fragment not in command
+
     def test_start_agent_server_includes_runtime_environment_variables(self):
         sandbox = DockerSandbox.__new__(DockerSandbox)
         sandbox._container_id = "abc123"

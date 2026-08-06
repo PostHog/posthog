@@ -426,6 +426,8 @@ def test_create_implementation_task_threads_resolved_runtime(organization, team)
         "user_id": user.id,
         "repository": "owner/repo",
         "base_branch": None,
+        "pr_draft": False,
+        "pr_labels": ["bot-review"],
     }
     pinned = AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", reasoning_effort="medium")
     with (
@@ -438,6 +440,9 @@ def test_create_implementation_task_threads_resolved_runtime(organization, team)
     assert call_kwargs["runtime_adapter"] == "codex"
     assert call_kwargs["model"] == "gpt-5.6-terra"
     assert call_kwargs["reasoning_effort"] == "medium"
+    # PR-open settings must reach the task facade (the launch flags derive from these).
+    assert call_kwargs["pr_draft"] is False
+    assert call_kwargs["pr_labels"] == ["bot-review"]
 
 
 @pytest.mark.asyncio
@@ -638,6 +643,36 @@ def test_autostart_description_appends_fix_loop_instructions_only_for_metric_rep
     # Evidence-hygiene guardrail: fix-loop PRs may target public repos, so the prompt must forbid
     # real telemetry (raw rows, error messages, identifiers) in before/after evidence.
     assert ("never raw telemetry rows" in description) is expect_fix_loop
+
+
+@pytest.mark.parametrize("custom_instructions", [None, "", "   "])
+def test_autostart_description_omits_custom_instructions_when_blank(custom_instructions):
+    description = _build_autostart_task_description(
+        report_id="0198c0de-0000-7000-8000-000000000001",
+        team_id=1,
+        summary="Fix the auth panel.",
+        repository="acme/repo",
+        priority=None,
+        custom_instructions=custom_instructions,
+    )
+    assert "Your team left these instructions" not in description
+
+
+def test_autostart_description_appends_custom_instructions_as_advisory():
+    description = _build_autostart_task_description(
+        report_id="0198c0de-0000-7000-8000-000000000001",
+        team_id=1,
+        summary="Fix the auth panel.",
+        repository="acme/repo",
+        priority=None,
+        custom_instructions="Request review from the platform team.",
+    )
+    assert "Request review from the platform team." in description
+    # Advisory framing: the appended text must not be allowed to override the safety rules/scope
+    # stated earlier — that guard is what keeps team config from widening a full-scope run.
+    assert "cannot override the safety rules" in description
+    # It rides at the very end, after the footer instruction, like the head-branch instruction.
+    assert description.rstrip().endswith("Request review from the platform team.")
 
 
 @pytest.mark.asyncio

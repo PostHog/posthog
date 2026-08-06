@@ -3552,6 +3552,23 @@ export class AgentServer {
   ): string {
     const taskId = this.config.taskId;
     const shouldAutoCreatePr = this.shouldAutoPublishCloudChanges();
+    // How the caller wants the PR opened (backend config, e.g. signals per-repo team settings).
+    // prDraft defaults to draft when unset; labels are applied at `gh pr create` time so a team's
+    // staged CI can gate on draft state and labels the instant the PR opens.
+    const openAsDraft = this.config.prDraft !== false;
+    const prLabels = (this.config.prLabels ?? []).filter(Boolean);
+    const prCreateCommand = `gh pr create${openAsDraft ? " --draft" : ""}${
+      this.config.baseBranch ? ` --base ${this.config.baseBranch}` : ""
+    }${prLabels.map((label) => ` --label ${JSON.stringify(label)}`).join("")}`;
+    const draftDirective = openAsDraft
+      ? "Always create the PR as a draft."
+      : "Open the PR ready for review — do NOT pass --draft.";
+    const labelsDirective =
+      prLabels.length > 0
+        ? `\n- Apply ${
+            prLabels.length === 1 ? "this label" : "these labels"
+          } when you open the PR (already included in the command above): ${prLabels.join(", ")}`
+        : "";
     const isSlack = this.getCloudInteractionOrigin() === "slack";
     const identityInstructions = isSlack
       ? `
@@ -3727,7 +3744,7 @@ ${whyContextInstruction.trimStart()}
 ${publicRepoSafetyInstruction.trimStart()}
 ${prMentionSafetyInstruction.trimStart()}
 - End the PR description with a horizontal rule followed by this footer line: ${prFooter}
-- Always create the PR as a draft. Do not ask for confirmation before publishing completed code changes`
+- ${draftDirective} Do not ask for confirmation before publishing completed code changes${labelsDirective}`
             : `
 When the user explicitly asks for code changes in a GitHub repository:
 - If the user explicitly asks you to open or update a pull request, create a branch, stage your changes with \`git add\` and commit them with the \`git_signed_commit\` tool (do NOT use \`git commit\`/\`git push\` — they are blocked), and open a draft pull request from inside the clone. Before opening the PR, check the cloned repo for a PR template at \`.github/pull_request_template.md\` (or variants; fall back to the org's \`.github\` repo via \`gh api\`) and use it as the body structure, and search for matching open issues with \`gh issue list --search\` to include \`Closes #<n>\` / \`Refs #<n>\` links.
@@ -3773,7 +3790,7 @@ ${whyContextInstruction.trimStart()}
 ${publicRepoSafetyInstruction.trimStart()}
 ${prMentionSafetyInstruction.trimStart()}
 - End the PR description with a horizontal rule followed by this footer line: ${prFooter}
-- Always create the PR as a draft.
+- ${draftDirective}${labelsDirective}
 ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
 `;
     }
@@ -3796,14 +3813,14 @@ ${prMentionSafetyInstruction}
    - Check the repo for a PR template at \`.github/pull_request_template.md\` (also try \`.github/PULL_REQUEST_TEMPLATE.md\`, \`docs/pull_request_template.md\`, and root variants). If one exists, use its exact section headings as the PR body — do NOT fall back to a generic Summary/Test plan format.
    - If no repo-level template exists, check the org's \`.github\` repo via \`gh api /repos/<owner>/.github/contents/.github/pull_request_template.md\` (and other common paths) and use that as a fallback.
    - Search for matching open issues with \`gh issue list --state open --search '<keywords>'\` (derive keywords from the branch name, commits, and changed files; \`gh issue view <n>\` to confirm relevance). For every issue this PR would resolve, include a \`Closes #<n>\` line in the body so GitHub auto-links and auto-closes it on merge. For issues that are related but not fully resolved, use \`Refs #<n>\` instead.
-4. Create a draft pull request using \`gh pr create --draft${this.config.baseBranch ? ` --base ${this.config.baseBranch}` : ""}\` with a descriptive title and the body prepared above. Add the following footer at the end of the PR description:
+4. Create the pull request using \`${prCreateCommand}\` with a descriptive title and the body prepared above. Add the following footer at the end of the PR description:
 \`\`\`
 ---
 ${prFooter}
 \`\`\`
 
 Important:
-- Always create the PR as a draft. Do not ask for confirmation.
+- ${draftDirective} Do not ask for confirmation.${labelsDirective}
 ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
 `;
   }

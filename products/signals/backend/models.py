@@ -141,6 +141,16 @@ class SignalTeamConfig(UUIDModel):
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P4)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
     autostart_base_branches = models.JSONField(default=dict, blank=True)
+    # Per-repository overrides for how auto-started inbox PRs are opened, each keyed by
+    # 'organization/repository' (same shape as autostart_base_branches). A repo absent from a map
+    # takes that setting's default.
+    #   autostart_pr_draft:            {repo: bool}      — open the PR as a draft; default True.
+    #   autostart_pr_labels:           {repo: [str]}     — labels to apply at PR open; default none.
+    #   autostart_pr_instructions:     {repo: str}       — advisory free text appended to the
+    #                                                      implementation task description.
+    autostart_pr_draft = models.JSONField(default=dict, blank=True)
+    autostart_pr_labels = models.JSONField(default=dict, blank=True)
+    autostart_pr_instructions = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -124,6 +124,20 @@ class TaskProcessingContext:
         return (self.state or {}).get("auto_publish") is True
 
     @property
+    def pr_draft(self) -> bool:
+        """Whether a PR this run opens should be a draft. Defaults to True (draft); only an explicit
+        False in state opens it ready for review (see Task.create_and_run / signals auto-start)."""
+        return (self.state or {}).get("pr_draft") is not False
+
+    @property
+    def pr_labels(self) -> list[str]:
+        """Labels to apply when this run opens a PR (empty unless set by the caller's config)."""
+        labels = (self.state or {}).get("pr_labels")
+        if isinstance(labels, list) and all(isinstance(label, str) for label in labels):
+            return labels
+        return []
+
+    @property
     def has_github_credentials(self) -> bool:
         return self.github_integration_id is not None or self.github_user_integration_id is not None
 

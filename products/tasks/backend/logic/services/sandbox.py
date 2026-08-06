@@ -347,6 +347,13 @@ class SandboxBase(ABC):
         result = self.execute("grep -q autoPublish /scripts/node_modules/.bin/agent-server", timeout_seconds=10)
         return result.exit_code == 0
 
+    def agent_server_supports_pr_open_flags(self) -> bool:
+        """Same probe as --autoPublish: check the installed binary before passing --prDraft /
+        --prLabels; unsupported binaries (old snapshots) degrade to the prompt-driven draft default
+        instead of crashing at launch."""
+        result = self.execute("grep -q prDraft /scripts/node_modules/.bin/agent-server", timeout_seconds=10)
+        return result.exit_code == 0
+
     def agent_server_supports_exec_permission_regex(self) -> bool:
         """Same probe as --autoPublish: check the installed binary before passing
         --posthogExecPermissionRegex; unsupported binaries degrade to server-side auto-approval of
@@ -433,6 +440,8 @@ class SandboxBase(ABC):
         auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
+        pr_draft: bool = True,
+        pr_labels: list[str] | None = None,
         agent_runtime: str | None = None,
         runtime_adapter: str | None = None,
         provider: str | None = None,

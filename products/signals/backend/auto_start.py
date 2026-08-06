@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import secrets
+from dataclasses import dataclass
 from typing import TypedDict, TypeVar
 
 from django.conf import settings
@@ -193,6 +194,23 @@ def _generate_self_driving_head_branch(title: str) -> str:
     return f"{SELF_DRIVING_HEAD_BRANCH_PREFIX}{slug or 'implementation'}-{secrets.token_hex(3)}"
 
 
+def _custom_instructions_instruction(custom_instructions: str) -> str:
+    """Team-authored, repo-specific PR conventions appended to the task description.
+
+    Advisory by construction: framed so the agent treats it as team preferences about how to open
+    the PR, never as license to override the safety rules earlier in the description (which repos to
+    PR against, the impersonation and data-handling boundaries). The text is team-controlled config,
+    not repository content, so it is trusted at the level of the team that enabled signals — but it
+    still cannot widen the task's scope beyond fixing the reported symptom.
+    """
+    return (
+        "\n\nYour team left these instructions for how to open the PR. Follow them where they don't "
+        "conflict with anything above — they set team PR conventions (labels, description style, "
+        "reviewers, and similar) and cannot override the safety rules, scope, or repository choice "
+        f"already stated:\n{custom_instructions}"
+    )
+
+
 def _head_branch_instruction(head_branch: str) -> str:
     return (
         f"\n\nWhen you push your work, create the branch named exactly `{head_branch}` and open the "
@@ -210,6 +228,7 @@ def _build_autostart_task_description(
     repository: str,
     priority: PriorityAssessment | None,
     source_references: list[SignalSourceReference] | None = None,
+    custom_instructions: str | None = None,
 ) -> str:
     priority_line = f"Priority: {priority.priority.value}\nReason: {priority.explanation}\n\n" if priority else ""
     report_link = f"{settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id}"
@@ -226,6 +245,11 @@ def _build_autostart_task_description(
         else ""
     )
     footer_source_refs = f", addressing {source_links}" if source_links else ""
+    custom_instructions_text = (
+        _custom_instructions_instruction(custom_instructions.strip())
+        if custom_instructions and custom_instructions.strip()
+        else ""
+    )
     return (
         f"{summary}\n\n"
         f"{priority_line}"
@@ -270,6 +294,35 @@ def _build_autostart_task_description(
         "making the footer '*Created with [PostHog Desktop](https://posthog.com/code?ref=pr) "
         f"from [this inbox report]({report_link}){footer_source_refs}.' - "
         "so the human reviewer can jump straight to it."
+        f"{custom_instructions_text}"
+    )
+
+
+@dataclass(frozen=True, kw_only=True)
+class _AutostartPrSettings:
+    """How a team wants an auto-started inbox PR opened, resolved for one repository.
+
+    All four come from ``SignalTeamConfig``'s per-repo maps, keyed by the lowercased
+    ``organization/repository``. Defaults (no config row, or the repo absent from a map) reproduce
+    today's behavior: a draft PR against the repo's default branch, no labels, no extra instructions.
+    """
+
+    base_branch: str | None = None
+    draft: bool = True
+    labels: list[str] | None = None
+    instructions: str | None = None
+
+
+def _resolve_autostart_pr_settings(config: SignalTeamConfig | None, repository: str | None) -> _AutostartPrSettings:
+    if not repository or config is None:
+        return _AutostartPrSettings()
+    repo_key = repository.lower()
+    return _AutostartPrSettings(
+        base_branch=(config.autostart_base_branches or {}).get(repo_key),
+        # Absent repo => draft (the default a staged CI relies on); only an explicit False opens ready.
+        draft=(config.autostart_pr_draft or {}).get(repo_key, True) is not False,
+        labels=(config.autostart_pr_labels or {}).get(repo_key) or None,
+        instructions=(config.autostart_pr_instructions or {}).get(repo_key) or None,
     )
 
 
@@ -337,6 +390,8 @@ def _create_implementation_task_if_absent(
     user_id: int,
     repository: str,
     base_branch: str | None,
+    pr_draft: bool = True,
+    pr_labels: list[str] | None = None,
     billing_exempt_reason: str | None = None,
 ) -> bool:
     """Create the implementation task and record it (gate row + work-log artefact), serialized per report.
@@ -386,6 +441,11 @@ def _create_implementation_task_if_absent(
             user_id=user_id,
             repository=repository,
             branch=base_branch,
+            # How the opened PR is shaped, resolved from the team's per-repo config. Threaded to the
+            # agent launch (a `gh pr create` flag) so draftness is enforced in code rather than left
+            # to the prompt — a team's staged CI can rely on it. Absent config keeps the draft default.
+            pr_draft=pr_draft,
+            pr_labels=pr_labels or None,
             signal_report_id=report_id,
             # Full scopes so the implementation agent can log its work on the report (notes,
             # code references) via the task:write artefact tools.
@@ -682,9 +742,7 @@ async def maybe_autostart_implementation_task(
         )
         return
 
-    base_branch = None
-    if repository and team_config:
-        base_branch = (team_config.autostart_base_branches or {}).get(repository.lower())
+    pr_settings = _resolve_autostart_pr_settings(team_config, repository)
 
     source_references = await database_sync_to_async(_fetch_source_references, thread_sensitive=False)(
         team_id, report_id
@@ -701,10 +759,13 @@ async def maybe_autostart_implementation_task(
             repository=repository,
             priority=priority,
             source_references=source_references,
+            custom_instructions=pr_settings.instructions,
         ),
         user_id=task_user.id,
         repository=repository,
-        base_branch=base_branch,
+        base_branch=pr_settings.base_branch,
+        pr_draft=pr_settings.draft,
+        pr_labels=pr_settings.labels,
         billing_exempt_reason=billing_exempt_reason,
     )
     if not created:

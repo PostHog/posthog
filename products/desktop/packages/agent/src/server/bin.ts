@@ -162,6 +162,14 @@ program
   )
   .option("--baseBranch <branch>", "Base branch for PR creation")
   .option(
+    "--prDraft <boolean>",
+    "Whether a PR this run opens should be a draft (defaults to true)",
+  )
+  .option(
+    "--prLabels <labels>",
+    "Comma-separated labels to apply when this run opens a PR",
+  )
+  .option(
     "--claudeCodeConfig <json>",
     "Claude Code config as JSON (systemPrompt, systemPromptAppend, plugins)",
   )
@@ -225,6 +233,18 @@ program
           .filter(Boolean)
       : undefined;
 
+    // Absent flag => undefined => draft default in the server. Only an explicit false opens ready.
+    const prDraft =
+      options.prDraft === undefined
+        ? undefined
+        : parseBooleanOption(options.prDraft, "--prDraft");
+    const prLabels = options.prLabels
+      ? options.prLabels
+          .split(",")
+          .map((label: string) => label.trim())
+          .filter(Boolean)
+      : undefined;
+
     if (
       env.POSTHOG_CODE_RUNTIME_ADAPTER &&
       env.POSTHOG_CODE_MODEL &&
@@ -269,6 +289,8 @@ program
       relayMcpServers,
       posthogExecPermissionRegex,
       baseBranch: options.baseBranch,
+      prDraft,
+      prLabels,
       claudeCode,
       allowedDomains,
       piRpcHostPath: fileURLToPath(
