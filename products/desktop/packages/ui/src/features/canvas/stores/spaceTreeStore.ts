@@ -13,10 +13,18 @@ import { persist } from "zustand/middleware";
 interface SpaceTreeState {
   expandedSpaceIds: Set<string>;
   searchFocusRequest: number;
+  /**
+   * The row the keyboard is on, so a session row can show its card while you
+   * arrow past it. Not persisted, and deliberately not read by the list itself —
+   * only the rows subscribe, each on a boolean, so a keypress re-renders the two
+   * rows whose answer changed rather than the whole tree.
+   */
+  highlightedValue: string | undefined;
   toggleSpace: (spaceId: string) => void;
   expandSpace: (spaceId: string) => void;
   collapseSpace: (spaceId: string) => void;
   requestSearchFocus: () => void;
+  setHighlightedValue: (value: string | undefined) => void;
 }
 
 export const useSpaceTreeStore = create<SpaceTreeState>()(
@@ -24,6 +32,7 @@ export const useSpaceTreeStore = create<SpaceTreeState>()(
     (set) => ({
       expandedSpaceIds: new Set<string>(),
       searchFocusRequest: 0,
+      highlightedValue: undefined,
       toggleSpace: (spaceId) =>
         set((state) => {
           const expanded = new Set(state.expandedSpaceIds);
@@ -46,6 +55,12 @@ export const useSpaceTreeStore = create<SpaceTreeState>()(
         }),
       requestSearchFocus: () =>
         set((state) => ({ searchFocusRequest: state.searchFocusRequest + 1 })),
+      setHighlightedValue: (value) =>
+        set((state) =>
+          state.highlightedValue === value
+            ? state
+            : { highlightedValue: value },
+        ),
     }),
     {
       name: "space-tree-storage",

@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
     channel: string;
     updated_at: string;
   }[],
+  totals: {} as Record<string, number>,
   channelsLayout: true,
   navigate: vi.fn(),
 }));
@@ -41,12 +42,12 @@ vi.mock("@posthog/ui/features/canvas/hooks/useUnreadChannels", () => ({
   useIsChannelUnread: () => () => false,
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useRecentSpaceTasks", () => ({
+  NO_TASKS: { items: [], total: 0 },
   usePrefetchSpaceTasks: () => () => undefined,
   useRecentSpaceTasks: (spaceIds: string[]) =>
     new Map(
-      spaceIds.map((spaceId) => [
-        spaceId,
-        mocks.tasks
+      spaceIds.map((spaceId) => {
+        const items = mocks.tasks
           .filter((task) => task.channel === spaceId)
           .map((task) => ({
             key: `task:${task.id}`,
@@ -60,13 +61,34 @@ vi.mock("@posthog/ui/features/canvas/hooks/useRecentSpaceTasks", () => ({
             authorName: null,
             authorUuid: null,
             task: null,
-          })),
-      ]),
+          }));
+        // `total` is what the space holds, not what the tree shows — the tests
+        // that exercise "View more" set it above the row count.
+        return [
+          spaceId,
+          { items, total: mocks.totals[spaceId] ?? items.length },
+        ];
+      }),
     ),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelTaskStatus", () => ({
   useChannelTaskStatus: () => null,
 }));
+vi.mock(
+  "@posthog/ui/features/canvas/hooks/useSpaceTaskActions",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@posthog/ui/features/canvas/hooks/useSpaceTaskActions")
+    >()),
+    // The real one is a pin mutation and an archive mutation; the tree's rows
+    // only need something to hand their menus.
+    useSpaceTaskActions: () => ({
+      togglePin: vi.fn(),
+      archive: vi.fn(),
+      commandCenterAssigner: () => undefined,
+    }),
+  }),
+);
 vi.mock("@posthog/ui/features/canvas/components/RenameChannelModal", () => ({
   RenameChannelModal: () => null,
 }));
@@ -130,7 +152,9 @@ describe("ChannelsList", () => {
     useSpaceTreeStore.setState({
       expandedSpaceIds: new Set(),
       searchFocusRequest: 0,
+      highlightedValue: undefined,
     });
+    mocks.totals = {};
     useCurrentChannelStore.setState({ currentChannelId: null });
     mocks.tasks = [
       {
@@ -425,6 +449,23 @@ describe("ChannelsList", () => {
       expect(consumeKeepListForNextRoute()).toBe(true);
       // Still scoped, so whatever asks for the channel pane next opens on the
       // space the session came from.
+      expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
+    });
+
+    // The row after the last session: the keyboard has to know about it, or the
+    // highlight index and the rendered options disagree from there down.
+    it("walks onto View more and opens the space from it", async () => {
+      const user = userEvent.setup();
+      mocks.totals[ENG.id] = 7;
+      renderList();
+
+      await user.click(screen.getByLabelText("Search spaces"));
+      await user.keyboard("{ArrowDown}{ArrowRight}");
+      expect(screen.getByText("View more")).toBeTruthy();
+
+      // Past both sessions and onto the row below them.
+      await user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{Enter}");
+
       expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
     });
 

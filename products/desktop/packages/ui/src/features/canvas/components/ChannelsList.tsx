@@ -50,8 +50,13 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { ChannelItemHoverCard } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import { RenameChannelModal } from "@posthog/ui/features/canvas/components/RenameChannelModal";
+import {
+  TaskRowContextMenu,
+  type TaskRowMenuProps,
+} from "@posthog/ui/features/canvas/components/TaskRowMenu";
 import { trackAndCreateCanvas } from "@posthog/ui/features/canvas/createCanvasAnalytics";
 import { useChannelStarToggle } from "@posthog/ui/features/canvas/hooks/useChannelStars";
 import {
@@ -63,9 +68,16 @@ import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannels
 import { useChannelTaskStatus } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
 import { useCreateAndOpenDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import {
+  NO_TASKS,
+  type SpaceTasks,
   usePrefetchSpaceTasks,
   useRecentSpaceTasks,
 } from "@posthog/ui/features/canvas/hooks/useRecentSpaceTasks";
+import {
+  SpaceTaskActionsContext,
+  useSpaceTaskActions,
+  useSpaceTaskActionsContext,
+} from "@posthog/ui/features/canvas/hooks/useSpaceTaskActions";
 import { useStarredChannelSlots } from "@posthog/ui/features/canvas/hooks/useStarredChannelSlots";
 import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useIsChannelUnread } from "@posthog/ui/features/canvas/hooks/useUnreadChannels";
@@ -87,6 +99,7 @@ import {
 import {
   TaskBadgeStack,
   TaskStatusDot,
+  TaskStatusTooltips,
 } from "@posthog/ui/features/sidebar/components/items/TaskStatusDot";
 import { taskDot } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
@@ -187,12 +200,6 @@ type SpaceTreeNode =
   | { kind: "space"; value: string; spaceId: string | undefined }
   | { kind: "task"; value: string; spaceId: string; parentValue: string };
 
-/**
- * One array for every space with nothing to show, so a collapsed row's props
- * are identical between renders and its memo holds.
- */
-const NO_ITEMS: ChannelItemModel[] = [];
-
 /** How long the pointer has to rest on a space before its sessions are warmed. */
 const SESSION_PREFETCH_DELAY_MS = 250;
 
@@ -274,8 +281,16 @@ function SpaceDisclosure({
         "relative flex size-3.5 shrink-0 items-center justify-center",
         // Half-lit at rest, open or closed: a column of carets down the whole
         // list would out-draw the names beside it, and an open space already
-        // says so with the rows under it.
-        "text-muted-foreground/50 hover:text-foreground group-hover/chan:text-muted-foreground",
+        // says so with the rows under it. It brightens for its own hover only —
+        // riding the row's would say it is part of the row, and it is the one
+        // thing in there that opens the tree instead of the space.
+        //
+        // Aimed at the glyph and forced, because quill repaints a highlighted
+        // option's contents outright:
+        // `.quill-autocomplete__item[data-highlighted] * { color: var(--foreground) }`.
+        // That rule hits the icon directly, so a colour on this span alone never
+        // reaches it, and only `!` outranks it.
+        "[&_svg]:text-muted-foreground/50! hover:[&_svg]:text-foreground!",
         // A 28px hit target on a 14px mark. The padding is an overlay rather
         // than real box size, so the caret keeps its slot and nothing in the row
         // moves; it reaches to the name's edge and no further.
@@ -315,8 +330,9 @@ function useOpenSpaceTask(): (spaceId: string, taskId: string) => void {
  * One session under an expanded space — a leaf of the tree.
  *
  * Wears the space's own session list vocabulary: the state dot on the left, the
- * identity badges on the right. Not `ChannelItemRow` itself, which is a button
- * with a hover card and a context menu of its own and so can't be an
+ * identity badges on the right, the hover card and right-click menu the space's
+ * list gives the same task. The row itself is hand-built rather than
+ * `ChannelItemRow`, which is a `SidebarItem` button and so can't be an
  * Autocomplete option — and being one is what keeps ↑/↓/⏎ walking the tree.
  */
 const SpaceTaskRow = memo(function SpaceTaskRow({
@@ -334,8 +350,16 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
   // a dozen spaces' worth of rows at once.
   const status = useChannelTaskStatus(item, { withPrStatus: false });
   const isActive = pathname.endsWith(`/tasks/${item.id}`);
+  // One object for the whole list; a row that somehow renders outside it drops
+  // to the plain row rather than a menu whose items do nothing.
+  const actions = useSpaceTaskActionsContext();
+  // A boolean, not the highlighted value: subscribing to the value would re-run
+  // this selector's consumers on every ↑/↓, and only two rows' answers change.
+  const isHighlighted = useSpaceTreeStore(
+    (s) => s.highlightedValue === item.key,
+  );
 
-  return (
+  const row = (
     <SpaceRowSurface
       asOption={asOption}
       optionValue={item.key}
@@ -367,7 +391,83 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
       )}
     </SpaceRowSurface>
   );
+
+  if (!actions) return row;
+
+  // The tree only ever lists sessions, so this is always the task menu. Rename
+  // is the one item the space's own list has and this doesn't: it edits in
+  // place, and there is no inline editor on a row the keyboard is walking.
+  const menu: TaskRowMenuProps = {
+    kind: "task",
+    id: item.id,
+    title: item.title,
+    isPinned: item.pinned,
+    // Ticks the space the session is already in, inside "File to…".
+    channelId: spaceId,
+    onAddToCommandCenter: actions.commandCenterAssigner(item.id),
+    onTogglePin: () => actions.togglePin(item),
+    onArchive: () => actions.archive(item),
+  };
+
+  return (
+    <TaskRowContextMenu menu={menu}>
+      {/* One tooltip provider per row, shared by its dot and badges so moving
+          between them doesn't re-wait the open delay. */}
+      <TaskStatusTooltips>
+        <ChannelItemHoverCard
+          item={item}
+          menu={menu}
+          highlighted={isHighlighted}
+        >
+          {row}
+        </ChannelItemHoverCard>
+      </TaskStatusTooltips>
+    </TaskRowContextMenu>
+  );
 });
+
+/**
+ * The value the "View more" row is known by, to the keyboard and to itself. A
+ * space's own id is already the value of its space row.
+ */
+const viewMoreValue = (spaceId: string) => `more:${spaceId}`;
+
+/**
+ * The last leaf under an expanded space: the sessions the tree isn't showing,
+ * and the way into the space that has them. Quieter than a session row at rest —
+ * it is a way out of the tree, not another thing in it — and it comes up to full
+ * contrast under the pointer or the keyboard.
+ */
+function ViewMoreRow({
+  spaceId,
+  remaining,
+  asOption,
+  onOpenSpace,
+}: {
+  spaceId: string;
+  remaining: number;
+  asOption: boolean;
+  onOpenSpace: () => void;
+}) {
+  return (
+    <SpaceRowSurface
+      asOption={asOption}
+      optionValue={viewMoreValue(spaceId)}
+      onClick={onOpenSpace}
+      className="pl-12 text-[13px] text-muted-foreground/80 group-hover/button:text-foreground"
+    >
+      {/* An empty slot the width of a session's status dot, so the label starts
+          in the same column as the titles above it. */}
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span aria-hidden className="size-2 shrink-0" />
+        <span className="truncate">View all</span>
+      </span>
+      <span className="shrink-0 text-muted-foreground/50 text-xxs">
+        {remaining}
+      </span>
+    </SpaceRowSurface>
+  );
+}
 
 /**
  * The sessions under one expanded space, or the fact that it has none. The
@@ -376,23 +476,27 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
  */
 function SpaceTaskRows({
   spaceId,
-  items,
+  tasks,
   asOption,
+  onOpenSpace,
 }: {
   spaceId: string;
-  items: ChannelItemModel[];
+  tasks: SpaceTasks;
   asOption: boolean;
+  /** Where "View more" goes: the space itself, in the sidebar. */
+  onOpenSpace: () => void;
 }) {
-  if (items.length === 0) {
+  if (tasks.items.length === 0) {
     return (
       <div className="py-1 pl-12 text-subtle-foreground text-xs">
         No sessions yet
       </div>
     );
   }
+  const remaining = tasks.total - tasks.items.length;
   return (
     <>
-      {items.map((item) => (
+      {tasks.items.map((item) => (
         <SpaceTaskRow
           key={item.key}
           item={item}
@@ -400,6 +504,14 @@ function SpaceTaskRows({
           asOption={asOption}
         />
       ))}
+      {remaining > 0 && (
+        <ViewMoreRow
+          spaceId={spaceId}
+          remaining={remaining}
+          asOption={asOption}
+          onOpenSpace={onOpenSpace}
+        />
+      )}
     </>
   );
 }
@@ -641,7 +753,7 @@ const ChannelSection = memo(
     isUnread,
     hotkeySlot,
     expanded = false,
-    items,
+    tasks,
     onToggleExpanded,
   }: {
     channel: Channel;
@@ -650,8 +762,8 @@ const ChannelSection = memo(
     /** ⌘1-9 slot, shown as a hint while the row isn't hovered. */
     hotkeySlot?: number;
     expanded?: boolean;
-    /** The space's recent sessions; only read while expanded. */
-    items?: ChannelItemModel[];
+    /** The space's recent sessions and its total; only read while expanded. */
+    tasks?: SpaceTasks;
     /**
      * Absent while searching, where the list is flat. Takes the space id rather
      * than closing over it, so the list can hand every row the same function and
@@ -663,6 +775,10 @@ const ChannelSection = memo(
     const noun = spacesLayout ? "space" : "channel";
     const pathname = useRouterState({ select: (s) => s.location.pathname });
     const openChannel = useOpenChannel();
+    // Only an open space has been counted — the tree fetches a space's sessions
+    // when it expands, and a number that appeared row by row as you opened them
+    // would be worse than none.
+    const sessionCount = expanded && tasks?.total ? tasks.total : undefined;
     const base = `/website/${channel.id}`;
     // Highlight the row whenever any of the channel's routes is open.
     const isActive = pathname === base || pathname.startsWith(`${base}/`);
@@ -753,8 +869,12 @@ const ChannelSection = memo(
                   <OverflowTickerText
                     reveal={reveal}
                     className={cn(
-                      // mr-11 clears the two icon-xs hover buttons pinned at right-1.
-                      "text-[13px] group-hover/chan:mr-11",
+                      "text-[13px]",
+                      // mr-11 clears the two icon-xs hover buttons pinned at
+                      // right-1. With a count beside it that margin belongs to
+                      // the count — it is the rightmost of the two, and the name
+                      // is the one that truncates.
+                      sessionCount == null && "group-hover/chan:mr-11",
                       // Bold is unread's alone; full contrast is shared with the
                       // channel you're in. Either way there's no hover brighten
                       // left to do, so those rows skip it.
@@ -762,11 +882,25 @@ const ChannelSection = memo(
                       isUnread || isActive
                         ? "text-foreground"
                         : "text-muted-foreground group-hover/button:text-foreground",
-                      menuOpen && "mr-11",
+                      sessionCount == null && menuOpen && "mr-11",
                     )}
                   >
                     {channel.name}
                   </OverflowTickerText>
+                  {/* How many sessions the space holds, once it's open enough to
+                      know. Faint on purpose: it is a fact about the name, not a
+                      second thing to read. */}
+                  {sessionCount != null && (
+                    <span
+                      className={cn(
+                        "shrink-0 text-muted-foreground/50 text-xxs",
+                        "group-hover/chan:mr-11",
+                        menuOpen && "mr-11",
+                      )}
+                    >
+                      {sessionCount}
+                    </span>
+                  )}
                   {/* `!mr-0` undoes quill's `.quill-button kbd { margin-right: -4px }`,
                   which is meant to let a shortcut hang into a button's own
                   padding. Here the row's inner span is `truncate` (overflow
@@ -911,8 +1045,9 @@ const ChannelSection = memo(
         {expanded && (
           <SpaceTaskRows
             spaceId={channel.id}
-            items={items ?? NO_ITEMS}
+            tasks={tasks ?? NO_TASKS}
             asOption={spacesLayout}
+            onOpenSpace={() => openChannel(channel)}
           />
         )}
       </>
@@ -928,7 +1063,7 @@ const ChannelSection = memo(
     prev.expanded === next.expanded &&
     prev.isUnread === next.isUnread &&
     prev.hotkeySlot === next.hotkeySlot &&
-    prev.items === next.items &&
+    prev.tasks === next.tasks &&
     prev.onToggleExpanded === next.onToggleExpanded &&
     prev.channel.id === next.channel.id &&
     prev.channel.name === next.channel.name &&
@@ -1008,12 +1143,12 @@ function useOpenChannel(): (channel: Channel) => void {
 const PersonalChannelRow = memo(function PersonalChannelRow({
   hotkeySlot,
   expanded = false,
-  items,
+  tasks,
   onToggleExpanded,
 }: {
   hotkeySlot?: number;
   expanded?: boolean;
-  items?: ChannelItemModel[];
+  tasks?: SpaceTasks;
   /** Absent while searching; takes the space id, like the shared rows. */
   onToggleExpanded?: (spaceId: string) => void;
 }) {
@@ -1021,6 +1156,9 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { channels } = useChannels();
   const { ensureChannelId, openPersonalChannel } = useOpenPersonalChannel();
+  // Same rule as a shared space: the number only exists once the space is open
+  // and its sessions have been fetched.
+  const sessionCount = expanded && tasks?.total ? tasks.total : undefined;
   // The "+" dropdown (New task / New canvas), mirroring a shared channel row.
   const [newMenuOpen, setNewMenuOpen] = useState(false);
 
@@ -1108,6 +1246,11 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
           >
             {PERSONAL_CHANNEL_NAME}
           </span>
+          {sessionCount != null && (
+            <span className="shrink-0 text-muted-foreground/50 text-xxs">
+              {sessionCount}
+            </span>
+          )}
           {hotkeySlot != null && (
             <Kbd className="!mr-0 ml-auto shrink-0 opacity-50 group-hover/chan:opacity-0">
               {formatHotkey(`mod+${hotkeySlot}`)}
@@ -1161,8 +1304,9 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
       {expanded && meChannel && (
         <SpaceTaskRows
           spaceId={meChannel.id}
-          items={items ?? NO_ITEMS}
+          tasks={tasks ?? NO_TASKS}
           asOption={spacesLayout}
+          onOpenSpace={openPersonalChannel}
         />
       )}
     </>
@@ -1300,6 +1444,7 @@ export function ChannelsList() {
   const toggleSpace = useSpaceTreeStore((s) => s.toggleSpace);
   const expandSpace = useSpaceTreeStore((s) => s.expandSpace);
   const collapseSpace = useSpaceTreeStore((s) => s.collapseSpace);
+  const setHighlightedValue = useSpaceTreeStore((s) => s.setHighlightedValue);
   const treeOn = !normalizedQuery;
   const isExpanded = (spaceId: string | undefined) =>
     treeOn && spaceId != null && expandedSpaceIds.has(spaceId);
@@ -1316,8 +1461,12 @@ export function ChannelsList() {
     [allChannels, expandedSpaceIds, treeOn],
   );
   const tasksBySpace = useRecentSpaceTasks(openSpaceIds);
-  const itemsOf = (spaceId: string | undefined) =>
-    (spaceId && tasksBySpace.get(spaceId)) || NO_ITEMS;
+  // Pin / archive / command centre for every session row, built once here: each
+  // is a mutation or a store subscription, and a row-level copy would be one per
+  // session in every open space.
+  const spaceTaskActions = useSpaceTaskActions();
+  const tasksOf = (spaceId: string | undefined): SpaceTasks =>
+    (spaceId && tasksBySpace.get(spaceId)) || NO_TASKS;
 
   // The rows below, in render order, as the flat list the keyboard walks.
   // Autocomplete needs the values to map a highlight index onto — without it the
@@ -1331,19 +1480,34 @@ export function ChannelsList() {
   const spaceNodes = (
     value: string,
     spaceId: string | undefined,
-  ): SpaceTreeNode[] => [
-    { kind: "space", value, spaceId },
-    ...(isExpanded(spaceId) && spaceId
-      ? itemsOf(spaceId).map(
-          (item): SpaceTreeNode => ({
-            kind: "task",
-            value: item.key,
-            spaceId,
-            parentValue: value,
-          }),
-        )
-      : []),
-  ];
+  ): SpaceTreeNode[] => {
+    const space: SpaceTreeNode = { kind: "space", value, spaceId };
+    if (!isExpanded(spaceId) || !spaceId) return [space];
+    const { items, total } = tasksOf(spaceId);
+    return [
+      space,
+      ...items.map(
+        (item): SpaceTreeNode => ({
+          kind: "task",
+          value: item.key,
+          spaceId,
+          parentValue: value,
+        }),
+      ),
+      // The "View more" row is a leaf like any other: ⏎ lands on it, and ← from
+      // it closes the space the way it does from a session.
+      ...(items.length > 0 && total > items.length
+        ? [
+            {
+              kind: "task" as const,
+              value: viewMoreValue(spaceId),
+              spaceId,
+              parentValue: value,
+            },
+          ]
+        : []),
+    ];
+  };
   const nodes: SpaceTreeNode[] = normalizedQuery
     ? [
         ...(meMatches ? spaceNodes(meValue, me?.id) : []),
@@ -1477,7 +1641,7 @@ export function ChannelsList() {
         <PersonalChannelRow
           hotkeySlot={channelsLayout && me ? slotFor(me) : undefined}
           expanded={isExpanded(me?.id)}
-          items={itemsOf(me?.id)}
+          tasks={tasksOf(me?.id)}
           onToggleExpanded={toggleSpace}
         />
         {starred.map((channel) => (
@@ -1487,7 +1651,7 @@ export function ChannelsList() {
             isUnread={isUnread(channel.id)}
             hotkeySlot={channelsLayout ? slotFor(channel) : undefined}
             expanded={isExpanded(channel.id)}
-            items={itemsOf(channel.id)}
+            tasks={tasksOf(channel.id)}
             onToggleExpanded={toggleSpace}
           />
         ))}
@@ -1515,7 +1679,7 @@ export function ChannelsList() {
             channel={channel}
             isUnread={isUnread(channel.id)}
             expanded={isExpanded(channel.id)}
-            items={itemsOf(channel.id)}
+            tasks={tasksOf(channel.id)}
             onToggleExpanded={toggleSpace}
           />
         ))}
@@ -1594,45 +1758,60 @@ export function ChannelsList() {
     // One shared provider groups every row tooltip so that once one shows,
     // moving to the next row reveals its tooltip instantly (no re-delay).
     <TooltipProvider delay={600}>
-      {channelsLayout ? (
-        // The rows render as elements — they're a tree of collapsible groups,
-        // not a flat collection — so `items` carries their values alone, in the
-        // same order. Filtering is ours (hence `filter={null}`; Base UI's matcher
-        // would run over an already-narrowed set). `inline` renders the list in
-        // the pane instead of a popup, and `defaultOpen` keeps it rendered
-        // without a trigger to open it.
-        <Autocomplete<string>
-          inline
-          // Pinned open, not `defaultOpen`: picking a row closes an ordinary
-          // combobox, and a closed one stops answering the arrow keys. This list
-          // is the pane itself — there is nothing to close, and coming back from
-          // a space has to find it live.
-          open
-          items={optionValues}
-          filter={null}
-          value={query}
-          autoHighlight="always"
-          // Without this the highlight resets on pointer-leave, and "always"
-          // then snaps it back to the first row — so drifting the mouse across
-          // the gap between two rows threw the keyboard back to the top.
-          keepHighlight
-          // ArrowRight / ArrowLeft act on the row the keyboard is on, and this
-          // is the only way to know which one that is.
-          onItemHighlighted={(value) => {
-            highlightedValue.current = value;
-          }}
-          onValueChange={(value, eventDetails) => {
-            // Selecting a row would otherwise write the row's value back into
-            // the input; only what the user types moves the query.
-            if (eventDetails.reason !== "input-change") return;
-            if (typeof value === "string") setQuery(value);
-          }}
-        >
-          {body}
-        </Autocomplete>
-      ) : (
-        body
-      )}
+      <SpaceTaskActionsContext.Provider value={spaceTaskActions}>
+        {channelsLayout ? (
+          // The rows render as elements — they're a tree of collapsible groups,
+          // not a flat collection — so `items` carries their values alone, in the
+          // same order. Filtering is ours (hence `filter={null}`; Base UI's matcher
+          // would run over an already-narrowed set). `inline` renders the list in
+          // the pane instead of a popup, and `defaultOpen` keeps it rendered
+          // without a trigger to open it.
+          <Autocomplete<string>
+            inline
+            // Pinned open, not `defaultOpen`: picking a row closes an ordinary
+            // combobox, and a closed one stops answering the arrow keys. This list
+            // is the pane itself — there is nothing to close, and coming back from
+            // a space has to find it live.
+            open
+            items={optionValues}
+            filter={null}
+            value={query}
+            autoHighlight="always"
+            // Without this the highlight resets on pointer-leave, and "always"
+            // then snaps it back to the first row — so drifting the mouse across
+            // the gap between two rows threw the keyboard back to the top.
+            keepHighlight
+            // ArrowRight / ArrowLeft act on the row the keyboard is on, and this
+            // is the only way to know which one that is.
+            onItemHighlighted={(value, eventDetails) => {
+              highlightedValue.current = value;
+              // The rows read this one, so the session the keyboard lands on
+              // opens its card the way a pointed-at one does. Kept beside the
+              // ref rather than replacing it: the arrow handlers read the
+              // highlight during the event, before any render has happened.
+              //
+              // Only the keyboard's highlight: a pointer one is the row's own
+              // hover, which already opens the card and closes it on the way
+              // out. Left set, it would strand a card open after the pointer
+              // had left the list entirely — `keepHighlight` means the row
+              // stays highlighted.
+              setHighlightedValue(
+                eventDetails.reason === "keyboard" ? value : undefined,
+              );
+            }}
+            onValueChange={(value, eventDetails) => {
+              // Selecting a row would otherwise write the row's value back into
+              // the input; only what the user types moves the query.
+              if (eventDetails.reason !== "input-change") return;
+              if (typeof value === "string") setQuery(value);
+            }}
+          >
+            {body}
+          </Autocomplete>
+        ) : (
+          body
+        )}
+      </SpaceTaskActionsContext.Provider>
     </TooltipProvider>
   );
 }

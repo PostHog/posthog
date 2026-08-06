@@ -32,14 +32,35 @@ export const RECENT_TASKS_PER_SPACE = 5;
  */
 const TREE_FETCH_LIMIT = 20;
 
-const NO_TASKS: Task[] = [];
+/** One page of a space's sessions, with the total the page was cut from. */
+interface SpaceTaskPage {
+  tasks: Task[];
+  count: number;
+}
 
-/** What a space's item list was built from, so it can be reused unchanged. */
+const NO_PAGE: SpaceTaskPage = { tasks: [], count: 0 };
+
+/**
+ * A space's rows: the newest few, and how many sessions the space holds in all.
+ */
+export interface SpaceTasks {
+  items: ChannelItemModel[];
+  /** Everything in the space, not just the rows shown. */
+  total: number;
+}
+
+/**
+ * One object for every space with nothing to show, so a collapsed row's props
+ * are identical between renders and its memo holds.
+ */
+export const NO_TASKS: SpaceTasks = { items: [], total: 0 };
+
+/** What a space's rows were built from, so they can be reused unchanged. */
 interface CachedItems {
-  tasks: readonly Task[];
+  page: SpaceTaskPage;
   archivedTaskIds: ReadonlySet<string>;
   pinnedTaskIds: ReadonlySet<string>;
-  items: ChannelItemModel[];
+  tasks: SpaceTasks;
 }
 
 /**
@@ -47,8 +68,10 @@ interface CachedItems {
  * function every render, which makes every render rebuild the lists — and with
  * them the item models and every row's props.
  */
-function combineTaskLists(queries: { data?: Task[] }[]): Task[][] {
-  return queries.map((query) => query.data ?? NO_TASKS);
+function combineTaskPages(
+  queries: { data?: SpaceTaskPage }[],
+): SpaceTaskPage[] {
+  return queries.map((query) => query.data ?? NO_PAGE);
 }
 
 // Slower than the open channel's own feed (5s): the tree is a glance at what's
@@ -63,25 +86,24 @@ const SPACE_TREE_POLL_INTERVAL_MS = 30_000;
  *
  * One query per space, and only for the spaces actually expanded. The flat task
  * list can't stand in for this: it is capped, and most of its rows carry no
- * channel at all. Shares the channel feed's query key, so opening a space
- * reuses what the tree already fetched.
+ * channel at all.
  */
 export function useRecentSpaceTasks(
   spaceIds: string[],
-): Map<string, ChannelItemModel[]> {
+): Map<string, SpaceTasks> {
   const client = useOptionalAuthenticatedClient();
   const archivedTaskIds = useArchivedTaskIds();
   const { pinnedTaskIds } = usePinnedTasks();
 
-  const tasksPerSpace = useQueries({
+  const pagePerSpace = useQueries({
     queries: spaceIds.map((spaceId) => ({
       queryKey: spaceTreeTasksQueryKey(spaceId),
-      queryFn: async (): Promise<Task[]> => {
+      queryFn: async (): Promise<SpaceTaskPage> => {
         if (!client) throw new Error("Not authenticated");
-        return (await client.getTasks({
+        return (await client.getTasksPage({
           channel: spaceId,
           limit: TREE_FETCH_LIMIT,
-        })) as Task[];
+        })) as SpaceTaskPage;
       },
       enabled: !!client,
       gcTime: SPACE_QUERY_GC_TIME_MS,
@@ -89,7 +111,7 @@ export function useRecentSpaceTasks(
       refetchInterval: SPACE_TREE_POLL_INTERVAL_MS,
       staleTime: SPACE_QUERY_STALE_TIME_MS,
     })),
-    combine: combineTaskLists,
+    combine: combineTaskPages,
   });
 
   // Per-space memo, not one over the whole map: opening another space changes
@@ -99,38 +121,46 @@ export function useRecentSpaceTasks(
   const cache = useRef(new Map<string, CachedItems>());
 
   return useMemo(() => {
-    const bySpace = new Map<string, ChannelItemModel[]>();
+    const bySpace = new Map<string, SpaceTasks>();
     spaceIds.forEach((spaceId, index) => {
-      const tasks = tasksPerSpace[index] ?? NO_TASKS;
+      const page = pagePerSpace[index] ?? NO_PAGE;
       const cached = cache.current.get(spaceId);
       if (
         cached &&
-        cached.tasks === tasks &&
+        cached.page === page &&
         cached.archivedTaskIds === archivedTaskIds &&
         cached.pinnedTaskIds === pinnedTaskIds
       ) {
-        bySpace.set(spaceId, cached.items);
+        bySpace.set(spaceId, cached.tasks);
         return;
       }
       // Canvases are the space's own list to show; the tree answers "what has
       // been running here lately".
-      const items = buildChannelItems({
+      const available = buildChannelItems({
         dashboards: [],
-        feedTasks: tasks,
+        feedTasks: page.tasks,
         archivedTaskIds,
         pinnedTaskIds,
         ownedBy: null,
-      }).slice(0, RECENT_TASKS_PER_SPACE);
+      });
+      // A page that came back short is the whole space, so the count is exact
+      // once the archived ones are dropped. A full page falls back to the
+      // server's total, which still counts anything archived in it.
+      const tasks: SpaceTasks = {
+        items: available.slice(0, RECENT_TASKS_PER_SPACE),
+        total:
+          page.tasks.length < TREE_FETCH_LIMIT ? available.length : page.count,
+      };
       cache.current.set(spaceId, {
-        tasks,
+        page,
         archivedTaskIds,
         pinnedTaskIds,
-        items,
+        tasks,
       });
-      bySpace.set(spaceId, items);
+      bySpace.set(spaceId, tasks);
     });
     return bySpace;
-  }, [spaceIds, tasksPerSpace, archivedTaskIds, pinnedTaskIds]);
+  }, [spaceIds, pagePerSpace, archivedTaskIds, pinnedTaskIds]);
 }
 
 /**
@@ -147,11 +177,11 @@ export function usePrefetchSpaceTasks(): (spaceId: string) => void {
       if (!client) return;
       void queryClient.prefetchQuery({
         queryKey: spaceTreeTasksQueryKey(spaceId),
-        queryFn: async (): Promise<Task[]> =>
-          (await client.getTasks({
+        queryFn: async (): Promise<SpaceTaskPage> =>
+          (await client.getTasksPage({
             channel: spaceId,
             limit: TREE_FETCH_LIMIT,
-          })) as Task[],
+          })) as SpaceTaskPage,
         gcTime: SPACE_QUERY_GC_TIME_MS,
         meta: AUTH_SCOPED_QUERY_META,
         // Same staleTime as the live query, so a warm cache is a no-op.

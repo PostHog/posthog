@@ -62,7 +62,31 @@ The root `AGENTS.md` architecture rules still apply.
   in `spaceTreeStore` and persists). Session rows wear the space's own session
   vocabulary (`TaskStatusDot` + `TaskBadgeStack`) but are hand-built rather than
   `ChannelItemRow`: a row has to be an `AutocompleteItem` to stay on the
-  keyboard's path, and that row is a button with a hover card of its own.
+  keyboard's path, and that row is a `SidebarItem` button.
+- **An open space says how many sessions it holds, and offers the rest.** The
+  count sits beside the name in `text-muted-foreground/50`, and a "View more"
+  leaf closes the list of sessions with what's left over; it opens the space,
+  and it is a keyboard node like any other row, so ⏎ lands on it and ← closes
+  the space from it. Both numbers come from `getTasksPage`, which returns the
+  page's total alongside its rows: a page that came back under the fetch limit
+  is the whole space (exact once archived ones are dropped), a full one falls
+  back to the server's count. A collapsed space shows no number — nothing has
+  been fetched for it, and counts appearing space by space as you opened them
+  would read worse than none.
+- **A session row carries the same card and menu as the space's own list.**
+  Both surfaces render `ChannelItemHoverCard` and `TaskRowContextMenu` from one
+  `TaskRowMenuProps`, so the facts and the actions can't drift; rename is the one
+  item the tree drops, because it edits in place and there is no inline editor on
+  a row the keyboard is walking. The card also opens on the *keyboard's*
+  highlight, 350ms after it lands, so arrowing the list shows what pointing at it
+  would. The rows read that highlight from `spaceTreeStore` as a boolean
+  (`highlightedValue === item.key`), and the list keeps writing it to a ref too —
+  the arrow handlers read it during the event, before any render. Only a
+  `reason: "keyboard"` highlight is stored: a pointer one is the row's own hover,
+  and `keepHighlight` would otherwise strand a card open after the pointer left
+  the list. The actions behind the menu (`useSpaceTaskActions`) are built once
+  for the whole list and passed by context — one pin mutation and one archive
+  mutation, not one per row — which also keeps them out of the memo comparisons.
 - **The tree's rows are memoized, and have to stay that way.** A space row
   carries a context menu, two dropdowns, a tooltip and two dialogs, and there
   are dozens of them; before `ChannelSection`/`PersonalChannelRow`/`SpaceTaskRow`
