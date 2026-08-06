@@ -287,6 +287,13 @@ message FencePersonResponse {
   // The sealed state: the person's final word — no write can follow it
   // while the fence holds. Delete uses sealed.version only; merge seals
   // the full document (properties included).
+  //
+  // Failure is reported through the gRPC status, never in-band:
+  // FAILED_PRECONDITION with x-person-fenced metadata when another op
+  // holds the person, NOT_FOUND when the person is destroyed,
+  // FAILED_PRECONDITION when this pod does not serve the partition (the
+  // retry re-routes), and RESOURCE_EXHAUSTED when the fence map is at
+  // capacity (retry later).
   Person sealed = 1;
 }
 
