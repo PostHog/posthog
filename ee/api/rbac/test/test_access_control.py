@@ -22,7 +22,7 @@ from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.models.insight import Insight
 from products.warehouse_sources.backend.models import DataWarehouseTable
 
-from ee.api.rbac.access_control import resources_with_object_access_controls
+from ee.api.rbac.access_control_settings import resources_with_object_access_controls
 from ee.api.test.base import APILicensedTest
 from ee.models.rbac.access_control import AccessControl
 from ee.models.rbac.role import Role, RoleMembership
