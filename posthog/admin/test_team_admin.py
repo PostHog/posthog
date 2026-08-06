@@ -790,12 +790,17 @@ class TestTeamAdminEditGroupTypeMappingView(BaseTest):
         self.edit_url = f"/admin/posthog/team/{self.team.pk}/group-type-mapping/0/edit/"
         self.team_change_url = f"/admin/posthog/team/{self.team.pk}/change/"
 
+        # Sub-second component matters: the form prefills created_at, so a lossy prefill would
+        # silently truncate it on every save.
+        existing_created_at = datetime(2026, 1, 15, 10, 30, 0, 123000, tzinfo=UTC)
+
         self.fake_client = FakePersonHogClient()
         self.fake_client.add_group_type_mapping(
             project_id=self.team.project_id,
             team_id=self.team.pk,
             group_type="organization",
             group_type_index=0,
+            created_at=int(existing_created_at.timestamp() * 1000),
         )
         client_patcher = patch("posthog.admin.admins.team_admin.get_personhog_client", return_value=self.fake_client)
         client_patcher.start()
@@ -821,7 +826,12 @@ class TestTeamAdminEditGroupTypeMappingView(BaseTest):
 
     @parameterized.expand(
         [
-            ("set", "2026-01-15 10:30:00", int(datetime(2026, 1, 15, 10, 30, tzinfo=UTC).timestamp() * 1000)),
+            ("set", "2026-02-20 08:15:00", int(datetime(2026, 2, 20, 8, 15, tzinfo=UTC).timestamp() * 1000)),
+            (
+                "set_with_millis",
+                "2026-02-20 08:15:00.456",
+                int(datetime(2026, 2, 20, 8, 15, tzinfo=UTC).timestamp() * 1000) + 456,
+            ),
             ("blank_keeps_unchanged", "", None),
         ]
     )
@@ -838,6 +848,23 @@ class TestTeamAdminEditGroupTypeMappingView(BaseTest):
         else:
             assert "created_at" in update_request.update_mask
             assert update_request.created_at == expected_millis
+
+    def test_unedited_prefill_does_not_rewrite_created_at(self) -> None:
+        # Feeding GET's prefill straight back must be a no-op. Fails if the prefill loses
+        # sub-second precision, or if an unchanged value is still sent in the update_mask.
+        get_request = self.factory.get(self.edit_url)
+        get_request.user = self.user
+        _attach_messages(get_request)
+        with patch("posthog.admin.admins.team_admin.render") as mock_render:
+            self.admin.edit_group_type_mapping_view(get_request, str(self.team.pk), 0)
+        prefilled_created_at = mock_render.call_args.args[2]["created_at_display"]
+
+        response = self._post(prefilled_created_at)
+
+        assert response.status_code == 302
+        update_calls = [c for c in self.fake_client.calls if c.method == "update_group_type_mapping"]
+        assert len(update_calls) == 1
+        assert "created_at" not in update_calls[0].request.update_mask
 
     def test_post_invalid_created_at_redirects_without_updating(self) -> None:
         response = self._post("not-a-datetime")

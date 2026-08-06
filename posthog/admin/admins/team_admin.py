@@ -453,16 +453,20 @@ class TeamAdmin(admin.ModelAdmin):
             messages.error(request, f"Group type mapping with index {group_type_index} not found for this team.")
             return redirect(team_url)
 
+        existing_created_at = mapping_dict.get("created_at")
+
         if request.method == "GET":
             default_columns = mapping_dict.get("default_columns")
             default_columns_json = json.dumps(default_columns) if default_columns else ""
-            existing_created_at = mapping_dict.get("created_at")
             context = {
                 **self.admin_site.each_context(request),
                 "team": team,
                 "mapping": mapping_dict,
                 "default_columns_json": default_columns_json,
-                "created_at_display": existing_created_at.strftime("%Y-%m-%d %H:%M:%S") if existing_created_at else "",
+                # Millisecond precision, matching the RPC, so an untouched prefill round-trips exactly.
+                "created_at_display": (
+                    existing_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if existing_created_at else ""
+                ),
                 "title": f"Edit group type mapping - {team.name} - index {group_type_index}",
             }
             return render(request, "admin/posthog/team/group_type_mapping_edit.html", context)
@@ -510,8 +514,13 @@ class TeamAdmin(admin.ModelAdmin):
             if parsed_default_columns is not None:
                 update_kwargs["default_columns"] = json.dumps(parsed_default_columns).encode()
         if parsed_created_at is not None:
-            update_mask.append("created_at")
-            update_kwargs["created_at"] = int(parsed_created_at.timestamp() * 1000)
+            created_at_millis = int(parsed_created_at.timestamp() * 1000)
+            existing_millis = int(existing_created_at.timestamp() * 1000) if existing_created_at else None
+            # The form prefills this field, so saving any other field would otherwise rewrite
+            # created_at. Only send it when the value actually moved.
+            if created_at_millis != existing_millis:
+                update_mask.append("created_at")
+                update_kwargs["created_at"] = created_at_millis
         update_kwargs["update_mask"] = update_mask
 
         try:
