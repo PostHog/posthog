@@ -260,9 +260,8 @@ class TestJiraIntegrationModel:
                 {"project_key": "ENG", "title": "Checkout failed", "description": "Details"}
             )
 
-        assert (
-            error.value.detail[0]
-            == "Could not create the Jira issue. Check the project's issue settings and try again."
+        assert error.value.args[0] == (
+            "Could not create the Jira issue. Check the project's issue settings and try again."
         )
         captured_error = mock_capture_exception.call_args.args[0]
         assert str(captured_error) == "Jira issue creation failed"
@@ -288,7 +287,7 @@ class TestJiraIntegrationModel:
                 {"project_key": "ENG", "title": "Checkout failed", "description": "Details"}
             )
 
-        assert error.value.detail[0] == (
+        assert error.value.args[0] == (
             "Could not create the Jira issue. Check the project's issue settings and try again."
         )
         assert mock_capture_exception.call_args.kwargs["additional_properties"] == {
