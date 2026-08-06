@@ -252,3 +252,31 @@ class TestRunScan(SimpleTestCase):
         assert issue.severity == "info"
         assert issue.kind == "spike"
         assert issue.anomalous_bucket_times
+
+    def test_resolved_issue_evidence_stops_at_resolution(self) -> None:
+        # A spike opens then resolves, then a lone post-resolution blip fires an
+        # anomalous verdict without clearing the reopen bar. Its bucket must not
+        # extend a resolved issue's evidence past resolved_at.
+        lookback = 2 * BUCKETS_PER_WEEK
+        eval_span = 6 * 12  # 6 hours
+        eval_start = T0
+        eval_end = eval_start + eval_span * BUCKET
+        grid_start = eval_start - lookback * BUCKET
+        n_buckets = lookback + eval_span
+
+        rng = np.random.default_rng(5)
+        counts = rng.poisson(40, size=n_buckets).astype(np.float64)
+        counts[lookback + 20 : lookback + 30] = 400.0  # spike opens the issue
+        counts[lookback + 60] = 400.0  # lone blip long after resolution
+
+        def fake_fetch(team, service_name, ranges, max_execution_seconds=60):
+            return {"info": {grid_start + i * BUCKET: int(counts[i]) for i in range(n_buckets) if counts[i]}}
+
+        with patch("products.logs.backend.anomaly_scan.fetch_bucket_counts", side_effect=fake_fetch):
+            result = run_scan(_team(retention_days=90), "svc", eval_start, eval_end, now=eval_end)
+
+        assert len(result.issues) == 1
+        issue = result.issues[0]
+        assert issue.resolved_at is not None
+        assert issue.last_anomalous_at <= issue.resolved_at
+        assert all(t <= issue.resolved_at for t in issue.anomalous_bucket_times)
