@@ -18,6 +18,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, OrganizationDomainType } from '~/types'
@@ -120,6 +121,7 @@ function VerifiedDomainsTable(): JSX.Element {
         setScimLogsModalId,
     } = useActions(verifiedDomainsLogic)
     const { promptRemoveDomain } = useActions(verifiedDomainImpactLogic)
+    const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -132,6 +134,21 @@ function VerifiedDomainsTable(): JSX.Element {
 
     const verifiedDomainsList = verifiedDomains.filter((d) => d.is_verified)
     const unverifiedDomainsList = verifiedDomains.filter((d) => !d.is_verified)
+
+    // Mirrors the guard on `OrganizationDomainViewSet.destroy`: with the restriction on, an admin
+    // can't remove a domain if their own email would be left outside the verified ones.
+    const ownEmailDomain = user?.email.split('@')[1]?.toLowerCase()
+    const removeBlockedReason = (domain: OrganizationDomainType): string | undefined => {
+        if (!currentOrganization?.enforce_verified_domains || !domain.is_verified) {
+            return undefined
+        }
+        const stillAdmitted = verifiedDomains.some(
+            (other) => other.is_verified && other.id !== domain.id && other.domain.toLowerCase() === ownEmailDomain
+        )
+        return stillAdmitted
+            ? undefined
+            : 'Your own email address would no longer be allowed. Turn off the domain restriction first'
+    }
 
     const verifiedColumns: LemonTableColumns<OrganizationDomainType> = [
         {
@@ -346,7 +363,7 @@ function VerifiedDomainsTable(): JSX.Element {
                                     onClick={() => promptRemoveDomain(domainRecord)}
                                     fullWidth
                                     icon={<IconTrash />}
-                                    disabledReason={restrictionReason}
+                                    disabledReason={restrictionReason ?? removeBlockedReason(domainRecord)}
                                 >
                                     Remove domain
                                 </LemonButton>

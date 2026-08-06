@@ -9,39 +9,46 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { fullName } from 'lib/utils/strings'
+import { userLogic } from 'scenes/userLogic'
 
 import { OrganizationMemberType } from '~/types'
 
 import { verifiedDomainImpactLogic } from './verifiedDomainImpactLogic'
 
-const columns: LemonTableColumns<OrganizationMemberType> = [
-    {
-        key: 'user_profile_picture',
-        width: 32,
-        render: function ProfilePictureRender(_, member) {
-            return <ProfilePicture user={member.user} />
+function impactedMemberColumns(currentUserUuid?: string): LemonTableColumns<OrganizationMemberType> {
+    return [
+        {
+            key: 'user_profile_picture',
+            width: 32,
+            render: function ProfilePictureRender(_, member) {
+                return <ProfilePicture user={member.user} />
+            },
         },
-    },
-    {
-        key: 'user',
-        title: 'Name',
-        render: function NameRender(_, member) {
-            return (
-                <div className="ph-no-capture">
-                    <div>{fullName(member.user)}</div>
-                    <div className="text-secondary">{member.user.email}</div>
-                </div>
-            )
+        {
+            key: 'user',
+            title: 'Name',
+            render: function NameRender(_, member) {
+                return (
+                    <div className="ph-no-capture">
+                        <div>
+                            {member.user.uuid === currentUserUuid
+                                ? `${fullName(member.user)} (you)`
+                                : fullName(member.user)}
+                        </div>
+                        <div className="text-secondary">{member.user.email}</div>
+                    </div>
+                )
+            },
         },
-    },
-    {
-        key: 'level',
-        title: 'Level',
-        render: function LevelRender(_, member) {
-            return membershipLevelToName.get(member.level) ?? `unknown (${member.level})`
+        {
+            key: 'level',
+            title: 'Level',
+            render: function LevelRender(_, member) {
+                return membershipLevelToName.get(member.level) ?? `unknown (${member.level})`
+            },
         },
-    },
-]
+    ]
+}
 
 function ImpactedMembersTable({
     impact,
@@ -50,13 +57,14 @@ function ImpactedMembersTable({
     impact: CountedPaginatedResponse<OrganizationMemberType> | null
     loading: boolean
 }): JSX.Element {
+    const { user } = useValues(userLogic)
     const members = impact?.results ?? []
     const count = impact?.count ?? members.length
     return (
         <>
             <LemonTable
                 dataSource={members}
-                columns={columns}
+                columns={impactedMemberColumns(user?.uuid)}
                 loading={loading}
                 rowKey="id"
                 size="small"
