@@ -14,10 +14,11 @@ import certifi
 import structlog
 from bson import Binary, DatetimeMS, ObjectId
 from bson.codec_options import DatetimeConversion
-from pymongo import MongoClient
+from pymongo import ASCENDING, MongoClient
 from pymongo.collection import Collection
+from pymongo.cursor import Cursor
 from pymongo.database import Database
-from pymongo.errors import PyMongoError
+from pymongo.errors import CursorNotFound, OperationFailure, PyMongoError
 from pymongo.server_description import ServerDescription
 from structlog.types import FilteringBoundLogger
 
@@ -560,6 +561,22 @@ def _get_rows_to_sync(collection: Collection, query: dict[str, Any], logger: Fil
         return 0
 
 
+# Several MongoDB-compatible backends reject no_cursor_timeout instead of honoring it: Atlas
+# free/shared/flex tiers ("noTimeout cursors are disallowed in this atlas tier", code 8000), a
+# collection that is really a view (MongoDB rewrites the find() into an aggregate(), where the
+# option isn't valid, code 9), and AWS DocumentDB / Azure Cosmos DB's Mongo API ("Field
+# 'noCursorTimeout' is currently not supported", code 303). Matching the option name rather than
+# each backend's phrasing covers backends we haven't seen yet while keeping the fallback narrow —
+# only an error about the option we passed can trigger it. Substrings, because the full errors also
+# carry volatile clusterTime/signature payloads.
+_NO_CURSOR_TIMEOUT_UNSUPPORTED_MARKERS = ("notimeout cursors are disallowed", "nocursortimeout")
+
+
+def _is_no_cursor_timeout_unsupported(error: OperationFailure) -> bool:
+    message = str(error).lower()
+    return any(marker in message for marker in _NO_CURSOR_TIMEOUT_UNSUPPORTED_MARKERS)
+
+
 def mongo_source(
     connection_string: str,
     collection_name: str,
@@ -614,36 +631,87 @@ def mongo_source(
                 db_incremental_field_last_value,
             )
 
+            last_id: Any = None
+
+            def open_resumable_cursor() -> Cursor[Any]:
+                # Sorting by _id makes the read order deterministic, which is what lets an expired
+                # cursor be reopened after the last document we saw. _id is always uniquely indexed,
+                # so this is an index scan rather than a blocking sort.
+                clauses = [clause for clause in (query, {} if last_id is None else {"_id": {"$gt": last_id}}) if clause]
+                if not clauses:
+                    resume_query: dict[str, Any] = {}
+                elif len(clauses) == 1:
+                    resume_query = clauses[0]
+                else:
+                    resume_query = {"$and": clauses}
+                return read_collection.find(resume_query, batch_size=chunk_size).sort("_id", ASCENDING)
+
             # Between chunks, the pipeline writes/merges the accumulated Arrow table before pulling
             # more rows, which can pause consumption of this cursor well past MongoDB's default
             # 10-minute idle-cursor timeout — the server then kills it, and the next getMore raises
             # CursorNotFound. no_cursor_timeout disables that server-side expiry; we close the cursor
             # explicitly in the finally block below so it doesn't linger on the server instead.
             cursor = read_collection.find(query, batch_size=chunk_size, no_cursor_timeout=True)
+            no_cursor_timeout_honored = True
+            rows_since_cursor_opened = 0
 
             try:
-                for doc in cursor:
-                    # Convert BSON types (ObjectId, Binary, UUID, DatetimeMS) to SQL-safe
-                    # values. _process_doc_with_field_logging logs the offending field name
-                    # before re-raising, so any exception here fails the sync with precise
-                    # diagnostic context rather than silently dropping rows.
-                    processed_doc = _process_doc_with_field_logging(doc, collection_name, logger)
+                while True:
+                    try:
+                        for doc in cursor:
+                            last_id = doc["_id"]
+                            rows_since_cursor_opened += 1
 
-                    # Stringify _id so it's always a scalar string downstream,
-                    # regardless of BSON type (ObjectId, UUID Binary, numeric, etc.).
-                    result: dict[str, Any] = {
-                        "_id": str(processed_doc["_id"]),
-                    }
-                    # extract incremental field from the document if it exists
-                    if incremental_field:
-                        incremental_value = processed_doc.get(incremental_field, None)
-                        if incremental_value is None:
-                            continue
-                        result[incremental_field] = incremental_value
+                            # Convert BSON types (ObjectId, Binary, UUID, DatetimeMS) to SQL-safe
+                            # values. _process_doc_with_field_logging logs the offending field name
+                            # before re-raising, so any exception here fails the sync with precise
+                            # diagnostic context rather than silently dropping rows.
+                            processed_doc = _process_doc_with_field_logging(doc, collection_name, logger)
 
-                    result["data"] = processed_doc
+                            # Stringify _id so it's always a scalar string downstream,
+                            # regardless of BSON type (ObjectId, UUID Binary, numeric, etc.).
+                            result: dict[str, Any] = {
+                                "_id": str(processed_doc["_id"]),
+                            }
+                            # extract incremental field from the document if it exists
+                            if incremental_field:
+                                incremental_value = processed_doc.get(incremental_field, None)
+                                if incremental_value is None:
+                                    continue
+                                result[incremental_field] = incremental_value
 
-                    yield result
+                            result["data"] = processed_doc
+
+                            yield result
+                        return
+                    except CursorNotFound:
+                        # Only reachable once the server-side timeout is back in play, i.e. after the
+                        # fallback below dropped no_cursor_timeout. That read is _id-ordered, so pick
+                        # up after the last document instead of failing the whole sync. Requiring
+                        # progress since the cursor opened stops a cursor that dies immediately from
+                        # looping forever on the same query.
+                        if no_cursor_timeout_honored or rows_since_cursor_opened == 0:
+                            raise
+                        logger.debug(
+                            f"MongoDB: cursor expired for collection={collection_name}; resuming after _id={last_id}"
+                        )
+                        cursor.close()
+                        cursor = open_resumable_cursor()
+                        rows_since_cursor_opened = 0
+                    except OperationFailure as e:
+                        # The option is rejected when the cursor is opened, before any document is
+                        # yielded, so retrying without it can't duplicate rows. The tradeoff is that
+                        # the server-side idle timeout applies again — hence the CursorNotFound
+                        # resume above.
+                        if last_id is not None or not _is_no_cursor_timeout_unsupported(e):
+                            raise
+                        logger.debug(
+                            f"MongoDB: no_cursor_timeout disallowed for collection={collection_name}; retrying without it"
+                        )
+                        cursor.close()
+                        no_cursor_timeout_honored = False
+                        cursor = open_resumable_cursor()
+                        rows_since_cursor_opened = 0
             finally:
                 cursor.close()
 

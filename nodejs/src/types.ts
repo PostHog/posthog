@@ -148,7 +148,6 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorkerHogFlowLegacyPg?: boolean
     cdpCyclotronWorkerEmail?: boolean
     cdpCyclotronWorkerEmailLegacyPg?: boolean
-    cdpPrecalculatedFilters?: boolean
     cdpCohortMembership?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
@@ -157,7 +156,6 @@ export interface PluginServerCapabilities {
     cdpRerunWorker?: boolean
     cdpHogflowScheduler?: boolean
     cdpHogflowSubscriptionMatcher?: boolean
-    emailReputationEvaluator?: boolean
     recordingApi?: boolean
     ingestionV2Testing?: boolean
 }
@@ -631,6 +629,10 @@ export enum PropertyOperator {
     IsNot = 'is_not',
     IContains = 'icontains',
     NotIContains = 'not_icontains',
+    StartsWith = 'starts_with',
+    NotStartsWith = 'not_starts_with',
+    EndsWith = 'ends_with',
+    NotEndsWith = 'not_ends_with',
     Regex = 'regex',
     NotRegex = 'not_regex',
     GreaterThan = 'gt',

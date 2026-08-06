@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sen
     SentryResumeConfig,
     _custom_endpoint_rows,
     _normalize_api_base_url,
+    _normalize_organization_slug,
     _parse_next_link,
     _retention_bounded_start_param,
     _retry_wait_seconds,
@@ -94,6 +95,22 @@ class TestSentryTransport:
     def test_normalize_api_base_url(self) -> None:
         assert _normalize_api_base_url(None) == "https://sentry.io"
         assert _normalize_api_base_url("https://us.sentry.io/") == "https://us.sentry.io"
+
+    @parameterized.expand(
+        [
+            ("bare_slug", "acme", "acme"),
+            ("bare_slug_trims_whitespace", "  acme  ", "acme"),
+            ("org_subdomain_url", "https://acme.sentry.io/", "acme"),
+            ("org_subdomain_url_no_scheme", "acme.sentry.io", "acme"),
+            ("org_subdomain_with_path", "https://acme.sentry.io/issues/", "acme"),
+            ("organizations_deep_link", "https://sentry.io/organizations/acme/issues/", "acme"),
+            ("organizations_deep_link_no_scheme", "sentry.io/organizations/acme", "acme"),
+            # No slug to extract: return the input as-is rather than guessing the literal "organizations".
+            ("organizations_path_without_slug", "https://sentry.io/organizations/", "https://sentry.io/organizations/"),
+        ]
+    )
+    def test_normalize_organization_slug_extracts_slug(self, _name: str, value: str, expected: str) -> None:
+        assert _normalize_organization_slug(value) == expected
 
     def test_start_param_for_sentry_formats_datetime(self) -> None:
         value = datetime(2025, 1, 1, 10, 30, 0, tzinfo=UTC)
@@ -267,6 +284,15 @@ class TestSentryTransport:
         )
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
+    def test_validate_credentials_401_tells_user_to_reconnect(self, mock_session) -> None:
+        mock_session.return_value.get.return_value = _response(None, status_code=401)
+
+        valid, error = validate_credentials(auth_token="token", organization_slug="acme")
+
+        assert not valid
+        assert error == "Invalid Sentry auth token. Please update your token and reconnect."
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
     def test_validate_credentials_403_names_required_scopes(self, mock_session) -> None:
         mock_session.return_value.get.return_value = _response(None, status_code=403)
 
@@ -328,6 +354,11 @@ class TestSentrySourceValidation:
             organization_slug="acme",
             api_base_url="https://sentry.io",
         )
+
+    def test_parse_config_normalizes_pasted_org_url(self) -> None:
+        config = SentrySource().parse_config({"auth_token": "token", "organization_slug": "https://acme.sentry.io/"})
+
+        assert config.organization_slug == "acme"
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.rest_api_resource")
     def test_sentry_source_builds_response(self, mock_rest_api_resource) -> None:
@@ -471,6 +502,59 @@ class TestSentrySourceValidation:
         row = rows[0]
         assert row["issue_id"] == "100"
         assert "_issues_id" not in row
+
+    @parameterized.expand(
+        [
+            ("issue_events", "issues"),
+            ("project_events", "projects"),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
+    )
+    def test_event_fanout_requests_full_event_bodies(self, endpoint, parent_name, mock_rest_api_resources) -> None:
+        mock_rest_api_resources.return_value = [
+            _FakeDltResource(parent_name, []),
+            _FakeDltResource(endpoint, []),
+        ]
+
+        sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint=endpoint,
+            team_id=123,
+            job_id="job-id",
+        )
+
+        config = mock_rest_api_resources.call_args.args[0]
+        child_resource = next(r for r in config["resources"] if r["name"] == endpoint)
+        assert child_resource["endpoint"]["params"]["full"] == "true"
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
+    )
+    def test_issue_hashes_tolerates_child_not_found(self, mock_rest_api_resources) -> None:
+        # An issue can be deleted/merged between the `issues` listing and this per-issue hashes
+        # fetch, which 404s. That single-issue 404 must not fail the whole schema (see
+        # SentrySource.get_non_retryable_errors' generic "404 Client Error" mapping).
+        mock_rest_api_resources.return_value = [
+            _FakeDltResource("issues", [{"id": "100"}]),
+            _FakeDltResource("issue_hashes", []),
+        ]
+
+        sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_hashes",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        config = mock_rest_api_resources.call_args.args[0]
+        child_resource = next(r for r in config["resources"] if r["name"] == "issue_hashes")
+        assert child_resource["endpoint"]["response_actions"] == [{"status_code": 404, "action": "ignore"}]
 
     # ----- Issue fan-out: custom iterator (issue_tag_values) -----
 
@@ -1378,6 +1462,40 @@ class TestSentryCustomIteratorEndpoints:
         assert rows[0]["quantity"] == 5
         assert rows[0]["period_start"] == "2026-01-01T00:00:00Z"
         assert rows[0]["period_end"] == "2026-03-01T00:00:00Z"
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_stats_summary_skips_when_token_has_no_project_access(self, mock_request) -> None:
+        # The requesting token's user can be a member of the org without being a
+        # member of any project's team — Sentry 400s this specific endpoint rather
+        # than returning an empty result.
+        mock_request.return_value = _response({"detail": "No projects available"}, status_code=400)
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="organization_stats_summary",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        assert list(cast(Any, resp.items())) == []
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_stats_summary_propagates_other_400_errors(self, mock_request) -> None:
+        mock_request.return_value = _response({"detail": 'Invalid field: "bogus"'}, status_code=400)
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="organization_stats_summary",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        with pytest.raises(HTTPError):
+            list(cast(Any, resp.items()))
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
     def test_trace_item_attributes_stamps_dataset_and_skips_unavailable_ones(self, mock_request) -> None:

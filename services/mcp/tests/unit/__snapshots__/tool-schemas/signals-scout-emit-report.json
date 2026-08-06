@@ -12,7 +12,7 @@
         },
         "already_addressed": {
             "default": false,
-            "description": "Whether the issue already appears fixed in recent changes (tracked separately).",
+            "description": "Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Gates autostart, so a wrong `false` opens a duplicate PR. Tracked separately.",
             "type": "boolean"
         },
         "charts": {

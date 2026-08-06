@@ -21,6 +21,10 @@ export const PropertyOperatorApi = {
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
     Regex: 'regex',
     NotRegex: 'not_regex',
     Gt: 'gt',
@@ -404,6 +408,7 @@ export const NotificationDestinationTypeEnumApi = {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -416,6 +421,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -837,6 +843,10 @@ export const _LogPropertyFilterTypeEnumApi = {
  * * `is_not` - is_not
  * * `icontains` - icontains
  * * `not_icontains` - not_icontains
+ * * `starts_with` - starts_with
+ * * `not_starts_with` - not_starts_with
+ * * `ends_with` - ends_with
+ * * `not_ends_with` - not_ends_with
  * * `regex` - regex
  * * `not_regex` - not_regex
  * * `gt` - gt
@@ -855,6 +865,10 @@ export const _LogPropertyFilterOperatorEnumApi = {
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
     Regex: 'regex',
     NotRegex: 'not_regex',
     Gt: 'gt',
@@ -881,6 +895,10 @@ export interface _LogPropertyFilterApi {
      * * `is_not` - is_not
      * * `icontains` - icontains
      * * `not_icontains` - not_icontains
+     * * `starts_with` - starts_with
+     * * `not_starts_with` - not_starts_with
+     * * `ends_with` - ends_with
+     * * `not_ends_with` - not_ends_with
      * * `regex` - regex
      * * `not_regex` - not_regex
      * * `gt` - gt
@@ -1032,16 +1050,21 @@ export const FacetFieldEnumApi = {
 } as const
 
 export interface _LogsFacetValuesBodyApi {
-    /** Top-level column to facet on. Provide exactly one of facetField or facetResourceAttribute. Its own filter is excluded so counts reflect the other active filters.
+    /** Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own filter is excluded so counts reflect the other active filters.
      *
      * * `severity_text` - severity_text
      * * `service_name` - service_name */
     facetField?: FacetFieldEnumApi | null
     /**
-     * Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField or facetResourceAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters.
+     * Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters.
      * @nullable
      */
     facetResourceAttribute?: string | null
+    /**
+     * Log attribute key to facet on (e.g. 'log.iostream'). Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Counts honour severity, service and resource-attribute filters, but not body search, other log-attribute filters, or this facet's own filter.
+     * @nullable
+     */
+    facetAttribute?: string | null
     /** Date range. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels (ignored when faceting on severity_text). */
@@ -1601,6 +1624,18 @@ export interface LogsRetentionRuleReorderApi {
     ordered_ids: string[]
 }
 
+export interface LogsRetentionRuleSuggestNameApi {
+    /** Retention tier the rule would assign, in days. */
+    retention_days: number
+    /** PropertyGroupFilter tree the rule would match on. */
+    filter_group: unknown
+}
+
+export interface LogsRetentionRuleNameSuggestionApi {
+    /** Suggested rule name. Empty when no suggestion could be generated — clients hide the hint. */
+    name: string
+}
+
 /**
  * * `severity_sampling` - Severity-based reduction
  * * `path_drop` - Path exclusion
@@ -1813,6 +1848,17 @@ export const SparklineBreakdownByEnumApi = {
     Service: 'service',
 } as const
 
+/**
+ * * `count` - count
+ * * `bytes` - bytes
+ */
+export type SparklineRankByEnumApi = (typeof SparklineRankByEnumApi)[keyof typeof SparklineRankByEnumApi]
+
+export const SparklineRankByEnumApi = {
+    Count: 'count',
+    Bytes: 'bytes',
+} as const
+
 export interface _LogsSparklineBodyApi {
     /** Date range for the sparkline. Defaults to last hour. */
     dateRange?: _DateRangeApi
@@ -1829,6 +1875,11 @@ export interface _LogsSparklineBodyApi {
      * * `severity` - severity
      * * `service` - service */
     sparklineBreakdownBy?: SparklineBreakdownByEnumApi
+    /** Rank breakdown values by "count" (default) or "bytes" before collapsing the tail into "other".
+     *
+     * * `count` - count
+     * * `bytes` - bytes */
+    sparklineRankBy?: SparklineRankByEnumApi
     /** Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
     personId?: string
 }

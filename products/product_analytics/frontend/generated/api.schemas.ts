@@ -512,11 +512,15 @@ export interface HogQLQueryModifiersApi {
     sessionTableVersion?: SessionTableVersionApi | null
     sessionsV2JoinMode?: SessionsV2JoinModeApi | null
     timings?: boolean | null
+    /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
+    typeAwareCastSimplification?: boolean | null
     useMaterializedViews?: boolean | null
     usePreaggregatedIntermediateResults?: boolean | null
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
     usePreaggregatedTableTransforms?: boolean | null
     useWebAnalyticsPreAggregatedTables?: boolean | null
+    /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
+    webAnalyticsFirstPageviewFilters?: boolean | null
 }
 
 export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
@@ -526,6 +530,10 @@ export const PropertyOperatorApi = {
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
     Regex: 'regex',
     NotRegex: 'not_regex',
     Gt: 'gt',
@@ -2668,6 +2676,173 @@ export interface PathsQueryApi {
     version?: number | null
 }
 
+export interface PathsV2ItemApi {
+    /** Event of the step source this item belongs to. */
+    event: string
+    /** Label value from the source's naming property, after path cleaning. An empty string when the property is missing on the event. Null for sources without a naming property. */
+    label?: string | null
+}
+
+export type PathsV2AnchorTypeApi = (typeof PathsV2AnchorTypeApi)[keyof typeof PathsV2AnchorTypeApi]
+
+export const PathsV2AnchorTypeApi = {
+    Start: 'start',
+    End: 'end',
+} as const
+
+export interface PathsV2AnchorApi {
+    /** The path item the chart anchors on. Its event must be one of the step sources. */
+    item: PathsV2ItemApi
+    /** `start` runs each actor's single sequence forward from the anchor item; `end` runs it up to the anchor item. Either way the anchor is the grid's single 100% node. */
+    type: PathsV2AnchorTypeApi
+}
+
+export interface PathsV2StepSourceApi {
+    /** Name of the event this source matches. */
+    event: string
+    /** Event property whose value labels the path item, e.g. `$pathname` for pageviews. Team path cleaning rules are applied to the value. Without a naming property, the event itself is the path item. */
+    namingProperty?: string | null
+}
+
+export interface PathsV2FilterApi {
+    /** Anchor selecting anchored mode. When set, each actor contributes exactly one sequence bounded by the conversion window, so every displayed segment equals a plain funnel. Absent selects open mode, which splits an actor's events into journeys on the inactivity gap instead. */
+    anchor?: PathsV2AnchorApi | null
+    /** Apply the team's path cleaning rules to naming property values before they become path items. */
+    applyTeamPathCleaning?: boolean | null
+    /** Merge immediate repeats of the same path item within a journey. */
+    collapseRepeats?: boolean | null
+    /** Anchored mode's single conversion window W, anchored at the anchor and reused verbatim as the emitted funnel's window. Bounds per unit are validated server-side against CONVERSION_WINDOW_INTERVAL_BOUNDS, the same funnel conversion window bounds as the gap. */
+    conversionWindowInterval?: number | null
+    conversionWindowIntervalUnit?: FunnelConversionWindowTimeUnitApi | null
+    /** Path items dropped from the item universe: events deriving to one of these items are ignored as if their event were not a step source, on both the paths side and the "view as funnel" side. */
+    excludedItems?: PathsV2ItemApi[] | null
+    /** Inactivity gap that splits an actor's events into journeys. Bounds per unit are validated server-side against CONVERSION_WINDOW_INTERVAL_BOUNDS, the funnel conversion window bounds. */
+    gapInterval?: number | null
+    gapIntervalUnit?: FunnelConversionWindowTimeUnitApi | null
+    /** Path cleaning rules for this insight only, applied after the team's rules. */
+    localPathCleaningFilters?: PathCleaningFilterApi[] | null
+    /** Number of path item rows per step; items beyond this go into the "other" row. */
+    maxRowsPerStep?: number | null
+    /** Number of journey steps (columns) shown. */
+    maxSteps?: number | null
+    /** Step sources defining which events can become path items. Defaults to the pageviews preset: `$pageview` named by `$pathname`. */
+    stepSources?: PathsV2StepSourceApi[] | null
+}
+
+export interface PathsV2EdgeApi {
+    /** Unique actors who transition from source to target at any step of any of their whole journeys, the position-free count behind "went source → target at any step". Equals the two-step item-strict funnel's converted count. Only set in open mode on edges between two named items. */
+    anyStepCount?: number | null
+    /** Unique actors with a journey that transitions from source to target between these steps. */
+    count: number
+    /** Source path item, or null for the source column's "other" row. */
+    source: PathsV2ItemApi | null
+    /** 0-based step index of the source column; the target sits at `stepIndex + 1`. */
+    stepIndex: number
+    /** Target path item, or null for the target column's "other" row. */
+    target: PathsV2ItemApi | null
+}
+
+export interface PathsV2PrefixApi {
+    /** Unique actors whose anchored sequence begins with exactly these items. */
+    count: number
+    /** The chain's path items in order, starting at the anchor. */
+    items: PathsV2ItemApi[]
+}
+
+export interface PathsV2RowApi {
+    /** Unique actors with a journey whose item at this step is this path item. */
+    count: number
+    item: PathsV2ItemApi
+}
+
+export interface PathsV2StepApi {
+    /** Unique actors whose journey ends at this step. */
+    dropOffCount: number
+    /** Unique actors at this step whose path item is beyond the top rows. */
+    otherCount: number
+    /** Top path items at this step, ordered by unique-actor count descending. */
+    rows: PathsV2RowApi[]
+    /** 0-based step index (column) in the journey grid. */
+    stepIndex: number
+}
+
+export interface PathsV2ResultsApi {
+    edges: PathsV2EdgeApi[]
+    /** Concrete anchored chains with per-chain unique-actor counts, ordered by descending count. Empty in open mode; in anchored mode it carries the counts the hover funnel preview reads per chain. Only chains the grid displays in full are carried: chains through the other bucket are omitted, so the response never exposes labels the chart hides. */
+    prefixes: PathsV2PrefixApi[]
+    steps: PathsV2StepApi[]
+}
+
+export interface PathsV2QueryResponseApi {
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string | null
+    /** Generated HogQL query. */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponseApi | null
+    results: PathsV2ResultsApi
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTimingApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+}
+
+export interface PathsV2QueryApi {
+    /** Colors used in the insight's visualization */
+    dataColorTheme?: number | null
+    /** Date range for the query */
+    dateRange?: DateRangeApi | null
+    /** Exclude internal and test users by applying the respective filters */
+    filterTestAccounts?: boolean | null
+    kind?: 'PathsV2Query'
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    /** Properties specific to the paths v2 insight */
+    pathsV2Filter?: PathsV2FilterApi | null
+    /** Property filters for all series */
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+          )[]
+        | PropertyGroupFilterApi
+        | null
+    response?: PathsV2QueryResponseApi | null
+    /** Tags that will be added to the Query log comment */
+    tags?: QueryLogTagsApi | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
 export type StickinessQueryResponseApiResultsItem = { [key: string]: unknown }
 
 export interface StickinessQueryResponseApi {
@@ -3262,6 +3437,7 @@ export interface InsightVizNodeApi {
         | FunnelsQueryApi
         | RetentionQueryApi
         | PathsQueryApi
+        | PathsV2QueryApi
         | StickinessQueryApi
         | LifecycleQueryApi
         | WebStatsTableQueryApi
@@ -3536,6 +3712,33 @@ export interface Response7Api {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponseApi | null
+    results: unknown[]
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTimingApi[] | null
+    types?: unknown[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+}
+
+export interface Response8Api {
+    columns?: unknown[] | null
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string | null
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql?: string | null
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset?: number | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
@@ -3565,7 +3768,7 @@ export interface WebVitalsPathBreakdownResultApi {
     poor: WebVitalsPathBreakdownResultItemApi[]
 }
 
-export interface Response8Api {
+export interface Response9Api {
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
@@ -3592,7 +3795,7 @@ export interface Response8Api {
     warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
-export interface Response9Api {
+export interface Response10Api {
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -3619,7 +3822,7 @@ export interface Response9Api {
     warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
-export interface Response10Api {
+export interface Response11Api {
     columns: unknown[]
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -3656,7 +3859,7 @@ export interface MarketingAnalyticsItemApi {
     value?: number | string | null
 }
 
-export interface Response11Api {
+export interface Response12Api {
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -3684,9 +3887,9 @@ export interface Response11Api {
     warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
-export type Response12ApiResults = { [key: string]: MarketingAnalyticsItemApi }
+export type Response13ApiResults = { [key: string]: MarketingAnalyticsItemApi }
 
-export interface Response12Api {
+export interface Response13Api {
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
@@ -3699,7 +3902,7 @@ export interface Response12Api {
     resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
-    results: Response12ApiResults
+    results: Response13ApiResults
     samplingRate?: SamplingRateApi | null
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
@@ -3709,7 +3912,7 @@ export interface Response12Api {
     warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
-export interface Response13Api {
+export interface Response14Api {
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -3866,7 +4069,7 @@ export interface ErrorTrackingIssueApi {
     status: ErrorTrackingIssueStatusApi
 }
 
-export interface Response14Api {
+export interface Response15Api {
     columns?: string[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -3915,7 +4118,7 @@ export interface ErrorTrackingCorrelatedIssueApi {
     status: ErrorTrackingIssueStatusApi
 }
 
-export interface Response15Api {
+export interface Response16Api {
     columns?: string[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -3958,19 +4161,19 @@ export interface ExperimentVariantFunnelsBaseStatsApi {
     success_count: number
 }
 
-export type Response16ApiCredibleIntervals = { [key: string]: number[] }
+export type Response17ApiCredibleIntervals = { [key: string]: number[] }
 
-export type Response16ApiInsightItemItem = { [key: string]: unknown }
+export type Response17ApiInsightItemItem = { [key: string]: unknown }
 
-export type Response16ApiProbability = { [key: string]: number }
+export type Response17ApiProbability = { [key: string]: number }
 
-export interface Response16Api {
-    credible_intervals: Response16ApiCredibleIntervals
+export interface Response17Api {
+    credible_intervals: Response17ApiCredibleIntervals
     expected_loss: number
     funnels_query?: FunnelsQueryApi | null
-    insight: Response16ApiInsightItemItem[][]
+    insight: Response17ApiInsightItemItem[][]
     kind?: 'ExperimentFunnelsQuery'
-    probability: Response16ApiProbability
+    probability: Response17ApiProbability
     significance_code: ExperimentSignificanceCodeApi
     significant: boolean
     stats_version?: number | null
@@ -3986,20 +4189,20 @@ export interface ExperimentVariantTrendsBaseStatsApi {
     key: string
 }
 
-export type Response17ApiCredibleIntervals = { [key: string]: number[] }
+export type Response18ApiCredibleIntervals = { [key: string]: number[] }
 
-export type Response17ApiInsightItem = { [key: string]: unknown }
+export type Response18ApiInsightItem = { [key: string]: unknown }
 
-export type Response17ApiProbability = { [key: string]: number }
+export type Response18ApiProbability = { [key: string]: number }
 
-export interface Response17Api {
+export interface Response18Api {
     count_query?: TrendsQueryApi | null
-    credible_intervals: Response17ApiCredibleIntervals
+    credible_intervals: Response18ApiCredibleIntervals
     exposure_query?: TrendsQueryApi | null
-    insight: Response17ApiInsightItem[]
+    insight: Response18ApiInsightItem[]
     kind?: 'ExperimentTrendsQuery'
     p_value: number
-    probability: Response17ApiProbability
+    probability: Response18ApiProbability
     significance_code: ExperimentSignificanceCodeApi
     significant: boolean
     stats_version?: number | null
@@ -4088,7 +4291,7 @@ export interface LLMTraceApi {
     webSearchCost?: number | null
 }
 
-export interface Response18Api {
+export interface Response19Api {
     columns?: string[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -4114,7 +4317,7 @@ export interface Response18Api {
     warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
-export interface Response20Api {
+export interface Response21Api {
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -4141,7 +4344,7 @@ export interface Response20Api {
     warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
-export interface Response21Api {
+export interface Response22Api {
     columns: unknown[]
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -4380,6 +4583,7 @@ export interface InsightActorsQueryApi {
         | FunnelsQueryApi
         | RetentionQueryApi
         | PathsQueryApi
+        | PathsV2QueryApi
         | StickinessQueryApi
         | LifecycleQueryApi
         | WebStatsTableQueryApi
@@ -5125,6 +5329,45 @@ export interface StickinessActorsQueryApi {
     version?: number | null
 }
 
+export type PathsV2ElementTypeApi = (typeof PathsV2ElementTypeApi)[keyof typeof PathsV2ElementTypeApi]
+
+export const PathsV2ElementTypeApi = {
+    Node: 'node',
+    Edge: 'edge',
+    DropOff: 'dropOff',
+    Other: 'other',
+    Chain: 'chain',
+} as const
+
+export interface PathsV2ElementSelectorApi {
+    /** Match the source → target transition at any step of any whole journey instead of at one step pair: the position-free set behind an edge's anyStepCount. Requires a named source and target and open mode. Edge elements only. */
+    anyStep?: boolean | null
+    /** The chain's path items in order from the anchor. Returns the actors whose anchored sequence begins with exactly these items, the set behind a hover preview's per-chain counts. Chain elements only, anchored mode only. Bounded by the step maximum: a longer chain can never match a displayed card. */
+    chain?: PathsV2ItemApi[] | null
+    elementType: PathsV2ElementTypeApi
+    /** The node card's path item. Node elements only. */
+    item?: PathsV2ItemApi | null
+    /** The edge's source path item; omit for the source column's "other" row. Edge elements only. */
+    source?: PathsV2ItemApi | null
+    /** 0-based step index (column) of the element; for an edge, its source column. Required for node, other, dropOff, and positional edge elements. */
+    stepIndex?: number | null
+    /** The edge's target path item; omit for the target column's "other" row. Edge elements only. */
+    target?: PathsV2ItemApi | null
+}
+
+export interface PathsV2ActorsQueryApi {
+    element: PathsV2ElementSelectorApi
+    includeRecordings?: boolean | null
+    kind?: 'PathsV2ActorsQuery'
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    response?: ActorsQueryResponseApi | null
+    source: PathsV2QueryApi
+    tags?: QueryLogTagsApi | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
 export interface HogQLFiltersApi {
     dateRange?: DateRangeApi | null
     filterTestAccounts?: boolean | null
@@ -5235,6 +5478,8 @@ export interface HogQLQueryApi {
 }
 
 export interface ActorsQueryApi {
+    /** Exclude persons matching the team's "internal and test account" filters. Only person-scoped filters (person properties, cohorts) are applied. Event-scoped test account filters have no meaning in a persons query and are ignored. */
+    filterTestAccounts?: boolean | null
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
     fixedProperties?:
         | (
@@ -5271,6 +5516,7 @@ export interface ActorsQueryApi {
         | FunnelCorrelationActorsQueryApi
         | ExperimentActorsQueryApi
         | StickinessActorsQueryApi
+        | PathsV2ActorsQueryApi
         | HogQLQueryApi
         | null
     tags?: QueryLogTagsApi | null
@@ -5386,6 +5632,75 @@ export interface WebExternalClicksTableQueryApi {
     version?: number | null
 }
 
+export type WebBotsBreakdownApi = (typeof WebBotsBreakdownApi)[keyof typeof WebBotsBreakdownApi]
+
+export const WebBotsBreakdownApi = {
+    Crawler: 'Crawler',
+    Path: 'Path',
+} as const
+
+export interface WebBotsTableQueryResponseApi {
+    columns?: unknown[] | null
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string | null
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql?: string | null
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponseApi | null
+    results: unknown[]
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTimingApi[] | null
+    types?: unknown[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+}
+
+export interface WebBotsTableQueryApi {
+    /** Groups aggregation - not used in Web Analytics but required for type compatibility */
+    aggregation_group_type_index?: number | null
+    breakdownBy: WebBotsBreakdownApi
+    compareFilter?: CompareFilterApi | null
+    conversionGoal?: ActionConversionGoalApi | CustomEventConversionGoalApi | null
+    /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
+    dataColorTheme?: number | null
+    dateRange?: DateRangeApi | null
+    doPathCleaning?: boolean | null
+    filterTestAccounts?: boolean | null
+    includeRevenue?: boolean | null
+    /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
+    interval?: IntervalTypeApi | null
+    kind?: 'WebBotsTableQuery'
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    orderBy?: (WebAnalyticsOrderByFieldsApi | WebAnalyticsOrderByDirectionApi)[] | null
+    properties: (
+        | EventPropertyFilterApi
+        | PersonPropertyFilterApi
+        | SessionPropertyFilterApi
+        | CohortPropertyFilterApi
+    )[]
+    response?: WebBotsTableQueryResponseApi | null
+    sampling?: WebAnalyticsSamplingApi | null
+    /** Sampling rate */
+    samplingFactor?: number | null
+    tags?: QueryLogTagsApi | null
+    useSessionsTable?: boolean | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
 export interface WebGoalsQueryResponseApi {
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -5483,6 +5798,7 @@ export interface WebVitalsQueryApi {
         | FunnelsQueryApi
         | RetentionQueryApi
         | PathsQueryApi
+        | PathsV2QueryApi
         | StickinessQueryApi
         | LifecycleQueryApi
         | WebStatsTableQueryApi
@@ -6868,8 +7184,9 @@ export type DataTableNodeApiResponse =
     | Response16Api
     | Response17Api
     | Response18Api
-    | Response20Api
+    | Response19Api
     | Response21Api
+    | Response22Api
     | null
 
 export interface DataTableNodeApi {
@@ -6954,6 +7271,7 @@ export interface DataTableNodeApi {
         | WebOverviewQueryApi
         | WebStatsTableQueryApi
         | WebExternalClicksTableQueryApi
+        | WebBotsTableQueryApi
         | WebGoalsQueryApi
         | WebVitalsQueryApi
         | WebVitalsPathBreakdownQueryApi
@@ -7222,6 +7540,7 @@ export interface DashboardTileBasicApi {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -7234,6 +7553,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -7836,6 +8156,28 @@ export interface InsightViewedRequestApi {
     insight_ids: number[]
 }
 
+export interface PathsV2SegmentItemApi {
+    /** Event of the step source this path item belongs to. */
+    event: string
+    /**
+     * Label value from the source's naming property, after path cleaning. Null or omitted for sources without a naming property; an empty string means the property was missing on the event.
+     * @nullable
+     */
+    label?: string | null
+}
+
+export interface PathsV2SegmentToFunnelRequestApi {
+    /** The PathsV2Query the segment is displayed under (JSON object with kind `PathsV2Query`). Step sources, path cleaning, excluded items, date range, and the gap or conversion window are read from it, so the emitted funnel counts exactly what the chart shows. */
+    query: unknown
+    /** The segment's path items in displayed order. In open mode exactly two items - a single edge, source then target. In anchored mode the concrete chain as shown, starting at the anchor. */
+    items: PathsV2SegmentItemApi[]
+}
+
+export interface PathsV2SegmentToFunnelResponseApi {
+    /** The FunnelsQuery (JSON object with kind `FunnelsQuery`) that reproduces the segment's displayed unique-actor count exactly. Wrap it in an InsightVizNode to open it as a funnel insight. */
+    funnels_query: unknown
+}
+
 export type ColumnConfigurationsListParams = {
     /**
      * Number of results to return per page.
@@ -8008,6 +8350,7 @@ export type InsightsListInsight = (typeof InsightsListInsight)[keyof typeof Insi
 
 export const InsightsListInsight = {
     Funnels: 'FUNNELS',
+    Journeys: 'JOURNEYS',
     Json: 'JSON',
     Lifecycle: 'LIFECYCLE',
     Paths: 'PATHS',

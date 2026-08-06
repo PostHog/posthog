@@ -368,8 +368,8 @@ def set_report_charts(
 
     Team-scoped fail-closed like `append_report_note`. `charts` is the full set the report should
     show, the way `summary` is the whole summary — a caller passing one chart is left with one, not
-    with one added to whatever was there. Callers reach this only when the scout supplied charts;
-    omitting them leaves the report's charts alone.
+    with one added to whatever was there. An empty sequence is therefore a real write that clears the
+    report's charts; a caller that means "leave them alone" does not call this at all.
 
     Returns whether the stored charts actually changed. `edit_report` is non-idempotent, so the same
     call can arrive twice; without this the caller counts a re-send of the charts already stored as an
@@ -380,8 +380,6 @@ def set_report_charts(
     the charts are reader-visible content, `edit_report` can target any inbox report, and a rewrite of
     what a report shows needs the same attributable trail its title and summary get.
     """
-    if not charts:
-        return False
     _validate_report_id(report_id)
     if batch_error := chart_batch_error(charts):
         raise InvalidScoutReportError(batch_error)
@@ -753,6 +751,8 @@ def _content_edit_note(updated_fields: list[str]) -> str:
 
 
 def _chart_edit_note(count: int) -> str:
+    if count == 0:
+        return "Removed the report's charts via edit_report."
     return f"Replaced report charts ({count}) via edit_report."
 
 

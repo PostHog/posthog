@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, date, datetime
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from unittest import mock
@@ -11,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.s
     SendGridResumeConfig,
     _offset_from_url,
     _to_epoch_seconds,
+    get_endpoint_permissions,
     get_status_code,
     sendgrid_source,
 )
@@ -301,3 +303,63 @@ class TestGetStatusCode:
         session.get.side_effect = Exception("boom")
         with mock.patch(SENDGRID_SESSION_PATCH, return_value=session):
             assert get_status_code("k", "/scopes") is None
+
+
+class TestGetEndpointPermissions:
+    @staticmethod
+    def _probe(status: int | None, endpoints: list[str]) -> dict[str, str | None]:
+        session = mock.MagicMock()
+        if status is None:
+            session.get.side_effect = Exception("boom")
+        else:
+            session.get.return_value = mock.MagicMock(status_code=status)
+        with mock.patch(SENDGRID_SESSION_PATCH, return_value=session):
+            return get_endpoint_permissions("k", endpoints)
+
+    @pytest.mark.parametrize(
+        ("status", "expect_blocked"),
+        [
+            (200, False),
+            (403, True),
+            (401, True),
+            # A throttle, a 5xx, or a dead connection is not a scope problem. Blocking the table here
+            # would tell users to change permissions that are already correct.
+            (429, False),
+            (500, False),
+            (None, False),
+        ],
+    )
+    def test_only_a_definitive_denial_blocks_a_table(self, status: int | None, expect_blocked: bool) -> None:
+        permissions = self._probe(status, ["marketing_lists"])
+        assert (permissions["marketing_lists"] is not None) is expect_blocked
+
+    def test_403_names_the_scope_and_the_marketing_campaigns_caveat(self) -> None:
+        reason = self._probe(403, ["marketing_lists"])["marketing_lists"]
+        assert reason is not None
+        assert "marketing.read" in reason
+        assert "Marketing Campaigns" in reason
+
+    def test_unknown_endpoint_is_treated_as_reachable(self) -> None:
+        assert self._probe(403, ["not_an_endpoint"]) == {"not_an_endpoint": None}
+
+    @pytest.mark.parametrize(
+        ("endpoint", "expected_params"),
+        [
+            ("bounces", {"limit": "1"}),
+            # A blanket `limit=1` is not a param the marketing endpoints take, so probing with it
+            # risks a 400 that reads as "reachable" and hides the real denial.
+            ("marketing_lists", {"page_size": "1"}),
+            ("templates", {"page_size": "1", "generations": "legacy,dynamic"}),
+            ("unsubscribe_groups", {}),
+        ],
+    )
+    def test_probe_uses_the_endpoints_own_pagination_params(
+        self, endpoint: str, expected_params: dict[str, str]
+    ) -> None:
+        session = mock.MagicMock()
+        session.get.return_value = mock.MagicMock(status_code=200)
+        with mock.patch(SENDGRID_SESSION_PATCH, return_value=session):
+            get_endpoint_permissions("k", [endpoint])
+
+        url = session.get.call_args[0][0]
+        assert parse_qs(urlparse(url).query) == {key: [value] for key, value in expected_params.items()}

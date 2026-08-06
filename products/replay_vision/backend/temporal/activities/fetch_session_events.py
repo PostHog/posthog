@@ -8,6 +8,7 @@ import structlog
 from asgiref.sync import sync_to_async
 from temporalio import activity
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.models import Team
 from posthog.models.person.util import get_person_by_distinct_id
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
@@ -25,6 +26,7 @@ from products.replay_vision.backend.temporal.state import (
     get_redis_state_client,
     store_data_in_redis,
 )
+from products.replay_vision.backend.temporal.team_context import fetch_event_descriptions, fetch_product_context
 from products.replay_vision.backend.temporal.types import (
     EventTable,
     FetchSessionEventsInputs,
@@ -39,6 +41,9 @@ logger = structlog.get_logger(__name__)
 # Events are no longer inlined in the prompt — they're loaded into the table the model queries on demand — so we
 # page through the whole session.
 _EVENTS_PER_PAGE = 2000
+# Eligibility caps active seconds, not event count, so an instrumentation loop or bot can still emit
+# millions of rows. Cap the total we hold in memory, gzip into Redis, and index for the events tool.
+_MAX_TOTAL_EVENT_ROWS = 50_000
 
 # Kept empty on purpose: `$feature_flag_called` marks experiment exposure, so the post-experiment scanner
 # template needs it to separate pre- from post-exposure behavior. Events aren't inlined into the prompt anymore
@@ -109,9 +114,10 @@ def _persist_session_identity(observation_id: Any, payload: ScannerLlmInputs) ->
 
 
 def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
-    team = Team.objects.get(pk=team_id)
+    # select_related saves the extra round trip when fetch_product_context reads team.project.
+    team = Team.objects.select_related("project").get(pk=team_id)
     events_obj = SessionReplayEvents()
-    metadata = events_obj.get_metadata(session_id=session_id, team=team)
+    metadata = events_obj.get_metadata(session_id=session_id, team=team, ch_user=ClickHouseUser.REPLAY_VISION)
     if metadata is None:
         raise IneligibleSessionError(
             "No replay metadata found",
@@ -138,6 +144,7 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
 
     columns: list[str] | None = None
     all_rows: list[list[Any]] = []
+    events_truncated = False
     for page_number in itertools.count():
         page = events_obj.get_events(
             session_id=session_id,
@@ -147,12 +154,23 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
             extra_fields=_EXTRA_FIELDS,
             limit=_EVENTS_PER_PAGE,
             page=page_number,
+            ch_user=ClickHouseUser.REPLAY_VISION,
         )
         if page.columns and columns is None:
             columns = list(page.columns)
         if not page.rows:
             break
         all_rows.extend(list(row) for row in page.rows)
+        if len(all_rows) >= _MAX_TOTAL_EVENT_ROWS:
+            events_truncated = len(all_rows) > _MAX_TOTAL_EVENT_ROWS or page.has_more
+            del all_rows[_MAX_TOTAL_EVENT_ROWS:]
+            logger.warning(
+                "replay_vision.fetch.events_truncated",
+                session_id=session_id,
+                team_id=team_id,
+                cap=_MAX_TOTAL_EVENT_ROWS,
+            )
+            break
         if not page.has_more:
             break
 
@@ -163,15 +181,27 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
     # Derive from duration; clamp because CH can yield active > duration (tab visibility, clock skew).
     inactive_seconds = max(0.0, duration_seconds - active_seconds)
 
+    # Best-effort: product context is a nice-to-have prompt block, so a Postgres hiccup must not fail the scan.
+    product_context = ""
+    event_descriptions: dict[str, str] = {}
+    try:
+        product_context = fetch_product_context(team)
+        event_descriptions = fetch_event_descriptions(team, processed.columns, processed.rows)
+    except Exception:
+        logger.warning("replay_vision.fetch.team_context_failed", team_id=team_id, session_id=session_id, exc_info=True)
+
     return ScannerLlmInputs(
         session_id=session_id,
         team_id=team_id,
+        product_context=product_context,
+        event_descriptions=event_descriptions,
         events=EventTable(columns=processed.columns, rows=processed.rows),
         url_mapping=processed.url_mapping,
         window_mapping=processed.window_mapping,
         event_timestamps=processed.event_timestamps,
         navigation=processed.navigation,
         navigation_dropped=processed.navigation_dropped,
+        events_truncated=events_truncated,
         distinct_id=metadata.get("distinct_id"),
         metadata=SessionMetadata(
             start_time=metadata["start_time"],

@@ -51,6 +51,8 @@ import type {
     PatchedColumnConfigurationApi,
     PatchedElementApi,
     PatchedInsightApi,
+    PathsV2SegmentToFunnelRequestApi,
+    PathsV2SegmentToFunnelResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -1030,5 +1032,26 @@ export const insightsViewedCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(insightViewedRequestApi),
+    })
+}
+
+export const getPathsV2SegmentToFunnelCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/paths_v2/segment_to_funnel/`
+}
+
+/**
+ * Converts a displayed journeys segment into the funnel query that reproduces its unique-actor count exactly. In open mode only a single edge converts (a two-step funnel with the inactivity gap as conversion window); in anchored mode any anchor-rooted chain converts (window W). The funnel is returned as JSON and is not executed or persisted here.
+ * @summary Convert a journey segment to a funnel
+ */
+export const pathsV2SegmentToFunnelCreate = async (
+    projectId: string,
+    pathsV2SegmentToFunnelRequestApi: PathsV2SegmentToFunnelRequestApi,
+    options?: RequestInit
+): Promise<PathsV2SegmentToFunnelResponseApi> => {
+    return apiMutator<PathsV2SegmentToFunnelResponseApi>(getPathsV2SegmentToFunnelCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(pathsV2SegmentToFunnelRequestApi),
     })
 }

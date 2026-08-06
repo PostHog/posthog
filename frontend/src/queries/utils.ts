@@ -51,6 +51,7 @@ import {
     NodeKind,
     NonIntegratedConversionsTableQuery,
     PathsQuery,
+    PathsV2Query,
     PersonsNode,
     ProductAnalyticsInsightQueryNode,
     QuerySchema,
@@ -260,6 +261,10 @@ export function isWebExternalClicksQuery(node?: Record<string, any> | null): boo
     return node?.kind === NodeKind.WebExternalClicksTableQuery
 }
 
+export function isWebBotsTableQuery(node?: Record<string, any> | null): boolean {
+    return node?.kind === NodeKind.WebBotsTableQuery
+}
+
 export function isWebGoalsQuery(node?: Record<string, any> | null): node is WebGoalsQuery {
     return node?.kind === NodeKind.WebGoalsQuery
 }
@@ -351,6 +356,10 @@ export function isPathsQuery(node?: Record<string, any> | null): node is PathsQu
     return node?.kind === NodeKind.PathsQuery
 }
 
+export function isPathsV2Query(node?: Record<string, any> | null): node is PathsV2Query {
+    return node?.kind === NodeKind.PathsV2Query
+}
+
 export function isStickinessQuery(node?: Record<string, any> | null): node is StickinessQuery {
     return node?.kind === NodeKind.StickinessQuery
 }
@@ -425,6 +434,7 @@ export function isInsightQueryNode(node?: Record<string, any> | null): node is I
         isFunnelsQuery(node) ||
         isRetentionQuery(node) ||
         isPathsQuery(node) ||
+        isPathsV2Query(node) ||
         isStickinessQuery(node) ||
         isLifecycleQuery(node) ||
         isWebStatsTableQuery(node) ||
@@ -614,7 +624,7 @@ export const getCompareFilter = (query: InsightQueryNode): CompareFilter | undef
 }
 
 export const getAggregationGroupTypeIndex = (query: InsightQueryNode): GroupTypeIndex | null | undefined => {
-    if (!isStickinessQuery(query)) {
+    if (!isStickinessQuery(query) && 'aggregation_group_type_index' in query) {
         return query.aggregation_group_type_index as GroupTypeIndex | null | undefined
     }
     return undefined
@@ -765,6 +775,7 @@ export const nodeKindToFilterProperty: Record<ProductAnalyticsInsightNodeKind, I
     [NodeKind.FunnelsQuery]: 'funnelsFilter',
     [NodeKind.RetentionQuery]: 'retentionFilter',
     [NodeKind.PathsQuery]: 'pathsFilter',
+    [NodeKind.PathsV2Query]: 'pathsV2Filter',
     [NodeKind.StickinessQuery]: 'stickinessFilter',
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
 }
