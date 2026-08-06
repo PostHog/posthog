@@ -1,13 +1,22 @@
 from posthog.test.base import BaseTest
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from parameterized import parameterized
 
-from posthog.schema import AssistantMessage, AssistantMessageMetadata
+from posthog.schema import (
+    AssistantForm,
+    AssistantFormOption,
+    AssistantMessage,
+    AssistantMessageMetadata,
+    AssistantToolCall,
+    AssistantToolCallMessage,
+    HumanMessage as SchemaHumanMessage,
+)
 
 from ee.hogai.utils.anthropic import (
     add_cache_control,
     convert_assistant_message_to_anthropic_message,
+    convert_to_anthropic_messages,
     get_anthropic_thinking_from_assistant_message,
 )
 
@@ -141,3 +150,49 @@ class TestAnthropicUtils(BaseTest):
             self.assertIn("deterministic PostHog code", provenance_text)
         else:
             self.assertEqual(len(result), 1)
+
+    @parameterized.expand(
+        [
+            # Legacy summarize_sessions appended its "Open report" message after the tool result,
+            # leaving the conversation on an assistant turn.
+            ["legacy_form_message_last", True, 1],
+            ["human_message_last", False, 3],
+        ]
+    )
+    def test_conversation_never_ends_on_an_assistant_turn(self, _name, ends_with_assistant, expected_length):
+        conversation: list = [
+            SchemaHumanMessage(content="Summarize my sessions"),
+            AssistantMessage(
+                content="Report complete: Sessions summary",
+                id="report",
+                meta=AssistantMessageMetadata(
+                    form=AssistantForm(
+                        options=[AssistantFormOption(value="Open report", href="/session-summaries/abc")]
+                    )
+                ),
+            ),
+        ]
+        if not ends_with_assistant:
+            conversation.append(SchemaHumanMessage(content="Thanks"))
+
+        result = convert_to_anthropic_messages(conversation, {})
+
+        self.assertEqual(len(result), expected_length)
+        self.assertNotIsInstance(result[-1], AIMessage)
+
+    def test_assistant_message_with_tool_calls_is_not_dropped(self):
+        conversation: list = [
+            SchemaHumanMessage(content="Run it"),
+            AssistantMessage(
+                content="Running",
+                id="call",
+                tool_calls=[AssistantToolCall(id="t1", name="read_data", args={})],
+            ),
+        ]
+        tool_results = {"t1": AssistantToolCallMessage(content="done", tool_call_id="t1", id="result")}
+
+        result = convert_to_anthropic_messages(conversation, tool_results)
+
+        # The assistant turn stays because dropping it would orphan its tool result, which follows it.
+        self.assertIsInstance(result[1], AIMessage)
+        self.assertEqual(len(result), 3)

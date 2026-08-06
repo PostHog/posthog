@@ -78,6 +78,7 @@ export const urls = {
         connectionId,
         dashboard,
         filters,
+        metricName,
     }: {
         /** Raw SQL, or a node whose visualization settings (display, chartSettings) should survive the trip */
         query?: string | DataVisualizationNode | DataTableNode
@@ -91,6 +92,8 @@ export const urls = {
         dashboard?: number
         /** Applied on top of the opened query/insight — carries unsaved view-mode filter edits into the editor */
         filters?: HogQLFilters
+        /** Opens the editor bound to this data catalog metric so its query can be updated in place */
+        metricName?: string
     } = {}): string => {
         const params = new URLSearchParams()
 
@@ -114,6 +117,10 @@ export const urls = {
 
         if (source) {
             params.set('source', source)
+        }
+
+        if (metricName) {
+            params.set('edit_metric', metricName)
         }
 
         if (dashboard) {
@@ -277,13 +284,6 @@ export const urls = {
     debugHog: (): string => '/debug/hog',
 
     moveToPostHogCloud: (): string => '/move-to-cloud',
-    heatmaps: (params?: string): string =>
-        `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
-    heatmapNew: (params?: string): string =>
-        `/heatmaps/new${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
-    heatmapRecording: (params?: string): string =>
-        `/heatmaps/recording${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
-    heatmap: (id: string | number): string => `/heatmaps/${id}`,
     links: (params?: string): string =>
         `/links${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     link: (id: string): string => `/link/${id}`,

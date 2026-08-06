@@ -55,6 +55,13 @@ export interface SavedInsightOption {
     label: string
 }
 
+export interface MetricFromInsightRequest {
+    name: string
+    display_name: string
+    description: string
+    source_insight_short_id: string
+}
+
 const MARKDOWN_DEFINITION_KIND = 'MarkdownDefinition'
 
 function projectId(): string {
@@ -77,6 +84,7 @@ export interface metricsLogicValues {
     filters: MetricsFilters
     insightSearch: string
     isCreatingMetric: boolean
+    metricFromInsightModalOpen: boolean
     metrics: DataCatalogMetricApi[]
     newMetricForm: NewMetricForm
     newMetricModalOpen: boolean
@@ -90,11 +98,17 @@ export interface metricsLogicActions {
     approveMetric: (name: string) => {
         name: string
     }
+    closeMetricFromInsightModal: () => {
+        value: true
+    }
     closeNewMetricModal: () => {
         value: true
     }
     createMetric: () => {
         value: true
+    }
+    createMetricFromInsight: (request: MetricFromInsightRequest) => {
+        request: MetricFromInsightRequest
     }
     deleteMetric: (name: string) => {
         name: string
@@ -140,6 +154,9 @@ export interface metricsLogicActions {
         payload?: {
             value: true
         }
+    }
+    openMetricFromInsightModal: () => {
+        value: true
     }
     openNewMetricModal: () => {
         value: true
@@ -202,6 +219,9 @@ export const metricsLogic = kea<metricsLogicType>([
         refreshMetricFromInsight: (name: string) => ({ name }),
         deleteMetric: (name: string) => ({ name }),
         setActionInFlight: (name: string, inFlight: boolean) => ({ name, inFlight }),
+        openMetricFromInsightModal: true,
+        closeMetricFromInsightModal: true,
+        createMetricFromInsight: (request: MetricFromInsightRequest) => ({ request }),
     }),
     loaders(({ values }) => ({
         allMetrics: [
@@ -262,6 +282,13 @@ export const metricsLogic = kea<metricsLogicType>([
             false,
             {
                 setCreatingMetric: (_, { creating }) => creating,
+            },
+        ],
+        metricFromInsightModalOpen: [
+            false,
+            {
+                openMetricFromInsightModal: () => true,
+                closeMetricFromInsightModal: () => false,
             },
         ],
         actionsInFlight: [
@@ -338,6 +365,32 @@ export const metricsLogic = kea<metricsLogicType>([
                 lemonToast.error(
                     apiErrorDetail(error) || 'Could not create the metric. Check the fields and try again.'
                 )
+            } finally {
+                actions.setCreatingMetric(false)
+            }
+        },
+        createMetricFromInsight: async ({ request }) => {
+            if (values.isCreatingMetric) {
+                return
+            }
+            actions.setCreatingMetric(true)
+            try {
+                const created = await dataCatalogMetricsCreate(projectId(), {
+                    name: request.name,
+                    display_name: request.display_name || undefined,
+                    description: request.description,
+                    source_insight_short_id: request.source_insight_short_id,
+                })
+                actions.loadMetricsSuccess([created, ...values.allMetrics])
+                actions.closeMetricFromInsightModal()
+                lemonToast.success('Metric created from insight', {
+                    button: {
+                        label: 'View metric',
+                        action: () => router.actions.push(urls.dataCatalogMetric(created.name)),
+                    },
+                })
+            } catch (error) {
+                lemonToast.error(apiErrorDetail(error) || 'Could not create the metric from this insight. Try again.')
             } finally {
                 actions.setCreatingMetric(false)
             }

@@ -1617,7 +1617,10 @@ h3.MarkdownNotebook__text-block--heading {
     overflow: hidden;
     background: var(--markdown-notebook-component-background);
     border: 1px solid var(--markdown-notebook-component-border);
-    border-left: 3px solid var(--markdown-notebook-component-gutter);
+
+    // Thicker than the neutral text-block gutters: this rail carries run status, so it should
+    // register as a result rather than as another block edge.
+    border-left: 5px solid var(--markdown-notebook-component-gutter);
     border-radius: 0.25rem;
     border-top-left-radius: 0;
     border-bottom-left-radius: 0;
@@ -1749,6 +1752,13 @@ h3.MarkdownNotebook__text-block--heading {
 
 .MarkdownNotebook__component-panel + .MarkdownNotebook__component-panel {
     border-top: 0;
+}
+
+.MarkdownNotebook__component-custom-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0.25rem 0.5rem 0.5rem;
 }
 
 .MarkdownNotebook__component-mode-actions,
@@ -1945,6 +1955,14 @@ button.MarkdownNotebook__component-title:focus-visible {
     flex-direction: column;
     min-height: var(--markdown-notebook-real-node-min-height, 8rem);
     background: var(--markdown-notebook-component-background);
+}
+
+.MarkdownNotebook__real-node--settings-only {
+    min-height: 0;
+
+    .MarkdownNotebook__real-node-settings {
+        border-bottom: 0;
+    }
 }
 
 .MarkdownNotebook__real-node-settings {

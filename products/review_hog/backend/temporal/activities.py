@@ -14,12 +14,17 @@ access goes through `database_sync_to_async(..., thread_sensitive=False)`; `@sco
 `@close_db_connections` mirror the Signals report activities.
 """
 
+import uuid
 import logging
+import datetime
+from collections import Counter
 from dataclasses import dataclass, field
 
+import posthoganalytics
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from posthog.event_usage import groups
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
@@ -34,10 +39,6 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_REASONING_EFFORT,
     CHUNKING_RUNTIME_ADAPTER,
     DEFAULT_URGENCY_THRESHOLD,
-    REVIEW_INITIAL_PERMISSION_MODE,
-    REVIEW_MODEL,
-    REVIEW_REASONING_EFFORT,
-    REVIEW_RUNTIME_ADAPTER,
     VALIDATION_INITIAL_PERMISSION_MODE,
     VALIDATION_MAX_ATTEMPTS,
     VALIDATION_MODEL,
@@ -45,6 +46,7 @@ from products.review_hog.backend.reviewer.constants import (
     VALIDATION_RUNTIME_ADAPTER,
     effective_priority,
     published_priorities_for,
+    resolve_review_arm,
 )
 from products.review_hog.backend.reviewer.lazy_seed import (
     sync_canonical_authoring,
@@ -66,8 +68,10 @@ from products.review_hog.backend.reviewer.persistence import (
     load_pr_snapshot,
     load_prior_findings,
     load_prior_findings_with_verdicts,
+    load_review_arm,
     load_run_issues,
     load_run_validations,
+    load_turn_findings,
     load_valid_findings,
     persist_chunk_set,
     persist_commit_snapshot,
@@ -373,6 +377,29 @@ class AppendCodeReviewArtefactInput:
     run_index: int
     outcome: str  # "published" / "stored" / "failed"
     review_url: str | None = None
+
+
+@dataclass
+class TrackReviewCompletedInput:
+    """One `reviewhog_review_completed` analytics event per finalized review turn."""
+
+    team_id: int
+    report_id: str
+    head_sha: str
+    run_index: int
+    published: bool
+    # The workflow's start_time (ISO 8601) — one turn is one workflow execution, so this anchors
+    # the event's turn duration.
+    workflow_started_at: str
+
+
+@dataclass
+class TrackReviewFailedInput:
+    """One `reviewhog_review_failed` analytics event per failed review turn."""
+
+    team_id: int
+    report_id: str
+    run_index: int
 
 
 @dataclass
@@ -913,6 +940,12 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
         if input.blind_spot_check
         else f"issues-review-p{input.pass_number}-c{input.chunk_id}"
     )
+    # The report's persisted experiment arm, not the module pins. Each unit resolves it against the
+    # live registry, so all units of a turn agree unless a deploy deregisters the model mid-turn —
+    # which is why experiment teardown drops arms from REVIEW_EXPERIMENT_ARMS, never the registry.
+    arm = await database_sync_to_async(load_review_arm, thread_sensitive=False)(
+        team_id=input.team_id, report_id=input.report_id
+    )
     async with Heartbeater():
         review = await run_sandbox_review(
             team_id=input.team_id,
@@ -924,10 +957,10 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
             model_to_validate=IssuesReview,
             step_name=step_name,
             workflow_id_prefix=_sandbox_workflow_id_prefix(step_name),
-            runtime_adapter=REVIEW_RUNTIME_ADAPTER,
-            model=REVIEW_MODEL,
-            reasoning_effort=REVIEW_REASONING_EFFORT,
-            initial_permission_mode=REVIEW_INITIAL_PERMISSION_MODE,
+            runtime_adapter=arm.runtime_adapter,
+            model=arm.model,
+            reasoning_effort=arm.reasoning_effort,
+            initial_permission_mode=arm.initial_permission_mode,
         )
     # Stamp each issue's perspective (the skill that ran) here, not in combine — it survives the
     # persisted result + resume, and keeps `source_perspective` = skill_name, decoupled from the enum.
@@ -1203,7 +1236,7 @@ def _publish(
         repo=repo,
         pr_number=pr_number,
         token=token,
-        published_priorities=published_priorities_for(IssuePriority(urgency_threshold)),
+        urgency_threshold=IssuePriority(urgency_threshold),
         installation_id=installation_id,
     )
     return PublishResult(posted=outcome.posted, review_url=outcome.review_url)
@@ -1228,6 +1261,162 @@ async def publish_review_activity(input: PublishInput) -> PublishResult:
         input.pr_number,
         input.urgency_threshold,
     )
+
+
+def _review_event_identity(report: ReviewReport) -> str:
+    # Acting user when resolved and carrying a distinct_id, else the team — the same attribution
+    # the TaskRun analytics use.
+    acting_distinct_id = report.acting_user.distinct_id if report.acting_user is not None else None
+    return str(acting_distinct_id) if acting_distinct_id else str(report.team.uuid)
+
+
+def _review_arm_properties(report: ReviewReport) -> dict[str, str | bool]:
+    """The model-experiment labels on every review analytics event (the model name is the arm).
+
+    Resolved, not raw: pre-experiment rows carry NULLs but their reviews run on the default pins,
+    and the event must say what actually ran.
+    """
+    persisted = (
+        report.review_runtime_adapter,
+        report.review_model,
+        report.review_reasoning_effort,
+        report.review_initial_permission_mode,
+    )
+    arm = resolve_review_arm(*persisted)
+    resolved = (arm.runtime_adapter.value, arm.model, arm.reasoning_effort.value, arm.initial_permission_mode)
+    return {
+        "review_runtime_adapter": arm.runtime_adapter.value,
+        "review_model": arm.model,
+        "review_reasoning_effort": arm.reasoning_effort.value,
+        # True when a persisted assignment failed resolution and the turn ran the fallback pins
+        # instead of its drawn arm; per-arm dashboards must exclude these contaminated turns.
+        # The whole bundle is compared because a failed assignment can share the default arm's model
+        # string while differing on adapter or effort. Pre-experiment rows (all NULL) stay False.
+        "review_arm_fallback": any(persisted) and resolved != persisted,
+    }
+
+
+def _track_review_completed(input: TrackReviewCompletedInput) -> None:
+    report = ReviewReport.objects.for_team(input.team_id).select_related("acting_user", "team").get(id=input.report_id)
+    findings = load_turn_findings(team_id=input.team_id, report_id=input.report_id, run_index=input.run_index)
+    snapshot = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
+    pr_meta = snapshot.pr_metadata if snapshot is not None else None
+    duration_seconds = round(
+        (
+            datetime.datetime.now(tz=datetime.UTC) - datetime.datetime.fromisoformat(input.workflow_started_at)
+        ).total_seconds(),
+        1,
+    )
+    # Validator-wins severity mix of the valid findings, the same fold the review body renders with.
+    valid_by_priority = Counter(
+        effective_priority(finding.priority, verdict.adjusted_priority)
+        for finding, verdict in findings
+        if verdict is not None and verdict.is_valid
+    )
+    posthoganalytics.capture(
+        distinct_id=_review_event_identity(report),
+        event="reviewhog_review_completed",
+        # Deterministic per turn: an activity retry that re-captures after a worker crash emits the
+        # same event uuid, so ingestion dedupes it instead of double-counting the review.
+        uuid=str(uuid.uuid5(uuid.NAMESPACE_URL, f"reviewhog_review_completed:{input.report_id}:{input.run_index}")),
+        properties={
+            "report_id": str(report.id),
+            "team_id": report.team_id,
+            "repository": report.repository,
+            "pr_number": report.pr_number,
+            "run_index": input.run_index,
+            "trigger_source": report.trigger_source,
+            "author_login": report.author_login,
+            "published": input.published,
+            "findings_total": len(findings),
+            "findings_valid": sum(1 for _, verdict in findings if verdict is not None and verdict.is_valid),
+            "findings_must_fix": valid_by_priority.get(IssuePriority.MUST_FIX, 0),
+            "findings_should_fix": valid_by_priority.get(IssuePriority.SHOULD_FIX, 0),
+            "findings_consider": valid_by_priority.get(IssuePriority.CONSIDER, 0),
+            **_review_arm_properties(report),
+            # PR size as fetched for this turn; None when the turn's snapshot is unavailable.
+            "pr_additions": pr_meta.additions if pr_meta is not None else None,
+            "pr_deletions": pr_meta.deletions if pr_meta is not None else None,
+            "pr_changed_files": pr_meta.changed_files if pr_meta is not None else None,
+            "pr_commits": pr_meta.commits if pr_meta is not None else None,
+            # Added lines ReviewHog actually reviews (lockfiles/tests/generated filtered out) —
+            # the honest denominator for per-line cost.
+            "pr_reviewable_additions": count_reviewable_additions(snapshot.pr_files) if snapshot is not None else None,
+            "duration_seconds": duration_seconds,
+        },
+        groups=groups(team=report.team),
+        send_feature_flags=True,
+    )
+
+
+def _track_review_completed_safe(input: TrackReviewCompletedInput) -> None:
+    # Analytics must never fail a review: any load/capture failure is logged, not raised.
+    try:
+        _track_review_completed(input)
+    except Exception:
+        logger.exception("Failed to capture reviewhog_review_completed for report %s; continuing", input.report_id)
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def track_review_completed_activity(input: TrackReviewCompletedInput) -> None:
+    """Capture the turn's `reviewhog_review_completed` product-analytics event.
+
+    One event per finalized turn (published or stored), across every trigger and repo — the
+    per-review count product dashboards aggregate, which the step-level `task_*` events can't
+    provide (one review fans out into many sandbox tasks). Best-effort: analytics must never fail
+    a review, so any failure is logged, not raised.
+    """
+    await database_sync_to_async(_track_review_completed_safe, thread_sensitive=False)(input)
+
+
+def _track_review_failed(input: TrackReviewFailedInput) -> None:
+    report = ReviewReport.objects.for_team(input.team_id).select_related("acting_user", "team").get(id=input.report_id)
+    posthoganalytics.capture(
+        distinct_id=_review_event_identity(report),
+        event="reviewhog_review_failed",
+        # Deterministic per turn, like the completed event: repeated failures of the same turn (a
+        # re-trigger that dies again before finalize bumps run_count) dedupe to one event, so
+        # completion rate counts turns, not attempts.
+        uuid=str(uuid.uuid5(uuid.NAMESPACE_URL, f"reviewhog_review_failed:{input.report_id}:{input.run_index}")),
+        properties={
+            "report_id": str(report.id),
+            "team_id": report.team_id,
+            "repository": report.repository,
+            "pr_number": report.pr_number,
+            "run_index": input.run_index,
+            "trigger_source": report.trigger_source,
+            "author_login": report.author_login,
+            **_review_arm_properties(report),
+        },
+        groups=groups(team=report.team),
+        send_feature_flags=True,
+    )
+
+
+def _track_review_failed_safe(input: TrackReviewFailedInput) -> None:
+    # Analytics must never mask the review's original error: any load/capture failure is logged.
+    try:
+        _track_review_failed(input)
+    except Exception:
+        logger.exception("Failed to capture reviewhog_review_failed for report %s; continuing", input.report_id)
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def track_review_failed_activity(input: TrackReviewFailedInput) -> None:
+    """Capture the turn's `reviewhog_review_failed` product-analytics event.
+
+    The completed event alone hides failures: a run that dies never emits it, so an arm of the
+    reviewer-model experiment that crashes on its hardest PRs would silently shed them from every
+    per-review metric. This event is the denominator's other half, but do NOT naively sum event
+    counts: the parent workflow retry makes fail-then-complete at the same (report_id, run_index)
+    common, so a turn counts as failed only when it has a failed event and NO completed event
+    (anti-join on report_id + run_index). Best-effort, like the completed event.
+    """
+    await database_sync_to_async(_track_review_failed_safe, thread_sensitive=False)(input)
 
 
 # --- The PR's live status comment -------------------------------------------------------------------

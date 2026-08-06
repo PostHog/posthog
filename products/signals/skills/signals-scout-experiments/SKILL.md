@@ -88,7 +88,7 @@ Two caveats before trusting a clean p-value:
 - It tests against the **current** configured split. If variants were redistributed mid-run, post-edit balance can look clean while pre-edit data is contaminated — check the flag history (below) whenever `feature_flag.version` is high.
 - It says nothing about `$multiple` — read `bias_risk.multiple_variant_percentage` as its own check (below).
 
-When the tool can't serve the experiment (legacy metrics) or you need to date an onset, fall back to the exposure SQL. Default exposure event:
+When the tool can't serve the experiment (legacy metrics) or you need to date an onset, fall back to the exposure SQL. Read the default exposure event off `experiment-get`'s `resolved_exposure_event` (`$feature_flag_called` or `$experiment_exposure` — resolved server-side, same properties either way):
 
 ```sql
 SELECT
@@ -96,14 +96,14 @@ SELECT
     count() AS exposures,
     count(DISTINCT person_id) AS persons
 FROM events
-WHERE event = '$feature_flag_called'
+WHERE event = '<resolved_exposure_event>'
   AND properties.$feature_flag = '<flag-key>'
   AND timestamp >= toDateTime('<start_date>', 'UTC')
 GROUP BY variant
 ORDER BY exposures DESC
 ```
 
-If `exposure_criteria.exposure_event` is set, the experiment uses a custom exposure event — query that event name instead and read the variant from `properties.$feature/<flag-key>` (a different property; the default's `$feature_flag_response` won't exist there).
+If `exposure_criteria.exposure_config.event` is set, the experiment uses a custom exposure event — query that event name instead and read the variant from `properties.$feature/<flag-key>` (a different property; the default's `$feature_flag_response` won't exist there).
 
 Reading the output:
 
@@ -127,7 +127,7 @@ SELECT person_id,
        count(DISTINCT properties.$feature_flag_response) AS variants_seen,
        count(DISTINCT distinct_id) AS distinct_ids
 FROM events
-WHERE event = '$feature_flag_called'
+WHERE event = '<resolved_exposure_event>'
   AND properties.$feature_flag = '<flag-key>'
   AND properties.$feature_flag_response NOT IN ('$multiple', 'false', '')
   AND timestamp >= toDateTime('<start_date>', 'UTC')
@@ -147,12 +147,12 @@ Both are report-worthy: the team thinks they're collecting evidence and they are
 
 #### Exposure stall / dormant experiment
 
-A running experiment should accrue exposures continuously. Read the per-variant `exposures.timeseries` off `experiment-results-get` (cumulative daily counts — a flat tail is the stall shape), or by SQL. **Query the experiment's actual exposure event**: default experiments use `$feature_flag_called`, but if `exposure_criteria.exposure_event` is set, query that event name instead (filtering on `properties.$feature/<flag-key>` rather than `$feature_flag`) — running the default query against a custom-exposure experiment returns zero rows and fakes a stall:
+A running experiment should accrue exposures continuously. Read the per-variant `exposures.timeseries` off `experiment-results-get` (cumulative daily counts — a flat tail is the stall shape), or by SQL. **Query the experiment's actual exposure event**: default experiments use `resolved_exposure_event` from `experiment-get` (`$feature_flag_called` or `$experiment_exposure`), but if `exposure_criteria.exposure_config.event` is set, query that event name instead (filtering on `properties.$feature/<flag-key>` rather than `$feature_flag`) — running the wrong event's query returns zero rows and fakes a stall:
 
 ```sql
 SELECT toDate(timestamp) AS day, count() AS exposures
 FROM events
-WHERE event = '$feature_flag_called'  -- or exposure_criteria.exposure_event
+WHERE event = '<resolved_exposure_event>'  -- or exposure_criteria.exposure_config.event
   AND properties.$feature_flag = '<flag-key>'
   AND timestamp >= toDateTime('<start_date>', 'UTC')
 GROUP BY day ORDER BY day
@@ -201,7 +201,7 @@ For a candidate that clears the bar, the call is **edit an existing report, auth
 
 - **Search the inbox first.** The `report:experiments:<slug>` scratchpad pointer is the reliable path (it holds the `report_id` — `inbox-reports-retrieve` it directly); with no pointer, `inbox-reports-list` by the specific experiment name **and** flag key (`ordering=-updated_at`), not a broad word like `experiment` (which matches hundreds of unrelated UX reports).
 - **Edit** (`scout-edit-report`) when a still-live report already covers the same experiment issue — an SRM still skewed, a stall that hasn't recovered, a `$multiple` trend still climbing. `append_note` the fresh numbers, or rewrite the title/summary on a report you authored. This is the default when a match exists. `edit-report` can't change status, so if the matched report is `resolved` / `suppressed` / `failed`, don't append (it won't resurface) — author a fresh report for the relapse and repoint the `report:` key.
-- **Author** (`scout-emit-report`) only when nothing live covers it. A good report names the experiment id and flag key, quantifies the contradiction (observed vs expected split with exposure counts, `$multiple` percentage, days dormant), passes the sample-size gate, and dates the onset — ideally tied to a flag version or activity-log entry. Set `priority` (P0–P4) + `priority_explanation` — validity threats on a live decision (SRM, mid-run mutation, contamination) are P2, stalls P2–P3 by blast radius, lifecycle hygiene P3; it's the report's importance in the inbox, your call to make. Set `suggested_reviewers` via `scout-members-list` (objects — a `{github_login}` or `{user_uuid}`, not bare strings; cache under `reviewer:experiments:<slug>`); left empty the report reaches no one. A validity threat is an investigation a human confirms, not a one-line change → `actionability=requires_human_input` and `repository=NO_REPO` (NO_REPO is what stops `priority`+reviewers from spawning a pointless repo-selection sandbox). After authoring, write the `report:experiments:<slug>` pointer with the `report_id` so the next run edits instead of duplicating.
+- **Author** (`scout-emit-report`) only when nothing live covers it. A good report names the experiment id and flag key, quantifies the contradiction (observed vs expected split with exposure counts, `$multiple` percentage, days dormant), passes the sample-size gate, and dates the onset — ideally tied to a flag version or activity-log entry. When the threat lives in a series — per-variant exposures skewing, `$multiple` share climbing, a stall's flatline — attach it via `charts` so the contradiction is visible, not just quoted. Set `priority` (P0–P4) + `priority_explanation` — validity threats on a live decision (SRM, mid-run mutation, contamination) are P2, stalls P2–P3 by blast radius, lifecycle hygiene P3; it's the report's importance in the inbox, your call to make. Set `suggested_reviewers` via `scout-members-list` (objects — a `{github_login}` or `{user_uuid}`, not bare strings; cache under `reviewer:experiments:<slug>`); left empty the report reaches no one. A validity threat is an investigation a human confirms, not a one-line change → `actionability=requires_human_input` and `repository=NO_REPO` (NO_REPO is what stops `priority`+reviewers from spawning a pointless repo-selection sandbox). After authoring, write the `report:experiments:<slug>` pointer with the `report_id` so the next run edits instead of duplicating.
 - **Remember** if below the bar but worth carrying forward (a ratio drifting but inside the noise band, `$multiple` creeping at 0.3%, a plateau that needs one more week); **skip** with a one-line note if a `noise:` / `addressed:` / `dedupe:` entry or an existing report already covers it.
 
 Sibling scouts share memory — the feature-flags scout owns non-experiment flag wiring, and the generalist (which ran an experiment-integrity lens before this specialist existed) may hold `dedupe:general:experiment-*` scratchpad entries; honor them like your own. When a prior run already covered a topic, default to edit-or-skip: the same fact twice in the inbox costs more than missing one finding for one tick.
@@ -231,12 +231,12 @@ Direct calls (read-only):
 
 - `experiment-list` — cheap candidate discovery: id, name, status (draft / running / paused / stopped), dates, `feature_flag_key`. Filter by `status`; start here.
 - `experiment-results-get` — **the flagship detector**: exposure block (`total_exposures`, daily `timeseries`, native `sample_ratio_mismatch.p_value`, `bias_risk.multiple_variant_percentage`) plus per-metric `validation_failures` / `data: null`. Heavy response with many metrics — read the exposure + validation fields, skip the per-metric stats. New-engine experiments only; pass `refresh: false`.
-- `experiment-get` — full config for a candidate: `parameters.feature_flag_variants` (configured split), `parameters.rollout_percentage`, `recommended_sample_size`, `parameters.excluded_variants`, `exposure_criteria` (custom `exposure_event`, `multiple_variant_handling`, `filterTestAccounts`), `stats_config.method`, `holdout_id`, linked `feature_flag` (active, `version`, `bucketing_identifier`, `ensure_experience_continuity`, `filters.groups[].variant` overrides), `metrics` (each with `uuid` + fingerprint). Large response — candidates only.
+- `experiment-get` — full config for a candidate: `parameters.feature_flag_variants` (configured split), `parameters.rollout_percentage`, `recommended_sample_size`, `parameters.excluded_variants`, `exposure_criteria` (custom `exposure_config.event`, `multiple_variant_handling`, `filterTestAccounts`), `resolved_exposure_event` (the default exposure event to query), `stats_config.method`, `holdout_id`, linked `feature_flag` (active, `version`, `bucketing_identifier`, `ensure_experience_continuity`, `filters.groups[].variant` overrides), `metrics` (each with `uuid` + fingerprint). Large response — candidates only.
 - `experiment-stats` — project-wide velocity aggregate (launched / completed last 30d, active count). Cheap context for the hygiene pass.
 - `experiment-timeseries-results` — day-by-day per-variant results for one metric (`metric_uuid` + `fingerprint` from the metrics array). Use sparingly, for the zombie "decide now" check.
 - `feature-flag-get-definition` / `feature-flags-activity-retrieve` — flag state and edit-history diffs; the latter is how you date mid-run mutations.
 - `advanced-activity-logs-list` (`scopes: ["Experiment"]`) — experiment-level edit timeline.
-- `execute-sql` against `events` — exposure analysis. Properties: `$feature_flag` (flag key) + `$feature_flag_response` (variant, incl. `$multiple`) on `$feature_flag_called`; `$feature/<flag-key>` on custom exposure events.
+- `execute-sql` against `events` — exposure analysis. Properties: `$feature_flag` (flag key) + `$feature_flag_response` (variant, incl. `$multiple`) on the default exposure events (`$feature_flag_called` / `$experiment_exposure`); `$feature/<flag-key>` on custom exposure events.
 - `read-data-schema` — confirm a custom exposure event and its properties exist before aggregating over them.
 
 Inbox & reviewer routing:

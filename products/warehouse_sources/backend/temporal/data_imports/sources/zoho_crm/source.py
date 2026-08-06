@@ -11,10 +11,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -25,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zohocrm import (
     ZohoCRMSourceConfig,
 )
@@ -34,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.s
     SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.zoho_crm import (
+    REFRESH_TOKEN_REJECTED_MESSAGE,
     ZohoCRMResumeConfig,
     validate_credentials as validate_zoho_crm_credentials,
     zoho_crm_source,
@@ -54,10 +52,14 @@ class ZohoCRMSource(ResumableSource[ZohoCRMSourceConfig, ZohoCRMResumeConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "Zoho CRM token refresh failed": "Zoho CRM rejected your refresh token. Generate a new one for your self client and reconnect.",
+            "Zoho CRM token refresh failed": REFRESH_TOKEN_REJECTED_MESSAGE,
             "400 Client Error: Bad Request for url: https://accounts.zoho": "Zoho CRM rejected your OAuth credentials. Check that the client ID, client secret, and refresh token all belong to the same self client.",
+            # Some responses carry no reason phrase (e.g. over HTTP/2, which has none), so
+            # `requests.raise_for_status()` renders it blank instead of "Bad Request" — match that
+            # variant too, or the same credential rejection retries the whole activity budget.
+            "400 Client Error:  for url: https://accounts.zoho": "Zoho CRM rejected your OAuth credentials. Check that the client ID, client secret, and refresh token all belong to the same self client.",
             "401 Client Error: Unauthorized for url": "Your Zoho CRM access token is invalid or expired. Reconnect the source to issue a new one.",
-            "403 Client Error: Forbidden for url": "Your Zoho CRM token is missing a scope for this module. Re-authorize with the ZohoCRM.modules.ALL and ZohoCRM.settings.fields.READ scopes.",
+            "403 Client Error: Forbidden for url": "Your Zoho CRM token is missing a scope for this module. Re-authorize with the ZohoCRM.modules.ALL, ZohoCRM.settings.fields.READ, and ZohoCRM.settings.modules.READ scopes.",
         }
 
     @property
@@ -70,7 +72,7 @@ class ZohoCRMSource(ResumableSource[ZohoCRMSourceConfig, ZohoCRMResumeConfig]):
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Connect your Zoho CRM account to pull leads, contacts, deals, and your other modules into the PostHog Data warehouse.
 
-In the [Zoho API console](https://api-console.zoho.com), create a **Self Client** and generate a refresh token for the scopes `ZohoCRM.modules.ALL` and `ZohoCRM.settings.fields.READ`. Paste the client ID, client secret, and refresh token below, then pick the data center your Zoho account lives in.""",
+In the [Zoho API console](https://api-console.zoho.com), create a **Self Client** and generate a refresh token for the scopes `ZohoCRM.modules.ALL`, `ZohoCRM.settings.fields.READ`, and `ZohoCRM.settings.modules.READ`. Paste the client ID, client secret, and refresh token below, then pick the data center your Zoho account lives in.""",
             iconPath="/static/services/zoho_crm.png",
             docsUrl="https://posthog.com/docs/cdp/sources/zoho-crm",
             fields=cast(

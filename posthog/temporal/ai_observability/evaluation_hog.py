@@ -167,6 +167,55 @@ def execute_hog_eval_bytecode(bytecode: list, globals_dict: dict[str, Any], allo
     return result
 
 
+def finalize_hog_eval_result(result: dict[str, Any], *, allows_na: bool, unit_label: str) -> EvaluationActivityResult:
+    """Turn raw Hog bytecode output into an activity result.
+
+    Shared by the trace and session Hog activities: this is the block that decides whether a
+    failure is our bug or the customer's, and a drifted copy would mean a broken evaluation
+    silently retrying against every unit instead of disabling itself. `unit_label`
+    ("trace" / "session") reaches only the raised our-bug message, so whoever triages the page
+    can tell which target produced it.
+    """
+    if result["error"]:
+        if result.get("unexpected"):
+            # A genuine bug in our evaluation code (not the user's Hog). Raise so the Temporal
+            # interceptor reports it to error tracking and we get paged to investigate.
+            raise ApplicationError(
+                f"Hog evaluation error ({unit_label}): {result['error']}",
+                non_retryable=True,
+            )
+
+        # The user's Hog source itself errored — an expected outcome of running customer-authored
+        # code, recorded as a skipped evaluation rather than raised (which would flood error
+        # tracking with one event per unit). Marked terminal so the workflow disables the broken
+        # eval instead of re-running it against every matching unit (mirrors the generation path).
+        spec = require_user_error_spec("hog_error")
+        error_detail = status_reason_detail_for_terminal_user_error(spec, result["error"]) or spec.safe_message
+        errored_result: EvaluationActivityResult = {
+            "result_type": "boolean",
+            "verdict": None if allows_na else False,
+            "reasoning": error_detail,
+            "allows_na": allows_na,
+            "skipped": True,
+            "skip_reason": "hog_error",
+            "terminal_user_error": True,
+            "status_reason": spec.status_reason,
+        }
+        if allows_na:
+            errored_result["applicable"] = False
+        return errored_result
+
+    activity_result: EvaluationActivityResult = {
+        "result_type": "boolean",
+        "verdict": result["verdict"],
+        "reasoning": result["reasoning"],
+        "allows_na": allows_na,
+    }
+    if allows_na:
+        activity_result["applicable"] = result.get("applicable", True)
+    return activity_result
+
+
 def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = False) -> dict[str, Any]:
     """Run compiled Hog bytecode against a single event.
 

@@ -21,7 +21,7 @@
             "type": "string"
         },
         "scope": {
-            "description": "Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay).",
+            "description": "Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay). Support-ticket scopes (Ticket, conversations_ticket) additionally require ticket API scope access.",
             "minLength": 1,
             "type": "string"
         },
