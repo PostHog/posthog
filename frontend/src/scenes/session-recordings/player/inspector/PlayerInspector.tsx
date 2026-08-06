@@ -12,6 +12,8 @@ function MatchingEventsCoverageWarning(): JSX.Element | null {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { matchingEventsOutsideRecordingWindow } = useValues(playerInspectorLogic(logicProps))
 
+    // Only warn when the filter matched events but none of them fall within the playable window;
+    // an unfiltered recording, or one with any in-window match, renders nothing here.
     if (!matchingEventsOutsideRecordingWindow) {
         return null
     }
