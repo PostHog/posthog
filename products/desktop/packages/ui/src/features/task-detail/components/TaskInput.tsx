@@ -1253,7 +1253,7 @@ export function TaskInput({
                     }
                   />
                 )}
-                {!allowNoRepo && (
+                {(!allowNoRepo || workspaceMode === "cloud") && (
                   <ButtonGroup
                     ref={buttonGroupRef}
                     data-tour="folder-picker"
