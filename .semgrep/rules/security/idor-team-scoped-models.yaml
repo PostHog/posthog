@@ -308,6 +308,7 @@ rules:
                               |Task
                               |TaskActivity
                               |TaskArtifact
+                              |TaskCommentActivity
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
@@ -648,6 +649,7 @@ rules:
                         |Task
                         |TaskActivity
                         |TaskArtifact
+                        |TaskCommentActivity
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
