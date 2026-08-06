@@ -643,6 +643,62 @@ impl EphemeralTopic {
         }
     }
 
+    /// Like `next_message_with_headers`, also returning the partition key, so
+    /// one consumed message can assert key, payload, and headers together.
+    pub fn next_message_full(
+        &self,
+    ) -> anyhow::Result<(
+        Option<String>,
+        serde_json::Value,
+        std::collections::HashMap<String, String>,
+    )> {
+        use std::collections::HashMap;
+
+        // Retry on transient Kafka errors like NotCoordinator
+        let mut retries = 0;
+        const MAX_RETRIES: u32 = 10;
+
+        loop {
+            match self.consumer.poll(self.read_timeout) {
+                Some(Ok(message)) => {
+                    let key = match message.key() {
+                        Some(key) => Some(String::from_str(std::str::from_utf8(key)?)?),
+                        None => None,
+                    };
+
+                    let body = message.payload().expect("empty kafka message");
+                    let event = serde_json::from_slice(body)?;
+
+                    let mut headers = HashMap::new();
+                    if let Some(message_headers) = message.headers() {
+                        for header in message_headers.iter() {
+                            if let Some(value) = header.value {
+                                if let Ok(value_str) = std::str::from_utf8(value) {
+                                    headers.insert(header.key.to_string(), value_str.to_string());
+                                }
+                            }
+                        }
+                    }
+
+                    return Ok((key, event, headers));
+                }
+                Some(Err(err)) => {
+                    // Check if it's a transient error that should be retried
+                    let err_str = err.to_string();
+                    if (err_str.contains("NotCoordinator") || err_str.contains("Unknown partition"))
+                        && retries < MAX_RETRIES
+                    {
+                        retries += 1;
+                        std::thread::sleep(Duration::from_millis(100));
+                        continue;
+                    }
+                    bail!("kafka read error: {err}");
+                }
+                None => bail!("kafka read timeout"),
+            }
+        }
+    }
+
     pub(crate) fn assert_empty(&self) {
         assert!(
             self.consumer
