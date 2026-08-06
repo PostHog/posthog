@@ -462,6 +462,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.dashboards",
+    "products.exports",
     "products.workflows",
 ]
 layer = "modules"

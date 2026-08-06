@@ -4366,7 +4366,7 @@ export namespace Schemas {
   export type ColorMode = "light" | "dark";
   export type Comment = {
     id: string;
-    created_by: (UserBasic & unknown) | null;
+    created_by: UserBasic & unknown;
     deleted?: (boolean | null) | undefined;
     mentions?: Array<number> | undefined;
     slug?: string | undefined;
@@ -4375,10 +4375,9 @@ export namespace Schemas {
     version: number;
     created_at: string;
     item_id?: (string | null) | undefined;
-    item_context?: unknown;
+    item_context?: null | undefined;
     scope: string;
     source_comment?: (string | null) | undefined;
-    completed_at?: (string | null) | undefined;
   };
   export type CompareItem = { label: string; value: string };
   export type ConclusionEnum = "won" | "lost" | "inconclusive" | "stopped_early" | "invalid";
@@ -18455,7 +18454,7 @@ export namespace Endpoints {
     path: "/api/projects/{project_id}/comments/";
     requestFormat: "json";
     parameters: {
-      query: Partial<{ cursor: string; item_id: string; task_id: string; scope: string; search: string; source_comment: string }>;
+      query: Partial<{ cursor: string; item_id: string; scope: string; search: string; source_comment: string }>;
       path: { project_id: string };
     };
     responses: { 200: Schemas.PaginatedCommentList };
