@@ -35,7 +35,11 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.schema_enums import ProductKey
 from posthog.settings.base_variables import TEST
 
-from products.cohorts.backend.models.leaf_shape import extract_behavioral_leaf_shape_hash, extract_leaf_shape_hash
+from products.cohorts.backend.models.leaf_shape import (
+    extract_behavioral_leaf_shape_hash,
+    extract_leaf_shape_hash,
+    extract_person_leaf_shape_hash,
+)
 from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
 
 if TYPE_CHECKING:
@@ -231,6 +235,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     last_backfill_events_at = models.DateTimeField(blank=True, null=True)
     filters_shape_hash = models.CharField(max_length=64, null=True, blank=True)
     behavioral_filters_shape_hash = models.CharField(max_length=64, null=True, blank=True)
+    person_filters_shape_hash = models.CharField(max_length=64, null=True, blank=True)
     last_realtime_cohort_calculation_at = models.DateTimeField(blank=True, null=True)
 
     is_static = models.BooleanField(default=False)
@@ -262,6 +267,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     # deprecated in favor of filters
     groups = models.JSONField(default=list)
 
+    # Transient save() state, not columns: _maintain_filter_shape_hashes sets these so the post_save
+    # backfill receivers, which get this same instance, can tell which leaf shapes the save moved.
+    _leaf_shape_changed: bool = False
+    _person_shape_changed: bool = False
+
     objects = CohortManager()  # type: ignore
 
     class Meta:
@@ -292,22 +302,24 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         (`validate_filters_and_compute_realtime_support`) — so a direct `Cohort.objects.create(...)`
         gets a fresh `condition_type` but a stale/absent `cohort_type`."""
         # update_fields can arrive positionally (4th positional, after force_insert/force_update/using)
-        # or as a keyword. Intercept it so _maintain_behavioral_shape can extend the frozen set.
+        # or as a keyword. Intercept it so _maintain_filter_shape_hashes can extend the frozen set.
         update_fields = args[3] if len(args) > 3 else kwargs.get("update_fields")
         if update_fields is None or "filters" in update_fields:
             self.condition_type = Cohort.compute_condition_type(self.filters)
             if update_fields is not None and "condition_type" not in update_fields:
                 update_fields = [*update_fields, "condition_type"]
 
-        maintained_update_fields = self._maintain_behavioral_shape(update_fields)
+        maintained_update_fields = self._maintain_filter_shape_hashes(update_fields)
         if len(args) > 3:
             args = (*args[:3], maintained_update_fields, *args[4:])
         else:
             kwargs["update_fields"] = maintained_update_fields
         super().save(*args, **kwargs)
 
-    def _maintain_behavioral_shape(self, update_fields: Iterable[str] | None) -> set[str] | None:
+    def _maintain_filter_shape_hashes(self, update_fields: Iterable[str] | None) -> set[str] | None:
+        """Maintain full, behavioral, and person filter-shape hashes."""
         self._leaf_shape_changed = False
+        self._person_shape_changed = False
         maintained_update_fields = set(update_fields) if update_fields is not None else None
         try:
             if not self.team_id or not is_realtime_cohort_team(self.team_id):
@@ -319,14 +331,24 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
             new_shape_hash = extract_leaf_shape_hash(self.filters)
             new_behavioral_shape_hash = extract_behavioral_leaf_shape_hash(self.filters)
+            new_person_shape_hash = extract_person_leaf_shape_hash(self.filters)
             stored_shape_hash = self.__dict__.get("filters_shape_hash")
             stored_behavioral_shape_hash = self.__dict__.get("behavioral_filters_shape_hash")
+            stored_person_shape_hash = self.__dict__.get("person_filters_shape_hash")
             previous_behavioral_shape_hash = stored_behavioral_shape_hash
+            previous_person_shape_hash = stored_person_shape_hash
 
-            if not self._state.adding and (stored_shape_hash is None or stored_behavioral_shape_hash is None):
+            if not self._state.adding and (
+                stored_shape_hash is None or stored_behavioral_shape_hash is None or stored_person_shape_hash is None
+            ):
                 persisted = (
                     Cohort.objects.filter(id=self.pk, team_id=self.team_id)
-                    .values("filters", "filters_shape_hash", "behavioral_filters_shape_hash")
+                    .values(
+                        "filters",
+                        "filters_shape_hash",
+                        "behavioral_filters_shape_hash",
+                        "person_filters_shape_hash",
+                    )
                     .first()
                 )
                 if persisted is not None:
@@ -339,18 +361,36 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                             if stored_behavioral_shape_hash is not None
                             else extract_behavioral_leaf_shape_hash(persisted["filters"])
                         )
+                    if stored_person_shape_hash is None:
+                        stored_person_shape_hash = persisted["person_filters_shape_hash"]
+                        previous_person_shape_hash = (
+                            stored_person_shape_hash
+                            if stored_person_shape_hash is not None
+                            else extract_person_leaf_shape_hash(persisted["filters"])
+                        )
 
             shape_hash_needs_update = stored_shape_hash != new_shape_hash
             behavioral_shape_hash_needs_update = stored_behavioral_shape_hash != new_behavioral_shape_hash
+            person_shape_hash_needs_update = stored_person_shape_hash != new_person_shape_hash
             behavioral_shape_changed = (
                 not self._state.adding and previous_behavioral_shape_hash != new_behavioral_shape_hash
             )
+            person_shape_changed = not self._state.adding and previous_person_shape_hash != new_person_shape_hash
 
             self.filters_shape_hash = new_shape_hash
             self.behavioral_filters_shape_hash = new_behavioral_shape_hash
+            self.person_filters_shape_hash = new_person_shape_hash
             if behavioral_shape_changed:
                 self.last_backfill_events_at = None
                 self._leaf_shape_changed = True
+            if person_shape_changed:
+                self.last_backfill_person_properties_at = None
+                self._person_shape_changed = True
+            if behavioral_shape_changed or person_shape_changed:
+                # This stamp vouches for the whole-cohort membership computation, so either
+                # kind of leaf-shape change stales it, and nothing recomputes it on a
+                # schedule to notice.
+                self.last_realtime_cohort_calculation_at = None
 
             if maintained_update_fields is None:
                 return None
@@ -358,8 +398,14 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 maintained_update_fields.add("filters_shape_hash")
             if behavioral_shape_hash_needs_update:
                 maintained_update_fields.add("behavioral_filters_shape_hash")
+            if person_shape_hash_needs_update:
+                maintained_update_fields.add("person_filters_shape_hash")
             if behavioral_shape_changed:
                 maintained_update_fields.add("last_backfill_events_at")
+            if person_shape_changed:
+                maintained_update_fields.add("last_backfill_person_properties_at")
+            if behavioral_shape_changed or person_shape_changed:
+                maintained_update_fields.add("last_realtime_cohort_calculation_at")
             return maintained_update_fields
         except Exception as error:
             logger.exception(
@@ -765,6 +811,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         team_id: Optional[int] = None,
         batch_size: int = DEFAULT_COHORT_INSERT_BATCH_SIZE,
         email_property_key: str | None = None,
+        raise_on_error: bool = False,
     ) -> int:
         """
         Insert a list of users identified by their email address into the cohort, for the given team.
@@ -774,6 +821,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             batch_size: Number of records to process in each batch. Defaults to 1000.
             email_property_key: Accepted for backwards compatibility but ignored — all lookups
                                 use the ClickHouse pmat_email materialized column.
+            raise_on_error: When True, a batch insert failure is re-raised and terminal cohort
+                state is left for the caller to finalize, instead of being swallowed and
+                recorded on the cohort here. Use when the caller must not treat a partial
+                insert as success.
         """
         if team_id is None:
             team_id = self.team_id
@@ -790,7 +841,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             return self._get_uuids_for_emails_batch_ch(items[start_idx:end_idx], team_id)
 
         batch_iterator = FunctionBatchIterator(create_uuid_batch, batch_size=batch_size, max_items=len(items))
-        return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
+        return self._insert_users_list_with_batching(
+            batch_iterator, insert_in_clickhouse=True, team_id=team_id, raise_on_error=raise_on_error
+        )
 
     def _get_uuids_for_emails_batch_ch(self, emails: list[str], team_id: int) -> list[str]:
         if not emails:

@@ -3,10 +3,12 @@ import { useRef, useState } from 'react'
 
 import {
     IconCopy,
+    IconPencil,
     IconThumbsDown,
     IconThumbsDownFilled,
     IconThumbsUp,
     IconThumbsUpFilled,
+    IconTrash,
     IconWarning,
 } from '@posthog/icons'
 import { LemonButton, LemonInput, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
@@ -24,7 +26,10 @@ export interface MessageProps {
     deliveryStatus?: MessageDeliveryStatus
     showAiReplyFeedback?: boolean
     aiReplyFeedbackRating?: AiReplyFeedbackRating | null
+    aiReplyFeedbackDisabledReason?: string
     onSubmitAiReplyFeedback?: (rating: AiReplyFeedbackRating, feedbackText?: string) => void
+    onEdit?: () => void
+    onDelete?: () => void
 }
 
 export function Message({
@@ -33,7 +38,10 @@ export function Message({
     deliveryStatus,
     showAiReplyFeedback = false,
     aiReplyFeedbackRating = null,
+    aiReplyFeedbackDisabledReason,
     onSubmitAiReplyFeedback,
+    onEdit,
+    onDelete,
 }: MessageProps): JSX.Element {
     const profileType = message.authorType === 'AI' ? 'bot' : 'person'
     const isPrivate = message.isPrivate
@@ -48,14 +56,14 @@ export function Message({
         !!onSubmitAiReplyFeedback
 
     function submitRating(rating: AiReplyFeedbackRating): void {
-        if (aiReplyFeedbackRating || !onSubmitAiReplyFeedback) {
+        if (aiReplyFeedbackDisabledReason || aiReplyFeedbackRating || !onSubmitAiReplyFeedback) {
             return
         }
         onSubmitAiReplyFeedback(rating)
     }
 
     function submitBadFeedbackText(): void {
-        if (!feedbackText.trim() || !onSubmitAiReplyFeedback) {
+        if (aiReplyFeedbackDisabledReason || !feedbackText.trim() || !onSubmitAiReplyFeedback) {
             return
         }
         onSubmitAiReplyFeedback('bad', feedbackText.trim())
@@ -78,6 +86,7 @@ export function Message({
                             {isPrivate && <TeamOnlyBadge label="Private note" />}
                             <span className="text-xs text-muted-alt">
                                 <TZLabel time={message.createdAt} />
+                                {(message.version ?? 0) > 0 ? ' (edited)' : null}
                             </span>
                         </div>
                     </div>
@@ -92,7 +101,28 @@ export function Message({
                             } [&_img]:max-h-64 [&_.SupportEditor__image]:max-h-64`}
                         >
                             {isPrivate && (
-                                <div className="flex items-center justify-end">
+                                <div className="flex items-center justify-end gap-2">
+                                    {onEdit && (
+                                        <Tooltip title="Edit note">
+                                            <LemonButton
+                                                size="xsmall"
+                                                icon={<IconPencil />}
+                                                noPadding
+                                                onClick={onEdit}
+                                            />
+                                        </Tooltip>
+                                    )}
+                                    {onDelete && (
+                                        <Tooltip title="Delete note">
+                                            <LemonButton
+                                                size="xsmall"
+                                                icon={<IconTrash />}
+                                                noPadding
+                                                status="danger"
+                                                onClick={onDelete}
+                                            />
+                                        </Tooltip>
+                                    )}
                                     <Tooltip title="Copy message">
                                         <LemonButton
                                             size="xsmall"
@@ -112,6 +142,8 @@ export function Message({
                                 <SupportRichContentPreview
                                     content={message.richContent as JSONContent}
                                     className="text-sm"
+                                    fallbackContent={message.content}
+                                    fallbackDisableImages={message.fromZendesk}
                                 />
                             ) : (
                                 <SupportMarkdown className="text-sm" disableImages>
@@ -135,7 +167,8 @@ export function Message({
                                             size="xsmall"
                                             tooltip="Good reply"
                                             disabledReason={
-                                                aiReplyFeedbackRating ? 'Feedback already recorded' : undefined
+                                                aiReplyFeedbackDisabledReason ??
+                                                (aiReplyFeedbackRating ? 'Feedback already recorded' : undefined)
                                             }
                                             onClick={() => submitRating('good')}
                                             data-attr="ai-reply-feedback-good"
@@ -154,7 +187,8 @@ export function Message({
                                             size="xsmall"
                                             tooltip="Bad reply"
                                             disabledReason={
-                                                aiReplyFeedbackRating ? 'Feedback already recorded' : undefined
+                                                aiReplyFeedbackDisabledReason ??
+                                                (aiReplyFeedbackRating ? 'Feedback already recorded' : undefined)
                                             }
                                             onClick={() => submitRating('bad')}
                                             data-attr="ai-reply-feedback-bad"
@@ -170,6 +204,7 @@ export function Message({
                                             value={feedbackText}
                                             onChange={setFeedbackText}
                                             onPressEnter={submitBadFeedbackText}
+                                            disabledReason={aiReplyFeedbackDisabledReason}
                                             autoFocus
                                         />
                                         <LemonButton
@@ -177,7 +212,8 @@ export function Message({
                                             size="small"
                                             onClick={submitBadFeedbackText}
                                             disabledReason={
-                                                !feedbackText.trim() ? 'Please type a few words' : undefined
+                                                aiReplyFeedbackDisabledReason ??
+                                                (!feedbackText.trim() ? 'Please type a few words' : undefined)
                                             }
                                         >
                                             Submit

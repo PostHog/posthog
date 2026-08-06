@@ -7,8 +7,8 @@ from parameterized import parameterized
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.notion import NotionSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion import (
     NOTION_VERSION_2025_09_03,
@@ -150,16 +150,25 @@ class TestNotionSource:
             for pattern in non_retryable
         )
 
-    def test_retryable_marker_matches_raised_message(self) -> None:
-        # notion.py's _request raises this exact message on a 5xx after tenacity's internal
-        # retries exhaust; matching it here keeps that self-recovering failure out of error
+    @parameterized.expand(
+        [
+            (
+                "5xx_after_tenacity_exhausted",
+                "Notion API error (retryable): status=522, url=https://api.notion.com/v1/comments",
+            ),
+            (
+                "rate_limit_after_tenacity_exhausted",
+                "Notion rate limited: url=https://api.notion.com/v1/comments, retry_after=33.0",
+            ),
+        ]
+    )
+    def test_retryable_marker_matches_raised_message(self, _name: str, error_message: str) -> None:
+        # notion.py's _request raises these exact messages on a 5xx or 429 after tenacity's internal
+        # retries exhaust; matching them here keeps that self-recovering failure out of error
         # tracking as noise instead of being logged as an unclassified exception.
         markers = self.source.get_retryable_errors()
         assert markers
-        assert any(
-            marker in "Notion API error (retryable): status=522, url=https://api.notion.com/v1/comments"
-            for marker in markers
-        )
+        assert any(marker in error_message for marker in markers)
 
 
 @pytest.mark.parametrize("status_code", [500, 503])

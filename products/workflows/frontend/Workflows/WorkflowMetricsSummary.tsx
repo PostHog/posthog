@@ -7,9 +7,9 @@ import { LemonLabel, LemonTable, LemonTableColumns, LemonTag, Link, SpinnerOverl
 import { getColorVar } from 'lib/colors'
 import { type AppMetricsTimeSeriesResponse } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
-import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
+import { WorkflowMetricCard } from './WorkflowMetricCard'
 import {
     type EmailMetric,
     type EmailMetricRow,
@@ -20,6 +20,27 @@ import {
     workflowMetricsSummaryLogic,
     type WorkflowMetricsSummaryLogicProps,
 } from './workflowMetricsSummaryLogic'
+
+const TRACKED_SENDS_TOOLTIP =
+    'Untracked sends can never record opens or clicks, so engagement is shown against tracked sends (sent minus untracked). Counts and rates compare activity within the selected date range, so opens of emails sent before the range can push a rate above 100%.'
+
+// Opens and clicks are only possible on tracked sends, so pair the raw count with the denominator it
+// should be read against, plus the rate over that denominator. A step with no tracked sends shows a
+// dash instead of a rate.
+function trackedEngagementColumn(value: number, row: EmailMetricRow): JSX.Element {
+    return (
+        <span>
+            {value.toLocaleString()}
+            {row.untracked > 0 && (
+                <span className="text-muted"> of {row.trackedSends.toLocaleString()} tracked sends</span>
+            )}
+            <span className="text-muted">
+                {' '}
+                ({row.trackedSends > 0 ? `${((value / row.trackedSends) * 100).toFixed(1)}%` : '-'})
+            </span>
+        </span>
+    )
+}
 
 interface WorkflowMetricsSummaryProps extends WorkflowMetricsSummaryLogicProps {
     onSelectAction?: (actionId: string) => void
@@ -84,35 +105,15 @@ export function WorkflowMetricsSummary({
                 title: 'Opened',
                 key: 'opened',
                 align: 'right',
-                tooltip:
-                    'Untracked sends can never record opens or clicks, so opens are shown against tracked deliveries (delivered minus untracked).',
-                render: (_, row) => (
-                    <span>
-                        {row.opened.toLocaleString()}
-                        {row.untracked > 0 && row.delivered - row.untracked > 0 && (
-                            <span className="text-muted">
-                                {' '}
-                                of {(row.delivered - row.untracked).toLocaleString()} tracked
-                            </span>
-                        )}
-                    </span>
-                ),
+                tooltip: TRACKED_SENDS_TOOLTIP,
+                render: (_, row) => trackedEngagementColumn(row.opened, row),
             },
             {
                 title: 'Clicked',
                 key: 'clicked',
                 align: 'right',
-                render: (_, row) => (
-                    <span>
-                        {row.linkClicked.toLocaleString()}
-                        {row.untracked > 0 && row.delivered - row.untracked > 0 && (
-                            <span className="text-muted">
-                                {' '}
-                                of {(row.delivered - row.untracked).toLocaleString()} tracked
-                            </span>
-                        )}
-                    </span>
-                ),
+                tooltip: TRACKED_SENDS_TOOLTIP,
+                render: (_, row) => trackedEngagementColumn(row.linkClicked, row),
             },
             {
                 title: 'Issues',
@@ -207,9 +208,7 @@ export function WorkflowMetricsSummary({
                             ) : inProgressTotal === 0 ? (
                                 <LemonLabel className="text-muted text-md mb-2">No workflows in progress</LemonLabel>
                             ) : (
-                                <div className="text-6xl text-muted-foreground mb-2">
-                                    {humanFriendlyNumber(inProgressTotal)}
-                                </div>
+                                <div className="text-6xl mb-2">{humanFriendlyNumber(inProgressTotal)}</div>
                             )}
                         </div>
                     </div>
@@ -235,7 +234,7 @@ export function WorkflowMetricsSummary({
                     const sentSeries = (previous?: boolean): AppMetricsTimeSeriesResponse | null => {
                         if (hasEmail && hasPush) {
                             // Split the combined "Messages sent" tile into Emails + Push lines. The headline
-                            // number stays their sum (AppMetricSummary totals across series); the sparkline
+                            // number stays their sum (the metric card totals across series); the sparkline
                             // and its tooltip break the total down by channel.
                             const emailSeries = getSingleTrendSeries('email_sent', previous)
                             const pushSeries = getSingleTrendSeries('push_sent', previous)
@@ -267,7 +266,7 @@ export function WorkflowMetricsSummary({
                           : withDisplayName(getSingleTrendSeries(metricName, true), name)
 
                     return (
-                        <AppMetricSummary
+                        <WorkflowMetricCard
                             key={summaryMetric}
                             name={name}
                             description={description}
@@ -299,7 +298,7 @@ export function WorkflowMetricsSummary({
                                 ) : conversionStats.started === 0 ? (
                                     <LemonLabel className="text-muted text-md mb-2">No workflows started</LemonLabel>
                                 ) : (
-                                    <div className="text-6xl text-muted-foreground mb-2">
+                                    <div className="text-6xl mb-2">
                                         {`${(Math.min(conversionRate, 1) * 100).toFixed(1)}%`}
                                     </div>
                                 )}

@@ -157,15 +157,31 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod
                 zod
                     .object({
                         type: zod
-                            .enum(['slack'])
-                            .describe('\* `slack` - Slack')
-                            .describe("Destination channel type. MVP supports 'slack' only.\n\n\* `slack` - Slack"),
+                            .enum(['slack', 'webhook'])
+                            .describe('\* `slack` - Slack\n\* `webhook` - Webhook')
+                            .describe(
+                                "Destination type: 'slack' posts to a Slack channel; 'webhook' POSTs a JSON payload to a URL.\n\n\* `slack` - Slack\n\* `webhook` - Webhook"
+                            ),
                         integration_id: zod
                             .number()
-                            .describe('ID of the Slack Integration on this team used to deliver the summary.'),
-                        channel: zod.string().describe('Slack channel ID or name the summary is posted to.'),
+                            .optional()
+                            .describe(
+                                "ID of the Slack Integration on this team used to deliver. Required when type is 'slack'."
+                            ),
+                        channel: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                "Slack channel ID or name the summary is posted to. Required when type is 'slack'."
+                            ),
+                        url: zod
+                            .url()
+                            .optional()
+                            .describe(
+                                "HTTPS endpoint the summary is POSTed to as JSON. Required when type is 'webhook'. Redacted to scheme+host in responses for users without editor access to the scanner."
+                            ),
                     })
-                    .describe('A single delivery destination. MVP supports Slack only.')
+                    .describe('A single delivery destination: a Slack channel or an HTTP webhook URL.')
             )
             .optional()
             .describe('List of delivery destinations the synthesized summary is sent to.'),
@@ -322,15 +338,31 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod
                 zod
                     .object({
                         type: zod
-                            .enum(['slack'])
-                            .describe('\* `slack` - Slack')
-                            .describe("Destination channel type. MVP supports 'slack' only.\n\n\* `slack` - Slack"),
+                            .enum(['slack', 'webhook'])
+                            .describe('\* `slack` - Slack\n\* `webhook` - Webhook')
+                            .describe(
+                                "Destination type: 'slack' posts to a Slack channel; 'webhook' POSTs a JSON payload to a URL.\n\n\* `slack` - Slack\n\* `webhook` - Webhook"
+                            ),
                         integration_id: zod
                             .number()
-                            .describe('ID of the Slack Integration on this team used to deliver the summary.'),
-                        channel: zod.string().describe('Slack channel ID or name the summary is posted to.'),
+                            .optional()
+                            .describe(
+                                "ID of the Slack Integration on this team used to deliver. Required when type is 'slack'."
+                            ),
+                        channel: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                "Slack channel ID or name the summary is posted to. Required when type is 'slack'."
+                            ),
+                        url: zod
+                            .url()
+                            .optional()
+                            .describe(
+                                "HTTPS endpoint the summary is POSTed to as JSON. Required when type is 'webhook'. Redacted to scheme+host in responses for users without editor access to the scanner."
+                            ),
                     })
-                    .describe('A single delivery destination. MVP supports Slack only.')
+                    .describe('A single delivery destination: a Slack channel or an HTTP webhook URL.')
             )
             .optional()
             .describe('List of delivery destinations the synthesized summary is sent to.'),
@@ -419,10 +451,10 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
         model: zod
             .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.6-flash'])
             .describe(
-                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash (preview)\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
+                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
             )
             .describe(
-                'Concrete model to use for this scanner.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash (preview)\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
+                'Concrete model to use for this scanner.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
             ),
         enabled: zod
             .boolean()
@@ -505,11 +537,11 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
         model: zod
             .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.6-flash'])
             .describe(
-                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash (preview)\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
+                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
             )
             .optional()
             .describe(
-                'Concrete model to use for this scanner.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash (preview)\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
+                'Concrete model to use for this scanner.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
             ),
         enabled: zod
             .boolean()
@@ -689,14 +721,70 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
         model: zod
             .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.6-flash'])
             .describe(
-                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash (preview)\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
+                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
             )
             .default(visionScannersEstimateCreateBodyModelDefault)
             .describe(
-                'Proposed model; determines `credits_per_observation` in the response.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash (preview)\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
+                'Proposed model; determines `credits_per_observation` in the response.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
             ),
     })
     .describe('Body of POST \/vision\/scanners\/estimate\/ — a proposed, unsaved scanner config.')
+
+/**
+ * Scan named sessions against a prompt without saving a scanner first, for one-off questions.
+ *
+ * The config resolves to a scanner minted on first use, so asking the same question twice reuses
+ * the observations it already has, while a different question about the same session gets its own.
+ */
+export const visionScannersInlineScanCreateBodySessionIdsItemMax = 128
+
+export const visionScannersInlineScanCreateBodySessionIdsMax = 200
+
+export const visionScannersInlineScanCreateBodyPromptMax = 20000
+
+export const visionScannersInlineScanCreateBodyScannerTypeDefault = `monitor`
+export const visionScannersInlineScanCreateBodyModelDefault = `gemini-3-flash-preview`
+
+export const VisionScannersInlineScanCreateBody = /* @__PURE__ */ zod
+    .object({
+        session_ids: zod
+            .array(zod.string().max(visionScannersInlineScanCreateBodySessionIdsItemMax))
+            .max(visionScannersInlineScanCreateBodySessionIdsMax)
+            .describe(
+                'Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.'
+            ),
+        prompt: zod
+            .string()
+            .max(visionScannersInlineScanCreateBodyPromptMax)
+            .describe(
+                'What to look for in these sessions, in plain language. The same instruction a saved scanner carries.'
+            ),
+        scanner_type: zod
+            .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
+            .describe(
+                '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+            )
+            .default(visionScannersInlineScanCreateBodyScannerTypeDefault)
+            .describe(
+                'What the scan produces. Defaults to monitor, an open-ended observation against the prompt.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+            ),
+        scanner_config: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here.'
+            ),
+        model: zod
+            .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.6-flash'])
+            .describe(
+                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
+            )
+            .default(visionScannersInlineScanCreateBodyModelDefault)
+            .describe(
+                'Model to scan with. Determines what each observation costs in credits.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
+            ),
+    })
+    .describe('Body of POST \/vision\/scanners\/inline_scan\/ - a prompt plus the sessions to point it at.')
 
 /**
  * Suggest classifier tags grounded in the scanner's own observations and the org's product data.

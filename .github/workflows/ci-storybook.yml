@@ -4,11 +4,13 @@ on:
         # Draft PRs run a narrowed visual-regression matrix when the Storybook module
         # graph can safely identify affected stories. Ready PRs run the full chromium
         # matrix as the merge gate. To force the full matrix on a draft, add the
-        # `run-ci-frontend` label —
-        # labeled/unlabeled re-trigger the run so it starts without needing a push.
-        # The `no-ci` label does the opposite: it silences this workflow on a draft
-        # entirely (prototypes), until it is removed or the PR is marked ready.
-        types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+        # `run-ci-frontend` label. The `no-ci` label does the opposite: it silences
+        # this workflow on a draft entirely (prototypes).
+        # No labeled/unlabeled triggers: GitHub cannot filter a label trigger by name,
+        # so every unrelated label re-ran the full chromium matrix against a commit CI
+        # had already covered. A label here takes effect from the next push, or from
+        # ready_for_review.
+        types: [opened, synchronize, reopened, ready_for_review]
     push:
         branches:
             - master
@@ -32,6 +34,7 @@ jobs:
         if: >-
             github.event_name != 'pull_request'
             || github.event.pull_request.draft != true
+            || startsWith(github.head_ref, 'trunk-merge/')
             || !contains(github.event.pull_request.labels.*.name, 'no-ci')
         name: Determine need to run storybook checks
         # Set job outputs to values from filter step
@@ -56,6 +59,16 @@ jobs:
                         && steps.baseline_push.outputs.result != 'true')
                 }}
             matrix: ${{ steps.matrix.outputs.matrix }}
+            # Trunk's merge queue opens its PR from trunk-merge/**. Scoped to same-repo
+            # heads because github.head_ref is author-controlled: without the scope, any
+            # contributor could opt out of the visual gates below by naming their branch
+            # trunk-merge/**. Only write access can push such a branch here.
+            merge_queue: >-
+                ${{
+                    github.event_name == 'pull_request'
+                    && github.event.pull_request.head.repo.full_name == github.repository
+                    && startsWith(github.head_ref, 'trunk-merge/')
+                }}
         steps:
             # Needed by the "Derive Node-only product workspace exclusions" step (reads
             # pnpm-workspace.yaml + bin/frontend-exclude-filter) and by the local
@@ -79,6 +92,9 @@ jobs:
                         - 'frontend/**'
                         - 'products/**/*.{ts,tsx}'
                         - 'products/**/frontend/**'
+                        # products/desktop is the imported desktop app; it has its own
+                        # desktop-* CI and must not drag this suite onto its PRs
+                        - '!products/desktop/**'
                         - 'common/{esbuilder,mosaic,storybook,tailwind}/**'
                         # quill is consumed app-wide via `workspace:*`, so a change here
                         # alters rendering across the main-app stories — run the suite.
@@ -191,6 +207,16 @@ jobs:
             - name: Fix node-gyp permissions
               run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             # This job checks out the PR head (not the merge ref), so it can't use
             # the ./.github/actions/pnpm-install local action — an un-rebased head
             # may not contain it. Cache the store inline instead, sharing the same
@@ -199,7 +225,7 @@ jobs:
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Get pnpm store path
               id: pnpm-store
@@ -311,11 +337,21 @@ jobs:
                       products/visual_review/frontend/generated/api.schemas.ts
                   sparse-checkout-cone-mode: false
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install VR CLI
               run: cd vr-cli/products/visual_review/cli && npm ci && npm run build
@@ -329,7 +365,11 @@ jobs:
                   VR_PR: ${{ github.event.pull_request.number }}
                   # PRs are gating ("review"); master pushes are tracking-only ("observe") since
                   # there's no PR to approve and we don't want master runs to block or prompt for approval.
-                  VR_PURPOSE: ${{ github.event_name == 'push' && 'observe' || 'review' }}
+                  # trunk-merge/** is observe for the same reason: the queue's PR is ephemeral, so a
+                  # diff there has no reviewer and no approval path. Master baseline drift would
+                  # otherwise block every PR behind it on a diff none of their authors can resolve.
+                  # The run is still created, so merge-time drift stays visible in Visual Review.
+                  VR_PURPOSE: ${{ (github.event_name == 'push' || needs.changes.outputs.merge_queue == 'true') && 'observe' || 'review' }}
                   # Selective storybook runs only render a subset of stories. Without --partial,
                   # VR would flag every untouched baseline identifier as removed.
                   VR_PARTIAL: ${{ needs.select-stories.outputs.mode == 'selective' && '--partial' || '' }}
@@ -388,11 +428,21 @@ jobs:
             - name: Fix node-gyp permissions
               run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Get pnpm store path
               id: pnpm-store
@@ -542,7 +592,12 @@ jobs:
         name: Storybook flake verification
         runs-on: ubuntu-latest
         needs: [changes, build-storybook]
-        if: needs.changes.outputs.frontend == 'true' && github.event_name == 'pull_request'
+        # Skipped on trunk-merge/**: the job diffs against base.sha to find changed stories,
+        # which on a queue branch is the same set the PR's own run already re-ran three times.
+        if: |
+            needs.changes.outputs.frontend == 'true'
+            && github.event_name == 'pull_request'
+            && needs.changes.outputs.merge_queue != 'true'
         timeout-minutes: 45
         container:
             image: ghcr.io/posthog/playwright:v1.60.0
@@ -561,11 +616,21 @@ jobs:
             - name: Fix node-gyp permissions
               run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Get pnpm store path
               id: pnpm-store
@@ -665,7 +730,7 @@ jobs:
         name: Complete Visual Review run
         runs-on: ubuntu-latest
         timeout-minutes: 15
-        needs: [visual-regression, vr-setup]
+        needs: [changes, visual-regression, vr-setup]
         # Intentional always(), not !cancelled(): this job finalizes external state,
         # so a run cancelled after the matrix succeeded must still complete the VR
         # run rather than leave its commit status stuck pending. It also stops the
@@ -699,29 +764,46 @@ jobs:
                       products/visual_review/frontend/generated/api.schemas.ts
                   sparse-checkout-cone-mode: false
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install VR CLI
               run: cd vr-cli/products/visual_review/cli && npm ci && npm run build
 
             - name: Complete Visual Review run
-              # On master pushes the run was created with --purpose observe (tracking-only),
-              # but `vr run complete` still exits 1 whenever visual changes are detected.
-              # That makes the Storybook check fail on master even though observe runs are
-              # not gating by design. Treat exit 1 as informational on push events; PRs
-              # still gate as before.
-              continue-on-error: ${{ github.event_name == 'push' }}
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
+                  # Master pushes and merge-queue branches create the run with --purpose observe
+                  # (tracking-only), because neither has a PR whose reviewer could approve a diff.
+                  VR_OBSERVE: ${{ github.event_name == 'push' || needs.changes.outputs.merge_queue == 'true' }}
               run: |
+                  status=0
                   node vr-cli/products/visual_review/cli/dist/cli/src/index.js run complete \
                     --run-id "${{ needs.vr-setup.outputs.run_id }}" \
                     --baseline frontend/snapshots.yml \
-                    --token "$VR_TOKEN"
+                    --token "$VR_TOKEN" || status=$?
+
+                  # `vr run complete` exits 1 for unresolved visual changes and 2 when the CLI
+                  # itself failed (auth, network, timeout, backend processing). Only the former
+                  # is expected on an observe run, so exit 2 still reds CI everywhere.
+                  if [ "$status" -eq 1 ] && [ "$VR_OBSERVE" = 'true' ]; then
+                      echo "Observe run: visual changes recorded, not gating."
+                      exit 0
+                  fi
+                  exit "$status"
 
     calculate-running-time:
         name: Calculate running time
@@ -810,10 +892,13 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: [changes, build-storybook]
+        # Trunk's merge-queue branches open as draft PRs, but their run IS the
+        # merge gate, so they must never get the narrowed selection.
         if: |
             !cancelled() && needs.changes.outputs.frontend == 'true'
             && github.event_name == 'pull_request'
             && github.event.pull_request.draft == true
+            && !startsWith(github.head_ref, 'trunk-merge/')
             && !contains(github.event.pull_request.labels.*.name, 'run-ci-frontend')
         outputs:
             mode: ${{ steps.classify.outputs.mode }}
@@ -835,10 +920,20 @@ jobs:
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Download module-graph artifact
               id: download

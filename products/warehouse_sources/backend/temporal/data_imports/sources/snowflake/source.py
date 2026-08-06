@@ -83,6 +83,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.SNOWFLAKE,
             category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["sql"],
             caption="Enter your Snowflake credentials to automatically pull your Snowflake data into the PostHog Data warehouse.",
             iconPath="/static/services/snowflake.png",
             docsUrl="https://posthog.com/docs/cdp/sources/snowflake",
@@ -282,7 +283,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # until the user restores the object or re-grants access. The object name and query id in
             # the message are volatile, so we match on the stable trailing phrase.
             "does not exist or not authorized": "A table or schema this source syncs no longer exists in Snowflake, or your role is no longer authorized to access it. Check that the object still exists and that your Snowflake role has access, then resync.",
-            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
+            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/core/arrow_utils.py`
             # when an integer column's source type was widened (e.g. a narrower NUMBER widened
             # to a larger NUMBER/BIGINT) after the destination table was created with the
             # narrower type. Delta Lake can't widen an existing column in place, so retrying
@@ -313,6 +314,15 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # previous attempt doesn't carry over. Self-recovering, so keep retrying instead of
             # stopping the sync. The errno prefix is volatile, so we match the stable status text.
             "HTTP 400: Bad Request",
+            # Snowflake error 250001 (08001): the login-request endpoint itself responded with a
+            # generic "Internal error" (`auth/_auth.py` formats this as "Failed to connect to DB:
+            # {host}:{port}. {message}", where `message` is Snowflake's own internal-error text) —
+            # a transient blip on Snowflake's authentication service, not a credential or config
+            # problem. It isn't retried inside the connector's own auth flow, so without this marker
+            # every Temporal-level retry logs it as unclassified error-tracking noise instead of the
+            # self-recovering failure it is. The request id in brackets is volatile, so we match the
+            # stable phrase.
+            "Internal error:",
         }
 
     def reconcile_schema_metadata(

@@ -43,7 +43,7 @@ const reviewHogReviewsList = (): ToolBase<
                 scope: params.scope,
             },
         })
-        return await withPostHogUrl(context, result, '/code_review')
+        return await withPostHogUrl(context, result, '/code-review')
     },
 })
 

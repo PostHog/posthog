@@ -87,7 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--provider",
         choices=get_args(SandboxProvider),
         default=None,
-        help="Where sandboxes run (default: docker). 'modal' starts ngrok tunnels so remote sandboxes can reach this host.",
+        help="Where sandboxes run (default: docker). 'modal' exposes this host via Tailscale Funnel so remote sandboxes can reach it.",
     )
     parser.add_argument("--eval", dest="case_filter", default=None, help="Only run cases whose name contains this.")
     parser.add_argument(

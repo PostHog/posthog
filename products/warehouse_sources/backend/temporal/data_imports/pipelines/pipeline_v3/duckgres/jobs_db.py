@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import Any
 
 import psycopg
@@ -60,6 +61,13 @@ def _latest_status_lateral(status_table: str, batch_alias: str) -> str:
 # DB. Cap each statement so a slow query fails fast and the poll loop retries on
 # the next tick instead of wedging. Tune up if a legitimate run needs longer.
 ELIGIBILITY_QUERY_STATEMENT_TIMEOUT_MS = 30_000
+
+
+def is_eligibility_query_timeout(error: BaseException) -> bool:
+    """True when ``error`` is a query cancellation, the expected shape of
+    ELIGIBILITY_QUERY_STATEMENT_TIMEOUT_MS tripping under a slow/loaded queue DB.
+    Callers should skip the tick and retry rather than report it as a defect."""
+    return isinstance(error, psycopg.errors.QueryCanceled)
 
 
 @asynccontextmanager
@@ -236,6 +244,15 @@ def _eligibility_ctes(scoped: bool) -> str:
                         AND old.run_uuid NOT IN (SELECT run_uuid FROM failed_runs)
                     GROUP BY old.team_id, old.schema_id, old.run_uuid, rs_ir.started_at
                 ),"""
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class BacklogStats:
+    eligible_count: int
+    eligible_oldest_age_seconds: float | None
+    blocked_count: int
+    blocked_oldest_age_seconds: float | None
+    failing_blocked_count: int
 
 
 class DuckgresBatchQueue:
@@ -681,8 +698,8 @@ class DuckgresBatchQueue:
         blocked_schema_ids: list[str] | None = None,
         eligible_schema_ids: list[str] | None = None,
         failing_schema_ids: list[str] | None = None,
-    ) -> tuple[int, float | None, int, float | None, int]:
-        """(eligible_count, eligible_oldest_age, blocked_count, blocked_oldest_age, failing_blocked_count).
+    ) -> BacklogStats:
+        """Backlog counts and ages split into eligible, blocked, and failing-blocked buckets.
 
         Eligible = delta-succeeded, unapplied, non-failed data batches the sink
         can claim now — the lag/alert signal (7-day retention and permanent run
@@ -693,7 +710,7 @@ class DuckgresBatchQueue:
         hard-blocked schema (failure streak at threshold / needs_resync);
         counted separately so one wedged schema can neither trigger nor mask
         the page. Durable per-schema failure tracking lives on
-        DuckgresSinkSchemaState (this count ages out with queue retention).
+        sink state (this count ages out with queue retention).
         """
         scoped = team_ids is not None
         async with _statement_timeout(conn, ELIGIBILITY_QUERY_STATEMENT_TIMEOUT_MS), conn.cursor() as cur:
@@ -743,8 +760,20 @@ class DuckgresBatchQueue:
             return float(v) if v is not None else None
 
         if row is None:
-            return 0, None, 0, None, 0
-        return int(row[0]), _age(row[1]), int(row[2]), _age(row[3]), int(row[4])
+            return BacklogStats(
+                eligible_count=0,
+                eligible_oldest_age_seconds=None,
+                blocked_count=0,
+                blocked_oldest_age_seconds=None,
+                failing_blocked_count=0,
+            )
+        return BacklogStats(
+            eligible_count=int(row[0]),
+            eligible_oldest_age_seconds=_age(row[1]),
+            blocked_count=int(row[2]),
+            blocked_oldest_age_seconds=_age(row[3]),
+            failing_blocked_count=int(row[4]),
+        )
 
     @staticmethod
     async def update_status(
