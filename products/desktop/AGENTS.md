@@ -119,7 +119,7 @@ For each new file or meaningful change:
 - Bespoke clients that wrap `trpcClient.x` one-to-one.
 - `*Port`, `*_PORT`, or `ports.ts` naming.
 - Business logic in `apps/<host>`.
-- New ad-hoc broad in-app announcement or promo surfaces (flag-gated promo cards, dismissible banners, one-time modals like the Loops announcement). Broad announcements are remotely controlled via the `posthog-desktop-announcements` flag payload — see [docs/ANNOUNCEMENTS.md](./docs/ANNOUNCEMENTS.md). The legacy ad-hoc surfaces (`LoopsPromoCard`, `UsageBillingAnnouncementModal`, `ScoutAlphaBanner`) were deleted once this system shipped — do not reintroduce them.
+- New ad-hoc broad in-app announcement or promo surfaces (flag-gated promo cards, dismissible banners, one-time modals). Broad announcements are remotely controlled via the `posthog-desktop-announcements` flag payload — see [docs/ANNOUNCEMENTS.md](./docs/ANNOUNCEMENTS.md).
 
 ## Host Boundary
 

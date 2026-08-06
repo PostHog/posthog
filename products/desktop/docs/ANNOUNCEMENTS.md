@@ -9,10 +9,8 @@ https://desktop-announcements-admin.hosthog.dev (`tools/announcements-admin/`).
 
 **Do not build new ad-hoc announcement surfaces** (flag-gated promo cards,
 dismissible banners, one-time modals). That is a Forbidden Pattern in
-AGENTS.md. The ad-hoc surfaces that predated this system (`LoopsPromoCard`,
-`UsageBillingAnnouncementModal`, `ScoutAlphaBanner`) have been deleted; the
-only announcement-adjacent surfaces outside it are the What's New changelog
-and the update modals.
+AGENTS.md. The only announcement-adjacent surfaces outside this system are
+the What's New changelog and the update modals.
 
 ## How it works
 

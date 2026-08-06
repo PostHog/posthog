@@ -190,9 +190,8 @@ function ImageHero({
 }
 
 /**
- * Modal hero band, styled after the Loops promo dialog: a colored band with a
- * hedgehog by default, a remote image when the payload provides one, nothing
- * when the payload opts out.
+ * Modal hero band: a colored band with a hedgehog by default, a remote image
+ * when the payload provides one, nothing when the payload opts out.
  */
 export function AnnouncementHero({
   hero,
