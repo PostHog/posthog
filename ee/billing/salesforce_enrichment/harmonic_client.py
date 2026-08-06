@@ -143,6 +143,26 @@ class AsyncHarmonicClient:
             raise last_error
         return None
 
+    async def get_company_by_urn(self, urn: str) -> Optional[dict[str, Any]]:
+        """Resolve a Harmonic company URN (e.g. from relatedCompanies) via the REST profile endpoint.
+
+        Returns None only for a genuine not-found (404). Other failures propagate — like
+        enrich_company_by_domain_strict, this does not capture_exception; parent-company
+        resolution is optional, so the caller decides whether to swallow the error.
+        """
+        company_id = urn.rsplit(":", 1)[-1]
+
+        if self.session is None:
+            raise RuntimeError("HTTP session not initialized. Use async context manager.")
+        async with self.session.get(
+            f"{HARMONIC_BASE_URL}/companies/{company_id}",
+            headers={"apikey": self.api_key},
+        ) as response:
+            if response.status == 404:
+                return None
+            response.raise_for_status()
+            return await response.json()
+
     async def enrich_companies_batch(self, domains: list[str]) -> list[dict[str, Any] | None]:
         """Enrich multiple domains concurrently.
 

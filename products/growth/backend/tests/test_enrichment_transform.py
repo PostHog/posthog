@@ -127,3 +127,19 @@ def test_partial_payload_leaves_missing_fields_unset():
     fields = transform_harmonic_company({"companyType": "ENTERPRISE"})
     assert fields is not None
     assert fields.to_dict() == {"company_type": "ENTERPRISE", "is_yc_company": False}
+
+
+def test_ownership_status_is_mapped_and_parent_fields_stay_unset():
+    fields = transform_harmonic_company(_company(ownershipStatus="ACQUIRED_OR_MERGED"))
+    assert fields is not None
+    assert fields.ownership_status == "ACQUIRED_OR_MERGED"
+    # Parent resolution is a provider-level concern (REST lookup), not part of the pure transform.
+    assert fields.parent_company is None
+    assert fields.parent_company_domain is None
+    assert "parent_company" not in fields.to_dict()
+
+
+def test_ownership_status_unset_when_absent():
+    fields = transform_harmonic_company(_company())
+    assert fields is not None
+    assert fields.ownership_status is None

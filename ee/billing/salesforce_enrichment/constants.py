@@ -26,6 +26,15 @@ mutation($identifiers: CompanyEnrichmentIdentifiersInput!) {
             }
             headcount
             description
+            ownershipStatus
+            relatedCompanies {
+                acquiredBy {
+                    companyUrn
+                }
+                subsidiaryOf {
+                    companyUrn
+                }
+            }
             location {
                 city
                 country
