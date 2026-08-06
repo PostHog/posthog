@@ -2836,7 +2836,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 if (error.status === 409 && error.data?.change_request_id) {
                     showApprovalRequiredToast(
                         error.data.change_request_id,
-                        'end this experiment and roll out the winning variant'
+                        'end this experiment and roll out the winning variant',
+                        error.data.code
                     )
                     dispatchChangeRequestCreated({
                         resourceType: 'feature_flag',

@@ -14,21 +14,7 @@ jest.mock('scenes/approvals/utils', () => ({
 }))
 
 describe('updateFlagActiveInProject', () => {
-    it('shows the approval toast and announces the change request on an approval-required 409', async () => {
-        useMocks({
-            patch: {
-                '/api/projects/:team_id/feature_flags/:id/': () => [409, { change_request_id: 'cr-1' }],
-            },
-        })
-
-        const result = await updateFlagActiveInProject({ teamId: 2, flagId: 42, active: true })
-
-        expect(result).toBeNull()
-        expect(showApprovalRequiredToast).toHaveBeenCalledWith('cr-1', 'enable this feature flag', false)
-        expect(dispatchChangeRequestCreated).toHaveBeenCalledWith({ resourceType: 'feature_flag', resourceId: 42 })
-    })
-
-    it('flags a rejected duplicate as already pending instead of newly submitted', async () => {
+    it('shows the approval toast with the response code and announces the change request on a 409', async () => {
         useMocks({
             patch: {
                 '/api/projects/:team_id/feature_flags/:id/': () => [
@@ -38,8 +24,14 @@ describe('updateFlagActiveInProject', () => {
             },
         })
 
-        await updateFlagActiveInProject({ teamId: 2, flagId: 42, active: true })
+        const result = await updateFlagActiveInProject({ teamId: 2, flagId: 42, active: true })
 
-        expect(showApprovalRequiredToast).toHaveBeenCalledWith('cr-1', 'enable this feature flag', true)
+        expect(result).toBeNull()
+        expect(showApprovalRequiredToast).toHaveBeenCalledWith(
+            'cr-1',
+            'enable this feature flag',
+            'change_request_pending'
+        )
+        expect(dispatchChangeRequestCreated).toHaveBeenCalledWith({ resourceType: 'feature_flag', resourceId: 42 })
     })
 })

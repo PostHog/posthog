@@ -142,16 +142,19 @@ export function initKea({
                 // distinct codes (`read_only_blocked`, `impersonation_read_only`) and still toasts.
                 const isAccessDenied =
                     isAccessDeniedError(error) && (isLoadAction || ACCESS_DENIED_SELF_HANDLED.has(String(actionKey)))
-                // An approvals 409 is the change-request workflow doing its job: the gate answered a
-                // policy-gated change by creating a request (or finding one already pending). The
-                // approvals UI surfaces this to the user, so it is expected, customer-facing control
-                // flow — not a generic failure toast, and not a production exception to capture.
-                const isApprovalRequired = error?.status === 409
+                // A 409 never gets the generic failure toast because conflict flows surface their
+                // own UI (pre-existing behavior). An approvals 409 additionally skips exception
+                // capture: the gate answered a policy-gated change by creating a change request
+                // (or finding one already pending), which is expected, customer-facing control flow
+                // rather than a failure. Approval 409 bodies always carry change_request_id
+                // (products/approvals/backend/decorators.py).
+                const isConflict = error?.status === 409
+                const isApprovalRequired = isConflict && error?.data?.change_request_id !== undefined
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     error?.status !== undefined &&
                     ![200, 201, 204, 401].includes(error.status) && // 401 is handled by api.ts and the userLogic
-                    !isApprovalRequired &&
+                    !isConflict &&
                     !(isLoadAction && error.status === 403) && // 403 access denied is handled by sceneLogic gates
                     !isAccessDenied
                 ) {

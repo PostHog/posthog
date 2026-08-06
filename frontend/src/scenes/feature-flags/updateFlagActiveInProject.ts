@@ -56,7 +56,7 @@ export function isFlagApprovalRequiredError(e: any): boolean {
  */
 export function handleFlagApprovalRequired(e: any, flagId: number, actionDescription: string): boolean {
     if (isFlagApprovalRequiredError(e)) {
-        showApprovalRequiredToast(e.data.change_request_id, actionDescription, e.data.code === 'change_request_pending')
+        showApprovalRequiredToast(e.data.change_request_id, actionDescription, e.data.code)
         dispatchChangeRequestCreated({ resourceType: 'feature_flag', resourceId: flagId })
         return true
     }
