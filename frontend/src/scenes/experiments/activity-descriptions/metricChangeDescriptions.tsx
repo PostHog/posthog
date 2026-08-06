@@ -164,8 +164,12 @@ export const getMetricChanges = (
     if (metricBefore.conversion_window && !metricAfter.conversion_window) {
         changes.push('set the conversion window to the experiment duration')
     }
-    // check if conversion window was added (set to time window)
-    if (!metricBefore.conversion_window && metricAfter.conversion_window) {
+    // check if conversion window was added, or its value or unit changed
+    if (
+        metricAfter.conversion_window &&
+        (metricBefore.conversion_window !== metricAfter.conversion_window ||
+            metricBefore.conversion_window_unit !== metricAfter.conversion_window_unit)
+    ) {
         changes.push(
             `set the conversion window to ${metricAfter.conversion_window} ${metricAfter.conversion_window_unit}`
         )
@@ -208,6 +212,19 @@ export const getMetricChanges = (
     const ratioChanges = getRatioChanges(metricBefore, metricAfter)
     if (ratioChanges) {
         changes.push(ratioChanges)
+    }
+
+    /**
+     * the fingerprint changed but none of the branches above recognized the
+     * difference — fall back to a generic sentence instead of rendering a
+     * verbless fragment
+     */
+    if (changes.length === 0) {
+        return (
+            <span>
+                changed the metric <LemonTag>{metricBefore.name || getDefaultMetricTitle(metricBefore)}</LemonTag>
+            </span>
+        )
     }
 
     /**
