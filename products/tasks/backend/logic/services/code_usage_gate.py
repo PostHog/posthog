@@ -12,7 +12,6 @@ from posthog.models import OAuthAccessToken
 from posthog.temporal.oauth import create_oauth_access_token_for_user
 from posthog.utils import get_instance_region
 
-from products.tasks.backend.access import has_tasks_access
 from products.tasks.backend.metrics import observe_code_usage_gate_check
 from products.tasks.backend.presentation.serializers import TaskRunErrorResponseSerializer
 
@@ -137,35 +136,14 @@ def rate_limit_error_payload(usage: CodeUsageStatus) -> dict[str, Any]:
     return payload
 
 
-def code_access_required_response(user) -> Response | None:
-    if has_tasks_access(user):
-        return None
-    return Response(
-        TaskRunErrorResponseSerializer(
-            {
-                "type": "permission_denied",
-                "code": "code_access_required",
-                "error": "PostHog Desktop access is required to run tasks in the cloud.",
-            }
-        ).data,
-        status=status.HTTP_403_FORBIDDEN,
-    )
+def usage_limit_response(user, team_id: int) -> Response | None:
+    """Return a 429 when the team is over its PostHog Desktop usage limit, else None.
 
-
-def cloud_usage_limit_response(user, team_id: int, *, require_tasks_access: bool = True) -> Response | None:
-    """Return a blocking response when Desktop access or usage limits deny a cloud run, else None.
-
-    Entitlement checks fail closed. Usage checks fail open when the gateway can't be reached.
-    Every usage check is counted by outcome (`checked_allowed` / `checked_blocked` / `fail_open`)
-    so a degraded gateway silently removing this cost backstop is visible, not just logged.
-
-    ``require_tasks_access`` lets callers whose run is entitled through another product skip the
-    PostHog Code (`tasks`) entitlement check while still applying the usage-limit cost backstop —
-    e.g. running a self-driving report task from the Inbox (see ``is_signal_report_task``).
+    Since Desktop moved to usage-based billing, this is the whole cost control on cloud runs —
+    no waitlist check is involved. Fails open when the gateway can't be reached, so every check
+    is counted by outcome (`checked_allowed` / `checked_blocked` / `fail_open`) and a degraded
+    gateway silently removing the backstop is visible, not just logged.
     """
-    if require_tasks_access and (response := code_access_required_response(user)):
-        return response
-
     usage = get_posthog_code_usage(user, team_id)
     if usage is None:
         observe_code_usage_gate_check(outcome="fail_open")

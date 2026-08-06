@@ -150,19 +150,6 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_home_canvas_is_unique_per_channel(self):
-        self._create_canvas(name="Home", is_home=True)
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/canvases/",
-            {"name": "Home 2", "channel_id": str(self.channel.id), "is_home": True},
-            format="json",
-        )
-        assert response.status_code == status.HTTP_409_CONFLICT
-        assert response.json()["code"] == "home_canvas_exists"
-
-        response = self.client.get(f"/api/projects/{self.team.id}/canvases/?is_home=true")
-        assert [row["name"] for row in response.json()["results"]] == ["Home"]
-
     def test_partial_update_metadata(self):
         canvas_id = self._create_canvas()
         response = self.client.patch(
@@ -415,6 +402,26 @@ class TestCanvasRevertAndBuilds(CanvasAPIBaseTest):
         body = response.json()
         assert body["published_build_id"] == str(published.id)
         assert str(published.id) in {build["id"] for build in body["builds"]}
+
+    def test_builds_lifecycle_includes_requested_historical_build_beyond_window(self):
+        canvas_id, v1, v2 = self._published_canvas()
+        historical = CanvasBuild.objects.unscoped().get(canvas_id=canvas_id, source_version_id=v1)
+        historical.status = CanvasBuild.STATUS_READY
+        historical.save(update_fields=["status"])
+        version = CanvasSourceVersion.objects.unscoped().get(id=v2)
+        with team_scope(self.team.id):
+            for _ in range(25):
+                CanvasBuild.objects.create(
+                    team_id=self.team.id,
+                    canvas_id=canvas_id,
+                    source_version=version,
+                    status=CanvasBuild.STATUS_FAILED,
+                )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/builds/?version_id={v1}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert str(historical.id) in {build["id"] for build in response.json()["builds"]}
 
     def test_build_with_pruned_artifacts_advertises_no_url(self):
         canvas_id, v1, _ = self._published_canvas()

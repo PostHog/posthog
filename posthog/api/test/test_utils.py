@@ -6,6 +6,7 @@ from django.http import HttpRequest
 from django.test.client import RequestFactory
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.api.utils import (
     PaginationMode,
@@ -13,10 +14,12 @@ from posthog.api.utils import (
     format_paginated_url,
     get_data,
     get_target_entity,
+    hostname_in_allowed_url_list,
     is_async_query,
     is_insight_query,
     raise_if_user_provided_url_unsafe,
     safe_clickhouse_string,
+    validate_authorized_url_wildcards,
     PublicIPOnlyHttpAdapter,
     unparsed_hostname_in_allowed_url_list,
 )
@@ -338,3 +341,48 @@ class TestUtils(BaseTest):
         self, _name: str, allowlist: list[str], needle: str | None, expected: bool
     ) -> None:
         assert unparsed_hostname_in_allowed_url_list(allowlist, needle) == expected
+
+    @parameterized.expand(
+        [
+            ("wildcard spans several labels", ["https://*.example.com"], "a.b.example.com", True),
+            ("wildcard does not match the bare domain", ["https://*.example.com"], "example.com", False),
+            ("bare wildcard matches any host", ["https://*"], "attacker.test", True),
+            ("several wildcards in one entry", ["https://*.*.example.com"], "a.b.c.example.com", True),
+            ("wildcard inside a label", ["https://app*.example.com"], "app-eu.example.com", True),
+            ("wildcard inside a label may match nothing", ["https://foo*bar.example.com"], "foobar.example.com", True),
+            (
+                "literals between wildcards must appear in order",
+                ["https://a*b*c.example.com"],
+                "acb.example.com",
+                False,
+            ),
+            ("prefix and suffix may not overlap", ["https://a*a.com"], "a.com", False),
+            ("trailing literal still has to match", ["https://*.example.com"], "a.example.com.attacker.test", False),
+            ("leading literal still has to match", ["https://app.*.com"], "notapp.eu.com", False),
+        ]
+    )
+    def test_hostname_in_allowed_url_list_wildcards(
+        self, _name: str, allowlist: list[str], hostname: str, expected: bool
+    ) -> None:
+        assert hostname_in_allowed_url_list(allowlist, hostname) == expected
+
+    def test_hostname_in_allowed_url_list_skips_unparseable_entry(self) -> None:
+        assert hostname_in_allowed_url_list(["http://[", "https://example.com"], "example.com") is True
+
+    @parameterized.expand(
+        [
+            ("no wildcards", ["https://example.com"], False),
+            ("wildcard count at the cap", ["https://*.*.*.*.*.example.com"], False),
+            ("wildcard count over the cap", ["https://*.*.*.*.*.*.example.com"], True),
+            ("only one entry is over the cap", ["https://example.com", "https://*.*.*.*.*.*.com"], True),
+            ("wildcards in the path are not counted", ["https://example.com/*/*/*/*/*/*/*/*"], False),
+            ("entry with no parseable host", ["*.*.*.*.*.*.*.example.com"], False),
+            ("entry that cannot be parsed at all", ["http://["], True),
+        ]
+    )
+    def test_validate_authorized_url_wildcards(self, _name: str, urls: list[str], expect_error: bool) -> None:
+        if not expect_error:
+            validate_authorized_url_wildcards(urls)
+            return
+        with self.assertRaises(DRFValidationError):
+            validate_authorized_url_wildcards(urls)

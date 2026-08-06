@@ -158,3 +158,66 @@ class TestProcessTicketMessageSideEffects(BaseTest):
         self._run(self._message(author_type="customer"))
 
         mock_notify.assert_not_called()
+
+
+@patch(f"{TASKS}.ph_scoped_capture")
+@patch("products.conversations.backend.events.capture_internal")
+class TestPrivateNoteSideEffects(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=str(uuid.uuid4()),
+            distinct_id="user-123",
+            channel_source=Channel.WIDGET,
+        )
+
+    @parameterized.expand(
+        [
+            ("team_note", "team", True, True),
+            # A private AI draft has no human actor; emitting it would fire workflows with an empty one.
+            ("ai_note", "AI", False, False),
+        ]
+    )
+    def test_only_a_team_authored_note_emits_the_private_event(
+        self, _name, author_type, with_author, expect_event, mock_capture, mock_scoped_capture
+    ):
+        comment = Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Private note",
+            created_by=self.user if with_author else None,
+            item_context={"author_type": author_type, "is_private": True},
+        )
+
+        process_ticket_message_side_effects(team_id=self.team.id, comment_id=str(comment.id))
+
+        assert mock_capture.called is expect_event
+        if not expect_event:
+            return
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["event_name"] == "$conversation_private_message_sent"
+        assert call_kwargs["properties"]["actor_id"] == self.user.id
+        # The note body must never reach the event stream: analytics events are
+        # team-scoped and bypass ticket-level access controls
+        assert "message_content" not in call_kwargs["properties"]
+        assert "Private note" not in str(call_kwargs["properties"])
+
+    def test_a_private_note_reports_no_usage_and_no_notification(self, mock_capture, mock_scoped_capture):
+        self.team.conversations_settings = {"notification_recipients": ["support@example.com"]}
+        self.team.save()
+        comment = Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Private note",
+            created_by=self.user,
+            item_context={"author_type": "team", "is_private": True},
+        )
+
+        with patch("posthog.tasks.email.send_new_ticket_notification.delay") as mock_notify:
+            process_ticket_message_side_effects(team_id=self.team.id, comment_id=str(comment.id))
+
+        assert not mock_scoped_capture.return_value.__enter__.return_value.called
+        mock_notify.assert_not_called()

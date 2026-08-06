@@ -75,9 +75,9 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
     to widget via last_message_text and to keep message_count accurate for customers.
 
     Only the stat write and cache invalidation happen here: the ticket list reads both
-    immediately after a reply is posted. Analytics and the new-ticket notification are
-    handed to process_ticket_message_side_effects so their latency stays off the
-    request the sender is waiting on.
+    immediately after a reply is posted. Analytics (including the private-note event)
+    and the new-ticket notification are handed to process_ticket_message_side_effects
+    so their latency stays off the request the sender is waiting on.
     """
     if instance.scope != "conversations_ticket":
         return
@@ -98,32 +98,34 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
     created_by_id = comment_created_by_id(instance)
 
     def do_update():
-        # Private messages don't update denormalized stats (to avoid leaking to widget)
-        if is_private_message(item_context):
-            return
+        # Private messages stay out of the denormalized stats so their text can't reach the
+        # widget through last_message_text, and so message_count keeps counting what the
+        # customer can see. Their own analytics still run, in the deferred task.
+        if not is_private_message(item_context):
+            update_fields = {
+                "message_count": F("message_count") + 1,
+                "last_message_at": created_at,
+                "last_message_text": (content or "")[:500],  # Truncate to 500 chars
+                "updated_at": created_at,
+            }
 
-        update_fields = {
-            "message_count": F("message_count") + 1,
-            "last_message_at": created_at,
-            "last_message_text": (content or "")[:500],  # Truncate to 500 chars
-            "updated_at": created_at,
-        }
+            if is_team_message(item_context, created_by_id):
+                update_fields["unread_customer_count"] = F("unread_customer_count") + 1
 
-        if is_team_message(item_context, created_by_id):
-            update_fields["unread_customer_count"] = F("unread_customer_count") + 1
+            Ticket.objects.filter(id=item_id, team_id=team_id).update(**update_fields)
 
-        Ticket.objects.filter(id=item_id, team_id=team_id).update(**update_fields)
-
-        try:
-            # Invalidate widget caches so list and messages reflect the new message
-            widget_session_id = (
-                Ticket.objects.filter(id=item_id, team_id=team_id).values_list("widget_session_id", flat=True).first()
-            )
-            if widget_session_id:
-                invalidate_tickets_cache(team_id, widget_session_id)
-            invalidate_messages_cache(team_id, item_id)
-        except Exception as e:
-            capture_exception(e, {"ticket_id": item_id})
+            try:
+                # Invalidate widget caches so list and messages reflect the new message
+                widget_session_id = (
+                    Ticket.objects.filter(id=item_id, team_id=team_id)
+                    .values_list("widget_session_id", flat=True)
+                    .first()
+                )
+                if widget_session_id:
+                    invalidate_tickets_cache(team_id, widget_session_id)
+                invalidate_messages_cache(team_id, item_id)
+            except Exception as e:
+                capture_exception(e, {"ticket_id": item_id})
 
         try:
             cast(Any, process_ticket_message_side_effects).delay(team_id=team_id, comment_id=comment_id)

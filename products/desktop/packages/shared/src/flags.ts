@@ -1,10 +1,5 @@
 export const BILLING_FLAG = "posthog-code-billing";
 export const SPEND_ANALYSIS_FLAG = "posthog-code-spend-analysis";
-/**
- * Launch switch for the one-time usage-based billing announcement: flip at
- * cutover, delete once the fleet has acknowledged.
- */
-export const USAGE_BILLING_FLAG = "posthog-code-usage-billing";
 export const EXPERIMENT_SUGGESTIONS_FLAG =
   "posthog-code-experiment-suggestions";
 export const SYNC_CLOUD_TASKS_FLAG = "posthog-code-sync-cloud-tasks";
@@ -24,6 +19,8 @@ export const CHANNELS_LAYOUT_FLAG = "code-spaces-layout";
 export const LOOPS_FLAG = "loops";
 export const TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox";
 export const GLM_MODEL_FLAG = "posthog-code-glm-model";
+/** PostHog Code: show DeepSeek V4 Flash in the model picker. Off = hidden. */
+export const DEEPSEEK_MODEL_FLAG = "posthog-code-deepseek-model";
 export const KIMI_MODEL_FLAG = "tasks-kimi-k3";
 /** Gates the Fast Mode section of the reasoning dropdown. */
 export const FAST_MODE_FLAG = "posthog-desktop-fast-mode";

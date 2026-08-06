@@ -21,9 +21,16 @@ import structlog
 from celery import shared_task
 from celery.exceptions import MaxRetriesExceededError, Retry
 
+from posthog.comment.formatting import (
+    extract_images_from_rich_content,
+    rich_content_to_html,
+    rich_content_to_markdown,
+    rich_content_to_slack_payload,
+)
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.slack_identity import resolve_slack_avatar_by_email
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.comment import Comment as CommentModel
 from posthog.models.github_integration_base import GitHubIntegrationError
@@ -38,13 +45,8 @@ from products.conversations.backend.cache import NUDGE_DISMISS_TTL, suppress_nud
 from products.conversations.backend.events import (
     capture_message_received,
     capture_message_sent,
+    capture_private_message_sent,
     capture_ticket_status_changed,
-)
-from products.conversations.backend.formatting import (
-    extract_images_from_rich_content,
-    rich_content_to_html,
-    rich_content_to_markdown,
-    rich_content_to_slack_payload,
 )
 from products.conversations.backend.mailgun import (
     MailgunDomainNotRegistered,
@@ -81,7 +83,6 @@ from products.conversations.backend.slack import (
     handle_support_message,
     handle_support_reaction,
     nudge_event_properties,
-    resolve_slack_avatar_by_email,
     ticket_created_text,
 )
 from products.conversations.backend.support_teams import (
@@ -178,19 +179,23 @@ def process_ticket_message_side_effects(self, team_id: int, comment_id: str) -> 
     if comment is None or comment.deleted or not comment.item_id:
         return
 
-    item_context = comment.item_context
-    if is_private_message(item_context):
-        return
-
     ticket = Ticket.objects.select_related("team").filter(id=comment.item_id, team_id=team_id).first()
     if ticket is None:
         return
 
+    item_context = comment.item_context
     team_message = is_team_message(item_context, comment_created_by_id(comment))
     content = comment.content or ""
     author = comment.created_by if team_message else None
 
     try:
+        # A private note carries no public event and no body, so it stops after its own
+        # analytics: no stats, no customer-facing event, no new-ticket notification.
+        if is_private_message(item_context):
+            if team_message:
+                capture_private_message_sent(ticket, str(comment.id), author=author)
+            return
+
         if team_message:
             capture_message_sent(ticket, str(comment.id), content, author=author)
         else:
@@ -500,7 +505,9 @@ def post_reply_to_slack(
         )
         return
 
-    slack_text, slack_blocks = rich_content_to_slack_payload(rich_content, content, include_images=False)
+    slack_text, slack_blocks = rich_content_to_slack_payload(
+        rich_content, content, include_images=False, organization_id=team.organization_id
+    )
     rich_images = extract_images_from_rich_content(rich_content)
     logger.info(
         "🧵 slack_reply_payload_prepared",

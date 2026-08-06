@@ -12,6 +12,7 @@ describe('buildAccountHogFlowInvocation', () => {
             parentRunId: 'batch-job-1',
             team,
             hogFlowId: 'flow-1',
+            flowVersion: 4,
             externalId: 'acme-1',
             groupType: 'customer',
             defaultVariables: { greeting: 'hi' },
@@ -28,6 +29,9 @@ describe('buildAccountHogFlowInvocation', () => {
         // The stamp is what the hogflow worker trusts when the live trigger has been
         // edited to a person audience while these children were still queued.
         expect(state.accountAudience).toBe(true)
+        // Account broadcasts convert long after the send, so the run has to carry the version
+        // that sent or the conversion is credited to whatever is published by then.
+        expect(state.flowVersion).toBe(4)
         expect(state.variables).toEqual({ greeting: 'hi' })
         expect(invocation.parentRunId).toEqual('batch-job-1')
         expect(invocation.queue).toEqual('hogflow')

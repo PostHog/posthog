@@ -19,16 +19,16 @@ changing endpoint behavior — see the `implementing-warehouse-sources` skill.
 | Schema     | Path          | Response array key | Primary key  | Partition (stable) |
 | ---------- | ------------- | ------------------ | ------------ | ------------------ |
 | contacts   | `/contacts`   | `contacts`         | `contactID`  | `createdAt`        |
-| campaigns  | `/campaigns`  | `campaigns`        | `campaignID` | `createdAt`        |
+| campaigns  | `/campaigns`  | `campaign`         | `campaignID` | `createdAt`        |
 | carts      | `/carts`      | `carts`            | `cartID`     | `createdAt`        |
 | orders     | `/orders`     | `orders`           | `orderID`    | `createdAt`        |
 | products   | `/products`   | `products`         | `productID`  | `createdAt`        |
 | categories | `/categories` | `categories`       | `categoryID` | —                  |
 
 Endpoint existence confirmed against the live API (all return non-404 without a key).
-Primary-key / response-key names follow Omnisend's consistent `<resource>` /
-`<resource>ID` v3 convention (the create-contact response returns `contactID`); exact
-shapes of the list responses were not re-verified with a live key.
+Primary keys follow Omnisend's `<resource>ID` v3 convention. Response array keys follow
+the plural `<resource>` convention **except `/campaigns`, which nests rows under the
+singular `campaign`** — confirmed against the live response body.
 
 ## Sync mode
 

@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import {
     CanvasesBuildsRetrieveParams,
+    CanvasesBuildsRetrieveQueryParams,
     CanvasesCreateBody,
     CanvasesEditCreateBody,
     CanvasesEditCreateParams,
@@ -17,9 +18,9 @@ import {
 } from '@/generated/canvas/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const CanvasBuildsRetrieveSchema = CanvasesBuildsRetrieveParams.omit({ project_id: true }).extend({
-    id: CanvasesBuildsRetrieveParams.shape['id'].describe('ID of the canvas whose builds to read.'),
-})
+const CanvasBuildsRetrieveSchema = CanvasesBuildsRetrieveParams.omit({ project_id: true })
+    .extend(CanvasesBuildsRetrieveQueryParams.shape)
+    .extend({ id: CanvasesBuildsRetrieveParams.shape['id'].describe('ID of the canvas whose builds to read.') })
 
 const canvasBuildsRetrieve = (): ToolBase<typeof CanvasBuildsRetrieveSchema, Schemas.CanvasBuildsResponse> => ({
     name: 'canvas-builds-retrieve',
@@ -29,6 +30,9 @@ const canvasBuildsRetrieve = (): ToolBase<typeof CanvasBuildsRetrieveSchema, Sch
         const result = await context.api.request<Schemas.CanvasBuildsResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/builds/`,
+            query: {
+                version_id: params.version_id,
+            },
         })
         return result
     },
@@ -54,9 +58,6 @@ const canvasCreate = (): ToolBase<typeof CanvasCreateSchema, Schemas.Canvas> => 
         }
         if (params.template_id !== undefined) {
             body['template_id'] = params.template_id
-        }
-        if (params.is_home !== undefined) {
-            body['is_home'] = params.is_home
         }
         const result = await context.api.request<Schemas.Canvas>({
             method: 'POST',
@@ -112,7 +113,6 @@ const canvasList = (): ToolBase<typeof CanvasListSchema, Schemas.PaginatedCanvas
             path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/`,
             query: {
                 channel: params.channel,
-                is_home: params.is_home,
                 limit: params.limit,
                 offset: params.offset,
             },

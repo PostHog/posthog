@@ -348,7 +348,8 @@ class TestTicketMessageSignals(BaseTest):
         [
             ("customer_message", "customer", False, True),
             ("team_reply", "team", False, True),
-            ("private_team_note", "team", True, False),
+            # A private note skips the stats but still has analytics of its own to emit.
+            ("private_team_note", "team", True, True),
         ]
     )
     @patch("products.conversations.backend.tasks.process_ticket_message_side_effects.delay")
