@@ -74,17 +74,19 @@ export function AccessControlDetailContent({
 
 function MemberHeader({ member }: { member: AccessControlMemberEntry }): JSX.Element {
     return (
-        // Top aligned, and the roles row reserves the height its editing input takes, so switching
-        // between the tags and the input doesn't move the avatar
+        // Top aligned so the reserved height of the roles line below doesn't drag the avatar down,
+        // nudged to sit optically level with the name and email
         <div className="flex items-start gap-3">
-            <ProfilePicture user={member.user} size="xl" />
+            <ProfilePicture user={member.user} size="xl" className="mt-2" />
             <div className="min-w-0">
                 <div className="font-medium text-sm truncate">
                     {member.user.first_name ? fullName(member.user) : member.user.email}
                 </div>
                 {member.user.first_name && <div className="text-secondary text-sm truncate">{member.user.email}</div>}
-                {/* Medium LemonInput height, so the row keeps its size once the tags become an input */}
-                <div className="mt-1 min-h-[calc(2.125rem+3px)] flex items-center">
+                {/* Reserves the height of the LemonInput the tags turn into, with the tags at the
+                    top of it, so clicking Edit roles moves nothing above or below. A couple of
+                    pixels over --lemon-input-height, which the input's borders push past */}
+                <div className="mt-1 min-h-[calc(2.125rem_+_5px)] flex items-start">
                     <MemberRoles userUuid={member.user.uuid} />
                 </div>
             </div>
