@@ -17,6 +17,7 @@ from products.review_hog.backend.reviewer.tools.github_client import (
     github_api_request,
     is_app_bot_author,
 )
+from products.review_hog.backend.reviewer.tools.github_threads import REVIEW_HOG_FINDING_MARKER
 
 logger = logging.getLogger(__name__)
 
@@ -313,6 +314,8 @@ def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdic
             "",
             "</details>",
             "",
+            # Hidden marker so the resolution stage recognizes this as one of ReviewHog's own threads.
+            REVIEW_HOG_FINDING_MARKER,
         ]
     )
 

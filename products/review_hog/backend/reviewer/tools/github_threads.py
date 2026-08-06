@@ -33,6 +33,12 @@ _RANK_HUMAN = 0
 _RANK_REVIEW_HOG = 1
 _RANK_OTHER_BOT = 2
 
+# Hidden marker stamped on every ReviewHog inline finding comment (publish_review._format_issue_comment)
+# so the resolution stage can recognize its own threads by content. Installation bot logins vary per
+# deployment, so there is no stable login to match on; this marker is the reliable signal. Same
+# HTML-comment style as the review-body / promo / status markers, invisible in rendered markdown.
+REVIEW_HOG_FINDING_MARKER = "<!-- reviewhog:finding -->"
+
 
 class ThreadComment(BaseModel):
     """One comment inside a review thread, as the resolution stage consumes it."""
@@ -254,15 +260,15 @@ def resolve_thread(*, token: str, thread_id: str, installation_id: str | None = 
 def _source_rank(thread: ReviewThread) -> int:
     """Triage-order tier for a thread by who opened it: human, ReviewHog itself, or another bot.
 
-    ReviewHog's own inline comments are recognized by content ("reviewhog" in the opening comment
-    or its author's login) — installation bot logins vary per deployment, so there is no stable
-    login to match on. A miss only demotes the thread to the other-bot tier; it is still triaged.
+    ReviewHog's own inline comments carry a hidden marker (`REVIEW_HOG_FINDING_MARKER`) stamped at
+    publish time; a bot thread whose opening comment contains it is one of ours. Installation bot
+    logins vary per deployment, so there is no stable login to match on — the marker is the reliable
+    signal. A miss only demotes the thread to the other-bot tier; it is still triaged.
     """
     first = thread.first_comment
     if first is None or not first.author_is_bot:
         return _RANK_HUMAN
-    haystack = f"{first.author_login}\n{first.body}".lower()
-    return _RANK_REVIEW_HOG if "reviewhog" in haystack else _RANK_OTHER_BOT
+    return _RANK_REVIEW_HOG if REVIEW_HOG_FINDING_MARKER in first.body else _RANK_OTHER_BOT
 
 
 def order_threads(threads: list[ReviewThread]) -> list[ReviewThread]:
