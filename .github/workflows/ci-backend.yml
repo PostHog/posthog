@@ -1332,6 +1332,8 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.persons_sql == 'true'
         timeout-minutes: 20
+        outputs:
+            mig_schema_key: ${{ steps.mig-schema-key.outputs.key }}
         # The "Publish Migration risk check" step posts the check via the
         # posthog-tests app token, which carries its own checks:write
         # installation permission — so the check lands in that app's own
@@ -1972,6 +1974,38 @@ jobs:
                   else
                       echo "Skipping CH migration section — script not present on this checkout"
                   fi
+
+    mirror-schema-cache:
+        needs: [check-migrations]
+        # check-migrations runs on Depot runners, so its schema saves land in Depot
+        # Cache only. Fork PRs run without secrets and are not pre-authenticated to
+        # Depot Cache, which means they can only read GitHub's own cache. Re-save the
+        # same dump there so fork PRs prime from it instead of migrating from scratch.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        name: Mirror schema cache to GitHub cache
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        permissions:
+            contents: read
+        steps:
+            - name: Download migrated schema artifact
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: migrated-schema
+
+            - name: Save schema to GitHub cache (merge-base key)
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  key: posthog-schema-master-${{ github.sha }}
+
+            - name: Save schema to GitHub cache (migration-set key)
+              if: github.ref == 'refs/heads/master' && needs.check-migrations.outputs.mig_schema_key != ''
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  key: ${{ needs.check-migrations.outputs.mig_schema_key }}
 
     check-openapi-types:
         needs: [changes]

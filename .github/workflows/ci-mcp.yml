@@ -296,7 +296,8 @@ jobs:
         runs-on: depot-ubuntu-24.04-4
         needs: changes
         # Must fit the schema-cache miss path (~20 min migrate + ~11 min tests),
-        # not just a cache hit — a miss is an intentional fallback, not a failure.
+        # not just a cache hit, because a miss is an intentional fallback rather
+        # than a failure. Fork PRs always miss: they can't read Depot Cache.
         timeout-minutes: 45
         # Skipped on drafts: these boot the full PostHog backend and trigger on any
         # non-pytest Python change, so they're the expensive half of this workflow.
