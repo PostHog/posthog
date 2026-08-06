@@ -57,6 +57,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 from ee.models.rbac.role import Role
@@ -860,6 +861,26 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
 
         assert str(obj_team1.pk) in ids
         assert str(obj_team2.pk) not in ids
+
+
+class TestDataWarehouseSourcesLiveQueryability(BaseTest):
+    """`is_live_queryable` is how an agent finds the sources it can pass as a query's connection id."""
+
+    def test_covers_every_source_type_with_a_direct_engine(self):
+        # An engine added to the registry without reaching this column would hide those connections from
+        # discovery, leaving their tables reachable only by a connection id the caller already knew.
+        db = Database.create_for(team=self.team, user=self.user)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+
+        query, _ = prepare_and_print_ast(
+            parse_select("SELECT is_live_queryable FROM system.data_warehouse_sources"), context, dialect="clickhouse"
+        )
+
+        # The literals are parameterized, so the source types land in the query's values, not its text.
+        values = set(context.values.values())
+        assert {str(source_type) for source_type in DIRECT_ENGINE_BY_SOURCE_TYPE}.issubset(values)
+        assert "direct" in values
+        assert "system__data_warehouse_sources.direct_query_enabled" in query
 
 
 class TestSystemTablesSandboxEnvironmentPrivacy(BaseTest):
