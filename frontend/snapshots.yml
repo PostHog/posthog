@@ -2536,6 +2536,10 @@ snapshots:
         hash: v1.k794b7964.422ddb7aef488b7df5fb0a27715994aed79448f280b62f4e786e08f755c88b3c.kny9iJ5G5fwjTNqF1xKveHzAT06hjte-CATByxBVFaM
     filters-taxonomic-filter--events-premium--light:
         hash: v1.k794b7964.81a78bc8ee376be4d5515ddcab000082de15195a6ea1e700546a2346d4cb17f3.BZBvpIZWaczTKJuEBUyigcG45af_A0jgpe10HbXQ9rQ
+    filters-taxonomic-filter--failed-fetch-offers-retry--dark:
+        hash: v1.k794b7964.dbbfe19dede7bc642e918f48fb4f80151c48e2ccbbcb62617157e6df3c4d533d.C8yxDgBe0uM24bqwnL0r4iJczX5vS93okDcE1Ceqsos
+    filters-taxonomic-filter--failed-fetch-offers-retry--light:
+        hash: v1.k794b7964.a7baf4370142ad9d63f131c07b9485638e88a08d8dec67196e85f1b098a7c48d.KNaiZbsQDpXQXNeJ04WDLW_9pdwkXpIH0HyEajxI86I
     filters-taxonomic-filter--mcp-tool-call-context-leads-with-mcp-properties--dark:
         hash: v1.k794b7964.13fd306591ab8aa983b98d475f2fa5566c4fdc3f8cf86d634d98c884c326a779.ZS2ZfxmIjJjZY9VD_0Ueclr1mbmK_5qkuHbny_eV2B4
     filters-taxonomic-filter--mcp-tool-call-context-leads-with-mcp-properties--light:
