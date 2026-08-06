@@ -26,6 +26,7 @@ from products.engineering_analytics.backend.logic.ci_signals_config import (
     update_ci_signals_config,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries.workflow_flakiness import BY_DESIGN_FAILURES
 from products.engineering_analytics.backend.logic.signals.contracts import (
     SOURCE_PRODUCT,
     SOURCE_TYPE_BROKEN_DEFAULT_BRANCH,
@@ -72,6 +73,8 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
+_BY_DESIGN_JOB_NAMES = [entry.split("/", 2)[2] for entry in BY_DESIGN_FAILURES]
+
 _COORDINATOR = "products.engineering_analytics.backend.logic.signals.coordinator"
 _DETECT = "products.engineering_analytics.backend.logic.signals.detect"
 _DETECTORS = "products.engineering_analytics.backend.logic.signals.detectors"
@@ -94,6 +97,7 @@ def _run_row(
     run_attempt: int = 1,
     head_branch: str = "main",
     status: str = "completed",
+    repository: str = "PostHog/posthog",
 ) -> dict[str, Any]:
     started_s = _ts(started)
     return {
@@ -110,7 +114,7 @@ def _run_row(
         "pull_requests": None,
         # Faithful to the webhook's MINIMAL `repository` payload: faking a default_branch here
         # would green-light a detector reading a column production never lands.
-        "repository": json.dumps({"full_name": "PostHog/posthog"}),
+        "repository": json.dumps({"full_name": repository}),
     }
 
 
@@ -679,23 +683,58 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         assert findings[0].extra["run_id"] == 3
         _assert_emittable(findings[0])
 
-    def test_flaky_check_ignores_required_check_aggregators(self) -> None:
-        # A `* Pass` gate fails only because a job it gates failed, so counting it emits a second
-        # signal for every real flake. Real aggregators settle in 3-5s; real jobs run 60s+.
+    @parameterized.expand(
+        [
+            # A `* Pass` gate fails only because a job it gates failed, so counting it emits a second
+            # signal for every real flake. NO_OP_JOB_MAX_SECONDS drops this one.
+            ("Tests Pass", 3),
+            # 46s clears the duration floor, so only BY_DESIGN_FAILURES can drop these.
+            *[(name, 46) for name in _BY_DESIGN_JOB_NAMES],
+        ]
+    )
+    def test_flaky_check_ignores_excluded_jobs(self, job_name: str, duration_seconds: int) -> None:
         now = datetime.now(UTC).replace(tzinfo=None)
         rows = [_run_row(1, "CI", "shaG", "success", now - timedelta(hours=2), 60, run_attempt=2)]
         jobs = [
             _job_row(
-                200, 1, "Tests Pass", "shaG", "failure", now - timedelta(hours=3), run_attempt=1, duration_seconds=3
+                200,
+                1,
+                job_name,
+                "shaG",
+                "failure",
+                now - timedelta(hours=3),
+                run_attempt=1,
+                duration_seconds=duration_seconds,
             ),
             _job_row(
-                201, 1, "Tests Pass", "shaG", "success", now - timedelta(hours=2), run_attempt=2, duration_seconds=3
+                201,
+                1,
+                job_name,
+                "shaG",
+                "success",
+                now - timedelta(hours=2),
+                run_attempt=2,
+                duration_seconds=duration_seconds,
             ),
             _job_row(202, 1, "real-test-job", "shaG", "failure", now - timedelta(hours=3), run_attempt=1),
             _job_row(203, 1, "real-test-job", "shaG", "success", now - timedelta(hours=2), run_attempt=2),
         ]
         findings = detect_flaky_checks(self._curated_over_runs(rows, jobs), min_flaky_runs=1)
         assert {f.extra["job_name"] for f in findings} == {"real-test-job"}
+
+    @parameterized.expand([(name,) for name in _BY_DESIGN_JOB_NAMES])
+    def test_flaky_check_reports_by_design_job_names_in_another_repo(self, job_name: str) -> None:
+        # Every team runs this detector over its own repos, so the repo qualifier has to hold.
+        now = datetime.now(UTC).replace(tzinfo=None)
+        rows = [
+            _run_row(1, "CI", "shaS", "success", now - timedelta(hours=2), 60, run_attempt=2, repository="acme/webapp")
+        ]
+        jobs = [
+            _job_row(300, 1, job_name, "shaS", "failure", now - timedelta(hours=3), run_attempt=1, duration_seconds=46),
+            _job_row(301, 1, job_name, "shaS", "success", now - timedelta(hours=2), run_attempt=2, duration_seconds=46),
+        ]
+        findings = detect_flaky_checks(self._curated_over_runs(rows, jobs), min_flaky_runs=1)
+        assert {f.extra["job_name"] for f in findings} == {job_name}
 
     def test_broken_default_branch_fires_only_on_failing_default_branch(self) -> None:
         now = datetime.now(UTC).replace(tzinfo=None)
