@@ -1,16 +1,43 @@
 import './PaperDesk.scss'
 
-import { type ReactNode } from 'react'
+import { type ReactNode, createContext, useContext } from 'react'
 
 import { Logo } from 'lib/brand'
+import { cn } from 'lib/utils/css-classes'
 
 import { DevLoginPanel } from './DevLoginPanel'
 import { Typewriter } from './Typewriter'
 
+/** Which skin the stage wears: the parchment desk, or the posthog.com garden ("glass" variant). */
+export type PaperDeskTheme = 'paper' | 'glass'
+
+const PaperDeskThemeContext = createContext<PaperDeskTheme>('paper')
+
+export function usePaperDeskTheme(): PaperDeskTheme {
+    return useContext(PaperDeskThemeContext)
+}
+
+/** Wrap a paper-desk page to re-skin it - the glass variant renders the same pages through this. */
+export function PaperDeskThemeProvider({
+    theme,
+    children,
+}: {
+    theme: PaperDeskTheme
+    children: ReactNode
+}): JSX.Element {
+    return <PaperDeskThemeContext.Provider value={theme}>{children}</PaperDeskThemeContext.Provider>
+}
+
 /** Full-viewport paper-desk stage: dotted parchment + accent glow + mono corner notes. */
 export function PaperDeskScene({ notes, children }: { notes: string[]; children: ReactNode }): JSX.Element {
+    const theme = usePaperDeskTheme()
     return (
-        <div className="PaperDesk relative h-screen overflow-x-hidden overflow-y-auto font-sans text-primary bg-[#eef0e7]">
+        <div
+            className={cn(
+                'PaperDesk relative h-screen overflow-x-hidden overflow-y-auto font-sans text-primary bg-[#eef0e7]',
+                theme === 'glass' && 'PaperDesk--glass'
+            )}
+        >
             <div className="hidden sm:block">
                 <Typewriter lines={notes} />
             </div>
