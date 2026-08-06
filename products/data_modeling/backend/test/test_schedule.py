@@ -491,8 +491,7 @@ class TestGetV2ScheduledDagIds:
 
 
 class TestAnchoredSpec:
-    """Anchored specs fire at t ≡ anchor (mod interval), t in minutes from Monday 00:00 UTC."""
-
+    # anchored specs fire at t ≡ anchor (mod interval), t in minutes from Monday 00:00 UTC
     @pytest.mark.parametrize(
         "interval,anchor,expected_hours,expected_minutes",
         [

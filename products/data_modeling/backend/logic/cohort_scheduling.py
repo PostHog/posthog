@@ -43,20 +43,43 @@ def tier_sort_key(tier: Tier) -> tuple[timedelta, int]:
     return (tier.interval, -1 if tier.anchor_minutes is None else tier.anchor_minutes)
 
 
+def canonical_anchor(interval: timedelta, anchor_minutes: int) -> int:
+    """Reduce an anchor to the phase the schedule spec actually uses at this cadence.
+
+    Sub-weekly buckets divide the day, so only `anchor mod interval` matters; weekly reads
+    the full week offset; monthly pins time-of-day only (day of month stays hash-picked).
+    Raw anchors equal after reduction describe the same fire calendar, so they must key the
+    same cohort — one schedule, one run.
+    """
+    if interval <= timedelta(days=1):
+        return anchor_minutes % max(1, int(interval.total_seconds() // 60))
+    if interval <= timedelta(days=7):
+        return anchor_minutes % MINUTES_PER_WEEK
+    return anchor_minutes % MINUTES_PER_DAY
+
+
 def format_tier(tier: Tier) -> str:
-    """Human label for a tier: the cadence, plus the anchor when one is pinned."""
+    """Human label for a tier: the cadence, plus the anchor phase when one is pinned.
+
+    Shows only what the spec uses: a weekday appears for weekly tiers alone — sub-weekly
+    specs ignore the day part, and monthly's day of month is hash-picked, not anchored.
+    """
     if tier.anchor_minutes is None:
         return format_cadence(tier.interval)
-    days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
-    day, time_of_day = divmod(tier.anchor_minutes, MINUTES_PER_DAY)
-    return f"{format_cadence(tier.interval)}@{days[day]} {time_of_day // 60:02d}:{time_of_day % 60:02d}"
+    anchor = canonical_anchor(tier.interval, tier.anchor_minutes)
+    day, time_of_day = divmod(anchor, MINUTES_PER_DAY)
+    clock = f"{time_of_day // 60:02d}:{time_of_day % 60:02d}"
+    if timedelta(days=1) < tier.interval <= timedelta(days=7):
+        days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+        return f"{format_cadence(tier.interval)}@{days[day]} {clock}"
+    return f"{format_cadence(tier.interval)}@{clock}"
 
 
 def bucket_into_cadence_tiers(
     effective: dict[str, timedelta | None],
     anchors: dict[str, int] | None = None,
 ) -> dict[Tier, set[str]]:
-    """Group schedulable nodes into cohorts by (effective cadence, anchor).
+    """Group schedulable nodes into cohorts by (effective cadence, canonical anchor).
 
     Nodes with no effective cadence (`None` — unscheduled, ride-downstream) are omitted so
     they never get a schedule of their own; an anchor on such a node is stored but inert.
@@ -67,6 +90,8 @@ def bucket_into_cadence_tiers(
     for node_id, interval in effective.items():
         if interval is not None:
             anchor = anchors.get(node_id) if anchors else None
+            if anchor is not None:
+                anchor = canonical_anchor(interval, anchor)
             tiers[Tier(interval, anchor)].add(node_id)
     return dict(tiers)
 
@@ -103,6 +128,12 @@ def interval_seconds_from_schedule_id(schedule_id: str) -> int | None:
     if is_tier_schedule_id(schedule_id):
         return int(schedule_id.split(":")[1])
     return None
+
+
+def anchor_minutes_from_schedule_id(schedule_id: str) -> int | None:
+    """The anchored cohort's pinned phase from its schedule id, or None when hash-spread."""
+    parts = schedule_id.split(":")
+    return int(parts[2]) if len(parts) > 2 else None
 
 
 @dataclasses.dataclass

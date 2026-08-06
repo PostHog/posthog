@@ -45,6 +45,21 @@ class TestBucketIntoCadenceTiers(TestCase):
             {Tier(H24, 0): {"a"}, Tier(H24, 360): {"b"}},
         )
 
+    @parameterized.expand(
+        [
+            # the spec ignores the day part below weekly, so anchors equal mod the cadence are
+            # one cohort — otherwise `--on tuesday` on a mixed daily+weekly selection splits
+            # daily nodes into a second schedule that fires identically
+            ("daily_day_part_inert", H24, {"a": 0, "b": 1440}, Tier(H24, 0)),
+            ("sub_daily_phase_mod_interval", H6, {"a": 1350, "b": 270}, Tier(H6, 270)),
+            ("weekly_keeps_full_offset", timedelta(days=7), {"a": 4380, "b": 4380}, Tier(timedelta(days=7), 4380)),
+            ("monthly_time_of_day_only", timedelta(days=30), {"a": 1500, "b": 60}, Tier(timedelta(days=30), 60)),
+        ]
+    )
+    def test_equivalent_anchors_collapse_into_one_cohort(self, _name, interval, anchors, expected_tier):
+        effective: dict[str, timedelta | None] = {"a": interval, "b": interval}
+        self.assertEqual(bucket_into_cadence_tiers(effective, anchors), {expected_tier: {"a", "b"}})
+
 
 class TestTierScheduleId(TestCase):
     @parameterized.expand(
@@ -72,9 +87,15 @@ class TestTierDisplay(TestCase):
 
     @parameterized.expand(
         [
+            # only weekly gets a weekday: sub-weekly specs ignore the day part, and monthly's
+            # day of month is hash-picked — naming a day there tells the operator a fire
+            # calendar the schedule does not have
             ("unanchored", Tier(H24), "1day"),
-            ("midnight", Tier(H24, 0), "1day@mon 00:00"),
+            ("midnight", Tier(H24, 0), "1day@00:00"),
+            ("daily_time_only", Tier(H24, 1350), "1day@22:30"),
+            ("sub_daily_phase", Tier(H6, 1350), "6hour@04:30"),
             ("weekly_tuesday", Tier(timedelta(days=7), 1560), "7day@tue 02:00"),
+            ("monthly_time_only", Tier(timedelta(days=30), 1560), "30day@02:00"),
         ]
     )
     def test_format_tier(self, _name, tier, expected):

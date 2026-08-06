@@ -38,13 +38,11 @@ class TestSetScheduleAnchor(BaseTest):
         Edge.objects.create(team=self.team, dag=self.dag, source=self.source, target=self.matview)
         set_declared_target(self.matview, H1)
 
-    def _run(self, *args, existing_schedule_ids=None):
+    def _run(self, *args, reconcile_applied=True):
         out = StringIO()
-        existing = existing_schedule_ids if existing_schedule_ids is not None else {f"{self.dag.id}:3600"}
         with (
             mock.patch(f"{COMMAND}.tiered_schedules_enabled", return_value=True),
-            mock.patch(f"{COMMAND}.list_existing_schedule_ids", return_value=existing),
-            mock.patch(f"{COMMAND}.reconcile_dag_schedules") as reconcile,
+            mock.patch(f"{COMMAND}.reconcile_dag_schedules", return_value=reconcile_applied) as reconcile,
         ):
             call_command("set_schedule_anchor", "--team-id", str(self.team.pk), *args, stdout=out)
         return out.getvalue(), reconcile
@@ -54,7 +52,7 @@ class TestSetScheduleAnchor(BaseTest):
         self.matview.refresh_from_db()
         self.assertEqual(get_declared_anchor(self.matview), 0)
         reconcile.assert_called_once_with(self.dag, require_tiered=True)
-        self.assertIn("1hour@mon 00:00", output)
+        self.assertIn("1hour@00:00", output)
 
     def test_saved_query_mode_anchors_only_the_named_query(self):
         other = _saved_query_node(self.team, self.dag, "other", NodeType.MAT_VIEW)
@@ -71,7 +69,7 @@ class TestSetScheduleAnchor(BaseTest):
         self.matview.refresh_from_db()
         self.assertIsNone(get_declared_anchor(self.matview))
         reconcile.assert_not_called()
-        self.assertIn("1hour@mon 00:00", output)
+        self.assertIn("1hour@00:00", output)
 
     def test_clear_removes_anchor(self):
         set_declared_anchor(self.matview, 120)
@@ -114,11 +112,25 @@ class TestSetScheduleAnchor(BaseTest):
         self.assertIsNone(get_declared_anchor(downstream))
 
     def test_untiered_dag_stores_anchor_but_says_so_instead_of_claiming_reconcile(self):
-        output, reconcile = self._run("--dag-id", str(self.dag.id), "--at", "00:00", existing_schedule_ids=set())
+        output, _reconcile = self._run("--dag-id", str(self.dag.id), "--at", "00:00", reconcile_applied=False)
         self.matview.refresh_from_db()
         self.assertEqual(get_declared_anchor(self.matview), 0)
-        reconcile.assert_not_called()
         self.assertIn("not on cadence-tier schedules yet", output)
+
+    def test_a_refusal_on_one_dag_writes_nothing_anywhere(self):
+        # a --saved-query-names set spanning two DAGs must validate both before writing to either:
+        # the second DAG's weekly refusal must not leave the first already anchored and reconciled
+        other_dag = DAG.objects.create(team=self.team, name="Other")
+        weekly_node = _saved_query_node(self.team, other_dag, "weekly_mv", NodeType.MAT_VIEW)
+        set_declared_target(weekly_node, WEEKLY)
+
+        with self.assertRaisesRegex(CommandError, "weekly cadence"):
+            self._run("--saved-query-names", "mv", "weekly_mv", "--at", "00:00")
+
+        self.matview.refresh_from_db()
+        weekly_node.refresh_from_db()
+        self.assertIsNone(get_declared_anchor(self.matview))
+        self.assertIsNone(get_declared_anchor(weekly_node))
 
     def test_with_upstream_anchors_the_cone_when_cadences_align(self):
         downstream = _saved_query_node(self.team, self.dag, "report", NodeType.MAT_VIEW)

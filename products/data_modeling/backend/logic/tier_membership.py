@@ -20,6 +20,7 @@ from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
 
 from products.data_modeling.backend.logic.cohort_scheduling import (
     Tier,
+    anchor_minutes_from_schedule_id,
     bucket_into_cadence_tiers,
     interval_seconds_from_schedule_id,
 )
@@ -42,6 +43,7 @@ class LiveTier:
     interval_seconds: int | None  # None = migration-era single schedule (no cadence tier)
     covers_whole_dag: bool  # True when node_ids is unset — the schedule materializes every node
     node_ids: frozenset[str] | None  # the exact set the tier will materialize; None when whole-DAG
+    anchor_minutes: int | None = None  # the cohort's pinned phase; None = hash-spread
 
 
 @dataclasses.dataclass
@@ -55,6 +57,7 @@ class NodeScheduleStatus:
     expected_interval: int | None  # what reconcile would put it on now (None = ride-downstream opt-out)
     verdict: str
     dag_reconcile_blocked: bool = False  # a non-bucket tier anywhere in the DAG makes reconcile refuse it
+    expected_anchor: int | None = None  # the expected cohort's pinned phase; None = hash-spread
 
 
 # Verdict values — a node's live scheduling vs what reconcile would currently schedule.
@@ -112,6 +115,7 @@ async def read_live_tiers(temporal: Client, dag_id: str) -> list[LiveTier]:
                 interval_seconds=interval_seconds_from_schedule_id(listing.id),
                 covers_whole_dag=node_ids is None,
                 node_ids=frozenset(node_ids) if node_ids is not None else None,
+                anchor_minutes=anchor_minutes_from_schedule_id(listing.id),
             )
         )
     return tiers
@@ -127,19 +131,14 @@ def _desired_tiers(dag: DAG) -> dict[Tier, set[str]]:
     return bucket_into_cadence_tiers(effective, graph.declared_anchors)
 
 
-def expected_tier_by_node(dag: DAG) -> dict[str, int]:
-    """What cadence (seconds) reconcile would currently schedule each schedulable node on.
+def expected_tier_by_node(dag: DAG) -> dict[str, Tier]:
+    """The cohort reconcile would currently schedule each schedulable node on.
 
     Mirrors `reconcile_dag_schedules` exactly (effective cadences → clamp to source floor → buckets)
     so a node absent from this map is one reconcile would leave unscheduled (the ride-downstream
-    opt-out), not a bug. Verdicts compare cadence only, so an anchored cohort flattens to its
-    interval here.
+    opt-out), not a bug.
     """
-    return {
-        node_id: int(tier.interval.total_seconds())
-        for tier, node_ids in _desired_tiers(dag).items()
-        for node_id in node_ids
-    }
+    return {node_id: tier for tier, node_ids in _desired_tiers(dag).items() for node_id in node_ids}
 
 
 def dag_reconcile_would_refuse(dag: DAG) -> bool:
@@ -160,26 +159,36 @@ def classify_node(
     dag_id: str,
     dag_name: str,
     live_tiers: list[LiveTier],
-    expected_interval: int | None,
+    expected_tier: Tier | None,
     reconcile_blocked: bool = False,
     has_backing_table: bool = False,
 ) -> NodeScheduleStatus:
     """Compare a node's live tier membership against what reconcile would schedule for it."""
-    live_intervals = [
-        tier.interval_seconds
-        for tier in live_tiers
-        if tier.covers_whole_dag or (tier.node_ids is not None and node_id in tier.node_ids)
+    covering = [
+        tier for tier in live_tiers if tier.covers_whole_dag or (tier.node_ids is not None and node_id in tier.node_ids)
     ]
-    covered_live = bool(live_intervals)
+    live_intervals = [tier.interval_seconds for tier in covering]
+    covered_live = bool(covering)
+    expected_interval = int(expected_tier.interval.total_seconds()) if expected_tier is not None else None
 
     if node_type == NodeType.VIEW and has_backing_table:
         verdict = EPHEMERAL_SKIPPED
-    elif covered_live and expected_interval is not None:
-        # A whole-DAG (interval None) schedule always satisfies expectation.
-        verdict = SCHEDULED if (None in live_intervals or expected_interval in live_intervals) else SCHEDULED_WRONG_TIER
-    elif covered_live and expected_interval is None:
+    elif covered_live and expected_tier is not None:
+        # A whole-DAG (interval None) schedule always satisfies expectation. A tier matches on
+        # cadence AND anchor — a hash-spread schedule does not satisfy an anchored expectation,
+        # else the exact drift anchors exist to escape reads as healthy.
+        verdict = (
+            SCHEDULED
+            if any(
+                tier.interval_seconds is None
+                or (tier.interval_seconds, tier.anchor_minutes) == (expected_interval, expected_tier.anchor_minutes)
+                for tier in covering
+            )
+            else SCHEDULED_WRONG_TIER
+        )
+    elif covered_live and expected_tier is None:
         verdict = OVER_SCHEDULED
-    elif not covered_live and expected_interval is not None:
+    elif not covered_live and expected_tier is not None:
         # Reconcile is the remediation for stale_needs_reconcile, so only report it when reconcile
         # would actually run. A blocked DAG needs its unschedulable target fixed first.
         verdict = UNSUPPORTED_TARGET if reconcile_blocked else STALE_NEEDS_RECONCILE
@@ -194,6 +203,7 @@ def classify_node(
         dag_name=dag_name,
         live_intervals=sorted(live_intervals, key=lambda i: (i is None, i or 0)),
         expected_interval=expected_interval,
+        expected_anchor=expected_tier.anchor_minutes if expected_tier is not None else None,
         verdict=verdict,
         dag_reconcile_blocked=reconcile_blocked,
     )

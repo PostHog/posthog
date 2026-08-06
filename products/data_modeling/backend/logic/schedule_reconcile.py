@@ -226,8 +226,12 @@ def apply_saved_query_frequency_target(
     """
     written = 0
     with transaction.atomic():
-        for node in Node.objects.filter(team=saved_query.team, saved_query=saved_query).select_related(
-            "dag", "dag__team"
+        # target and anchor share one JSON field and each setter rewrites the whole blob, so an
+        # unlocked read-modify-write racing the anchor path would silently drop the other's key
+        for node in (
+            Node.objects.select_for_update(of=("self",))
+            .filter(team=saved_query.team, saved_query=saved_query)
+            .select_related("dag", "dag__team")
         ):
             if target is None:
                 set_declared_target(node, None)
@@ -259,15 +263,22 @@ def apply_saved_query_frequency_anchor(
     if anchor_minutes is not None and not 0 <= anchor_minutes < MINUTES_PER_WEEK:
         raise ValueError(f"anchor_minutes must be in [0, {MINUTES_PER_WEEK}), got {anchor_minutes}")
     written = 0
-    for node in Node.objects.filter(team=saved_query.team, saved_query=saved_query).select_related("dag", "dag__team"):
-        set_declared_anchor(node, anchor_minutes)
-        written += 1
-        if reconcile:
-            maybe_reconcile_dag(node.dag)
+    # atomic + row locks for the same reasons as the target path: all-or-nothing across a
+    # multi-DAG duplicate's nodes, and no lost update against a concurrent target write
+    with transaction.atomic():
+        for node in (
+            Node.objects.select_for_update(of=("self",))
+            .filter(team=saved_query.team, saved_query=saved_query)
+            .select_related("dag", "dag__team")
+        ):
+            set_declared_anchor(node, anchor_minutes)
+            written += 1
+            if reconcile:
+                maybe_reconcile_dag(node.dag)
     return written
 
 
-def reconcile_dag_schedules(dag: DAG, *, require_tiered: bool = False, graph: FrequencyGraph | None = None) -> None:
+def reconcile_dag_schedules(dag: DAG, *, require_tiered: bool = False, graph: FrequencyGraph | None = None) -> bool:
     """Make Temporal's schedules for this DAG match its nodes' effective cadences.
 
     Converging a covered DAG to zero schedules is refused only while it still has just legacy
@@ -277,6 +288,8 @@ def reconcile_dag_schedules(dag: DAG, *, require_tiered: bool = False, graph: Fr
     deliberate wind-down (last target reverted/cleared) and those tiers are torn down. With
     `require_tiered`, a DAG that has no tiered schedule yet (legacy single schedule or nothing) is
     left untouched.
+
+    Returns whether a reconcile was applied; False means a guard skipped it.
     """
     team = dag.team
     if graph is None:
@@ -286,7 +299,7 @@ def reconcile_dag_schedules(dag: DAG, *, require_tiered: bool = False, graph: Fr
     )
     effective, _clamped = clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals)
     desired_tiers = bucket_into_cadence_tiers(effective, graph.declared_anchors)
-    _apply_reconciliation(
+    return _apply_reconciliation(
         dag_id=str(dag.id),
         team_id=team.pk,
         organization_id=str(team.organization_id),
@@ -428,7 +441,7 @@ async def _apply_reconciliation(
     desired_tiers: dict[Tier, set[str]],
     require_tiered: bool = False,
     has_schedulable_nodes: bool = True,
-) -> None:
+) -> bool:
     unsupported = sorted({tier.interval for tier in desired_tiers if tier.interval not in SCHEDULABLE_BUCKETS})
     if unsupported:
         tiers = ", ".join(format_cadence(interval) for interval in unsupported)
@@ -440,7 +453,7 @@ async def _apply_reconciliation(
     existing_ids = await _list_execute_dag_schedule_ids(temporal, dag_id)
     if require_tiered and not any(is_tier_schedule_id(schedule_id) for schedule_id in existing_ids):
         logger.debug("DAG not converted to cadence tiers yet, skipping reconcile", dag_id=dag_id)
-        return
+        return False
     # An empty tier set on a DAG that still has only legacy (non-tier) schedules means an unseeded
     # conversion — protect it, but only when there is anything to seed: a DAG with no schedulable
     # nodes gets its legacy schedule swept instead of firing no-op runs forever. Once tier
@@ -458,7 +471,7 @@ async def _apply_reconciliation(
             dag_id=dag_id,
             existing_schedule_ids=sorted(existing_ids),
         )
-        return
+        return False
     plan = plan_schedule_reconciliation(dag_id, desired_tiers, existing_ids)
 
     # Includes the schedule-type tag: get_v2_scheduled_dag_ids' unscoped sweep filters on
@@ -502,6 +515,7 @@ async def _apply_reconciliation(
         except Exception as error:
             logger.exception("Failed to delete stale schedule", schedule_id=schedule_id, dag_id=dag_id)
             capture_exception(error)
+    return True
 
 
 async def _list_execute_dag_schedule_ids(temporal: Client, dag_id: str) -> set[str]:

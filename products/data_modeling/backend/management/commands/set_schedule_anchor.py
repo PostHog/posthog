@@ -3,6 +3,7 @@ from collections import defaultdict
 from datetime import timedelta
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 
 import structlog
 
@@ -12,7 +13,6 @@ from products.data_modeling.backend.logic.cohort_scheduling import (
     MINUTES_PER_DAY,
     bucket_into_cadence_tiers,
     format_tier,
-    is_tier_schedule_id,
     tier_sort_key,
 )
 from products.data_modeling.backend.logic.freshness import clamp_to_source_floor, compute_effective_cadences
@@ -21,11 +21,7 @@ from products.data_modeling.backend.logic.node_frequency import (
     schedulable_nodes,
     set_declared_anchor,
 )
-from products.data_modeling.backend.logic.schedule_reconcile import (
-    list_existing_schedule_ids,
-    reconcile_dag_schedules,
-    tiered_schedules_enabled,
-)
+from products.data_modeling.backend.logic.schedule_reconcile import reconcile_dag_schedules, tiered_schedules_enabled
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import Node
@@ -43,7 +39,7 @@ class Command(BaseCommand):
         "given UTC time instead of its hash-spread slot: a daily node anchored at 00:00 runs at "
         "midnight UTC, a 6-hourly one at 00/06/12/18. Ordering is guaranteed only within one "
         "cohort (same cadence + same anchor); anchored cohorts at different cadences fire "
-        "concurrently. Operator-only — anchors concentrate load, so hand them out deliberately."
+        "concurrently. Operator-only: anchors concentrate load, so hand them out deliberately."
     )
 
     def add_arguments(self, parser):
@@ -94,6 +90,9 @@ class Command(BaseCommand):
         anchor = None if options["clear"] else self._parse_anchor(options["at"], options["on"])
         nodes_by_dag = self._resolve_target_nodes(team, options)
 
+        # Validate every DAG before writing to any: a refusal on the second DAG must not leave the
+        # first one already anchored and reconciled.
+        plans: list[tuple[DAG, set[str], str]] = []
         for dag, node_ids in sorted(nodes_by_dag.items(), key=lambda kv: str(kv[0].id)):
             graph = build_frequency_graph(dag)
             effective = compute_effective_cadences(
@@ -135,28 +134,33 @@ class Command(BaseCommand):
                 f"{format_tier(tier)} x{len(members)}"
                 for tier, members in sorted(tiers.items(), key=lambda kv: tier_sort_key(kv[0]))
             )
+            plans.append((dag, node_ids, tier_line))
 
-            if options["dry_run"]:
+        if options["dry_run"]:
+            for dag, node_ids, tier_line in plans:
                 self.stdout.write(f"DAG {dag.name} ({dag.id}): would anchor {len(node_ids)} node(s) → {tier_line}")
-                continue
+            self.stdout.write("(dry run: nothing was written)")
+            return
 
+        for dag, node_ids, tier_line in plans:
             written = 0
-            for node in Node.objects.filter(dag=dag, id__in=[uuid.UUID(node_id) for node_id in node_ids]):
-                set_declared_anchor(node, anchor)
-                written += 1
-            # require_tiered makes reconcile a silent no-op on an unconverted DAG; saying
-            # "reconciled" there would tell the operator a pin took effect when it didn't
-            if any(is_tier_schedule_id(sid) for sid in list_existing_schedule_ids(str(dag.id))):
-                reconcile_dag_schedules(dag, require_tiered=True)
+            # locked so a concurrent frequency-target write on the same node cannot lose either
+            # key of the shared properties blob
+            with transaction.atomic():
+                for node in Node.objects.select_for_update().filter(
+                    dag=dag, id__in=[uuid.UUID(node_id) for node_id in node_ids]
+                ):
+                    set_declared_anchor(node, anchor)
+                    written += 1
+            # require_tiered makes reconcile skip an unconverted DAG; saying "reconciled" there
+            # would tell the operator a pin took effect when it didn't
+            if reconcile_dag_schedules(dag, require_tiered=True):
                 self.stdout.write(f"DAG {dag.name} ({dag.id}): anchored {written} node(s), reconciled → {tier_line}")
             else:
                 self.stdout.write(
                     f"DAG {dag.name} ({dag.id}): anchored {written} node(s), but the DAG is not on cadence-tier "
-                    "schedules yet — anchors apply once it is converted (reconcile_freshness_schedules)"
+                    "schedules yet; anchors apply once it is converted (reconcile_freshness_schedules)"
                 )
-
-        if options["dry_run"]:
-            self.stdout.write("(dry run — nothing was written)")
 
     def _parse_anchor(self, at: str, on: str | None) -> int:
         try:

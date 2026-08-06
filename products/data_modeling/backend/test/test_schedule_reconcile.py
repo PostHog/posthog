@@ -160,9 +160,11 @@ class TestReconcileDagSchedules(BaseTest):
 
         dag_id = str(dag.id)
         created = {call.kwargs["id"]: call.kwargs["schedule"] for call in create.call_args_list}
-        self.assertEqual(set(created), {tier_schedule_id(dag_id, M15), tier_schedule_id(dag_id, M15, 120)})
+        # the raw anchor (02:00) reduces to phase 0 within a 15min cadence, and the schedule id
+        # carries the canonical phase so equivalent anchors share one schedule
+        self.assertEqual(set(created), {tier_schedule_id(dag_id, M15), tier_schedule_id(dag_id, M15, 0)})
 
-        anchored = created[tier_schedule_id(dag_id, M15, 120)]
+        anchored = created[tier_schedule_id(dag_id, M15, 0)]
         self.assertEqual(anchored.action.args[0]["node_ids"], [str(pinned.id)])
         self.assertEqual(anchored.spec.time_zone_name, "UTC")
         self.assertEqual(anchored.spec.jitter, timedelta(minutes=1))
