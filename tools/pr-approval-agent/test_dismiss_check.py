@@ -1,65 +1,32 @@
 """Tests for the Stamphog dismiss-decision logic."""
 
-import os
-import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
+import stack_credit
 import dismiss_check
 from dismiss_check import Decision, decide, evaluate_delta, select_last_bot_approval
 from gates import is_trivial_at_dismiss_time
+from stack_credit import Approval, Credit, change_key
 
-_GIT_ENV = {
-    "GIT_AUTHOR_NAME": "test",
-    "GIT_AUTHOR_EMAIL": "t@t",
-    "GIT_COMMITTER_NAME": "test",
-    "GIT_COMMITTER_EMAIL": "t@t",
-}
-
-
-def _git(*args: str, cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
-    env = {**os.environ, **_GIT_ENV}
-    return subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=check,
-    )
+from conftest import (
+    commit as _commit,
+    git as _git,
+    head as _head,
+    write as _write,
+)
 
 
-def _write(repo: Path, path: str, content: str = "x") -> None:
-    p = repo / path
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(content)
-
-
-def _commit(repo: Path, message: str) -> str:
-    _git("add", "-A", cwd=repo)
-    _git("commit", "-m", message, cwd=repo)
-    return _git("rev-parse", "HEAD", cwd=repo).stdout.strip()
-
-
-def _head(repo: Path) -> str:
-    return _git("rev-parse", "HEAD", cwd=repo).stdout.strip()
+def _approval(sha: str, submitted_at: str = "2026-01-01T00:00:00Z") -> Approval:
+    return Approval(sha=sha, submitted_at=submitted_at)
 
 
 def _assert_decision(d: Decision, *, dismiss: bool, review: bool, reason: str) -> None:
     assert d.dismiss_approval is dismiss
     assert d.run_review is review
     assert d.reason == reason
-
-
-@pytest.fixture
-def repo(tmp_path: Path) -> Path:
-    """Empty repo with one initial commit on master."""
-    _git("init", "--initial-branch=master", cwd=tmp_path)
-    _write(tmp_path, "README.md", "init")
-    _commit(tmp_path, "init")
-    return tmp_path
 
 
 # ── is_trivial_at_dismiss_time unit tests ────────────────────────
@@ -159,7 +126,7 @@ def test_is_ancestor_returns_false_when_not_ancestor(repo: Path) -> None:
 def test_is_ancestor_returns_false_on_git_error(repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
     bogus = "0" * 40
     assert dismiss_check._is_ancestor(bogus, _head(repo), repo) is False
-    assert "_is_ancestor git error" in capsys.readouterr().err
+    assert "is_ancestor git error" in capsys.readouterr().err
 
 
 # ── evaluate_delta scenarios ─────────────────────────────────────
@@ -358,6 +325,153 @@ def test_merge_from_non_base_branch_dismisses(repo: Path) -> None:
     )
 
 
+# ── stack credit ─────────────────────────────────────────────────
+
+
+def _credit_for(repo: Path, *shas: str, tips: tuple[str, ...] = ()) -> Callable[[], Credit]:
+    keys = {change_key(sha, repo) for sha in shas}
+    keys.discard(None)
+    return lambda: Credit(change_keys=frozenset(keys), approved_tips=tips)  # type: ignore[arg-type]
+
+
+def test_delta_carrying_stack_approved_content_retains(repo: Path) -> None:
+    _git("checkout", "-b", "layer", cwd=repo)
+    _write(repo, "docs/note.md", "note")
+    _commit(repo, "layer notes")
+    _write(repo, "frontend/src/foo.ts", "export const x = 1")
+    approved = _commit(repo, "layer work")
+
+    _git("checkout", "master", cwd=repo)
+    base = _head(repo)
+    _git("cherry-pick", approved, cwd=repo)
+
+    _assert_decision(
+        evaluate_delta(base, _head(repo), repo, "master", _credit_for(repo, approved)),
+        dismiss=False,
+        review=False,
+        reason="approved_elsewhere",
+    )
+
+
+def test_merge_of_an_approved_stack_layer_retains(repo: Path) -> None:
+    # Folding by merging a layer in leaves one merge commit, which has no diff
+    # of its own to match on. Its second parent is the layer tip.
+    _git("checkout", "-b", "feat", cwd=repo)
+    _write(repo, "frontend/src/feat.ts", "export const feat = 1")
+    feat_sha = _commit(repo, "feat")
+
+    _git("checkout", "-b", "layer", cwd=repo)
+    _write(repo, "frontend/src/layer.ts", "export const layer = 1")
+    layer_tip = _commit(repo, "layer work")
+
+    _git("checkout", "feat", cwd=repo)
+    _git("merge", "--no-ff", "layer", "-m", "fold layer in", cwd=repo)
+
+    _assert_decision(
+        evaluate_delta(feat_sha, _head(repo), repo, "master", _credit_for(repo, tips=(layer_tip,))),
+        dismiss=False,
+        review=False,
+        reason="approved_elsewhere",
+    )
+
+
+def test_delta_content_absent_from_stack_credit_dismisses(repo: Path) -> None:
+    _git("checkout", "-b", "layer", cwd=repo)
+    _write(repo, "frontend/src/approved.ts", "export const x = 1")
+    approved = _commit(repo, "layer work")
+
+    _git("checkout", "master", cwd=repo)
+    base = _head(repo)
+    _write(repo, "frontend/src/other.ts", "export const y = 2")
+    _commit(repo, "unrelated work")
+
+    _assert_decision(
+        evaluate_delta(base, _head(repo), repo, "master", _credit_for(repo, approved)),
+        dismiss=True,
+        review=True,
+        reason="non_trivial_delta",
+    )
+
+
+def test_rewritten_history_with_all_content_approved_retains(repo: Path) -> None:
+    _git("checkout", "-b", "feat", cwd=repo)
+    _write(repo, "frontend/src/foo.ts", "export const x = 1")
+    approved = _commit(repo, "feat")
+
+    _git("reset", "--hard", "master", cwd=repo)
+    _write(repo, "docs/note.md", "note")
+    _commit(repo, "notes")
+    _write(repo, "frontend/src/foo.ts", "export const x = 1")
+    _commit(repo, "feat replayed")
+
+    _assert_decision(
+        evaluate_delta(approved, _head(repo), repo, "master", _credit_for(repo, approved)),
+        dismiss=False,
+        review=False,
+        reason="rewritten_but_approved",
+    )
+
+
+def test_rewritten_history_with_one_uncredited_commit_dismisses(repo: Path) -> None:
+    _git("checkout", "-b", "feat", cwd=repo)
+    _write(repo, "frontend/src/foo.ts", "export const x = 1")
+    approved = _commit(repo, "feat")
+
+    _git("reset", "--hard", "master", cwd=repo)
+    _write(repo, "frontend/src/foo.ts", "export const x = 1")
+    _commit(repo, "feat replayed")
+    _write(repo, "frontend/src/smuggled.ts", "export const evil = 1")
+    _commit(repo, "smuggled in during the rewrite")
+
+    _assert_decision(
+        evaluate_delta(approved, _head(repo), repo, "master", _credit_for(repo, approved)),
+        dismiss=True,
+        review=True,
+        reason="non_linear_history",
+    )
+
+
+def test_rewritten_history_keeping_no_approved_commit_dismisses(repo: Path) -> None:
+    # A force-push that replaces every reviewed commit leaves nothing the prior
+    # approval spoke to, so trivial paths alone must not carry it over.
+    _git("checkout", "-b", "feat", cwd=repo)
+    _write(repo, "frontend/src/foo.ts", "export const x = 1")
+    approved = _commit(repo, "feat")
+
+    _git("reset", "--hard", "master", cwd=repo)
+    _write(repo, "docs/note.md", "note")
+    _commit(repo, "docs only")
+
+    _assert_decision(
+        evaluate_delta(approved, _head(repo), repo, "master", _credit_for(repo, approved)),
+        dismiss=True,
+        review=True,
+        reason="non_linear_history",
+    )
+
+
+def test_credit_provider_not_consulted_for_trivial_delta(repo: Path) -> None:
+    # The stack walk costs GitHub API calls and a fetch per layer inside a
+    # five-minute job, so a delta that classifies locally must never trigger it.
+    calls: list[int] = []
+
+    def provider() -> Credit:
+        calls.append(1)
+        return Credit.none()
+
+    base = _head(repo)
+    _write(repo, "tests/test_foo.py", "def test_foo(): pass")
+    _commit(repo, "test")
+
+    _assert_decision(
+        evaluate_delta(base, _head(repo), repo, "master", provider),
+        dismiss=False,
+        review=False,
+        reason="trivial_paths",
+    )
+    assert calls == []
+
+
 # ── decide() with mocked GitHub API ──────────────────────────────
 
 
@@ -366,7 +480,7 @@ def test_decide_no_prior_approval(monkeypatch: pytest.MonkeyPatch, repo: Path) -
     # when it is) and the agent hasn't approved — re-run the review on this
     # push so the first-run ERROR case (LLM backend down, label retained)
     # actually retries instead of staying labeled but stuck.
-    monkeypatch.setattr(dismiss_check, "find_last_approved_sha", lambda *_: None)
+    monkeypatch.setattr(dismiss_check, "find_last_approval", lambda *_: None)
     result = decide("PostHog/posthog", 1, _head(repo), repo)
     _assert_decision(result, dismiss=False, review=True, reason="no_prior_approval")
     assert result.last_approved_sha is None
@@ -377,7 +491,7 @@ def test_decide_returns_last_approved_sha(monkeypatch: pytest.MonkeyPatch, repo:
     _write(repo, "tests/test_foo.py", "def test_foo(): pass")
     _commit(repo, "test")
 
-    monkeypatch.setattr(dismiss_check, "find_last_approved_sha", lambda *_: base)
+    monkeypatch.setattr(dismiss_check, "find_last_approval", lambda *_: _approval(base))
     result = decide("PostHog/posthog", 1, _head(repo), repo)
     _assert_decision(result, dismiss=False, review=False, reason="trivial_paths")
     assert result.last_approved_sha == base
@@ -388,7 +502,8 @@ def test_decide_dismiss_path_includes_last_approved_sha(monkeypatch: pytest.Monk
     _write(repo, "frontend/src/foo.ts", "export const x = 1")
     _commit(repo, "prod")
 
-    monkeypatch.setattr(dismiss_check, "find_last_approved_sha", lambda *_: base)
+    monkeypatch.setattr(dismiss_check, "find_last_approval", lambda *_: _approval(base))
+    monkeypatch.setattr(stack_credit, "collect_credit", lambda **_: Credit.none())
     result = decide("PostHog/posthog", 1, _head(repo), repo)
     _assert_decision(result, dismiss=True, review=True, reason="non_trivial_delta")
     assert result.last_approved_sha == base
@@ -404,6 +519,11 @@ def _review(login: str, state: str, commit_id: str, submitted_at: str) -> dict:
         "commit_id": commit_id,
         "submitted_at": submitted_at,
     }
+
+
+def _approved_sha(reviews: list[dict]) -> str | None:
+    approval = select_last_bot_approval(reviews)
+    return approval.sha if approval else None
 
 
 def test_select_last_bot_approval_empty_list() -> None:
@@ -429,7 +549,7 @@ def test_select_last_bot_approval_picks_latest() -> None:
         _review("github-actions[bot]", "APPROVED", "sha-new", "2026-02-01T00:00:00Z"),
         _review("github-actions[bot]", "APPROVED", "sha-mid", "2026-01-15T00:00:00Z"),
     ]
-    assert select_last_bot_approval(reviews) == "sha-new"
+    assert _approved_sha(reviews) == "sha-new"
 
 
 def test_select_last_bot_approval_ignores_human_approvals() -> None:
@@ -437,7 +557,7 @@ def test_select_last_bot_approval_ignores_human_approvals() -> None:
         _review("github-actions[bot]", "APPROVED", "sha-bot", "2026-01-01T00:00:00Z"),
         _review("alice", "APPROVED", "sha-human", "2026-02-01T00:00:00Z"),
     ]
-    assert select_last_bot_approval(reviews) == "sha-bot"
+    assert _approved_sha(reviews) == "sha-bot"
 
 
 def test_select_last_bot_approval_ignores_bot_non_approval_states() -> None:
@@ -445,14 +565,14 @@ def test_select_last_bot_approval_ignores_bot_non_approval_states() -> None:
         _review("github-actions[bot]", "APPROVED", "sha-approved", "2026-01-01T00:00:00Z"),
         _review("github-actions[bot]", "CHANGES_REQUESTED", "sha-changes", "2026-02-01T00:00:00Z"),
     ]
-    assert select_last_bot_approval(reviews) == "sha-approved"
+    assert _approved_sha(reviews) == "sha-approved"
 
 
 def test_select_last_bot_approval_recognizes_app_identity() -> None:
     # The Stamphog app posts the body-carrying approval as stamphog[bot]; it
     # must count as a prior bot approval so dismiss-on-push can find its SHA.
     reviews = [_review("stamphog[bot]", "APPROVED", "sha-app", "2026-01-01T00:00:00Z")]
-    assert select_last_bot_approval(reviews) == "sha-app"
+    assert _approved_sha(reviews) == "sha-app"
 
 
 # ── main() error path ────────────────────────────────────────────

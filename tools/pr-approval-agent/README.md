@@ -145,6 +145,64 @@ An approval is posted once, as the Stamphog app (`stamphog[bot]`), carrying the 
 This identity was confirmed to satisfy branch protection, so the earlier bodyless `github-actions[bot]` fallback approval has been dropped and every stamphog action now runs under the app token.
 Every other verdict (REFUSED, ESCALATE, WAIT, ERROR) goes into a single sticky comment that is updated in place on each run, with a counter of how many verdicts the comment has carried (failure notes append without bumping it) — repeated refusals don't stack up as separate review comments on the PR.
 
+## Pushes after an approval
+
+The master ruleset sets `dismiss_stale_reviews_on_push=false` and `require_last_push_approval=false`, so GitHub leaves a stamphog approval in place when new commits arrive.
+Stamphog dismisses it itself, on `synchronize`, unless the push clears one of the bars below.
+`dismiss_check.py` decides; `stack_credit.py` answers the cross-PR half of the question.
+
+A push retains the approval when:
+
+| Reason                   | What it means                                                                                                                    |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| `trivial_paths`          | Every new commit touches only test, docs, lockfile, snapshot, or generated-artifact paths                                        |
+| `merge_only`             | Every new commit is a clean merge from the base branch, with no manual conflict edits                                            |
+| `mixed_trivial`          | A mix of the two above                                                                                                           |
+| `approved_elsewhere`     | Every new commit's content was already approved on another PR in this stack                                                      |
+| `rewritten_but_approved` | History was rewritten, and every commit the PR now contains is trivial or already approved, including at least one of the latter |
+| `empty_delta`            | HEAD did not move                                                                                                                |
+
+Everything else dismisses and re-reviews automatically.
+The label stays on across all of this, so retention and re-review both happen without anyone touching the PR.
+
+### Stack credit
+
+Stamphog's approval state is per-PR.
+Without credit, folding a reviewed stack back into one PR reads as a pile of unreviewed work landing on the surviving PR, and costs a re-stamp that reviews nothing new.
+
+Credit closes that gap in the two forms a fold produces.
+
+A rebase or squash rewrites SHAs, so ordinary commits are matched by **content**.
+A commit's key is its `git diff-tree --raw` output: every touched path with its pre-image blob OID, post-image blob OID, file modes, and change status.
+Two commits match only when they turn byte-identical inputs into byte-identical outputs, which is stricter than `git patch-id` and reads no blobs, so it stays cheap in the workflow's blobless clone.
+
+Merging a layer in instead produces a single merge commit, which has no diff of its own to key on.
+Those are judged by their non-first parents: a merge is trusted when every parent it pulls in is reachable from the base branch (the ordinary "merged master in" case) or from a **stack tip** that carries its own approval.
+Manual conflict-resolution edits still dismiss, whichever branch the merge came from.
+
+Four rules keep it from becoming a laundering path:
+
+- **Layer scopes chain.** Layer N's scope is `approved(N-1)..approved(N)`, so no commit is ever credited by a layer that did not review it. Asking GitHub what a PR contains would over-credit, because `/pulls/{n}/commits` reports scope against the PR's _current_ base.
+- **The chain must hold.** A layer's approved commit has to descend from the layer below's approved commit. A broken chain grants that layer nothing.
+- **Retargeting voids an approval.** Changing a PR's base widens what its diff covers without re-recording the approval, so an approval from before a `base_ref_changed` event grants no credit.
+- **Same author, same repo.** Anyone can open a PR against someone else's branch on a public repo, so only the PR author's own same-repo layers join the chain.
+
+Anything that fails, times out, or does not fit these rules withholds credit and dismisses, which is the behavior that predates this feature.
+
+> [!NOTE]
+> The stack walk reads the PR timeline, which lives under `/issues/` and needs **`issues: read`** on the Stamphog app alongside its pull-requests permission.
+> Without it every stack lookup fails closed and credit silently never applies — the job log carries a `[stack_credit] timeline lookup failed` line when that is what is happening.
+
+### Fold shapes
+
+| Fold                                                           | Outcome                                                                   |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Merge the upper layers into the bottom PR                      | Retained. Each merge's second parent is an approved layer tip             |
+| Rebase the whole stack onto the bottom PR and force-push       | Retained, as long as each layer replays onto identical content            |
+| Rebase onto a newer base that changed a file the stack touches | Dismissed. The pre-image differs, so the content is not what was approved |
+| Squash the layers into one commit                              | Dismissed. The squashed commit matches no single approved commit          |
+| Retarget the top layer to master and drop the ones below       | Dismissed. Retargeting voids the top layer's approval                     |
+
 ## Tiers
 
 ### T0 — deterministic
@@ -247,6 +305,8 @@ The GitHub Action uploads this as a build artifact with 30-day retention.
 - `gates.py` — deterministic classification and deny-list logic
 - `github.py` — GitHub data fetching via `gh` CLI
 - `reviewer.py` — Claude Agent SDK reviewer (showstoppers prompt)
+- `dismiss_check.py` — retain-or-dismiss decision for a push after an approval
+- `stack_credit.py` — content keys for commits already approved elsewhere in a PR's stack
 - `.github/workflows/pr-approval-agent.yml` — GitHub Action (label trigger)
 
 ## Empirical basis

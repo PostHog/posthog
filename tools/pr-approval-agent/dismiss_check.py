@@ -21,20 +21,36 @@ and `Decision.error` — together they cover every legitimate combination,
 and the impossible "dismiss the approval but skip re-review" case is
 unrepresentable.
 
-Anything ambiguous (force-push, mixed paths, fetch error, foreign-branch
-merge) falls through to `Decision.dismiss_and_review`. The bias is
-correctness, not retention.
+Anything ambiguous (mixed paths, fetch error, foreign-branch merge) falls
+through to `Decision.dismiss_and_review`. The bias is correctness, not
+retention.
+
+A commit can also clear the bar by carrying an approval from elsewhere in the
+PR's stack, which is what makes folding a reviewed stack back into one PR free
+of a re-stamp. `stack_credit` owns that lookup and the invariants behind it;
+this module only asks it whether a given commit's content was already approved.
+Rewritten history is the one case where credit changes the shape of the check
+rather than just the verdict: after a force-push there is no delta to walk, so
+every commit in the PR has to clear the bar on its own.
 """
 
 import os
 import sys
 import json
 import subprocess
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 
+import stack_credit
 from gates import is_trivial_at_dismiss_time
+from stack_credit import (
+    Approval,
+    change_key,
+    is_ancestor as _is_ancestor,
+    merge_base,
+)
 
 # Stamphog now approves only as stamphog[bot] (the app), carrying the review
 # body. github-actions[bot] is kept here so legacy bodyless approvals from
@@ -52,6 +68,8 @@ class Reason(StrEnum):
     TRIVIAL_PATHS = "trivial_paths"
     MERGE_ONLY = "merge_only"
     MIXED_TRIVIAL = "mixed_trivial"
+    APPROVED_ELSEWHERE = "approved_elsewhere"
+    REWRITTEN_BUT_APPROVED = "rewritten_but_approved"
     NON_TRIVIAL_DELTA = "non_trivial_delta"
     NON_LINEAR_HISTORY = "non_linear_history"
     EMPTY_DELTA = "empty_delta"
@@ -63,6 +81,7 @@ class CommitClass(StrEnum):
 
     MERGE = "merge"
     TRIVIAL = "trivial"
+    APPROVED_ELSEWHERE = "approved_elsewhere"
     NON_TRIVIAL = "non_trivial"
 
 
@@ -109,30 +128,8 @@ def _run(*args: str, cwd: Path | None = None) -> str:
     return subprocess.run(list(args), cwd=cwd, capture_output=True, text=True, timeout=30, check=True).stdout
 
 
-def _is_ancestor(ancestor: str, descendant: str, cwd: Path) -> bool:
-    """`git merge-base --is-ancestor`: rc 0=ancestor, 1=not ancestor, ≥2=error.
-
-    Errors fall through to False so callers treat the relation as
-    non-linear and dismiss + re-review (fail-closed). The stderr log
-    distinguishes a real force-push from a git plumbing failure.
-    """
-    result = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", ancestor, descendant],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    if result.returncode not in (0, 1):
-        print(
-            f"[dismiss_check] _is_ancestor git error rc={result.returncode}: {result.stderr.strip()}",
-            file=sys.stderr,
-        )
-    return result.returncode == 0
-
-
-def select_last_bot_approval(reviews: list[dict]) -> str | None:
-    """Pick the commit SHA of the most recent bot APPROVED review.
+def select_last_bot_approval(reviews: list[dict]) -> Approval | None:
+    """Pick the most recent bot APPROVED review.
 
     Pure function so the filter+sort behavior can be exercised without
     invoking `gh api`. Human reviews and non-APPROVED bot reviews are
@@ -142,26 +139,24 @@ def select_last_bot_approval(reviews: list[dict]) -> str | None:
         (r for r in reviews if r.get("user", {}).get("login") in BOT_LOGINS and r.get("state") == "APPROVED"),
         key=lambda r: r.get("submitted_at", ""),
     )
-    return bot_approvals[-1].get("commit_id") if bot_approvals else None
+    if not bot_approvals:
+        return None
+    latest = bot_approvals[-1]
+    commit_id = latest.get("commit_id")
+    if not commit_id:
+        return None
+    return Approval(sha=commit_id, submitted_at=latest.get("submitted_at", ""))
 
 
-def find_last_approved_sha(repo: str, pr_number: int) -> str | None:
-    """Commit SHA of the most recent Stamphog-bot APPROVED review."""
+def find_last_approval(repo: str, pr_number: int) -> Approval | None:
+    """Most recent Stamphog-bot APPROVED review on `pr_number`."""
     reviews = json.loads(_run("gh", "api", f"repos/{repo}/pulls/{pr_number}/reviews", "--paginate"))
     return select_last_bot_approval(reviews)
 
 
-def _is_clean_merge_from_base(sha: str, foreign_parents: list[str], cwd: Path, base_ref: str) -> bool:
-    """A merge is clean iff it added no manual conflict-resolution edits AND
-    every non-first parent is already reachable from `base_ref`.
-
-    Without the ancestry check, a clean merge from an arbitrary side branch
-    would be trusted as if it came from base.
-    """
-    cc = _run("git", "show", sha, "--diff-merges=cc", "--format=", "-p", cwd=cwd)
-    if cc.strip():
-        return False
-    return all(_is_ancestor(p, base_ref, cwd) for p in foreign_parents)
+def _has_conflict_resolution_edits(sha: str, cwd: Path) -> bool:
+    """Whether a merge commit carries edits beyond what merging its parents produced."""
+    return bool(_run("git", "show", sha, "--diff-merges=cc", "--format=", "-p", cwd=cwd).strip())
 
 
 def _first_parent_commits_between(from_sha: str, to_sha: str, cwd: Path) -> list[str]:
@@ -171,33 +166,127 @@ def _first_parent_commits_between(from_sha: str, to_sha: str, cwd: Path) -> list
     return output.splitlines()
 
 
-def _classify_commit(sha: str, cwd: Path, base_ref: str) -> CommitClass:
+class StackCredit:
+    """Answers what this PR's stack has already had approved.
+
+    The stack walk behind `provider` costs several GitHub API calls and a ref
+    fetch per layer, and most pushes reach a verdict without it, so it runs at
+    most once and only once a commit has already failed the cheaper local
+    checks. A None provider disables credit entirely, which is what keeps
+    `evaluate_delta` callable as a pure git-only function.
+    """
+
+    def __init__(self, provider: Callable[[], stack_credit.Credit] | None) -> None:
+        self._provider = provider
+        self._credit: stack_credit.Credit | None = None
+
+    def _load(self) -> stack_credit.Credit:
+        if self._credit is None:
+            try:
+                self._credit = self._provider() if self._provider else stack_credit.Credit.none()
+            except Exception as exc:
+                # Granting no credit leaves the caller dismissing exactly as it
+                # did before credit existed, so a GitHub or git failure here is
+                # reported against the real delta reason rather than collapsing
+                # the whole decision into `error:<ExcName>`.
+                print(f"[dismiss_check] stack credit unavailable: {exc}", file=sys.stderr)
+                self._credit = stack_credit.Credit.none()
+        return self._credit
+
+    def covers(self, sha: str, cwd: Path) -> bool:
+        if self._provider is None:
+            return False
+        key = change_key(sha, cwd)
+        if key is None:
+            return False
+        return key in self._load().change_keys
+
+    def reaches_approved_tip(self, sha: str, cwd: Path) -> bool:
+        if self._provider is None:
+            return False
+        return any(_is_ancestor(sha, tip, cwd) for tip in self._load().approved_tips)
+
+
+def _classify_merge(sha: str, foreign_parents: list[str], cwd: Path, base_ref: str, credit: StackCredit) -> CommitClass:
+    """Classify a merge by where the content it pulls in came from.
+
+    A merge has no diff of its own to key on, so it is judged by its non-first
+    parents. Reachable from `base_ref` is the ordinary "merged master in" case.
+    Reachable from a stack tip is the fold: merging a layer into the PR below
+    produces exactly this shape, and that layer carries its own approval.
+    Anything else is an arbitrary side branch nobody reviewed.
+    """
+    if _has_conflict_resolution_edits(sha, cwd):
+        return CommitClass.NON_TRIVIAL
+    if all(_is_ancestor(p, base_ref, cwd) for p in foreign_parents):
+        return CommitClass.MERGE
+    if all(_is_ancestor(p, base_ref, cwd) or credit.reaches_approved_tip(p, cwd) for p in foreign_parents):
+        return CommitClass.APPROVED_ELSEWHERE
+    return CommitClass.NON_TRIVIAL
+
+
+def _classify_commit(sha: str, cwd: Path, base_ref: str, credit: StackCredit) -> CommitClass:
     parents = _run("git", "rev-list", "--parents", "-n", "1", sha, cwd=cwd).split()[1:]
     if len(parents) >= 2:
-        return (
-            CommitClass.MERGE if _is_clean_merge_from_base(sha, parents[1:], cwd, base_ref) else CommitClass.NON_TRIVIAL
-        )
+        return _classify_merge(sha, parents[1:], cwd, base_ref, credit)
     files = [f for f in _run("git", "diff-tree", "--no-commit-id", "--name-only", "-r", sha, cwd=cwd).splitlines() if f]
-    return CommitClass.TRIVIAL if all(is_trivial_at_dismiss_time(f) for f in files) else CommitClass.NON_TRIVIAL
+    if all(is_trivial_at_dismiss_time(f) for f in files):
+        return CommitClass.TRIVIAL
+    if credit.covers(sha, cwd):
+        return CommitClass.APPROVED_ELSEWHERE
+    return CommitClass.NON_TRIVIAL
 
 
-def evaluate_delta(last_approved_sha: str, head_sha: str, cwd: Path, base_ref: str = "origin/master") -> Decision:
+def _evaluate_rewritten(head_sha: str, cwd: Path, base_ref: str, credit: StackCredit) -> Decision:
+    """Decide a force-pushed branch, where there is no delta left to walk.
+
+    A rewrite invalidates the incremental question, so this asks the whole
+    question instead: every commit the PR now contains has to be trivial, a
+    clean merge from base, or content Stamphog already approved somewhere in
+    the stack. Requiring at least one approved commit is what separates a
+    rebase that preserved reviewed work from a force-push that replaced it with
+    an unrelated branch that happens to touch only trivial paths.
+    """
+    fork_point = merge_base(base_ref, head_sha, cwd)
+    if fork_point is None:
+        return Decision.dismiss_and_review(Reason.NON_LINEAR_HISTORY)
+
+    commits = _first_parent_commits_between(fork_point, head_sha, cwd)
+    if not commits:
+        return Decision.dismiss_and_review(Reason.NON_LINEAR_HISTORY)
+
+    classes = [_classify_commit(c, cwd, base_ref, credit) for c in commits]
+    if CommitClass.NON_TRIVIAL in classes or CommitClass.APPROVED_ELSEWHERE not in classes:
+        return Decision.dismiss_and_review(Reason.NON_LINEAR_HISTORY)
+    return Decision.retain(Reason.REWRITTEN_BUT_APPROVED)
+
+
+def evaluate_delta(
+    last_approved_sha: str,
+    head_sha: str,
+    cwd: Path,
+    base_ref: str = "origin/master",
+    credit_provider: Callable[[], stack_credit.Credit] | None = None,
+) -> Decision:
     """Classify the first-parent commit delta from `last_approved_sha` to `head_sha`.
 
     First-parent walking ensures a merge from base appears as a single
     node — without it, the second-parent's commits would surface
     individually and almost always classify as non-trivial.
     """
+    credit = StackCredit(credit_provider)
     if not _is_ancestor(last_approved_sha, head_sha, cwd):
-        return Decision.dismiss_and_review(Reason.NON_LINEAR_HISTORY)
+        return _evaluate_rewritten(head_sha, cwd, base_ref, credit)
 
     commits = _first_parent_commits_between(last_approved_sha, head_sha, cwd)
     if not commits:
         return Decision.retain(Reason.EMPTY_DELTA)
 
-    classes = [_classify_commit(c, cwd, base_ref) for c in commits]
+    classes = [_classify_commit(c, cwd, base_ref, credit) for c in commits]
     if CommitClass.NON_TRIVIAL in classes:
         return Decision.dismiss_and_review(Reason.NON_TRIVIAL_DELTA)
+    if CommitClass.APPROVED_ELSEWHERE in classes:
+        return Decision.retain(Reason.APPROVED_ELSEWHERE)
     if CommitClass.MERGE in classes and CommitClass.TRIVIAL in classes:
         return Decision.retain(Reason.MIXED_TRIVIAL)
     if CommitClass.MERGE in classes:
@@ -206,12 +295,23 @@ def evaluate_delta(last_approved_sha: str, head_sha: str, cwd: Path, base_ref: s
 
 
 def decide(repo: str, pr_number: int, head_sha: str, cwd: Path, base_ref: str = "origin/master") -> Decision:
-    last_approved_sha = find_last_approved_sha(repo, pr_number)
-    if last_approved_sha is None:
+    approval = find_last_approval(repo, pr_number)
+    if approval is None:
         return Decision.review_only(Reason.NO_PRIOR_APPROVAL)
+
+    def credit_provider() -> stack_credit.Credit:
+        return stack_credit.collect_credit(
+            repo=repo,
+            pr_number=pr_number,
+            own_approval=approval,
+            cwd=cwd,
+            base_ref=base_ref,
+            find_approval=find_last_approval,
+        )
+
     return replace(
-        evaluate_delta(last_approved_sha, head_sha, cwd, base_ref),
-        last_approved_sha=last_approved_sha,
+        evaluate_delta(approval.sha, head_sha, cwd, base_ref, credit_provider),
+        last_approved_sha=approval.sha,
     )
 
 
