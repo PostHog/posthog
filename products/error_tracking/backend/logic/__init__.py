@@ -103,13 +103,15 @@ EXTERNAL_REFERENCE_NON_BLANK_CONFIG_FIELDS = {
     Integration.IntegrationKind.JIRA.value: ("project_key", "title"),
 }
 
-# Keys build_external_issue_url reads per provider — the minimal external_context we need to
-# persist when linking an issue that already exists rather than creating a new one.
-LINK_EXISTING_REQUIRED_CONTEXT_FIELDS = {
-    Integration.IntegrationKind.GITHUB.value: ("repository", "number"),
-    Integration.IntegrationKind.GITLAB.value: ("issue_id",),
-    Integration.IntegrationKind.LINEAR.value: ("id",),
-    Integration.IntegrationKind.JIRA.value: ("key",),
+# Keys build_external_issue_url reads per provider, with the identifier type each expects —
+# the minimal external_context we need to persist when linking an issue that already exists
+# rather than creating a new one. References cannot be deleted, so a malformed identifier
+# would persist a permanently broken link.
+LINK_EXISTING_REQUIRED_CONTEXT_FIELDS: dict[str, dict[str, type]] = {
+    Integration.IntegrationKind.GITHUB.value: {"repository": str, "number": int},
+    Integration.IntegrationKind.GITLAB.value: {"issue_id": int},
+    Integration.IntegrationKind.LINEAR.value: {"id": str},
+    Integration.IntegrationKind.JIRA.value: {"key": str},
 }
 
 
@@ -168,22 +170,24 @@ def _clean_existing_external_context(integration: Integration, external_context:
     if required_fields is None:
         raise ErrorTrackingExternalReferenceValidationError("Provider not supported")
 
+    error = ErrorTrackingExternalReferenceValidationError(
+        f"Missing required external context fields for {integration.kind}: {', '.join(required_fields)}."
+    )
+
     cleaned: dict[str, Any] = {}
-    for field in required_fields:
+    for field, expected_type in required_fields.items():
         value = external_context.get(field)
-        # Only non-blank strings and ints are valid identifiers — build_external_issue_url
-        # interpolates these into URLs, so anything else would persist a broken reference.
+        # build_external_issue_url interpolates these into URLs, so enforce the identifier
+        # type each provider expects (digit strings are accepted for numeric identifiers).
         if isinstance(value, str):
             value = value.strip()
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, str | int)
-            or value == ""
-            or (isinstance(value, int) and value <= 0)
-        ):
-            raise ErrorTrackingExternalReferenceValidationError(
-                f"Missing required external context fields for {integration.kind}: {', '.join(required_fields)}."
-            )
+        if expected_type is int:
+            if isinstance(value, str) and value.isdigit():
+                value = int(value)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise error
+        elif not isinstance(value, str) or value == "":
+            raise error
         cleaned[field] = value
     return cleaned
 
@@ -339,6 +343,13 @@ def create_external_reference(
         if not is_supported_external_issue_provider(integration.kind):
             raise ErrorTrackingExternalReferenceValidationError("Provider not supported")
         stored_context = _clean_existing_external_context(integration, external_context)
+        # Linking is idempotent: retries and double-clicks must not duplicate the
+        # reference (references cannot be deleted) or re-attach in the provider.
+        existing = ErrorTrackingExternalReference.objects.filter(
+            issue=issue, integration=integration, external_context=stored_context
+        ).first()
+        if existing is not None:
+            return existing
         if integration.kind == Integration.IntegrationKind.LINEAR:
             # Linked issues get the same PostHog back-link attachment as created ones.
             attachment_url = get_issue_permalink_by_fingerprint(team_id=team_id, issue_id=issue.id)

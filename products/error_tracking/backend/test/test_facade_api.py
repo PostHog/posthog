@@ -190,6 +190,17 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         assert f"/project/{self.team.id}/error_tracking/" in attachment_url
         assert reference.external_url == "https://linear.app/acme/issue/ENG-42"
 
+        # Linking the same issue again returns the existing reference without re-attaching.
+        duplicate = api.create_external_reference(
+            team_id=self.team.id,
+            issue_id=issue.id,
+            integration_id=integration.id,
+            external_context={"id": "ENG-42"},
+            distinct_id=self.user.id,
+        )
+        assert duplicate.id == reference.id
+        assert mock_create_attachment.call_count == 1
+
     @parameterized.expand(
         [
             ("both", {"title": "x"}, {"key": "ENG-1"}),
@@ -221,6 +232,8 @@ class TestErrorTrackingFacadeAPI(BaseTest):
             ("boolean_number", {"repository": "posthog", "number": False}),
             ("zero_number", {"repository": "posthog", "number": 0}),
             ("list_number", {"repository": "posthog", "number": [42]}),
+            ("non_numeric_number", {"repository": "posthog", "number": "not-an-issue"}),
+            ("integer_repository", {"repository": 42, "number": 42}),
             ("blank_repository", {"repository": "   ", "number": 42}),
         ]
     )
