@@ -104,6 +104,7 @@ export interface sourceCatalogLogicValues {
     catalogItems: CatalogItem[]
     categoriesWithCounts: CatalogCategory[]
     filteredItems: CatalogItem[]
+    hasCrossCategoryMatches: boolean
     search: string
     selectedCategory: SourceCategoryFilter
     sourceRequestModalOpen: boolean
@@ -1076,6 +1077,7 @@ export interface sourceCatalogLogicMeta {
                       | 'QuickBooks'
                       | 'Railway'
                       | 'Railz'
+                      | 'Raisely'
                       | 'Raken'
                       | 'Ramp'
                       | 'Rapid7Insightvm'
@@ -1161,6 +1163,7 @@ export interface sourceCatalogLogicMeta {
                       | 'ServiceNow'
                       | 'Servicetitan'
                       | 'Servicetrade'
+                      | 'Sevalla'
                       | 'Sevdesk'
                       | 'SevenShifts'
                       | 'SFTP'
@@ -1371,6 +1374,8 @@ export interface sourceCatalogLogicMeta {
                       | 'Whop'
                       | 'WikipediaPageviews'
                       | 'Windmill'
+                      | 'WindsorAi'
+                      | 'Wix'
                       | 'Wiz'
                       | 'Wompi'
                       | 'WooCommerce'
@@ -1438,6 +1443,7 @@ export interface sourceCatalogLogicMeta {
             search: string,
             selectedCategory: SourceCategoryFilter
         ) => CatalogItem[]
+        hasCrossCategoryMatches: (catalogFuse: Fuse, search: string, selectedCategory: SourceCategoryFilter) => boolean
     }
 }
 
@@ -1663,6 +1669,22 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                     }
                     return a.label.localeCompare(b.label)
                 })
+            },
+        ],
+
+        // With a category selected, a search that only matches sources in other categories leaves
+        // filteredItems empty even though the source exists. This flags that case so the empty
+        // state can offer an all-categories search instead of dead-ending on "no sources match".
+        hasCrossCategoryMatches: [
+            (s) => [s.catalogFuse, s.search, s.selectedCategory],
+            (catalogFuse: Fuse, search: string, selectedCategory: SourceCategoryFilter): boolean => {
+                const trimmed = search.trim()
+                if (!trimmed || selectedCategory === ALL_SOURCES_CATEGORY) {
+                    return false
+                }
+                return catalogFuse
+                    .search(trimmed)
+                    .some((r) => r.item.status !== 'coming_soon' && r.item.category !== selectedCategory)
             },
         ],
     }),

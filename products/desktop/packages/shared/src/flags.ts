@@ -24,6 +24,8 @@ export const CHANNELS_LAYOUT_FLAG = "code-spaces-layout";
 export const LOOPS_FLAG = "loops";
 export const TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox";
 export const GLM_MODEL_FLAG = "posthog-code-glm-model";
+/** PostHog Code: show DeepSeek V4 Flash in the model picker. Off = hidden. */
+export const DEEPSEEK_MODEL_FLAG = "posthog-code-deepseek-model";
 export const KIMI_MODEL_FLAG = "tasks-kimi-k3";
 /** Gates the Fast Mode section of the reasoning dropdown. */
 export const FAST_MODE_FLAG = "posthog-desktop-fast-mode";
@@ -39,3 +41,9 @@ export const LOCAL_MCP_IMPORT_FLAG = "posthog-code-local-mcp-import";
 export const MCP_GATEWAY_FLAG = "mcp-gateway";
 /** Per-task estimated cost readout in the context usage indicator. */
 export const TASK_COST_FLAG = "posthog-code-task-cost";
+/**
+ * Rollout gate for re-staging desktop updates: keep polling after an update
+ * is staged and replace it when the feed offers a newer version. Off keeps
+ * the legacy stop-polling-once-staged behavior.
+ */
+export const STAGED_UPDATES_FLAG = "posthog-desktop-staged-updates";

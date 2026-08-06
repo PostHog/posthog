@@ -26,7 +26,12 @@ function makeHogFlowInvocation(hogFlowId = 'flow-1', overrides: { billable_actio
         functionId: hogFlowId,
         queue: 'hogflow',
         queuePriority: 0,
-        hogFlow: { id: hogFlowId, name: 'test flow', billable_action_types: overrides.billable_action_types ?? [] },
+        hogFlow: {
+            id: hogFlowId,
+            name: 'test flow',
+            version: 5,
+            billable_action_types: overrides.billable_action_types ?? [],
+        },
         state: { event: { uuid: 'evt-1' } },
         person: undefined,
     } as any
@@ -105,7 +110,12 @@ describe('HogFlowInvocationPipeline', () => {
 
         expect(result).toEqual([inv])
         expect(hogFunctionMonitoringService.queueAppMetrics).toHaveBeenCalledWith(
-            expect.arrayContaining([expect.objectContaining({ metric_name: 'triggered' })]),
+            expect.arrayContaining([
+                expect.objectContaining({
+                    metric_name: 'triggered',
+                    app_source_version: { id: expect.any(String), version: 5 },
+                }),
+            ]),
             'hog_flow'
         )
     })

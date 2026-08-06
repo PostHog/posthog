@@ -3,6 +3,7 @@ import sys
 import uuid
 import fnmatch
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -553,6 +554,31 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config["delta_revive_required"] = info
         self._save_sync_type_config()
 
+    @property
+    def coarsen_requested(self) -> dict[str, Any] | None:
+        """Set by `stage_warehouse_coarsening` to nominate this table for the coarsening rewrite.
+
+        Nominating overrides the *policy* gates the automatic path applies (rollout flag, OOM history,
+        layout age, minimum partition count) because an operator has looked at the table. It never
+        overrides the *safety* checks: the controller still measures the live layout and refuses any
+        target that would not fit the memory budget, so a nomination can only ever be a no-op, never a
+        rewrite into partitions too big to merge. Consumed on the next evaluation either way.
+        Shape: {"requested_at": iso8601 str, "requested_by": str}.
+        """
+        if self.sync_type_config:
+            marker = self.sync_type_config.get("coarsen_requested", None)
+            if isinstance(marker, dict):
+                return marker
+        return None
+
+    def set_coarsen_requested(self, info: dict[str, Any]) -> None:
+        self.sync_type_config["coarsen_requested"] = info
+        self._save_sync_type_config()
+
+    def clear_coarsen_requested(self) -> None:
+        self.sync_type_config.pop("coarsen_requested", None)
+        self._save_sync_type_config()
+
     def stamp_last_repartition_at(self) -> None:
         self.sync_type_config["last_repartition_at"] = timezone.now().isoformat()
         self._save_sync_type_config()
@@ -999,6 +1025,12 @@ def _update_labels(old_schemas: list["ExternalDataSchema"], new_schemas: dict[st
             schema.save(update_fields=["label", "updated_at"])
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class SchemaSyncResult:
+    created: list[str]
+    deleted: list[str]
+
+
 def sync_old_schemas_with_new_schemas(
     new_schemas: dict[str, str | None],
     source_id: str,
@@ -1006,7 +1038,7 @@ def sync_old_schemas_with_new_schemas(
     descriptions: dict[str, str | None] | None = None,
     strict_name_match: bool = False,
     schema_metadata_by_name: dict[str, dict] | None = None,
-) -> tuple[list[str], list[str]]:
+) -> SchemaSyncResult:
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
     old_schemas_names = [schema.name for schema in old_schemas]
 
@@ -1099,7 +1131,7 @@ def sync_old_schemas_with_new_schemas(
                 s.status = ExternalDataSchema.Status.COMPLETED
                 s.save()
 
-    return actually_created, deleted_schemas
+    return SchemaSyncResult(created=actually_created, deleted=deleted_schemas)
 
 
 def schema_name_matches_auto_sync_patterns(name: str, patterns: list[str] | None) -> bool:

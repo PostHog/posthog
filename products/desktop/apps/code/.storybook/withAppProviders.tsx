@@ -152,6 +152,7 @@ function createProviderStack(): ProviderStack {
   // every flag reads as enabled and useFeatureFlag's state never settles.
   bindings.bind<FeatureFlags>(FEATURE_FLAGS).toConstantValue({
     isEnabled: () => false,
+    getPayload: () => undefined,
     onFlagsLoaded: () => () => {},
   });
   const container = storyContainer(bindings);
