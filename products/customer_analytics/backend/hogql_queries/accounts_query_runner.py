@@ -23,9 +23,9 @@ DEFAULT_ORDER_BY = "created_at DESC"
 # The query is bound by federated Postgres scans (one per merged lazy-join branch), not
 # CPU; the cluster's effective thread cap keeps those branches from running wide, so ask
 # for enough threads that the scans overlap.
-QUERY_SETTINGS = HogQLGlobalSettings(max_threads=16)
+PERF_QUERY_SETTINGS = HogQLGlobalSettings(max_threads=16)
 
-JOIN_MERGE_FLAG = "customer-analytics-accounts-perf"
+PERF_FLAG = "customer-analytics-accounts-perf"
 
 
 def _normalize_order_clause(raw: str) -> str:
@@ -43,7 +43,8 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        if self._join_merge_enabled():
+        self._perf_enabled = self._perf_flag_enabled()
+        if self._perf_enabled:
             self.modifiers.mergeFederatedAggregateJoins = True
 
         # Metrics-only callers (just aggregations, no `select`) skip column
@@ -72,13 +73,13 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             offset=self.query.offset,
         )
 
-    def _join_merge_enabled(self) -> bool:
+    def _perf_flag_enabled(self) -> bool:
         # only_evaluate_locally keeps this flag check off the network — it runs on the query
         # hot path, so an inconclusive local evaluation must mean "off", never an HTTP call.
         try:
             return bool(
                 posthoganalytics.feature_enabled(
-                    JOIN_MERGE_FLAG,
+                    PERF_FLAG,
                     str(self.team.uuid),
                     groups={
                         "organization": str(self.team.organization_id),
@@ -234,7 +235,7 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
-            settings=QUERY_SETTINGS,
+            settings=PERF_QUERY_SETTINGS if self._perf_enabled else None,
         )
 
         name_index = self.columns.index(NAME_COLUMN)
@@ -280,7 +281,7 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
-            settings=QUERY_SETTINGS,
+            settings=PERF_QUERY_SETTINGS if self._perf_enabled else None,
         )
 
     def _metric_evaluation_error(self, metrics: list[str], error: Exception) -> ExposedHogQLError:
