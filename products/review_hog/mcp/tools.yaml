@@ -21,6 +21,12 @@ tools:
     review-hog-perspectives-partial-update:
         operation: review_hog_perspectives_partial_update
         enabled: false
+    review-hog-resolution-list:
+        operation: review_hog_resolution_list
+        enabled: false
+    review-hog-resolution-partial-update:
+        operation: review_hog_resolution_partial_update
+        enabled: false
     review-hog-reviews-get:
         operation: review_hog_reviews_retrieve
         enabled: true
