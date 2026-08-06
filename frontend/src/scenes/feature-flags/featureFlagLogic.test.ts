@@ -12,6 +12,7 @@ import { expectLogic, partial } from 'kea-test-utils'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -31,7 +32,10 @@ import {
 import { FeatureFlagFilters } from '~/types'
 
 import { TemplateKey } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
-import type { CopyFlagsDependencyRequirementsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
+import type {
+    CopyFlagsDependencyRequirementsResponseApi,
+    CopyFlagsResponseApi,
+} from 'products/feature_flags/frontend/generated/api.schemas'
 
 import * as defaultReleaseConditionsModule from './defaultReleaseConditionsLogic'
 import {
@@ -1814,6 +1818,9 @@ describe('featureFlagLogic', () => {
                     ],
                 },
             })
+            // The copy listener reports to eventUsageLogic, which nothing in this logic's
+            // connect() mounts — without this, the listener dies at that call.
+            eventUsageLogic.mount()
             logic.actions.setCopyDestinationProject(MOCK_TEAM_ID)
         })
 
@@ -1863,6 +1870,22 @@ describe('featureFlagLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(lemonToast.error).toHaveBeenCalledWith('Error while copying feature flag: Project not found.')
+            expect(lemonToast.warning).not.toHaveBeenCalled()
+        })
+
+        it('serializes BigInt payload values in the error toast when a failure has no error_message', async () => {
+            // JSON transport can't carry a BigInt, so the HTTP mock layer can't produce this
+            // payload — dispatch the loader success action directly with the shape the
+            // stringifyWithBigInts fallback defends against.
+            logic.actions.copyFlagSuccess({
+                success: [],
+                failed: [{ project_id: MOCK_TEAM_ID, filter_value: BigInt(123) }],
+            } as unknown as CopyFlagsResponseApi)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith(
+                `Error while copying feature flag: [{"project_id":${MOCK_TEAM_ID},"filter_value":"123"}]`
+            )
             expect(lemonToast.warning).not.toHaveBeenCalled()
         })
     })
