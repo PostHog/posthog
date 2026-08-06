@@ -1921,7 +1921,7 @@ class TestBulkObserveAction(_VisionAPITestCase):
         self._in_flight("running-1")
         self._in_flight("running-2")
 
-        with patch("products.replay_vision.backend.api.scanners.MAX_IN_FLIGHT_APPLIES_PER_SCANNER", 3):
+        with patch("products.replay_vision.backend.scanning.MAX_IN_FLIGHT_APPLIES_PER_SCANNER", 3):
             resp = self.client.post(
                 self.bulk_url(str(self.scanner.id)), data={"session_ids": ["x", "y", "z"]}, format="json"
             )
