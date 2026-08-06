@@ -281,7 +281,7 @@ async fn a_live_lease_blocks_a_second_driver_until_it_lapses() {
         },
     );
     let err = short_engine
-        .resume(&driver, op_id)
+        .execute(&driver, op_id, ctx.team_id, &json!({}))
         .await
         .expect_err("cannot steal a live lease");
     assert!(matches!(err, SagaError::Busy));
@@ -289,6 +289,43 @@ async fn a_live_lease_blocks_a_second_driver_until_it_lapses() {
         driver.steps_run.load(Ordering::SeqCst),
         0,
         "no step ran while another instance held the lease"
+    );
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn resume_bails_immediately_when_another_driver_holds_the_lease() {
+    let ctx = TestContext::new().await;
+    // The default test engine's 10s execute timeout: a resume that waits
+    // out a live lease instead of bailing would blow the elapsed assertion.
+    let engine = ctx.engine();
+    let driver = DummyDriver::new();
+    let op_id = Uuid::now_v7();
+
+    sqlx::query(
+        r#"
+        INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request, lease_expires_at)
+        VALUES ($1, 'merge', $2, 'started', '{}'::jsonb, now() + interval '1 hour')
+        "#,
+    )
+    .bind(op_id)
+    .bind(ctx.team_id as i32)
+    .execute(&ctx.pool)
+    .await
+    .expect("insert leased op");
+
+    let started = std::time::Instant::now();
+    let err = engine
+        .resume(&driver, op_id)
+        .await
+        .expect_err("live lease means not abandoned");
+
+    assert!(matches!(err, SagaError::Busy));
+    assert_eq!(driver.steps_run.load(Ordering::SeqCst), 0);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(5),
+        "resume must skip a live lease, not poll out the execute timeout"
     );
 
     ctx.cleanup().await.expect("cleanup");

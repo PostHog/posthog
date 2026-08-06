@@ -161,16 +161,23 @@ impl Engine {
             )));
         }
 
-        self.drive(driver, op_id).await
+        self.drive(driver, op_id, true).await
     }
 
     /// Drive an existing op (sweeper entry point — no create, no request
-    /// verification).
+    /// verification). Does not wait on another driver's live lease: to the
+    /// sweeper a live lease means "not abandoned", so this bails with `Busy`
+    /// instead of polling out the execute timeout.
     pub async fn resume(&self, driver: &dyn OpDriver, op_id: Uuid) -> Result<OpRow, SagaError> {
-        self.drive(driver, op_id).await
+        self.drive(driver, op_id, false).await
     }
 
-    async fn drive(&self, driver: &dyn OpDriver, op_id: Uuid) -> Result<OpRow, SagaError> {
+    async fn drive(
+        &self,
+        driver: &dyn OpDriver,
+        op_id: Uuid,
+        wait_for_lease: bool,
+    ) -> Result<OpRow, SagaError> {
         let deadline = tokio::time::Instant::now() + self.config.execute_timeout;
         // The attempt number returned by our claim, used as a fencing token:
         // renew/release only touch the lease while `attempt` still matches,
@@ -229,6 +236,9 @@ impl Engine {
                         }
                     }
                     None => {
+                        if !wait_for_lease {
+                            return Err(SagaError::Busy);
+                        }
                         // Someone else holds the lease; wait for them to
                         // finish or for the lease to lapse.
                         tokio::time::sleep(self.config.poll_interval).await;
@@ -343,6 +353,9 @@ impl Engine {
                     resumed += 1;
                     common_metrics::inc(SWEEPER_RESUMED_TOTAL, &[], 1);
                 }
+                // Claimed by another driver between our scan and now, so it
+                // is live, not abandoned — leave it to its owner.
+                Err(SagaError::Busy) => {}
                 Err(err) => {
                     tracing::warn!(op_id = %op.op_id, error = %err,
                         "sweeper failed to resume op; will retry next pass");
