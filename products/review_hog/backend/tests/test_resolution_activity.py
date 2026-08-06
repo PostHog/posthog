@@ -1,20 +1,44 @@
-from posthog.test.base import BaseTest
+import pytest
+from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import Mock, patch
 
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import ThreadVerdictArtefact
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.persistence import load_thread_verdicts, persist_thread_verdict
+from products.review_hog.backend.reviewer.tools.github_threads import ReviewThread, ThreadComment
 from products.review_hog.backend.temporal.resolution import (
     ResolutionRunResult,
     ResolveThreadsInput,
     _append_task_run,
     _deliver_side_effects,
     _prepare_run,
+    resolve_threads_activity,
 )
 from products.tasks.backend.models import Task
+
+
+def _pr_metadata() -> PRMetadata:
+    return PRMetadata(
+        number=123,
+        title="t",
+        state="open",
+        draft=False,
+        created_at="2026-01-01T00:00:00Z",
+        updated_at="2026-01-01T00:00:00Z",
+        author="octocat",
+        base_branch="master",
+        head_branch="feature",
+        head_sha="deadbeef",
+        commits=1,
+        additions=1,
+        deletions=0,
+        changed_files=1,
+    )
+
 
 _RESOLUTION = "products.review_hog.backend.temporal.resolution"
 
@@ -158,25 +182,9 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         assert artefact.task_id == task.id
 
     def test_noop_run_writes_a_run_note_and_idles_the_report(self) -> None:
-        meta = PRMetadata(
-            number=123,
-            title="t",
-            state="open",
-            draft=False,
-            created_at="2026-01-01T00:00:00Z",
-            updated_at="2026-01-01T00:00:00Z",
-            author="octocat",
-            base_branch="master",
-            head_branch="feature",
-            head_sha="deadbeef",
-            commits=1,
-            additions=1,
-            deletions=0,
-            changed_files=1,
-        )
         with (
             patch(f"{_RESOLUTION}._installation_auth", return_value=("token", "inst-1")),
-            patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=meta),
+            patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=_pr_metadata()),
             patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=[]),
         ):
             result = _prepare_run(self._input())
@@ -187,3 +195,44 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         assert report.status == ReviewReport.Status.IDLE
         note = ReviewReportArtefact.objects.for_team(self.team.id).get(report_id=report.id, type="note")
         assert "0 thread(s) triaged" in note.content
+
+
+class TestFailedRunReportStatus(NonAtomicBaseTest):
+    """NonAtomic because the activity does its DB work via database_sync_to_async(thread_sensitive=False)
+    — separate connections that can't see an unfinished test transaction. One test method: the base
+    flushes class-level fixtures after every test, so a second method would run without the team."""
+
+    def test_failed_run_idles_the_report_only_when_no_retry_is_coming(self) -> None:
+        thread = ReviewThread(
+            thread_id="PRRT_9",
+            path="f.py",
+            comments=[ThreadComment(id=1, author_login="greptile", author_is_bot=True, body="fix this")],
+        )
+        mock_activity = Mock()
+        with (
+            patch(f"{_RESOLUTION}._installation_auth", return_value=("token", "inst-1")),
+            patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=_pr_metadata()),
+            patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=[thread]),
+            patch(
+                f"{_RESOLUTION}.load_resolution_skill_for_run",
+                return_value=Mock(skill_name="review-hog-resolution-criteria", version=1),
+            ),
+            patch(f"{_RESOLUTION}.activity", mock_activity),
+            patch(f"{_RESOLUTION}.Heartbeater"),
+            patch(f"{_RESOLUTION}.start_sandbox_session", side_effect=RuntimeError("sandbox down")),
+        ):
+            for attempt, expected in ((1, ReviewReport.Status.ACTIVE), (2, ReviewReport.Status.IDLE)):
+                mock_activity.info.return_value.attempt = attempt
+                with pytest.raises(RuntimeError):
+                    async_to_sync(resolve_threads_activity)(
+                        ResolveThreadsInput(
+                            team_id=self.team.id,
+                            user_id=self.user.id,
+                            acting_user_id=self.user.id,
+                            owner="posthog",
+                            repo="posthog",
+                            pr_number=123,
+                        )
+                    )
+                report = ReviewReport.objects.for_team(self.team.id).get(repository="posthog/posthog", pr_number=123)
+                assert report.status == expected

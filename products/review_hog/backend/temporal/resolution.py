@@ -441,6 +441,14 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
                     # The verdict row still says reply_posted=False, so the next run redelivers.
                     logger.exception("Side effects failed for thread %s; the next run will retry", thread.thread_id)
         run_ok = True
+    except Exception:
+        if final_attempt:
+            # No retry is coming — return the report to IDLE so it doesn't read as running forever.
+            try:
+                await database_sync_to_async(_idle_report, thread_sensitive=False)(input.team_id, prepared.report_id)
+            except Exception:
+                logger.exception("Could not idle report %s after the failed final attempt", prepared.report_id)
+        raise
     finally:
         if session is not None:
             await end_sandbox_session(
