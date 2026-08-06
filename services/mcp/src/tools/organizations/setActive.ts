@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { wrapError } from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { OrganizationSetActiveSchema } from '@/schema/tool-inputs'
 import type { CachedOrg, CachedProject, CachedUser, Context, ToolBase } from '@/tools/types'
@@ -15,16 +16,24 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
     params: Params
 ) => {
     const { orgId } = params
-    await context.cache.set('orgId', orgId)
 
-    // Fetch fresh org data and cache it
-    let org: CachedOrg | undefined
+    // Validate before committing the session: only switch to an org the user can
+    // actually access. Previously the orgId was cached before the fetch, so a bad
+    // id (or an org the session can't reach) silently "succeeded" and every later
+    // call failed with an opaque error instead.
     const orgResult = await context.api.organizations().get({ orgId })
-    if (orgResult.success) {
-        org = orgResult.data
-        await context.cache.set(`cachedOrg:${orgId}` as const, org)
-        await context.cache.set(`cachedOrgFetchedAt:${orgId}` as const, Date.now())
+    if (!orgResult.success) {
+        throw wrapError(
+            `Could not switch to organization ${orgId}: it was not found or you don't have access to it. ` +
+                'Use \`organizations-get\` to list your organizations.',
+            orgResult.error
+        )
     }
+
+    const org: CachedOrg = orgResult.data
+    await context.cache.set('orgId', orgId)
+    await context.cache.set(`cachedOrg:${orgId}` as const, org)
+    await context.cache.set(`cachedOrgFetchedAt:${orgId}` as const, Date.now())
 
     // Read cached user and project for full metadata block
     const distinctId = (await context.cache.get('distinctId')) ?? 'unknown'
