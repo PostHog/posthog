@@ -90,7 +90,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         eventsQuery,
         previousTickets,
         previousTicketsLoading,
-        previousOpenTicketCount,
+        previousUnresolvedTicketCount,
         linkedReports,
         exceptionsQuery,
         chatPanelWidth,
@@ -597,7 +597,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 previousTickets={previousTickets}
                                 previousTicketsLoading={previousTicketsLoading}
                                 personDistinctIds={person?.distinct_ids}
-                                openCount={previousOpenTicketCount}
+                                unresolvedCount={previousUnresolvedTicketCount}
                             />
                         </>
                     )}

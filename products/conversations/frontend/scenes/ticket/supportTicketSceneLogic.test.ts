@@ -722,7 +722,7 @@ describe('supportTicketSceneLogic sidePanelContext', () => {
     })
 })
 
-describe('supportTicketSceneLogic previousOpenTicketCount', () => {
+describe('supportTicketSceneLogic previousUnresolvedTicketCount', () => {
     let logic: ReturnType<typeof supportTicketSceneLogic.build>
 
     beforeEach(() => {
@@ -745,6 +745,6 @@ describe('supportTicketSceneLogic previousOpenTicketCount', () => {
             statuses.map((status, index) => ({ ...makeTicket(), id: `prev-${index}`, status }) as Ticket)
         )
 
-        expect(logic.values.previousOpenTicketCount).toBe(expected)
+        expect(logic.values.previousUnresolvedTicketCount).toBe(expected)
     })
 })

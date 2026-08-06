@@ -5,6 +5,7 @@ import { PreviousTicketsPanel } from './PreviousTicketsPanel'
 
 // The panel a support teammate reads on a ticket to see what else the requester has sent.
 // It stays collapsed by default, so the header has to say whether anything in it is still live.
+// "Unresolved" rather than "open": open is one specific status these tickets may not be in.
 
 const meta: Meta<typeof PreviousTicketsPanel> = {
     title: 'Scenes-App/Support/PreviousTicketsPanel',
@@ -47,10 +48,10 @@ function Sidebar({ children }: { children: React.ReactNode }): JSX.Element {
     return <div className="max-w-sm">{children}</div>
 }
 
-export const SomeStillOpen: Story = {
+export const SomeUnresolved: Story = {
     render: () => (
         <Sidebar>
-            <PreviousTicketsPanel previousTickets={HISTORY} openCount={2} />
+            <PreviousTicketsPanel previousTickets={HISTORY} unresolvedCount={2} />
         </Sidebar>
     ),
 }
@@ -58,7 +59,10 @@ export const SomeStillOpen: Story = {
 export const AllResolved: Story = {
     render: () => (
         <Sidebar>
-            <PreviousTicketsPanel previousTickets={HISTORY.filter((t) => t.status === 'resolved')} openCount={0} />
+            <PreviousTicketsPanel
+                previousTickets={HISTORY.filter((t) => t.status === 'resolved')}
+                unresolvedCount={0}
+            />
         </Sidebar>
     ),
 }
@@ -66,7 +70,7 @@ export const AllResolved: Story = {
 export const NoHistory: Story = {
     render: () => (
         <Sidebar>
-            <PreviousTicketsPanel previousTickets={[]} openCount={0} />
+            <PreviousTicketsPanel previousTickets={[]} unresolvedCount={0} />
         </Sidebar>
     ),
 }
