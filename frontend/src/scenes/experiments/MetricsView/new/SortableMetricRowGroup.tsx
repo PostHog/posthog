@@ -63,8 +63,8 @@ export function SortableMetricRowGroup({
                 position: isDragging ? 'relative' : undefined,
                 // Stays under the sticky header, which sits at z-10.
                 zIndex: isDragging ? 2 : undefined,
-                // The dragged group follows the cursor and overlaps its neighbours, so it has to stay
-                // fully opaque — a translucent one lets the rows underneath bleed through.
+                // The dragged group overlaps its neighbours, so the shadow makes it read as
+                // lifted above them rather than merged into them.
                 boxShadow: isDragging ? 'var(--shadow-elevation-3000)' : undefined,
             }}
             // Scoped here rather than on the rows: with one tbody per metric, a row-level
