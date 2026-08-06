@@ -1725,6 +1725,9 @@ importers:
       '@posthog/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      posthog-js:
+        specifier: ^1.386.8
+        version: 1.386.8
       react:
         specifier: 19.2.6
         version: 19.2.6
@@ -13852,9 +13855,6 @@ packages:
   powershell-utils@0.1.0:
     resolution: {integrity: sha512-dM0jVuXJPsDN6DvRpea484tCUaMiXWjuCn++HGTqUWzGDjv5tZkEZldAJ/UMlqRYGFrD/etByo4/xOuC/snX2A==}
     engines: {node: '>=20'}
-
-  preact@10.28.3:
-    resolution: {integrity: sha512-tCmoRkPQLpBeWzpmbhryairGnhW9tKV6c6gr/w+RhoRoKEJwsjzipwp//1oCpGPOchvSLaAPlpcJi9MwMmoPyA==}
 
   preact@10.29.2:
     resolution: {integrity: sha512-7tNmwg/7mzzAoB/8kSg6Hl37JraAZw3Z3A0JSY7VXlZwo82Xn0G7wKbNNs2qoF4ZEEsQGTwDAroNdqKs1ofJxQ==}
@@ -29899,7 +29899,7 @@ snapshots:
       core-js: 3.48.0
       dompurify: 3.4.10
       fflate: 0.4.8
-      preact: 10.28.3
+      preact: 10.29.2
       query-selector-shadow-dom: 1.0.1
       web-vitals: 5.1.0
 
@@ -29934,8 +29934,6 @@ snapshots:
     optional: true
 
   powershell-utils@0.1.0: {}
-
-  preact@10.28.3: {}
 
   preact@10.29.2: {}
 

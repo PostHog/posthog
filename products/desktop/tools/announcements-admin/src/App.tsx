@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { type FlagRecord, fetchFlag } from "./api";
+import { capture, captureException, identify } from "./analytics";
+import { type FlagRecord, fetchCurrentUser, fetchFlag } from "./api";
 import { Editor } from "./Editor";
 import { beginLogin, handleCallback, logout, restoreSession } from "./oauth";
 
@@ -18,6 +19,7 @@ export function App() {
       try {
         await handleCallback();
       } catch (error) {
+        captureException(error);
         setState({ phase: "signed-out", error: String(error) });
         return;
       }
@@ -29,11 +31,22 @@ export function App() {
   useEffect(() => {
     if (state.phase !== "loading") return;
     fetchFlag(state.token)
-      .then((flag) => setState({ phase: "ready", token: state.token, flag }))
-      .catch((error) => setState({ phase: "error", message: String(error) }));
+      .then((flag) => {
+        setState({ phase: "ready", token: state.token, flag });
+        void fetchCurrentUser(state.token)
+          .then((user) => {
+            if (user.distinctId) identify(user.distinctId, user.label);
+          })
+          .catch(captureException);
+      })
+      .catch((error) => {
+        captureException(error);
+        setState({ phase: "error", message: String(error) });
+      });
   }, [state]);
 
   const handleLogout = () => {
+    capture("announcement admin logged out");
     logout();
     setState({ phase: "signed-out" });
   };
@@ -55,7 +68,10 @@ export function App() {
           <button
             type="button"
             className="btn btn-publish"
-            onClick={() => void beginLogin()}
+            onClick={() => {
+              capture("announcement admin login started");
+              void beginLogin();
+            }}
           >
             Log in with PostHog
           </button>

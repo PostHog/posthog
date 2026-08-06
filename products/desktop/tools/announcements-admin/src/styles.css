@@ -319,7 +319,13 @@ h1 {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.hero-config {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .hog-pick {
@@ -497,9 +503,32 @@ h1 {
 }
 
 .st-img-url {
-  width: 220px;
+  width: min(220px, 24vw);
+  min-width: 150px;
   padding: 7px 9px;
   font-size: 11.5px;
+}
+
+.theme-btn {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  padding: 0;
+}
+
+.theme-btn svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
+.theme-btn svg circle {
+  fill: none;
 }
 
 /* ── stage: the mock desktop app ───────────────────────── */

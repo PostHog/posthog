@@ -44,6 +44,22 @@ export async function fetchFlag(token: string): Promise<FlagRecord> {
   return flag;
 }
 
+export async function fetchCurrentUser(
+  token: string,
+): Promise<{ distinctId?: string; label?: string }> {
+  const user = (await request(token, "/api/users/@me/")) as {
+    distinct_id?: string | null;
+    email?: string | null;
+    first_name?: string | null;
+    last_name?: string | null;
+  };
+  const name = [user.first_name, user.last_name].filter(Boolean).join(" ");
+  return {
+    distinctId: user.distinct_id ?? undefined,
+    label: name || user.email || undefined,
+  };
+}
+
 export function readPayload(flag: FlagRecord): unknown {
   const raw = flag.filters.payloads?.true;
   if (raw === undefined) return { announcements: [] };

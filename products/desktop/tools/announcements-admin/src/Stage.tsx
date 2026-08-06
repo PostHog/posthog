@@ -32,6 +32,23 @@ function segCls(active: boolean): string {
   return active ? "seg-btn seg-btn-active" : "seg-btn";
 }
 
+function SunIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <circle cx="8" cy="8" r="2.5" />
+      <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.4 1.4M11.55 11.55l1.4 1.4M12.95 3.05l-1.4 1.4M4.45 11.55l-1.4 1.4" />
+    </svg>
+  );
+}
+
+function MoonIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M13.25 10.25A5.75 5.75 0 0 1 5.75 2.75a5.75 5.75 0 1 0 7.5 7.5Z" />
+    </svg>
+  );
+}
+
 function GeometricPattern() {
   return (
     <svg
@@ -485,24 +502,35 @@ export function Stage({
         )}
         {!isBanner && (
           <div className="hero-tools">
-            <HoggiePicker item={item} onChange={onChange} />
-            <ColorPicker item={item} onChange={onChange} />
-            <button
-              type="button"
-              className={
-                item.heroType === "image" ? "chip chip-active" : "chip"
-              }
-              onClick={() => onChange({ heroType: "image" })}
-            >
-              image
-            </button>
-            <button
-              type="button"
-              className={item.heroType === "none" ? "chip chip-active" : "chip"}
-              onClick={() => onChange({ heroType: "none" })}
-            >
-              no hero
-            </button>
+            <fieldset className="seg" aria-label="Hero type">
+              <button
+                type="button"
+                className={segCls(item.heroType === "hedgehog")}
+                onClick={() => onChange({ heroType: "hedgehog" })}
+              >
+                hog
+              </button>
+              <button
+                type="button"
+                className={segCls(item.heroType === "image")}
+                onClick={() => onChange({ heroType: "image" })}
+              >
+                image
+              </button>
+              <button
+                type="button"
+                className={segCls(item.heroType === "none")}
+                onClick={() => onChange({ heroType: "none" })}
+              >
+                none
+              </button>
+            </fieldset>
+            {item.heroType === "hedgehog" && (
+              <div className="hero-config">
+                <HoggiePicker item={item} onChange={onChange} />
+                <ColorPicker item={item} onChange={onChange} />
+              </div>
+            )}
             {item.heroType === "image" && (
               <input
                 className="mono st-img-url"
@@ -536,17 +564,21 @@ export function Stage({
         <fieldset className="seg" aria-label="Preview theme">
           <button
             type="button"
-            className={segCls(!previewDark)}
+            className={`${segCls(!previewDark)} theme-btn`}
+            aria-label="Light preview"
+            title="Light preview"
             onClick={() => setPreviewDark(false)}
           >
-            light
+            <SunIcon />
           </button>
           <button
             type="button"
-            className={segCls(previewDark)}
+            className={`${segCls(previewDark)} theme-btn`}
+            aria-label="Dark preview"
+            title="Dark preview"
             onClick={() => setPreviewDark(true)}
           >
-            dark
+            <MoonIcon />
           </button>
         </fieldset>
       </div>

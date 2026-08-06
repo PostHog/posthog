@@ -28,6 +28,10 @@ Shared with the app: `@posthog/shared/announcements`
 
 ## Deploy
 
+Set `VITE_POSTHOG_API_KEY`, `VITE_POSTHOG_API_HOST`, and
+`VITE_POSTHOG_UI_HOST` in the build environment to send audit events to
+PostHog. The tool does not capture announcement content or URLs.
+
 ```bash
 pnpm --filter @posthog/shared build
 pnpm --filter @posthog/announcements-admin build

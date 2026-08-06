@@ -2,6 +2,7 @@ import { MultiFileDiff } from "@pierre/diffs/react";
 import { announcementsPayloadSchema } from "@posthog/shared/announcements";
 import { useEffect, useMemo, useState } from "react";
 import { z } from "zod";
+import { capture, captureException } from "./analytics";
 import { type FlagRecord, readPayload, savePayload } from "./api";
 import { POSTHOG_HOST, PROJECT_ID } from "./config";
 import {
@@ -9,6 +10,7 @@ import {
   type EditableItem,
   isoToLocalInput,
   localInputToIso,
+  nextItemId,
   toEditable,
   toPayloadItem,
 } from "./items";
@@ -248,9 +250,30 @@ export function Editor({
   };
 
   const add = (kind: EditableItem["kind"]) => {
-    setItems((prev) => [...prev, blankItem(kind)]);
+    setItems((prev) => [
+      ...prev,
+      { ...blankItem(kind), id: nextItemId(kind, prev) },
+    ]);
     setSelected(items.length);
     setPublished(false);
+  };
+
+  const revert = () => {
+    if (initial === null) return;
+    capture("announcement admin changes reverted", {
+      announcement_count: items.length,
+      changed_item_count: changes.length,
+      flag_id: flag.id,
+    });
+    setItems(initial.items);
+    setSuppressChangelog(initial.suppressChangelog);
+    setSelected((index) =>
+      Math.min(index, Math.max(0, initial.items.length - 1)),
+    );
+    setErrors([]);
+    setPublished(false);
+    setConfirming(false);
+    setJsonDraft(null);
   };
 
   const applyJson = () => {
@@ -286,6 +309,14 @@ export function Editor({
       return;
     }
     setErrors([]);
+    capture("announcement admin changes reviewed", {
+      announcement_count: items.length,
+      changed_item_count: changes.length,
+      flag_id: flag.id,
+      has_required_update: items.some(
+        (item) => item.kind === "required-update",
+      ),
+    });
     setConfirming(true);
   };
 
@@ -298,9 +329,19 @@ export function Editor({
     setSaving(true);
     try {
       onFlagUpdated(await savePayload(token, flag, parsed.data));
+      capture("announcement admin payload published", {
+        announcement_count: items.length,
+        changed_item_count: changes.length,
+        flag_id: flag.id,
+        has_required_update: items.some(
+          (item) => item.kind === "required-update",
+        ),
+      });
       setConfirming(false);
       setPublished(true);
     } catch (error) {
+      capture("announcement admin publish failed", { flag_id: flag.id });
+      captureException(error);
       setErrors([String(error)]);
     } finally {
       setSaving(false);
@@ -538,6 +579,11 @@ export function Editor({
           )}
 
           <div className="row publish-row">
+            {dirty && (
+              <button type="button" className="btn" onClick={revert}>
+                Revert
+              </button>
+            )}
             <button
               type="button"
               className="btn btn-publish"
