@@ -524,6 +524,40 @@ class TestPromptBuilder(BaseTest):
         )
         assert "Code-derived reviewer evidence" not in signal_prompt
 
+    # The rule lives in the shared run-works head, and each channel assembles its own tail from
+    # that head, so a channel can lose it independently.
+    @parameterized.expand(
+        [
+            ("signal_channel", []),
+            ("report_channel", ["emit_report", "edit_report"]),
+        ]
+    )
+    def test_catalog_rule_gated_on_data_catalog_flag(self, name: str, allowed_tools: list[str]) -> None:
+        skill_name = f"signals-scout-catalog-{name}"
+        LLMSkill.objects.create(
+            team=self.team,
+            name=skill_name,
+            description="Catalog scout",
+            body="watch",
+            allowed_tools=allowed_tools,
+        )
+        loaded = load_skill_for_run(self.team, skill_name)
+        kwargs: dict = {
+            "run_id": "00000000-0000-0000-0000-000000000abc",
+            "team_id": self.team.id,
+            "started_at": datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        }
+
+        enabled = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True)
+        assert "system.information_schema.metrics" in enabled
+        assert "data-catalog-metric-run" in enabled
+
+        # Default (flag off): the metrics table isn't registered for the team, so steering
+        # at it would burn the run's budget on failing queries.
+        disabled = build_run_prompt(loaded, **kwargs)
+        assert "information_schema.metrics" not in disabled
+        assert "data-catalog-metric-run" not in disabled
+
     def test_report_channel_renders_report_persona_and_guidance(self) -> None:
         LLMSkill.objects.create(
             team=self.team,
@@ -952,6 +986,50 @@ async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
 
     # `signals-scout-errors` is not a canonical scout, so its team-authored name is withheld.
     assert captured["ai_stage"] == "scout:custom"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "flag,expect_rule",
+    [
+        pytest.param(True, True, id="enabled"),
+        pytest.param(False, False, id="disabled"),
+        # A flag-read error resolves off and the run still completes: failing here would book a
+        # failed run and advance the streak toward pausing the lane, over a prompt section the
+        # run does not need.
+        pytest.param(RuntimeError("flag backend down"), False, id="flag_read_error"),
+    ],
+)
+async def test_catalog_steering_reaches_the_prompt_from_the_team_flag(ateam, aerrors_skill, flag, expect_rule):
+    # The prompt-builder tests take `data_catalog_enabled` directly, so they stay green if the
+    # runner stops resolving or forwarding the flag — this covers that wiring end to end.
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    captured: dict = {}
+
+    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+        captured.update(kwargs)
+        if on_task_run_created is not None:
+            await on_task_run_created(session.task_run)
+        return session, result
+
+    flag_mock = MagicMock(side_effect=flag) if isinstance(flag, Exception) else MagicMock(return_value=flag)
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch("products.signals.backend.scout_harness.runner.is_data_catalog_enabled", flag_mock),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            return_value=42,
+        ),
+    ):
+        run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert run_result.status == apps.get_model("tasks", "TaskRun").Status.COMPLETED.value
+    assert ("information_schema.metrics" in captured["prompt"]) is expect_rule
 
 
 @pytest.mark.asyncio
