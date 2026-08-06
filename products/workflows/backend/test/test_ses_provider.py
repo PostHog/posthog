@@ -9,6 +9,7 @@ from django.test import override_settings
 import boto3
 import dns.name
 import dns.resolver
+from botocore.exceptions import ClientError
 from parameterized import parameterized
 
 from products.workflows.backend.providers.ses import SESProvider
@@ -91,6 +92,26 @@ class TestSESProvider(TestCase):
             mock_ses_v2_client.get_caller_identity.return_value = {"Account": "123456789012"}
             mock_ses_v2_client.create_tenant_resource_association.return_value = {}
 
+            provider.create_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
+
+            # Attributed sends fail unless every referenced resource is tenant-associated, so the
+            # configuration set must be associated alongside the identity.
+            associated = {
+                call.kwargs["ResourceArn"]
+                for call in mock_ses_v2_client.create_tenant_resource_association.call_args_list
+            }
+            assert any(arn.endswith(f"identity/{TEST_DOMAIN}") for arn in associated)
+            assert any(arn.endswith("configuration-set/posthog-messaging") for arn in associated)
+            assert any(arn.endswith("configuration-set/posthog-messaging-untracked") for arn in associated)
+
+            # An unprovisioned config set must not fail the customer's add-domain request —
+            # only the identity association (self-created above) is allowed to raise.
+            def fail_config_set_associations(TenantName: str, ResourceArn: str) -> dict:
+                if "configuration-set" in ResourceArn:
+                    raise ClientError({"Error": {"Code": "NotFoundException"}}, "CreateTenantResourceAssociation")
+                return {}
+
+            mock_ses_v2_client.create_tenant_resource_association.side_effect = fail_config_set_associations
             provider.create_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
 
     @patch("products.workflows.backend.providers.ses.boto3.client")
@@ -415,3 +436,73 @@ class TestSESResponseShapeContract(TestCase):
             call.delete_association(TenantName="team-1", ResourceArn=arn),
             call.delete_identity(Identity=TEST_DOMAIN),
         ]
+
+
+class TestGetTenantReputation(TestCase):
+    TENANT_ARN = "arn:aws:ses:us-east-1:123456789012:tenant/team-1/abc"
+
+    def setUp(self):
+        patcher = patch("products.workflows.backend.providers.ses.boto3.client")
+        mock_boto3_client = patcher.start()
+        self.addCleanup(patcher.stop)
+        self.mock_client = mock_boto3_client.return_value
+        self.provider = SESProvider()
+
+    @staticmethod
+    def _client_error(code: str) -> ClientError:
+        return ClientError({"Error": {"Code": code}}, "GetTenant")
+
+    def test_returns_none_when_the_tenant_does_not_exist(self):
+        self.mock_client.get_tenant.side_effect = self._client_error("NotFoundException")
+        assert self.provider.get_tenant_reputation(1) is None
+
+    def test_returns_tenant_status_with_no_findings_when_the_reputation_entity_is_missing(self):
+        self.mock_client.get_tenant.return_value = {
+            "Tenant": {"TenantName": "team-1", "TenantArn": self.TENANT_ARN, "SendingStatus": "ENABLED"}
+        }
+        self.mock_client.get_reputation_entity.side_effect = self._client_error("NotFoundException")
+        self.mock_client.list_recommendations.return_value = {"Recommendations": []}
+
+        assert self.provider.get_tenant_reputation(1) == {
+            "sending_status": "ENABLED",
+            "reputation_impact": None,
+            "findings": [],
+        }
+
+    def test_returns_aggregate_status_impact_and_paginated_findings(self):
+        self.mock_client.get_tenant.return_value = {
+            "Tenant": {"TenantName": "team-1", "TenantArn": self.TENANT_ARN, "SendingStatus": "ENABLED"}
+        }
+        self.mock_client.get_reputation_entity.return_value = {
+            "ReputationEntity": {
+                "ReputationImpact": "HIGH",
+                # The aggregate folds in customer-managed pauses, so it must win over GetTenant's status
+                "SendingStatusAggregate": "DISABLED",
+            }
+        }
+        self.mock_client.list_recommendations.side_effect = [
+            {
+                "Recommendations": [
+                    {"Type": "BOUNCE", "Impact": "HIGH", "Description": "Bounce rate too high", "Status": "OPEN"},
+                    # Resolved findings come back too (STATUS can't be combined with RESOURCE_ARN
+                    # in the AWS-side filter) and must be dropped locally
+                    {"Type": "SPF", "Impact": "LOW", "Description": "Fixed already", "Status": "FIXED"},
+                ],
+                "NextToken": "page-2",
+            },
+            {"Recommendations": [{"Type": "DKIM", "Impact": "LOW", "Description": "Set up DKIM", "Status": "OPEN"}]},
+        ]
+
+        result = self.provider.get_tenant_reputation(1)
+
+        assert result is not None
+        assert result["sending_status"] == "DISABLED"
+        assert result["reputation_impact"] == "HIGH"
+        assert [(f["finding_type"], f["impact"], f["description"]) for f in result["findings"]] == [
+            ("BOUNCE", "HIGH", "Bounce rate too high"),
+            ("DKIM", "LOW", "Set up DKIM"),
+        ]
+        # Both pages were requested, scoped to this tenant's ARN (OPEN is filtered locally)
+        first_call, second_call = self.mock_client.list_recommendations.call_args_list
+        assert first_call.kwargs["Filter"] == {"RESOURCE_ARN": self.TENANT_ARN}
+        assert second_call.kwargs["NextToken"] == "page-2"

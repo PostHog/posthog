@@ -1,6 +1,7 @@
 import type { UserBasicType } from '~/types'
 
 import {
+    type ReportChartApi,
     type SignalReportRefundApi,
     type SignalScoutRunSummaryApi,
     SignalSourceProductApi as SignalSourceProduct,
@@ -70,13 +71,15 @@ export interface SignalReport {
     updated_at: string
     artefact_count: number
     is_suggested_reviewer: boolean
+    /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
+    charts?: ReportChartApi[]
     /** Count of signals at the time the latest research run kicked off. */
     signals_at_run?: number
     /** P0–P4 from the priority judgment when the report is researched. */
     priority?: SignalReportPriority | null
     /** Actionability choice from the actionability judgment artefact. */
     actionability?: SignalReportActionability | null
-    /** Whether the issue appears already fixed, from the actionability judgment artefact. */
+    /** Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task) — from the actionability judgment artefact. */
     already_addressed?: boolean | null
     /** Distinct source products contributing signals to this report. */
     source_products?: string[]
@@ -176,7 +179,7 @@ export const INBOX_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
     pulls: 'Pull requests agents opened to resolve reports. Review and merge them on GitHub.',
     reports: 'Issues and opportunities agents found in your product data, researched and prioritized for your review.',
     'not-actionable':
-        'Reports judged not actionable – too vague, missing supporting evidence, or describing expected behavior.',
+        'Reports judged not actionable because they are too vague, lack supporting evidence, or describe expected behavior.',
     runs: 'Project-wide list of agent runs, for debugging.',
     archived: 'Reports you archived. You can restore them to the inbox at any time.',
     config: 'Set up signal sources, scouts, and how autonomously agents can act.',

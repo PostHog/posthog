@@ -16,7 +16,7 @@ use once_cell::sync::Lazy;
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{Acquire, Row};
-use tracing::{info, instrument, warn};
+use tracing::{debug, instrument, warn};
 
 // Add thread-local imports for test-specific counter
 #[cfg(test)]
@@ -206,7 +206,7 @@ async fn fetch_person_and_cohorts(
 
     let mut conn = match conn_result {
         Ok(conn) => {
-            info!(
+            debug!(
                 conn_acquisition_ms = conn_acquisition_duration.as_millis(),
                 "persons_reader connection acquired for person+cohort query"
             );
@@ -270,7 +270,7 @@ async fn fetch_person_and_cohorts(
             "Slow person query detected"
         );
     } else {
-        info!(
+        debug!(
             duration_ms = person_query_duration.as_millis(),
             distinct_id = distinct_id,
             team_id = team_id,
@@ -317,7 +317,7 @@ async fn fetch_person_and_cohorts(
                     "Slow cohort query detected"
                 );
             } else {
-                info!(
+                debug!(
                     duration_ms = cohort_query_duration.as_millis(),
                     person_id = person.id,
                     cohort_count = static_cohort_ids.len(),
@@ -377,7 +377,7 @@ async fn fetch_group_properties(
 
     let mut conn = match conn_result {
         Ok(conn) => {
-            info!(
+            debug!(
                 conn_acquisition_ms = conn_acquisition_duration.as_millis(),
                 "persons_reader connection acquired for group query"
             );
@@ -454,7 +454,7 @@ async fn fetch_group_properties(
             "Slow group query detected"
         );
     } else {
-        info!(
+        debug!(
             duration_ms = group_query_duration.as_millis(),
             team_id = team_id,
             group_pair_count = group_type_to_key.len(),
@@ -562,7 +562,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
 
     // Log pool stats before attempting connections
     if let Some(stats) = reader.as_ref().get_pool_stats() {
-        info!(
+        debug!(
             pool_size = stats.size,
             pool_idle = stats.num_idle,
             pool_in_use = stats.size.saturating_sub(stats.num_idle as u32),
@@ -640,11 +640,20 @@ fn are_overrides_useful_for_flag(
     })
 }
 
-/// Determines if a FlagError should trigger a retry
+/// Classifies whether a FlagError is worth retrying.
+///
+/// NOTE: this does not gate retries. The call sites use `Retry::spawn`, which retries
+/// every `Err` unconditionally; this only labels metrics and logs. Switch to
+/// `RetryIf::spawn` with this as the predicate if retries should actually be gated.
 fn should_retry_on_error(error: &FlagError) -> bool {
     match error {
-        // Retry on database errors that are likely transient
+        // Errors constructed with context (e.g. "Failed to fetch flags") bypass
+        // From<sqlx::Error> and still carry the raw error, so classify by transience here.
         FlagError::DatabaseError(sqlx_error, _) => common_database::is_transient_error(sqlx_error),
+
+        // Transient DB faults propagated via `?` (From<sqlx::Error>) or connection
+        // acquisition failures arrive already classified as DatabaseUnavailable (503).
+        FlagError::DatabaseUnavailable => true,
 
         // Other error types generally should not be retried
         _ => false,
@@ -661,9 +670,11 @@ fn flag_error_is_foreign_key_constraint(error: &FlagError) -> bool {
     }
 }
 
-/// Classify and track database errors
-fn classify_and_track_error(error: &FlagError, operation: &str, will_retry: bool) {
-    let (error_type, timeout_subtype) = match error {
+/// Maps a database-related FlagError to its `(error_type, timeout_subtype)` metric labels,
+/// or None for errors that aren't tracked. Split out from `classify_and_track_error` so the
+/// classification can be tested without observing the global counter.
+fn classify_db_error(error: &FlagError) -> Option<(&'static str, Option<&str>)> {
+    let labels = match error {
         FlagError::DatabaseError(sqlx_error, _) => {
             let err_type = if common_database::is_foreign_key_constraint_error(sqlx_error) {
                 "foreign_key"
@@ -672,18 +683,31 @@ fn classify_and_track_error(error: &FlagError, operation: &str, will_retry: bool
             } else if common_database::is_timeout_error(sqlx_error) {
                 "timeout"
             } else {
-                // PoolTimedOut → intercepted by From<sqlx::Error>, arrives as TimeoutError
-                // PoolClosed → caught by is_transient_error above
-                // Everything else that reaches here is genuinely unknown
+                // Errors reaching this arm were built with context, bypassing
+                // From<sqlx::Error>; transient/timeout ones are caught above, so
+                // everything left here is genuinely unknown.
                 "unknown"
             };
             (err_type, None)
         }
+        // Transient faults propagated via `?` and connection-acquisition failures arrive
+        // pre-classified with no raw error attached. Without this arm they fall through
+        // and vanish from FLAG_DATABASE_ERROR_COUNTER.
+        FlagError::DatabaseUnavailable => ("transient", None),
         FlagError::TimeoutError(timeout_type) => {
             let subtype = timeout_type.as_ref().map(|s| s.as_str());
             ("timeout", subtype)
         }
-        _ => return, // Only track database-related errors
+        _ => return None, // Only track database-related errors
+    };
+
+    Some(labels)
+}
+
+/// Classify and track database errors
+fn classify_and_track_error(error: &FlagError, operation: &str, will_retry: bool) {
+    let Some((error_type, timeout_subtype)) = classify_db_error(error) else {
+        return;
     };
 
     let mut labels = vec![
@@ -825,6 +849,7 @@ async fn try_get_feature_flag_hash_key_overrides(
                 AND fhko.team_id = ppd.team_id
             WHERE ppd.team_id = $1
                 AND ppd.distinct_id = ANY($2)
+                AND ppd.is_deleted = false
         "#;
 
     let query_start = Instant::now();
@@ -844,7 +869,7 @@ async fn try_get_feature_flag_hash_key_overrides(
             "Slow hash override lookup query detected"
         );
     } else {
-        info!(
+        debug!(
             duration_ms = query_duration.as_millis(),
             team_id = team_id,
             distinct_id_count = distinct_id_and_hash_key_override.len(),
@@ -1002,7 +1027,8 @@ async fn try_set_feature_flag_hash_key_overrides(
                 ON existing.person_id = p.person_id AND existing.team_id = p.team_id
             WHERE p.team_id = $1
                 AND p.distinct_id = ANY($2)
-                AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
+                AND p.is_deleted = false
+                AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id AND is_deleted = false)
         "#;
 
     // Query 2: Get all active feature flags with experience continuity (non-person pool)
@@ -1059,7 +1085,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "Slow person data query detected in set_hash_key_overrides"
             );
         } else {
-            info!(
+            debug!(
                 duration_ms = person_query_duration.as_millis(),
                 team_id = team_id,
                 distinct_id_count = distinct_ids.len(),
@@ -1133,7 +1159,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "Slow active flags query detected in set_hash_key_overrides"
             );
         } else {
-            info!(
+            debug!(
                 duration_ms = flags_query_duration.as_millis(),
                 team_id = team_id,
                 "Active flags query completed in set_hash_key_overrides"
@@ -1200,7 +1226,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "Slow bulk insert query detected in set_hash_key_overrides"
             );
         } else {
-            info!(
+            debug!(
                 duration_ms = insert_duration.as_millis(),
                 team_id = team_id,
                 row_count = person_ids_to_insert.len(),
@@ -1309,7 +1335,8 @@ async fn try_should_write_hash_key_override(
             ON existing.person_id = p.person_id AND existing.team_id = p.team_id
         WHERE p.team_id = $1
             AND p.distinct_id = ANY($2)
-            AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
+            AND p.is_deleted = false
+            AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id AND is_deleted = false)
     "#;
 
     // Query 2: Get feature flags from non-person pool
@@ -2453,6 +2480,50 @@ mod tests {
 
         let row_not_found_error = FlagError::RowNotFound;
         assert!(!should_retry_on_error(&row_not_found_error));
+
+        // Transient errors propagated via From<sqlx::Error> arrive as DatabaseUnavailable
+        // (a retryable 503); the retry loop must still retry them.
+        let pool_closed_via_conversion: FlagError = SqlxError::PoolClosed.into();
+        assert!(matches!(
+            pool_closed_via_conversion,
+            FlagError::DatabaseUnavailable
+        ));
+        assert!(should_retry_on_error(&pool_closed_via_conversion));
+    }
+
+    #[test]
+    fn test_classify_db_error_covers_pre_classified_errors() {
+        use sqlx::Error as SqlxError;
+
+        // Transient sqlx errors now arrive pre-classified as DatabaseUnavailable. They must
+        // still be tracked, or FLAG_DATABASE_ERROR_COUNTER loses the transient bucket during
+        // exactly the DB blips it exists to surface.
+        let transient_via_conversion: FlagError = SqlxError::PoolClosed.into();
+        assert_eq!(
+            classify_db_error(&transient_via_conversion),
+            Some(("transient", None))
+        );
+        assert_eq!(
+            classify_db_error(&FlagError::DatabaseUnavailable),
+            Some(("transient", None))
+        );
+
+        // Errors built with context bypass From<sqlx::Error> and are classified from the
+        // raw error they still carry.
+        let contextual = FlagError::DatabaseError(
+            SqlxError::ColumnNotFound("missing".to_string()),
+            Some("Failed to fetch flags".to_string()),
+        );
+        assert_eq!(classify_db_error(&contextual), Some(("unknown", None)));
+
+        let timeout = FlagError::TimeoutError(Some("pool_timeout".to_string()));
+        assert_eq!(
+            classify_db_error(&timeout),
+            Some(("timeout", Some("pool_timeout")))
+        );
+
+        // Non-database errors stay untracked.
+        assert_eq!(classify_db_error(&FlagError::MissingDistinctId), None);
     }
 
     #[test]

@@ -318,7 +318,7 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
                 return_value=(filters, [malicious_property], combine_filter_bytecodes(filters)),
             ),
             patch(
-                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_client",
+                "posthog.temporal.messaging.clickhouse_concurrency.get_client",
                 return_value=_AsyncClientContextManager(mock_client),
             ),
             patch(
@@ -415,7 +415,7 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
                 return_value=(filters, [percent_property], combine_filter_bytecodes(filters)),
             ),
             patch(
-                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_client",
+                "posthog.temporal.messaging.clickhouse_concurrency.get_client",
                 return_value=_AsyncClientContextManager(mock_client),
             ),
             patch(
@@ -515,7 +515,10 @@ class TestActivityRowConsumption:
                 return_value=(filters, list(person_properties), combine_filter_bytecodes(filters)),
             ),
             patch(self._module("compile_hogql_for_streaming"), side_effect=compile_stub),
-            patch(self._module("get_client"), return_value=_AsyncClientContextManager(mock_client)),
+            patch(
+                "posthog.temporal.messaging.clickhouse_concurrency.get_client",
+                return_value=_AsyncClientContextManager(mock_client),
+            ),
             patch(self._module("evaluate_combined_filters_with_fallback_sync"), side_effect=eval_stub),
             patch(self._module("get_producer"), return_value=producer),
             patch(self._module("Heartbeater"), _NoopHeartbeater),

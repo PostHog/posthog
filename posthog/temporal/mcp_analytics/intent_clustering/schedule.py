@@ -2,10 +2,11 @@
 
 Gated behind the ``mcp-analytics-clustering-schedule`` PostHog feature flag.
 This is a kill switch: the schedule isn't registered when the flag is off,
-which keeps the daily fan-out from kicking before the dedicated
-``mcp-analytics-task-queue`` worker exists in production. Flipping the
+so the daily fan-out only runs once explicitly enabled. Flipping the
 flag off after a deploy also removes the schedule on next init, so we can
-disable the daily path without rolling back code.
+disable the daily path without rolling back code. Dispatches to
+``settings.MCPA_TASK_QUEUE`` (the general-purpose fleet unless the env
+routes it to a dedicated worker).
 """
 
 import asyncio

@@ -21,6 +21,7 @@ from posthog.event_usage import report_user_action
 from posthog.models.integration import Integration
 from posthog.permissions import AccessControlPermission
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
+    EvalReportGenerationStatus,
     normalize_metrics_payload,
     normalize_report_content_payload,
 )
@@ -378,6 +379,10 @@ class EvaluationReportCitationSerializer(serializers.Serializer):
         required=False,
         help_text="Identifier of the trace cited by this report.",
     )
+    session_id = serializers.CharField(
+        required=False,
+        help_text="Optional session identifier for session-target report citations.",
+    )
     reason = serializers.CharField(
         required=False,
         help_text="Short explanation of why this example is cited.",
@@ -460,10 +465,18 @@ class EvaluationReportRunContentSerializer(serializers.Serializer):
         required=False,
         help_text="References grounding findings in the report.",
     )
+    generation_status = serializers.ChoiceField(
+        choices=[(status.value, status.value) for status in EvalReportGenerationStatus],
+        required=False,
+        help_text=(
+            "Whether report generation completed or metrics were temporarily unavailable. "
+            "Legacy runs without this field completed normally."
+        ),
+    )
     metrics = EvaluationReportMetricsSerializer(
         required=False,
         allow_null=True,
-        help_text="Structured metrics computed for the report period.",
+        help_text="Structured metrics for completed reports, or null when metrics were temporarily unavailable.",
     )
 
 

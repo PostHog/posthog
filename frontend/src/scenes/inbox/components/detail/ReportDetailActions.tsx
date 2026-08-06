@@ -61,7 +61,7 @@ function canCreateImplementationPr(report: SignalReport): boolean {
  * shared `useReportArchive` dialog flow. Callers render these inline or inside a menu.
  */
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
-    const { isCreatingPr } = useValues(inboxTaskKickoffLogic)
+    const { isCreatingPr, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
     const { reportArchived } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
@@ -112,7 +112,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         label: 'Refund',
         icon: <IconReceipt />,
         loading: isRefunding,
-        tooltip: "Refund this PR – you won't pay for it and it won't count toward your included PRs",
+        tooltip: "Refund this PR. You won't pay for it and it won't count toward your included PRs.",
         disabledReason: refundDisabledReason ?? undefined,
         onClick: onRefundClick,
     }
@@ -191,6 +191,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
             icon: <IconPullRequest />,
             loading: isCreatingPr,
             tooltip: 'Have Self-driving open a pull request for this report',
+            disabledReason: aiConsentDisabledReason ?? undefined,
             onClick: () => {
                 captureInboxReportAction({ report, actionType: 'create_pr', surface: 'detail_pane' })
                 createPrFromReport(report)

@@ -1,12 +1,14 @@
 import clsx from 'clsx'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
-import { IconArchive, IconPullRequest, IconUndo } from '@posthog/icons'
-import { LemonButton, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconArchive, IconUndo } from '@posthog/icons'
+import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { derivePrState } from 'lib/signals/prState'
 import { ScoutLink } from 'lib/signals/ScoutLink'
 import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
+import { PrBadge } from 'lib/signals/SignalReportPrBadge'
 import { urls } from 'scenes/urls'
 
 import { InboxFlatListTabKey, SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
@@ -83,69 +85,6 @@ export function InboxCardSourceMeta({
 
 // ── PR status badge ─────────────────────────────────────────────────────────
 
-/**
- * PR open/merged/closed state, mapped to muted palette tags (outlined: --success / --purple /
- * --danger). "merged" comes from `implementation_pr_merged`, the flag the GitHub webhook sets on
- * merge — report status can't stand in for it, since a report can be resolved directly without its
- * PR ever landing. A failed report means the PR never landed; everything else is still an open PR.
- */
-const PR_BADGE_STATE: Record<'open' | 'merged' | 'closed', { label: string; type: LemonTagType }> = {
-    open: { label: 'open', type: 'success' },
-    merged: { label: 'merged', type: 'completion' },
-    closed: { label: 'closed', type: 'danger' },
-}
-
-type PrBadgeState = keyof typeof PR_BADGE_STATE
-
-function derivePrState(status: SignalReportStatus, prMerged: boolean): PrBadgeState {
-    if (prMerged) {
-        return 'merged'
-    }
-    if (status === SignalReportStatus.FAILED) {
-        return 'closed'
-    }
-    return 'open'
-}
-
-/**
- * PR status badge for the card's top-right corner: a state-colored tag with the pull-request
- * icon and `#1234`. When a PR URL is known the whole badge is the GitHub link itself.
- */
-function PrBadge({
-    prNumber,
-    prUrl,
-    state,
-}: {
-    prNumber: string
-    prUrl?: string | null
-    state: PrBadgeState
-}): JSX.Element {
-    const { label, type } = PR_BADGE_STATE[state]
-    const badge = (
-        <LemonTag type={type} size="small" icon={<IconPullRequest />} className="font-mono tabular-nums">
-            #{prNumber}
-        </LemonTag>
-    )
-
-    if (!prUrl) {
-        return <Tooltip title={`Pull request #${prNumber} (${label})`}>{badge}</Tooltip>
-    }
-
-    return (
-        <Tooltip title={`Open pull request #${prNumber} (${label}) on GitHub`}>
-            <Link
-                to={prUrl}
-                target="_blank"
-                disableClientSideRouting
-                onClick={(e) => e.stopPropagation()}
-                aria-label={`Open pull request #${prNumber} (${label}) on GitHub`}
-            >
-                {badge}
-            </Link>
-        </Tooltip>
-    )
-}
-
 // ── ReportCard ────────────────────────────────────────────────────────────────
 
 /**
@@ -160,12 +99,15 @@ export function ReportCard({
     attached = false,
     onArchive,
     onRestore,
+    backUrl,
 }: {
     report: SignalReport
     tabKey?: InboxFlatListTabKey
     attached?: boolean
     onArchive?: (reason: DismissalReasonValue, note: string) => void
     onRestore?: () => void
+    /** Internal path the detail view's back button should return to, for cards rendered outside the inbox. */
+    backUrl?: string
 }): JSX.Element {
     const isArchived = tabKey === 'archived'
     // Resolved reports are terminal (their implementation PR merged) – shown for reference in the
@@ -182,7 +124,9 @@ export function ReportCard({
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const cardTitle = displayConventionalCommitTitle(report.title, hasPr ? 'Untitled pull request' : 'Untitled report')
     const headline = deriveHeadline(report.summary)
-    const detailUrl = urls.inboxReport(tabKey, report.id)
+    const detailUrl = backUrl
+        ? combineUrl(urls.inboxReport(tabKey, report.id), { back: backUrl }).url
+        : urls.inboxReport(tabKey, report.id)
 
     const { isArchiving, onArchiveClick } = useReportArchive({
         reportId: report.id,
@@ -267,7 +211,7 @@ export function ReportCard({
                                 'break-words line-clamp-2 text-xs text-tertiary italic leading-snug m-0'
                             )}
                         >
-                            No summary yet – still collecting context.
+                            No summary yet. Still collecting context.
                         </p>
                     ) : null}
 
@@ -346,7 +290,7 @@ export function ReportCard({
                             <LemonButton
                                 type="primary"
                                 size="small"
-                                tooltip="Open the full report – summary, evidence, and actions"
+                                tooltip="Open the full report to see its summary, evidence, and actions"
                                 onClick={(event) => {
                                     event.preventDefault()
                                     event.stopPropagation()

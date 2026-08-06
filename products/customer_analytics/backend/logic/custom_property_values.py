@@ -7,7 +7,7 @@ Called by facade/api.py. Do not call from outside this module.
 
 import math
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -20,6 +20,7 @@ from posthog.models.user import User
 
 from products.customer_analytics.backend.events import emit_account_custom_property_changed
 from products.customer_analytics.backend.models import (
+    CANONICAL_LAST_SLACK_MESSAGE_AT,
     Account,
     CustomPropertyDefinition,
     CustomPropertyValue,
@@ -139,6 +140,49 @@ def set_account_custom_properties_by_id(
             raise
         rows.append(row)
     return rows
+
+
+MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES = timedelta(hours=1)
+_LAST_SLACK_MESSAGE_WRITE_ATTEMPTS = 3
+
+
+def record_last_slack_message_at(*, team_id: int, account_id: str | UUID, timestamp: datetime) -> bool:
+    """Record when a customer last messaged in the Slack channel bound to `account_id`.
+
+    Creates the canonical definition on first write for the team — no user owns it, so
+    `created_by` stays null and no activity-log entry is written. Skips the write when the stored
+    value is newer than `timestamp` (Slack events can arrive out of order) or less than
+    `MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES` behind it. Returns whether it wrote.
+
+    Raises `InvalidCustomPropertyValue` when the team already has a property under the canonical
+    name with a non-datetime type.
+    """
+    definition, _ = CustomPropertyDefinition.objects.for_team(team_id).get_or_create(
+        team_id=team_id,
+        name=CANONICAL_LAST_SLACK_MESSAGE_AT,
+        defaults={"display_type": DisplayType.DATETIME},
+    )
+    for _attempt in range(_LAST_SLACK_MESSAGE_WRITE_ATTEMPTS):
+        current = (
+            CustomPropertyValue.objects.for_team(team_id)
+            .filter(account_id=account_id, definition_id=definition.id, is_deleted=False)
+            .values_list("value_datetime", flat=True)
+            .first()
+        )
+        if current is not None and timestamp - current < MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES:
+            return False
+        try:
+            _set_value(
+                team_id=team_id,
+                account_id=account_id,
+                definition=definition,
+                value=timestamp,
+                created_by_id=None,
+            )
+        except CustomPropertyValueConflict:
+            continue
+        return True
+    return False
 
 
 def _set_value(
