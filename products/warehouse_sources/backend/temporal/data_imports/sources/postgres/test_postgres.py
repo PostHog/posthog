@@ -6008,6 +6008,24 @@ class TestGetTable:
             assert set_timeout_idx < first_probe_idx < info_schema_idx
 
     @pytest.mark.django_db
+    def test_dropped_connection_on_statement_timeout_reraises_without_rollback(self):
+        # Before the fix, any `psycopg.Error` on the protective `SET statement_timeout` triggered a
+        # blind `cursor.connection.rollback()`. When the error meant the connection itself was
+        # dropped, rolling back a dead socket raised a fresh, misleading "the connection is lost"
+        # that buried the real cause instead of letting the caller retry on a fresh connection
+        # (mirrors the same fix already applied to `_schemas_from_conn`).
+        logger = structlog.get_logger()
+        cursor = mock.MagicMock()
+        drop_error = psycopg.OperationalError("server closed the connection unexpectedly")
+        cursor.execute.side_effect = drop_error
+
+        with pytest.raises(psycopg.OperationalError) as exc_info:
+            _get_table(cast(Any, cursor), "public", "test_get_table_dropped_conn", logger)
+
+        assert exc_info.value is drop_error
+        cursor.connection.rollback.assert_not_called()
+
+    @pytest.mark.django_db
     def test_schemas_from_conn_runs_under_scoped_statement_timeout(self):
         """`_schemas_from_conn` (the discovery path `sync_new_schemas_activity` and credential
         validation use) raises statement_timeout before scanning the catalog, so a short
