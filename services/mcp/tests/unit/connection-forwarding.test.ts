@@ -116,7 +116,7 @@ describe('posthog connection forwarding', () => {
                 target: TARGET,
             })
 
-            const error = await forwarding
+            const error: any = await forwarding
                 .request({ method: 'GET', path: '/api/projects/4242/insights/' })
                 .catch((e) => e)
 
@@ -143,7 +143,7 @@ describe('posthog connection forwarding', () => {
                 target: TARGET,
             })
 
-            const error = await forwarding
+            const error: any = await forwarding
                 .request({ method: 'GET', path: '/api/projects/4242/insights/' })
                 .catch((e) => e)
 
@@ -200,7 +200,7 @@ describe('posthog connection forwarding', () => {
             const request = createRequestMock({ status: 200, data: {} })
             const tool = createConnectionCallTool(() => fakeTool('execute-sql'))
 
-            const error = await tool
+            const error: any = await tool
                 .handler(createContext(request), { connection_id: '99', tool: 'execute-sql', arguments: { q: 1 } })
                 .catch((e) => e)
 
