@@ -31,7 +31,6 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     StringJSONDatabaseField,
     Table,
-    UUIDDatabaseField,
     VirtualTable,
 )
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
@@ -43,6 +42,7 @@ from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_
 from posthog.hogql.resolver import resolve_types, resolve_types_from_table
 from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql.type_system import runtime_type_from_constant_type, runtime_type_from_database_field
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.exceptions_capture import capture_exception
@@ -182,25 +182,21 @@ def constant_type_to_database_field(constant_type: ConstantType, name: str) -> D
     return DatabaseField(name=name)
 
 
+# Shown when the type system has no answer for a field. Deliberately visible rather than blank:
+# an unlabelled completion is indistinguishable from one we chose not to label, and the gap is the
+# thing worth seeing.
+UNKNOWN_TYPE_LABEL = "unknown"
+
+
 def convert_field_or_table_to_type_string(
     field_or_table: FieldOrTable, parent_table: str, context: HogQLContext
 ) -> str | None:
-    if isinstance(field_or_table, BooleanDatabaseField):
-        return "Boolean"
-    if isinstance(field_or_table, IntegerDatabaseField):
-        return "Integer"
-    if isinstance(field_or_table, FloatDatabaseField):
-        return "Float"
-    if isinstance(field_or_table, StringDatabaseField):
-        return "String"
-    if isinstance(field_or_table, UUIDDatabaseField):
-        return "String"
-    if isinstance(field_or_table, DateTimeDatabaseField):
-        return "DateTime"
-    if isinstance(field_or_table, DateDatabaseField):
-        return "Date"
-    if isinstance(field_or_table, StringJSONDatabaseField):
-        return "Object"
+    """Render the type the resolver would give this field, in ClickHouse spelling.
+
+    Reads the structured runtime type rather than the DatabaseField subclass, so nullability and
+    parametric detail (`Nullable(Float64)`, `Array(String)`, `DateTime64(6, 'UTC')`) reach the
+    editor instead of being flattened to a family name.
+    """
     if isinstance(field_or_table, ast.ExpressionField):
         parent_table_chain = parent_table.replace("`", "").split(".")
         try:
@@ -208,15 +204,20 @@ def convert_field_or_table_to_type_string(
             assert field_expr.type is not None
             constant_type = field_expr.type.resolve_constant_type(context)
 
-            return constant_type.print_type()
+            return runtime_type_from_constant_type(constant_type).display()
         except Exception as e:
             tracking_error = Exception("Cant resolve expression field in autocomplete")
             tracking_error.__cause__ = e
             capture_exception(tracking_error)
 
-            return "Expression"
+            return UNKNOWN_TYPE_LABEL
     if isinstance(field_or_table, ast.Table | ast.LazyJoin):
         return "Table"
+    if isinstance(field_or_table, ast.DatabaseField):
+        try:
+            return runtime_type_from_database_field(field_or_table).display()
+        except Exception:
+            return UNKNOWN_TYPE_LABEL
 
     return None
 

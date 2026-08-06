@@ -15,7 +15,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import StringDatabaseField
+from posthog.hogql.database.models import FloatDatabaseField, StringDatabaseField
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PERSONS_FIELDS
 
@@ -389,6 +389,19 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert suggestion.label == "created_at"
         assert suggestion.insertText == "created_at"
 
+    def test_autocomplete_details_carry_nullability(self):
+        # Completions read the structured runtime type, so a nullable column is visibly nullable in
+        # the editor. Reverting to a DatabaseField isinstance ladder flattens `Nullable(Boolean)` to
+        # `Boolean`, which is exactly the distinction that makes a NULL guard look redundant.
+        database = Database.create_for(team=self.team)
+        database.get_table("events").fields["nullable_score"] = FloatDatabaseField(name="nullable_score", nullable=True)
+
+        results = self._select(query="select  from events", start=7, end=7, database=database)
+        details = {suggestion.label: suggestion.detail for suggestion in results.suggestions}
+
+        assert details["nullable_score"] == "Nullable(Float64)"
+        assert details["event"] == "String"
+
     def test_autocomplete_resolve_expression_type(self):
         database = Database.create_for(team=self.team)
 
@@ -408,7 +421,9 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert suggestion is not None
         assert suggestion.label == "expr_field"
         assert suggestion.insertText == "expr_field"
-        assert suggestion.detail == "DateTime"
+        # `toDateTime` on a string prints to `parseDateTime64BestEffortOrNull`, so the result really
+        # can be NULL. The detail flattened that away until completions started reading runtime types.
+        assert suggestion.detail == "Nullable(DateTime)"
 
     def test_autocomplete_template_strings(self):
         database = Database.create_for(team=self.team)
