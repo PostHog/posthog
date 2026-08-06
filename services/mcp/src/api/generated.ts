@@ -45007,6 +45007,8 @@ export namespace Schemas {
       readonly updated_at: string;
       readonly is_2fa_enabled: boolean;
       readonly has_social_auth: boolean;
+      /** Whether the member's email domain requires signing in through SSO. Such members are exempt from 2FA, since their identity provider handles it. */
+      readonly has_sso_enforcement: boolean;
       readonly last_login: string;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
@@ -55175,6 +55177,8 @@ export namespace Schemas {
       readonly updated_at?: string;
       readonly is_2fa_enabled?: boolean;
       readonly has_social_auth?: boolean;
+      /** Whether the member's email domain requires signing in through SSO. Such members are exempt from 2FA, since their identity provider handles it. */
+      readonly has_sso_enforcement?: boolean;
       readonly last_login?: string;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type?: SearchMatchTypeEnum | null;
