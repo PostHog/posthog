@@ -59,6 +59,7 @@ import {
     PropertyMathType,
 } from '~/types'
 
+import { ChartDisplaySuggestions } from './ChartDisplaySuggestions'
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
 import { ResultCustomizationsModal } from './ResultCustomizationsModal'
@@ -548,6 +549,7 @@ export function InsightVizDisplay({
                                 <>{renderActiveView()}</>
                             )}
                         </div>
+                        {actionable && !inSharedMode && !BlockingEmptyState && <ChartDisplaySuggestions />}
                     </>
                 )}
             </div>
