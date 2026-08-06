@@ -14,22 +14,13 @@ const mirrorOperationsTotal = new Counter({
     labelNames: ['operation', 'outcome'],
 })
 
-type MirrorOutcome<T> = { status: 'completed'; value: T } | { status: 'skipped' } | { status: 'failed' }
+type MirrorOutcome<T> = { status: 'completed'; value: T } | { status: 'failed' }
 
-async function runMirrorCall<T>(
-    label: string,
-    call: () => Promise<T> | undefined,
-    timeoutMs: number
-): Promise<MirrorOutcome<T>> {
+async function runMirrorCall<T>(label: string, call: () => Promise<T>, timeoutMs: number): Promise<MirrorOutcome<T>> {
     let timeoutId: NodeJS.Timeout | undefined
     try {
-        const promise = call()
-        if (!promise) {
-            mirrorOperationsTotal.labels({ operation: label, outcome: 'skipped' }).inc()
-            return { status: 'skipped' }
-        }
         const value = await Promise.race([
-            promise,
+            call(),
             new Promise<never>((_, reject) => {
                 timeoutId = setTimeout(() => reject(new Error(`mirror call timed out after ${timeoutMs}ms`)), timeoutMs)
             }),
@@ -59,14 +50,10 @@ async function runMirrorCall<T>(
  *   primary call.
  * - Wrapped in `instrumentFn` so latency / errors surface in tracing under
  *   the `cdp.mirror.<label>` key.
- *
- * The `call` arg returns `Promise<unknown> | undefined` so the common pattern
- * of `() => this.fooMirror?.bar(args)` works directly: when the mirror is null
- * the inner expression evaluates to undefined and the helper short-circuits.
  */
 export async function mirrorCall(
     label: string,
-    call: () => Promise<unknown> | undefined,
+    call: () => Promise<unknown>,
     timeoutMs: number = DEFAULT_TIMEOUT_MS
 ): Promise<void> {
     return instrumentFn({ key: `cdp.mirror.${label}`, sendException: false }, async () => {
@@ -84,7 +71,7 @@ export async function mirrorCall(
 export async function mirrorCompare<T>(
     label: string,
     primaryCall: () => Promise<T>,
-    mirrorCallFactory: () => Promise<T> | undefined,
+    mirrorCallFactory: () => Promise<T>,
     isEquivalent: (primary: T, mirror: T) => boolean = isDeepStrictEqual,
     timeoutMs: number = DEFAULT_TIMEOUT_MS
 ): Promise<T> {
@@ -95,7 +82,16 @@ export async function mirrorCompare<T>(
     const [primary, mirror] = await Promise.all([primaryPromise, mirrorPromise])
 
     if (mirror.status === 'completed') {
-        const outcome = isEquivalent(primary, mirror.value) ? 'matched' : 'mismatched'
+        // `isEquivalent` is caller-supplied and indexes into the mirror payload, so a shape
+        // the comparator does not expect throws here — outside runMirrorCall's guard. Treat
+        // that as a mismatch rather than letting it reject the primary result.
+        let outcome: 'matched' | 'mismatched'
+        try {
+            outcome = isEquivalent(primary, mirror.value) ? 'matched' : 'mismatched'
+        } catch (err) {
+            outcome = 'mismatched'
+            logger.warn('🪞', `[mirror:${label}] comparison threw`, { err: String(err) })
+        }
         mirrorOperationsTotal.labels({ operation: label, outcome }).inc()
         if (outcome === 'mismatched' && !mismatchWarningLogged.has(label)) {
             mismatchWarningLogged.add(label)
