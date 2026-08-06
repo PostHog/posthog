@@ -1,3 +1,5 @@
+import re
+import json
 import time
 import hashlib
 import secrets
@@ -16,6 +18,7 @@ from django.http.response import HttpResponseBase
 from django.utils import timezone
 
 import structlog
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import mixins, renderers, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
@@ -44,6 +47,7 @@ from posthog.rate_limit import (
 from posthog.security.url_validation import is_url_allowed
 
 from ..agents import sync_built_in_agents
+from ..facade.api import resolve_member_tool_states
 from ..gateway import link_installation_to_gateway, members_can_manage_agent_access, server_disabled_reason
 from ..models import (
     APPROVAL_STATES,
@@ -71,9 +75,9 @@ from ..oauth import (
     select_token_endpoint_auth_method,
 )
 from ..policy import GatewayCaller, PolicyContext, ResolvedPolicy, is_policy_state_allowed
-from ..proxy import proxy_mcp_request, validate_installation_auth
+from ..proxy import proxy_mcp_request, record_tool_call_audit, resolve_call_decision, validate_installation_auth
 from ..tasks import sync_installation_tools_task
-from ..tools import ToolsFetchError, sync_installation_tools
+from ..tools import ToolCallError, ToolsFetchError, call_upstream_tool, sync_installation_tools
 
 
 class MCPProxyRenderer(renderers.BaseRenderer):
@@ -542,6 +546,112 @@ class ToolApprovalUpdateSerializer(serializers.Serializer):
     approval_state = serializers.ChoiceField(choices=["approved", "needs_approval", "do_not_use"])
 
 
+def _installation_display_name(installation: MCPServerInstallation) -> str:
+    if installation.display_name:
+        return installation.display_name
+    if installation.template and installation.template.name:
+        return installation.template.name
+    return installation.url
+
+
+def _unique_server_slug(name: str, url: str, used: set[str]) -> str:
+    """A short lowercase identifier callers use to namespace tool names.
+
+    Stable across requests because callers iterate installations in id order, and
+    unique within a response because two connections can legitimately share a
+    display name (for example a personal and a shared install of one server).
+    """
+    base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    if not base:
+        base = re.sub(r"[^a-z0-9]+", "-", (urlparse(url).hostname or "server").lower()).strip("-")
+    slug = base or "server"
+    if slug in used:
+        suffix = 2
+        while f"{slug}-{suffix}" in used:
+            suffix += 1
+        slug = f"{slug}-{suffix}"
+    used.add(slug)
+    return slug
+
+
+@extend_schema_field(OpenApiTypes.OBJECT)
+class MCPJSONObjectField(serializers.JSONField):
+    """A free-form JSON object whose shape the upstream MCP server owns — tool
+    input schemas, tool arguments, MCP content blocks."""
+
+
+class CallToolRequestSerializer(serializers.Serializer):
+    tool_name = serializers.CharField(
+        max_length=200,
+        help_text="Name of the tool to invoke, exactly as the upstream server reports it.",
+    )
+    arguments = MCPJSONObjectField(
+        required=False,
+        default=dict,
+        help_text="Arguments object passed straight to the tool, matching its input schema.",
+    )
+
+
+class CallToolResponseSerializer(serializers.Serializer):
+    content = serializers.ListField(
+        child=MCPJSONObjectField(),
+        help_text="MCP content blocks the tool returned, in upstream order.",
+    )
+    is_error = serializers.BooleanField(
+        help_text="True when the tool itself reported failure (for example bad arguments). "
+        "The call reached the server; read `content` for the reason."
+    )
+    structured_content = MCPJSONObjectField(
+        required=False,
+        allow_null=True,
+        help_text="Structured result the tool returned alongside `content`, when it provides one.",
+    )
+
+
+class CallToolBlockedSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Why the call was refused, phrased for the calling agent.")
+    reason = serializers.ChoiceField(
+        choices=["needs_approval", "disabled", "removed", "upstream_error"],
+        help_text="Machine-readable refusal cause, so callers can prompt for approval instead of retrying.",
+    )
+
+
+# Phrased for the agent reading the refusal: say what happened and where the human
+# fixes it, since approval lives in PostHog and not inline in the conversation.
+_BLOCKED_CALL_DETAIL = {
+    "needs_approval": "Tool '{tool_name}' needs approval before it can run. "
+    "Ask the user to approve it in PostHog under Settings → MCP servers.",
+    "disabled": "Tool '{tool_name}' is turned off by team policy. An admin controls this in PostHog.",
+    "removed": "Tool '{tool_name}' is no longer available on the upstream server.",
+}
+
+
+class AvailableToolSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Tool name as the upstream server reports it.")
+    description = serializers.CharField(help_text="Upstream tool description.", allow_blank=True)
+    input_schema = MCPJSONObjectField(help_text="JSON Schema for the tool's arguments.")
+    annotations = MCPJSONObjectField(
+        help_text="MCP tool annotations the upstream server declared (destructiveHint, readOnlyHint, ...). "
+        "Advisory only — policy may escalate them, never loosen them."
+    )
+    approval_state = serializers.ChoiceField(
+        choices=APPROVAL_STATES,
+        help_text="Effective gateway state. `needs_approval` tools are listed so callers can explain "
+        "why a call would fail rather than pretending the capability is missing.",
+    )
+
+
+class AvailableServerSerializer(serializers.Serializer):
+    installation_id = serializers.UUIDField(help_text="Installation to send `call_tool` requests to.")
+    name = serializers.CharField(help_text="Human-readable server name.")
+    slug = serializers.CharField(help_text="Stable lowercase identifier used to namespace tool names.")
+    tools = AvailableToolSerializer(many=True, help_text="Callable tools on this server.")
+
+
+class AvailableToolsResponseSerializer(serializers.Serializer):
+    servers = AvailableServerSerializer(many=True, help_text="Connected servers the caller can reach.")
+
+
 class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "project"
     scope_object_read_actions = ["list", "retrieve", "authorize", "list_tools"]
@@ -980,6 +1090,32 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         )
         return Response(self.get_serializer(installation).data)
 
+    def _gateway_preflight(self, installation: MCPServerInstallation, request: Request) -> HttpResponse | None:
+        """Gate a call on the admin kill switch, member revocation and credential
+        health. Returns an error response to send back, or None to proceed.
+        Shared by `proxy` and `call_tool` so the two cannot drift apart."""
+        gateway_server = installation.gateway_server
+        if gateway_server is not None:
+            if not gateway_server.is_team_enabled:
+                return HttpResponse(
+                    '{"error": "Server is disabled for this team"}',
+                    content_type="application/json",
+                    status=403,
+                )
+            if MCPMemberServerRevocation.objects.filter(
+                gateway_server=gateway_server, user=cast(User, request.user)
+            ).exists():
+                return HttpResponse(
+                    '{"error": "Your access to this server has been turned off by an admin"}',
+                    content_type="application/json",
+                    status=403,
+                )
+
+        ok, error_response = validate_installation_auth(installation)
+        if not ok and error_response is not None:
+            return error_response
+        return None
+
     @action(
         detail=True,
         methods=["post"],
@@ -1002,27 +1138,11 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             user_id=request.user.id,
         )
 
+        preflight_error = self._gateway_preflight(installation, request)
+        if preflight_error is not None:
+            return preflight_error
+
         gateway_server = installation.gateway_server
-        if gateway_server is not None:
-            if not gateway_server.is_team_enabled:
-                return HttpResponse(
-                    '{"error": "Server is disabled for this team"}',
-                    content_type="application/json",
-                    status=403,
-                )
-            if MCPMemberServerRevocation.objects.filter(
-                gateway_server=gateway_server, user=cast(User, request.user)
-            ).exists():
-                return HttpResponse(
-                    '{"error": "Your access to this server has been turned off by an admin"}',
-                    content_type="application/json",
-                    status=403,
-                )
-
-        ok, error_response = validate_installation_auth(installation)
-        if not ok and error_response is not None:
-            return error_response
-
         caller = GatewayCaller(kind="member", user_id=request.user.id)
         return proxy_mcp_request(
             request,
@@ -1030,6 +1150,112 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             caller=caller,
             gateway_server=gateway_server,
             actor_label=cast(User, request.user).email or "",
+        )
+
+    @validated_request(
+        CallToolRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=CallToolResponseSerializer),
+            403: OpenApiResponse(response=CallToolBlockedSerializer),
+            404: OpenApiResponse(response=CallToolBlockedSerializer),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="call_tool",
+        throttle_classes=[MCPProxyBurstThrottle, MCPProxySustainedThrottle],
+        required_scopes=["project:read"],
+    )
+    def call_tool(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Invoke one tool on a connected MCP server.
+
+        The request/response shape is plain REST rather than the JSON-RPC envelope
+        `proxy` speaks, because the caller here is an agent surface (the PostHog MCP's
+        `exec`) that wants one tool result, not an MCP transport of its own.
+        """
+        installation = self.get_object()
+        data = request.validated_data
+        tool_name = data["tool_name"]
+        arguments = data.get("arguments") or {}
+
+        preflight_error = self._gateway_preflight(installation, request)
+        if preflight_error is not None:
+            # Reuse the proxy's bodies verbatim so both surfaces explain a disabled
+            # server or revoked member the same way.
+            return Response(
+                {"detail": json.loads(preflight_error.content)["error"], "reason": "disabled"},
+                status=preflight_error.status_code,
+            )
+
+        tool = installation.tools.filter(tool_name=tool_name).first()
+        if tool is None:
+            return Response(
+                {
+                    "detail": f"Tool '{tool_name}' is not registered for this connection. "
+                    "Refresh the connection's tools if you expect it to exist.",
+                    "reason": "removed",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        gateway_server = installation.gateway_server
+        policy_context = (
+            PolicyContext(
+                team_id=installation.team_id,
+                caller=GatewayCaller(kind="member", user_id=request.user.id),
+                gateway_server=gateway_server,
+                installation=installation,
+            )
+            if gateway_server is not None
+            else None
+        )
+        decision, block_reason = resolve_call_decision(tool, policy_context)
+
+        if gateway_server is not None:
+            record_tool_call_audit(
+                installation,
+                gateway_server,
+                GatewayCaller(kind="member", user_id=request.user.id),
+                cast(User, request.user).email or "",
+                tool_name,
+                decision,
+            )
+
+        if block_reason is not None:
+            return Response(
+                {"detail": _BLOCKED_CALL_DETAIL[block_reason].format(tool_name=tool_name), "reason": block_reason},
+                status=status.HTTP_404_NOT_FOUND if block_reason == "removed" else status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            result = call_upstream_tool(installation, tool_name, arguments)
+        except (ToolCallError, ToolsFetchError) as exc:
+            logger.warning(
+                "mcp_store call_tool failed",
+                team_id=self.team_id,
+                installation_id=str(installation.id),
+                tool_name=tool_name,
+                error=str(exc),
+            )
+            return Response(
+                {"detail": f"The upstream MCP server could not run '{tool_name}': {exc}", "reason": "upstream_error"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        # The upstream server is untrusted input — `content` isn't guaranteed to be a list,
+        # so a malformed response degrades to an empty content array instead of raising.
+        content = result.get("content")
+        content_blocks = [block for block in content if isinstance(block, dict)] if isinstance(content, list) else []
+
+        return Response(
+            CallToolResponseSerializer(
+                {
+                    "content": content_blocks,
+                    "is_error": bool(result.get("isError")),
+                    "structured_content": result.get("structuredContent"),
+                }
+            ).data
         )
 
     @validated_request(
@@ -1716,6 +1942,69 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         link_installation_to_gateway(installation, created_by=cast(User, request.user))
 
         return _oauth_authorize_response(authorize_url, install_source)
+
+    @extend_schema(responses={200: OpenApiResponse(response=AvailableToolsResponseSerializer)})
+    @action(detail=False, methods=["get"], url_path="available_tools", pagination_class=None)
+    def available_tools(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Every tool the caller can currently reach, across all their connections.
+
+        One request instead of one per connection: an agent surface resolving its
+        tool list on each session cannot afford a fan-out. `do_not_use` and removed
+        tools are omitted — an agent should not see what it cannot call — while
+        `needs_approval` tools are listed with their state so the caller can explain
+        the block rather than report the capability as missing.
+        """
+        user = cast(User, request.user)
+        installations = (
+            MCPServerInstallation.objects.filter(team_id=self.team_id, is_enabled=True)
+            .filter(Q(user=user) | Q(scope="shared"))
+            .filter(Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True))
+            .exclude(gateway_server__member_revocations__user=user)
+            .select_related("template", "gateway_server")
+            .prefetch_related("tools")
+            .order_by("id")
+        )
+
+        used_slugs: set[str] = set()
+        servers: list[dict[str, Any]] = []
+        for installation in installations:
+            # The same credential check `call_tool` runs, so the list can never
+            # advertise a connection the call path would immediately reject.
+            ok, _error = validate_installation_auth(installation)
+            if not ok:
+                continue
+
+            states = resolve_member_tool_states(
+                str(installation.id),
+                installation.team_id,
+                installation.gateway_server_id,
+                user.id,
+            )
+            tools = [
+                {
+                    "name": tool.tool_name,
+                    "description": tool.description,
+                    "input_schema": tool.input_schema,
+                    "annotations": tool.annotations,
+                    "approval_state": states.get(tool.tool_name, "needs_approval"),
+                }
+                for tool in installation.tools.all()
+                if tool.removed_at is None and states.get(tool.tool_name, "needs_approval") != "do_not_use"
+            ]
+            if not tools:
+                continue
+
+            name = _installation_display_name(installation)
+            servers.append(
+                {
+                    "installation_id": installation.id,
+                    "name": name,
+                    "slug": _unique_server_slug(name, installation.url, used_slugs),
+                    "tools": sorted(tools, key=lambda t: t["name"]),
+                }
+            )
+
+        return Response(AvailableToolsResponseSerializer({"servers": servers}).data)
 
     @extend_schema(responses={200: OpenApiResponse(response=MCPServerInstallationToolSerializer(many=True))})
     @action(detail=True, methods=["get"], url_path="tools")

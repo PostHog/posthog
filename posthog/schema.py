@@ -198,6 +198,8 @@ from posthog.schema_enums import (
     OrderDirection1 as OrderDirection1,
     OrderDirection2 as OrderDirection2,
     ParserMode as ParserMode,
+    PathsV2AnchorType as PathsV2AnchorType,
+    PathsV2ElementType as PathsV2ElementType,
     PathType as PathType,
     PersonsArgMaxVersion as PersonsArgMaxVersion,
     PersonsJoinMode as PersonsJoinMode,
@@ -238,7 +240,6 @@ from posthog.schema_enums import (
     SessionTableVersion as SessionTableVersion,
     SidebarDensity as SidebarDensity,
     SlackIntegrationScope as SlackIntegrationScope,
-    SlackIntegrationScopeInReview as SlackIntegrationScopeInReview,
     SlashCommandName as SlashCommandName,
     SliceContent as SliceContent,
     SnapchatAdsConversionFields as SnapchatAdsConversionFields,
@@ -2203,6 +2204,58 @@ class PathsLink(BaseModel):
     value: float
 
 
+class PathsV2Item(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: str = Field(..., description="Event of the step source this item belongs to.")
+    label: str | None = Field(
+        default=None,
+        description=(
+            "Label value from the source's naming property, after path cleaning. An"
+            " empty string when the property is missing on the event. Null for sources"
+            " without a naming property."
+        ),
+    )
+
+
+class PathsV2Prefix(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: float = Field(
+        ...,
+        description=("Unique actors whose anchored sequence begins with exactly these items."),
+    )
+    items: list[PathsV2Item] = Field(..., description="The chain's path items in order, starting at the anchor.")
+
+
+class PathsV2Row(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: float = Field(
+        ...,
+        description=("Unique actors with a journey whose item at this step is this path item."),
+    )
+    item: PathsV2Item
+
+
+class PathsV2StepSource(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: str = Field(..., description="Name of the event this source matches.")
+    namingProperty: str | None = Field(
+        default=None,
+        description=(
+            "Event property whose value labels the path item, e.g. `$pathname` for"
+            " pageviews. Team path cleaning rules are applied to the value. Without a"
+            " naming property, the event itself is the path item."
+        ),
+    )
+
+
 class PersistedFolder(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2296,7 +2349,7 @@ class QueryResponseAlternative7(BaseModel):
     stdout: str | None = None
 
 
-class QueryResponseAlternative75(BaseModel):
+class QueryResponseAlternative76(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5792,6 +5845,183 @@ class PathsFilter(BaseModel):
     stepLimit: int | None = 5
 
 
+class PathsV2Anchor(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    item: PathsV2Item = Field(
+        ...,
+        description=("The path item the chart anchors on. Its event must be one of the step sources."),
+    )
+    type: PathsV2AnchorType = Field(
+        ...,
+        description=(
+            "`start` runs each actor's single sequence forward from the anchor item;"
+            " `end` runs it up to the anchor item. Either way the anchor is the grid's"
+            " single 100% node."
+        ),
+    )
+
+
+class PathsV2Edge(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    anyStepCount: float | None = Field(
+        default=None,
+        description=(
+            "Unique actors who transition from source to target at any step of any of"
+            ' their whole journeys, the position-free count behind "went source →'
+            " target at any step\". Equals the two-step item-strict funnel's converted"
+            " count. Only set in open mode on edges between two named items."
+        ),
+    )
+    count: float = Field(
+        ...,
+        description=("Unique actors with a journey that transitions from source to target between these steps."),
+    )
+    source: PathsV2Item | None = Field(
+        ...,
+        description='Source path item, or null for the source column\'s "other" row.',
+    )
+    stepIndex: int = Field(
+        ...,
+        description=("0-based step index of the source column; the target sits at `stepIndex + 1`."),
+    )
+    target: PathsV2Item | None = Field(
+        ...,
+        description='Target path item, or null for the target column\'s "other" row.',
+    )
+
+
+class PathsV2ElementSelector(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    anyStep: bool | None = Field(
+        default=None,
+        description=(
+            "Match the source → target transition at any step of any whole journey"
+            " instead of at one step pair: the position-free set behind an edge's"
+            " anyStepCount. Requires a named source and target and open mode. Edge"
+            " elements only."
+        ),
+    )
+    chain: list[PathsV2Item] | None = Field(
+        default=None,
+        description=(
+            "The chain's path items in order from the anchor. Returns the actors whose"
+            " anchored sequence begins with exactly these items, the set behind a hover"
+            " preview's per-chain counts. Chain elements only, anchored mode only."
+            " Bounded by the step maximum: a longer chain can never match a displayed"
+            " card."
+        ),
+        max_length=20,
+    )
+    elementType: PathsV2ElementType
+    item: PathsV2Item | None = Field(default=None, description="The node card's path item. Node elements only.")
+    source: PathsV2Item | None = Field(
+        default=None,
+        description=("The edge's source path item; omit for the source column's \"other\" row. Edge elements only."),
+    )
+    stepIndex: int | None = Field(
+        default=None,
+        description=(
+            "0-based step index (column) of the element; for an edge, its source"
+            " column. Required for node, other, dropOff, and positional edge elements."
+        ),
+    )
+    target: PathsV2Item | None = Field(
+        default=None,
+        description=("The edge's target path item; omit for the target column's \"other\" row. Edge elements only."),
+    )
+
+
+class PathsV2Filter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    anchor: PathsV2Anchor | None = Field(
+        default=None,
+        description=(
+            "Anchor selecting anchored mode. When set, each actor contributes exactly"
+            " one sequence bounded by the conversion window, so every displayed segment"
+            " equals a plain funnel. Absent selects open mode, which splits an actor's"
+            " events into journeys on the inactivity gap instead."
+        ),
+    )
+    applyTeamPathCleaning: bool | None = Field(
+        default=True,
+        description=("Apply the team's path cleaning rules to naming property values before they become path items."),
+    )
+    collapseRepeats: bool | None = Field(
+        default=True,
+        description="Merge immediate repeats of the same path item within a journey.",
+    )
+    conversionWindowInterval: int | None = Field(
+        default=30,
+        description=(
+            "Anchored mode's single conversion window W, anchored at the anchor and"
+            " reused verbatim as the emitted funnel's window. Bounds per unit are"
+            " validated server-side against CONVERSION_WINDOW_INTERVAL_BOUNDS, the same"
+            " funnel conversion window bounds as the gap."
+        ),
+    )
+    conversionWindowIntervalUnit: FunnelConversionWindowTimeUnit | None = FunnelConversionWindowTimeUnit.MINUTE
+    excludedItems: list[PathsV2Item] | None = Field(
+        default=None,
+        description=(
+            "Path items dropped from the item universe: events deriving to one of these"
+            " items are ignored as if their event were not a step source, on both the"
+            ' paths side and the "view as funnel" side.'
+        ),
+        max_length=100,
+    )
+    gapInterval: int | None = Field(
+        default=30,
+        description=(
+            "Inactivity gap that splits an actor's events into journeys. Bounds per"
+            " unit are validated server-side against CONVERSION_WINDOW_INTERVAL_BOUNDS,"
+            " the funnel conversion window bounds."
+        ),
+    )
+    gapIntervalUnit: FunnelConversionWindowTimeUnit | None = FunnelConversionWindowTimeUnit.MINUTE
+    localPathCleaningFilters: list[PathCleaningFilter] | None = Field(
+        default=None,
+        description=("Path cleaning rules for this insight only, applied after the team's rules."),
+    )
+    maxRowsPerStep: conint(ge=1, le=10) | None = Field(
+        default=3,
+        description=('Number of path item rows per step; items beyond this go into the "other" row.'),
+    )
+    maxSteps: conint(ge=2, le=20) | None = Field(default=5, description="Number of journey steps (columns) shown.")
+    stepSources: list[PathsV2StepSource] | None = Field(
+        default=None,
+        description=(
+            "Step sources defining which events can become path items. Defaults to the"
+            " pageviews preset: `$pageview` named by `$pathname`."
+        ),
+        max_length=20,
+        min_length=1,
+    )
+
+
+class PathsV2Step(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dropOffCount: float = Field(..., description="Unique actors whose journey ends at this step.")
+    otherCount: float = Field(
+        ...,
+        description=("Unique actors at this step whose path item is beyond the top rows."),
+    )
+    rows: list[PathsV2Row] = Field(
+        ...,
+        description=("Top path items at this step, ordered by unique-actor count descending."),
+    )
+    stepIndex: int = Field(..., description="0-based step index (column) in the journey grid.")
+
+
 class PersonMetadataPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5922,7 +6152,7 @@ class QueryResponseAlternative28(BaseModel):
     status: ExternalQueryStatus
 
 
-class QueryResponseAlternative82(BaseModel):
+class QueryResponseAlternative83(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18145,6 +18375,24 @@ class PathsQueryResponse(BaseModel):
     )
 
 
+class PathsV2Results(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    edges: list[PathsV2Edge]
+    prefixes: list[PathsV2Prefix] = Field(
+        ...,
+        description=(
+            "Concrete anchored chains with per-chain unique-actor counts, ordered by"
+            " descending count. Empty in open mode; in anchored mode it carries the"
+            " counts the hover funnel preview reads per chain. Only chains the grid"
+            " displays in full are carried: chains through the other bucket are"
+            " omitted, so the response never exposes labels the chart hides."
+        ),
+    )
+    steps: list[PathsV2Step]
+
+
 class PersonsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -20769,6 +21017,53 @@ class QueryResponseAlternative62(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
+    results: PathsV2Results
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
+class QueryResponseAlternative63(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[dict[str, Any]]
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -20793,7 +21088,7 @@ class QueryResponseAlternative62(BaseModel):
     )
 
 
-class QueryResponseAlternative64(BaseModel):
+class QueryResponseAlternative65(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20845,7 +21140,7 @@ class QueryResponseAlternative64(BaseModel):
     )
 
 
-class QueryResponseAlternative66(BaseModel):
+class QueryResponseAlternative67(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20897,7 +21192,7 @@ class QueryResponseAlternative66(BaseModel):
     )
 
 
-class QueryResponseAlternative67(BaseModel):
+class QueryResponseAlternative68(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20949,7 +21244,7 @@ class QueryResponseAlternative67(BaseModel):
     )
 
 
-class QueryResponseAlternative68(BaseModel):
+class QueryResponseAlternative69(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20997,7 +21292,7 @@ class QueryResponseAlternative68(BaseModel):
     )
 
 
-class QueryResponseAlternative69(BaseModel):
+class QueryResponseAlternative70(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21044,7 +21339,7 @@ class QueryResponseAlternative69(BaseModel):
     )
 
 
-class QueryResponseAlternative70(BaseModel):
+class QueryResponseAlternative71(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21091,7 +21386,7 @@ class QueryResponseAlternative70(BaseModel):
     )
 
 
-class QueryResponseAlternative71(BaseModel):
+class QueryResponseAlternative72(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21142,7 +21437,7 @@ class QueryResponseAlternative71(BaseModel):
     )
 
 
-class QueryResponseAlternative72(BaseModel):
+class QueryResponseAlternative73(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21193,7 +21488,7 @@ class QueryResponseAlternative72(BaseModel):
     )
 
 
-class QueryResponseAlternative73(BaseModel):
+class QueryResponseAlternative74(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21244,7 +21539,7 @@ class QueryResponseAlternative73(BaseModel):
     )
 
 
-class QueryResponseAlternative74(BaseModel):
+class QueryResponseAlternative75(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21295,7 +21590,7 @@ class QueryResponseAlternative74(BaseModel):
     )
 
 
-class QueryResponseAlternative76(BaseModel):
+class QueryResponseAlternative77(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21345,7 +21640,7 @@ class QueryResponseAlternative76(BaseModel):
     )
 
 
-class QueryResponseAlternative77(BaseModel):
+class QueryResponseAlternative78(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21395,7 +21690,7 @@ class QueryResponseAlternative77(BaseModel):
     )
 
 
-class QueryResponseAlternative78(BaseModel):
+class QueryResponseAlternative79(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21442,7 +21737,7 @@ class QueryResponseAlternative78(BaseModel):
     )
 
 
-class QueryResponseAlternative79(BaseModel):
+class QueryResponseAlternative80(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21493,7 +21788,7 @@ class QueryResponseAlternative79(BaseModel):
     )
 
 
-class QueryResponseAlternative83(BaseModel):
+class QueryResponseAlternative84(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21540,7 +21835,7 @@ class QueryResponseAlternative83(BaseModel):
     )
 
 
-class QueryResponseAlternative84(BaseModel):
+class QueryResponseAlternative85(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21587,7 +21882,7 @@ class QueryResponseAlternative84(BaseModel):
     )
 
 
-class QueryResponseAlternative85(BaseModel):
+class QueryResponseAlternative86(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21644,7 +21939,7 @@ class QueryResponseAlternative85(BaseModel):
     )
 
 
-class QueryResponseAlternative86(BaseModel):
+class QueryResponseAlternative87(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21691,7 +21986,7 @@ class QueryResponseAlternative86(BaseModel):
     )
 
 
-class QueryResponseAlternative87(BaseModel):
+class QueryResponseAlternative88(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21743,7 +22038,7 @@ class QueryResponseAlternative87(BaseModel):
     )
 
 
-class QueryResponseAlternative88(BaseModel):
+class QueryResponseAlternative89(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21790,7 +22085,7 @@ class QueryResponseAlternative88(BaseModel):
     )
 
 
-class QueryResponseAlternative89(BaseModel):
+class QueryResponseAlternative90(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21837,7 +22132,7 @@ class QueryResponseAlternative89(BaseModel):
     )
 
 
-class QueryResponseAlternative90(BaseModel):
+class QueryResponseAlternative91(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21884,7 +22179,7 @@ class QueryResponseAlternative90(BaseModel):
     )
 
 
-class QueryResponseAlternative91(BaseModel):
+class QueryResponseAlternative92(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21931,7 +22226,7 @@ class QueryResponseAlternative91(BaseModel):
     )
 
 
-class QueryResponseAlternative92(BaseModel):
+class QueryResponseAlternative93(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21978,7 +22273,7 @@ class QueryResponseAlternative92(BaseModel):
     )
 
 
-class QueryResponseAlternative93(BaseModel):
+class QueryResponseAlternative94(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22025,7 +22320,7 @@ class QueryResponseAlternative93(BaseModel):
     )
 
 
-class QueryResponseAlternative94(BaseModel):
+class QueryResponseAlternative95(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22072,7 +22367,7 @@ class QueryResponseAlternative94(BaseModel):
     )
 
 
-class QueryResponseAlternative95(BaseModel):
+class QueryResponseAlternative96(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22122,7 +22417,7 @@ class QueryResponseAlternative95(BaseModel):
     )
 
 
-class QueryResponseAlternative96(BaseModel):
+class QueryResponseAlternative97(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22169,7 +22464,7 @@ class QueryResponseAlternative96(BaseModel):
     )
 
 
-class QueryResponseAlternative97(BaseModel):
+class QueryResponseAlternative98(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22216,7 +22511,7 @@ class QueryResponseAlternative97(BaseModel):
     )
 
 
-class QueryResponseAlternative98(BaseModel):
+class QueryResponseAlternative99(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22263,7 +22558,7 @@ class QueryResponseAlternative98(BaseModel):
     )
 
 
-class QueryResponseAlternative99(BaseModel):
+class QueryResponseAlternative100(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22310,7 +22605,7 @@ class QueryResponseAlternative99(BaseModel):
     )
 
 
-class QueryResponseAlternative100(BaseModel):
+class QueryResponseAlternative101(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22357,7 +22652,7 @@ class QueryResponseAlternative100(BaseModel):
     )
 
 
-class QueryResponseAlternative101(BaseModel):
+class QueryResponseAlternative102(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22404,7 +22699,7 @@ class QueryResponseAlternative101(BaseModel):
     )
 
 
-class QueryResponseAlternative102(BaseModel):
+class QueryResponseAlternative103(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22451,7 +22746,7 @@ class QueryResponseAlternative102(BaseModel):
     )
 
 
-class QueryResponseAlternative103(BaseModel):
+class QueryResponseAlternative104(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22498,7 +22793,7 @@ class QueryResponseAlternative103(BaseModel):
     )
 
 
-class QueryResponseAlternative104(BaseModel):
+class QueryResponseAlternative105(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24057,6 +24352,64 @@ class CachedNewExperimentQueryResponse(BaseModel):
     )
 
 
+class CachedPathsV2QueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: PathsV2Results
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
 class CachedWebVitalsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -24647,6 +25000,7 @@ class InsightFilter(
         | FunnelsFilter
         | RetentionFilter
         | PathsFilter
+        | PathsV2Filter
         | StickinessFilter
         | LifecycleFilter
         | CalendarHeatmapFilter
@@ -24658,6 +25012,7 @@ class InsightFilter(
         | FunnelsFilter
         | RetentionFilter
         | PathsFilter
+        | PathsV2Filter
         | StickinessFilter
         | LifecycleFilter
         | CalendarHeatmapFilter
@@ -25319,6 +25674,53 @@ class NonIntegratedConversionsTableQuery(BaseModel):
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class PathsV2QueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: PathsV2Results
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
 
 
 class PropertyGroupFilter(BaseModel):
@@ -26397,6 +26799,27 @@ class LogsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class PathsV2Query(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
+    dateRange: DateRange | None = Field(default=None, description="Date range for the query")
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the respective filters"),
+    )
+    kind: Literal["PathsV2Query"] = "PathsV2Query"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    pathsV2Filter: PathsV2Filter | None = Field(default=None, description="Properties specific to the paths v2 insight")
+    properties: list[AnyPropertyFilterDiscriminated] | PropertyGroupFilter | None = Field(
+        default=[], description="Property filters for all series"
+    )
+    response: PathsV2QueryResponse | None = None
+    tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class SessionsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -26628,7 +27051,21 @@ class LifecycleQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class QueryResponseAlternative65(BaseModel):
+class PathsV2ActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    element: PathsV2ElementSelector
+    includeRecordings: bool | None = None
+    kind: Literal["PathsV2ActorsQuery"] = "PathsV2ActorsQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    response: ActorsQueryResponse | None = None
+    source: PathsV2Query
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class QueryResponseAlternative66(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27328,7 +27765,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative60
         | QueryResponseAlternative61
         | QueryResponseAlternative62
-        | QueryResponseAlternative64
+        | QueryResponseAlternative63
         | QueryResponseAlternative65
         | QueryResponseAlternative66
         | QueryResponseAlternative67
@@ -27344,7 +27781,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative77
         | QueryResponseAlternative78
         | QueryResponseAlternative79
-        | QueryResponseAlternative82
+        | QueryResponseAlternative80
         | QueryResponseAlternative83
         | QueryResponseAlternative84
         | QueryResponseAlternative85
@@ -27367,6 +27804,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative102
         | QueryResponseAlternative103
         | QueryResponseAlternative104
+        | QueryResponseAlternative105
     ]
 ):
     root: (
@@ -27432,7 +27870,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative60
         | QueryResponseAlternative61
         | QueryResponseAlternative62
-        | QueryResponseAlternative64
+        | QueryResponseAlternative63
         | QueryResponseAlternative65
         | QueryResponseAlternative66
         | QueryResponseAlternative67
@@ -27448,7 +27886,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative77
         | QueryResponseAlternative78
         | QueryResponseAlternative79
-        | QueryResponseAlternative82
+        | QueryResponseAlternative80
         | QueryResponseAlternative83
         | QueryResponseAlternative84
         | QueryResponseAlternative85
@@ -27471,6 +27909,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative102
         | QueryResponseAlternative103
         | QueryResponseAlternative104
+        | QueryResponseAlternative105
     )
 
 
@@ -27684,9 +28123,11 @@ class PathsQuery(BaseModel):
 
 
 class ProductAnalyticsInsightQueryNode(
-    RootModel[TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery]
+    RootModel[
+        TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery
+    ]
 ):
-    root: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery
+    root: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery
 
 
 class VisualizationBlock(BaseModel):
@@ -27829,6 +28270,7 @@ class InsightVizNode(BaseModel):
         | FunnelsQuery
         | RetentionQuery
         | PathsQuery
+        | PathsV2Query
         | StickinessQuery
         | LifecycleQuery
         | WebStatsTableQuery
@@ -27901,6 +28343,7 @@ class WebVitalsQuery(BaseModel):
         | FunnelsQuery
         | RetentionQuery
         | PathsQuery
+        | PathsV2Query
         | StickinessQuery
         | LifecycleQuery
         | WebStatsTableQuery
@@ -27970,6 +28413,7 @@ class InsightActorsQuery(BaseModel):
         | FunnelsQuery
         | RetentionQuery
         | PathsQuery
+        | PathsV2Query
         | StickinessQuery
         | LifecycleQuery
         | WebStatsTableQuery
@@ -27992,6 +28436,7 @@ class InsightActorsQueryOptions(BaseModel):
         | FunnelCorrelationActorsQuery
         | StickinessActorsQuery
         | ExperimentActorsQuery
+        | PathsV2ActorsQuery
     )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -28109,6 +28554,7 @@ class ActorsQuery(BaseModel):
         | FunnelCorrelationActorsQuery
         | ExperimentActorsQuery
         | StickinessActorsQuery
+        | PathsV2ActorsQuery
         | HogQLQuery
         | None
     ) = None
@@ -28634,6 +29080,7 @@ class MaxInsightContext(BaseModel):
         | FunnelsQuery
         | RetentionQuery
         | PathsQuery
+        | PathsV2Query
         | StickinessQuery
         | LifecycleQuery
         | FunnelCorrelationQuery
@@ -28768,6 +29215,7 @@ class QueryRequest(BaseModel):
         | FunnelsQuery
         | RetentionQuery
         | PathsQuery
+        | PathsV2Query
         | StickinessQuery
         | LifecycleQuery
         | FunnelCorrelationQuery
@@ -28894,6 +29342,7 @@ class QuerySchemaRoot(
         | FunnelsQuery
         | RetentionQuery
         | PathsQuery
+        | PathsV2Query
         | StickinessQuery
         | LifecycleQuery
         | FunnelCorrelationQuery
@@ -28990,6 +29439,7 @@ class QuerySchemaRoot(
         | FunnelsQuery
         | RetentionQuery
         | PathsQuery
+        | PathsV2Query
         | StickinessQuery
         | LifecycleQuery
         | FunnelCorrelationQuery
@@ -29091,6 +29541,7 @@ class QueryUpgradeRequest(BaseModel):
         | FunnelsQuery
         | RetentionQuery
         | PathsQuery
+        | PathsV2Query
         | StickinessQuery
         | LifecycleQuery
         | FunnelCorrelationQuery
@@ -29192,6 +29643,7 @@ class QueryUpgradeResponse(BaseModel):
         | FunnelsQuery
         | RetentionQuery
         | PathsQuery
+        | PathsV2Query
         | StickinessQuery
         | LifecycleQuery
         | FunnelCorrelationQuery
@@ -29475,6 +29927,7 @@ class VisualizationArtifactContent(BaseModel):
         | FunnelsQuery
         | RetentionQuery
         | PathsQuery
+        | PathsV2Query
         | StickinessQuery
         | LifecycleQuery
         | FunnelCorrelationQuery

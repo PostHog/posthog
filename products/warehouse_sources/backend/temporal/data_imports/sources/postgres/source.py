@@ -1,8 +1,6 @@
 import logging
 from typing import TYPE_CHECKING, Optional, cast
 
-from django.db import OperationalError as DjangoOperationalError
-
 import structlog
 from psycopg import OperationalError
 from psycopg.errors import SqlclientUnableToEstablishSqlconnection
@@ -43,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     drop_slot_and_publication,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    _CONNECTION_LIMIT_ERROR_SUBSTRINGS,
     _SSH_HANDSHAKE_EOF_ERROR,
     XMIN_AS_INCREMENTAL_FIELD_ERROR,
     PostgresImplementation,
@@ -758,6 +757,20 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "include the value used on the remote server, or remove the foreign table from the "
                 "sync, then re-enable the sync."
             ),
+            # A selected relation is a postgres_fdw foreign table whose locally-declared character
+            # column is narrower than the data actually stored on the remote server (SQLSTATE 22001,
+            # "value too long for type character varying(<n>)"). Postgres enforces length constraints
+            # at write time on ordinary tables, so this can only surface via a foreign table's
+            # separately-declared width. The schema drift lives on the customer's side and is
+            # deterministic, so retrying re-reads into the same row every time. Match the stable
+            # message and exclude the volatile declared width and the CONTEXT line's column/table names.
+            "value too long for type character": (
+                "One of the tables you selected to sync is a foreign table (postgres_fdw) whose "
+                "locally-declared column is narrower than the data on the remote server "
+                '(PostgreSQL reported "value too long for type character..."). Widen the local '
+                "column's declared length to match the remote server, or remove the foreign table "
+                "from the sync, then re-enable the sync."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -774,7 +787,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         # offset-chunking reconnect also retries in-process (`_SERVER_STARTING_UP_ERROR_SUBSTRINGS`
         # in postgres.py) — this is the same whole-activity-retry fallback for when that budget is
         # exhausted (e.g. a longer maintenance window).
-        return {"terminating connection due to", "the database system is shutting down"}
+        #
+        # `_CONNECTION_LIMIT_ERROR_SUBSTRINGS` (e.g. "remaining connection slots are reserved") is a
+        # connect-time capacity refusal already retried in-process by `_connect_with_dropped_retry` /
+        # `_is_dropped_or_connection_limit`. A slot frees the moment another connection closes, so a
+        # sustained shortage that outlasts that budget is still transient — the same
+        # reaches-here-only-after-internal-retries-exhaust case as the two entries above.
+        return {
+            "terminating connection due to",
+            "the database system is shutting down",
+            *_CONNECTION_LIMIT_ERROR_SUBSTRINGS,
+        }
 
     def reconcile_schema_metadata(
         self,
@@ -1159,20 +1182,16 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
             CDCHandledExternally,
             ForeignServerUnreachableError,
-            PostHogDatabaseConnectionError,
         )
 
         ssh_tunnel = self.make_ssh_tunnel_func(config, inputs.team_id)
 
-        # This reads sync metadata from PostHog's own database, not the customer's Postgres. A
-        # transient failure reaching our database here (e.g. a DNS blip resolving our host) raises
-        # the same "Name or service not known" wording a customer host misconfig would, which
-        # `get_non_retryable_errors` would misclassify as non-retryable and permanently stop a
-        # healthy sync. Re-raise as a retryable error whose message doesn't collide with those.
-        try:
-            schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
-        except DjangoOperationalError as e:
-            raise PostHogDatabaseConnectionError("Failed to load sync metadata from PostHog's database") from e
+        # This reads sync metadata from PostHog's own database, not the customer's Postgres — a
+        # transient failure reaching it (e.g. a DNS blip resolving our host) is a plain Django
+        # `OperationalError`, which `_handle_import_error` already classifies as a self-recovering
+        # app-DB blip and keeps out of error tracking. Let it propagate as-is: wrapping it would only
+        # hide that type from the classifier and turn a benign retry into reported error-tracking noise.
+        schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
         schema_metadata = schema.schema_metadata or {}
         source_schema = (
             schema_metadata.get("source_schema") if isinstance(schema_metadata.get("source_schema"), str) else None
