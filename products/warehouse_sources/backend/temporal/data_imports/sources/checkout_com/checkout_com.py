@@ -45,6 +45,9 @@ class CheckoutComResumeConfig:
     # fast-forwards the listing and skips what already synced.
     report_created_on: str | None = None
     report_id: str | None = None
+    # Payments-search tables checkpoint the end of the last fully-processed
+    # search window, which becomes the next attempt's range start.
+    search_window_to: str | None = None
 
 
 def _hosts(environment: str) -> dict[str, str]:

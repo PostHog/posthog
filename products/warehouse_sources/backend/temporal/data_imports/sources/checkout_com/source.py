@@ -19,6 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_c
     checkout_com_source,
     validate_credentials as validate_checkout_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.payments import (
+    PAYMENTS_ENDPOINTS,
+    checkout_com_payments_source,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.reports import (
     REPORTS_METADATA_ENDPOINT,
     checkout_com_reports_source,
@@ -59,6 +63,22 @@ _DISPUTES_INCREMENTAL_FIELDS: list[IncrementalField] = [
 _REPORTS_INCREMENTAL_FIELDS: list[IncrementalField] = [incremental_field("created_on")]
 _REPORT_ROWS_INCREMENTAL_FIELDS: list[IncrementalField] = [incremental_field("report_created_on")]
 
+# Payments search filters server-side on `from`/`to` over the payment request time;
+# the fan-out tables inherit that cursor through the payment that references them.
+_PAYMENTS_INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
+    "payments": [incremental_field("requested_on")],
+    "payment_actions": [incremental_field("payment_requested_on")],
+    "customers": [incremental_field("payment_requested_on")],
+    "instruments": [incremental_field("payment_requested_on")],
+}
+
+_PAYMENTS_ENDPOINT_DESCRIPTIONS: dict[str, str] = {
+    "payments": "Payment requests (approved and declined) from the payments search API.",
+    "payment_actions": "Authorization, capture, refund and void actions for each payment.",
+    "customers": "Customer records referenced by your payments.",
+    "instruments": "Stored payment instruments referenced by your payments.",
+}
+
 
 @SourceRegistry.register
 class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResumeConfig]):
@@ -75,16 +95,34 @@ class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResu
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         # The 403 matches are path-qualified so an expired signed storage URL (a different
-        # host) stays retryable, and so disputes and reports each get the right scope hint.
-        return {
+        # host) stays retryable, and so each endpoint gets the right scope hint. Action
+        # lookups match on `/payments/pay_` because `/payments` alone would also match
+        # the search path.
+        errors: dict[str, str | None] = {
             # Permanent token-exchange failures (invalid_client, bad request, …) all carry
             # the framework's stable marker; transient 429/5xx token errors don't.
             OAUTH2_PERMANENT_ERROR_MARKER: "Checkout.com authentication failed. Please check your access key ID and secret (and that they match the selected environment).",
-            "403 Client Error: Forbidden for url: https://api.checkout.com/disputes": "Checkout.com denied access. Please check that your access key has the disputes scope.",
-            "403 Client Error: Forbidden for url: https://api.sandbox.checkout.com/disputes": "Checkout.com denied access. Please check that your access key has the disputes scope.",
-            "403 Client Error: Forbidden for url: https://api.checkout.com/reports": "Checkout.com denied access to reports. Please check that your access key has the reports scope.",
-            "403 Client Error: Forbidden for url: https://api.sandbox.checkout.com/reports": "Checkout.com denied access to reports. Please check that your access key has the reports scope.",
         }
+        for host in ("https://api.checkout.com", "https://api.sandbox.checkout.com"):
+            errors[f"403 Client Error: Forbidden for url: {host}/disputes"] = (
+                "Checkout.com denied access. Please check that your access key has the disputes scope."
+            )
+            errors[f"403 Client Error: Forbidden for url: {host}/reports"] = (
+                "Checkout.com denied access to reports. Please check that your access key has the reports scope."
+            )
+            errors[f"403 Client Error: Forbidden for url: {host}/payments/search"] = (
+                "Checkout.com denied access to payments search. Please check that your access key has the payments scope."
+            )
+            errors[f"403 Client Error: Forbidden for url: {host}/payments/pay_"] = (
+                "Checkout.com denied access to payment details. Please check that your access key has the gateway scope."
+            )
+            errors[f"403 Client Error: Forbidden for url: {host}/customers"] = (
+                "Checkout.com denied access to customers. Please check that your access key has the vault scope."
+            )
+            errors[f"403 Client Error: Forbidden for url: {host}/instruments"] = (
+                "Checkout.com denied access to instruments. Please check that your access key has the vault scope."
+            )
+        return errors
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -94,9 +132,9 @@ class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResu
             label="Checkout.com",
             caption="""Enter your Checkout.com API access keys to pull your payments data into the PostHog Data warehouse.
 
-Create an access key in the [Checkout.com dashboard](https://dashboard.checkout.com/) under Settings > Access keys with the `disputes` and `reports` scopes.
+Create an access key in the [Checkout.com dashboard](https://dashboard.checkout.com/) under Settings > Access keys. Grant it the scopes for the tables you want to sync: `disputes`, `reports`, `payments` (search), `gateway` (payment actions), and `vault` (customers and instruments).
 
-Disputes sync from the Disputes API. Bulk payment data (payments, financial actions, payouts, balances) syncs from your generated report files: each report type available for your account becomes a table. If no report tables show up, set up scheduled reports in your Checkout.com dashboard first.""",
+Payments, payment actions, customers and instruments sync from the payments search API. Financial reporting data (financial actions, payouts, balances) syncs from your generated report files: each report type available for your account becomes a table. If no report tables show up, set up scheduled reports in your Checkout.com dashboard first.""",
             iconPath="/static/services/checkout_com.png",
             docsUrl="https://posthog.com/docs/cdp/sources/checkout-com",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -129,6 +167,14 @@ Disputes sync from the Disputes API. Bulk payment data (payments, financial acti
                         placeholder="",
                         secret=True,
                     ),
+                    SourceFieldInputConfig(
+                        name="start_date",
+                        label="Start date",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="2024-01-01",
+                        secret=False,
+                    ),
                 ],
             ),
         )
@@ -150,17 +196,22 @@ Disputes sync from the Disputes API. Bulk payment data (payments, financial acti
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Disputes support a server-side `from` filter on last_update; the reports
-        # tables filter on report creation time. Boundary re-reads on the inclusive
-        # `created_after` filter make append unsafe for them, so they are merge-only.
+        # tables filter on report creation time and the payments tables on payment
+        # request time. Boundary re-reads on those inclusive range filters make append
+        # unsafe, so everything except disputes is merge-only.
         schemas = build_endpoint_schemas(
-            (*ENDPOINTS, REPORTS_METADATA_ENDPOINT),
+            (*ENDPOINTS, REPORTS_METADATA_ENDPOINT, *PAYMENTS_ENDPOINTS),
             {
                 "disputes": _DISPUTES_INCREMENTAL_FIELDS,
                 REPORTS_METADATA_ENDPOINT: _REPORTS_INCREMENTAL_FIELDS,
+                **_PAYMENTS_INCREMENTAL_FIELDS,
             },
             None,
-            merge_only=(REPORTS_METADATA_ENDPOINT,),
-            descriptions={REPORTS_METADATA_ENDPOINT: "Generated report files available for your account."},
+            merge_only=(REPORTS_METADATA_ENDPOINT, *PAYMENTS_ENDPOINTS),
+            descriptions={
+                REPORTS_METADATA_ENDPOINT: "Generated report files available for your account.",
+                **_PAYMENTS_ENDPOINT_DESCRIPTIONS,
+            },
         )
 
         # One table per report type the account generates. Discovery needs the API, so
@@ -219,6 +270,21 @@ Disputes sync from the Disputes API. Bulk payment data (payments, financial acti
                 team_id=inputs.team_id,
                 job_id=inputs.job_id,
                 resumable_source_manager=resumable_source_manager,
+                should_use_incremental_field=inputs.should_use_incremental_field,
+                db_incremental_field_last_value=inputs.db_incremental_field_last_value
+                if inputs.should_use_incremental_field
+                else None,
+            )
+
+        if inputs.schema_name in PAYMENTS_ENDPOINTS:
+            return checkout_com_payments_source(
+                environment=config.environment,
+                client_id=config.client_id,
+                client_secret=config.client_secret,
+                schema_name=inputs.schema_name,
+                logger=inputs.logger,
+                resumable_source_manager=resumable_source_manager,
+                start_date=config.start_date,
                 should_use_incremental_field=inputs.should_use_incremental_field,
                 db_incremental_field_last_value=inputs.db_incremental_field_last_value
                 if inputs.should_use_incremental_field

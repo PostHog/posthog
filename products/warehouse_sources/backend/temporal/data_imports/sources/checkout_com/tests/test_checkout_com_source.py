@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 DISCOVER_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source.discover_report_types"
 )
+_STATIC_SCHEMAS = ["disputes", "reports", "payments", "payment_actions", "customers", "instruments"]
 
 
 class TestCheckoutComSource:
@@ -40,7 +41,7 @@ class TestCheckoutComSource:
         assert config.iconPath == "/static/services/checkout_com.png"
 
         field_names = [f.name for f in config.fields]
-        assert field_names == ["environment", "client_id", "client_secret"]
+        assert field_names == ["environment", "client_id", "client_secret", "start_date"]
 
     def test_environment_field_is_a_select_with_default(self):
         config = self.source.get_source_config
@@ -95,10 +96,17 @@ class TestCheckoutComSource:
 
         schemas = self.source.get_schemas(self.config, self.team_id)
 
-        assert [s.name for s in schemas] == ["disputes", "reports"]
+        assert [s.name for s in schemas] == _STATIC_SCHEMAS
         assert all(schema.supports_incremental for schema in schemas)
-        assert [f["field"] for f in schemas[0].incremental_fields] == ["last_update"]
-        assert [f["field"] for f in schemas[1].incremental_fields] == ["created_on"]
+        cursors = {s.name: [f["field"] for f in s.incremental_fields] for s in schemas}
+        assert cursors == {
+            "disputes": ["last_update"],
+            "reports": ["created_on"],
+            "payments": ["requested_on"],
+            "payment_actions": ["payment_requested_on"],
+            "customers": ["payment_requested_on"],
+            "instruments": ["payment_requested_on"],
+        }
 
     @mock.patch(DISCOVER_PATCH)
     def test_get_schemas_appends_discovered_report_tables(self, mock_discover):
@@ -106,7 +114,7 @@ class TestCheckoutComSource:
 
         schemas = self.source.get_schemas(self.config, self.team_id)
 
-        assert [s.name for s in schemas] == ["disputes", "reports", "financial_actions_report", "payments_report"]
+        assert [s.name for s in schemas] == [*_STATIC_SCHEMAS, "financial_actions_report", "payments_report"]
         report_table = next(s for s in schemas if s.name == "financial_actions_report")
         assert report_table.supports_incremental is True
         # Boundary re-reads on the inclusive `created_after` filter make append unsafe.
@@ -123,7 +131,7 @@ class TestCheckoutComSource:
         # The credential-free path serves public docs and placeholder configs, so it
         # must never reach the API.
         mock_discover.assert_not_called()
-        assert [s.name for s in schemas] == ["disputes", "reports"]
+        assert [s.name for s in schemas] == _STATIC_SCHEMAS
 
     @mock.patch(DISCOVER_PATCH)
     def test_get_schemas_discovery_failure_degrades_to_static(self, mock_discover):
@@ -131,7 +139,7 @@ class TestCheckoutComSource:
 
         schemas = self.source.get_schemas(self.config, self.team_id)
 
-        assert [s.name for s in schemas] == ["disputes", "reports"]
+        assert [s.name for s in schemas] == _STATIC_SCHEMAS
 
     @pytest.mark.parametrize(
         "names, expected",
@@ -233,4 +241,28 @@ class TestCheckoutComSource:
         assert kwargs["logger"] is inputs.logger
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
+        assert kwargs["db_incremental_field_last_value"] == "2024-01-02T03:04:05Z"
+
+    @pytest.mark.parametrize("schema_name", ["payments", "payment_actions", "customers", "instruments"])
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source.checkout_com_payments_source"
+    )
+    def test_source_for_pipeline_routes_payments_schemas(self, mock_payments_source, schema_name):
+        config = CheckoutComSourceConfig(
+            environment="production", client_id="ack_id", client_secret="secret", start_date="2024-01-01"
+        )
+        inputs = mock.MagicMock()
+        inputs.schema_name = schema_name
+        inputs.should_use_incremental_field = True
+        inputs.db_incremental_field_last_value = "2024-01-02T03:04:05Z"
+        manager = mock.MagicMock()
+
+        self.source.source_for_pipeline(config, manager, inputs)
+
+        mock_payments_source.assert_called_once()
+        kwargs = mock_payments_source.call_args.kwargs
+        assert kwargs["schema_name"] == schema_name
+        assert kwargs["start_date"] == "2024-01-01"
+        assert kwargs["logger"] is inputs.logger
+        assert kwargs["resumable_source_manager"] is manager
         assert kwargs["db_incremental_field_last_value"] == "2024-01-02T03:04:05Z"
