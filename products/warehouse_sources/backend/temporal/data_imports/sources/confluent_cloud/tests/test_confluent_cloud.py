@@ -68,9 +68,9 @@ class TestSyncRange:
         ]
     )
     def test_range(self, _name: str, incremental: bool, watermark: Any, expected_start: datetime) -> None:
-        start, end = _sync_range(incremental, watermark, _NOW)
-        assert start == expected_start
-        assert end == _NOW
+        window = _sync_range(incremental, watermark, _NOW)
+        assert window.start == expected_start
+        assert window.end == _NOW
 
 
 class TestBuildQueryBody:

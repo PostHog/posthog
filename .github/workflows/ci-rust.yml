@@ -221,11 +221,13 @@ jobs:
                       f.write(f"matrix={json.dumps(matrix)}\n")
 
     build:
-        name: Build Rust services (depot-ubuntu-22.04-4)
+        name: Build Rust (${{ matrix.packages }})
+        strategy:
+            matrix: ${{ fromJSON(needs.affected.outputs.matrix) }}
         needs: [changes, affected]
         if: needs.changes.outputs.rust == 'true'
         runs-on: depot-ubuntu-22.04-4
-        timeout-minutes: 15
+        timeout-minutes: 20
         permissions:
             contents: read
 
@@ -247,19 +249,20 @@ jobs:
                   sparse-checkout-cone-mode: false
                   clean: false
 
-            - name: Install system OpenSSL
-              run: |
-                  sudo rm -f /etc/apt/sources.list.d/*twingate*
-                  sudo apt-get update
-                  sudo apt-get install -y libssl-dev pkg-config
+            - parallel:
+                  - name: Install system OpenSSL
+                    run: |
+                        sudo rm -f /etc/apt/sources.list.d/*twingate*
+                        sudo apt-get update
+                        sudo apt-get install -y libssl-dev pkg-config
 
-            - name: Install protoc
-              uses: ./.github/actions/setup-protoc
+                  - name: Install protoc
+                    uses: ./.github/actions/setup-protoc
 
-            - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-              with:
-                  toolchain: 1.91.1
+                  - name: Install rust
+                    uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+                    with:
+                        toolchain: 1.91.1
 
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
@@ -278,16 +281,13 @@ jobs:
               env:
                   # Use system OpenSSL instead of vendored to avoid assembly build issue (2026-01-13)
                   OPENSSL_NO_VENDOR: '1'
-                  AFFECTED_CRATES: ${{ needs.affected.outputs.affected_crates }}
+                  SHARD_PACKAGES: ${{ matrix.packages }}
               run: |
-                  crates=$(echo "$AFFECTED_CRATES" | python3 -c "import json,sys; print(' '.join(f'-p {c}' for c in json.load(sys.stdin)))")
-                  if [ -z "$crates" ]; then
-                      echo "No affected crates — skipping build"
-                  else
-                      echo "Building affected crates: $crates"
-                      cargo build $crates --locked --release
-                      find target/release/ -maxdepth 1 -executable -type f -exec strip {} +
-                  fi
+                  crates=()
+                  for c in $SHARD_PACKAGES; do crates+=(-p "$c"); done
+                  echo "Building shard crates: ${crates[*]}"
+                  cargo build "${crates[@]}" --locked --release
+                  find target/release/ -maxdepth 1 -executable -type f -exec strip {} +
 
     test:
         name: Test Rust (${{ matrix.packages }})
@@ -610,7 +610,7 @@ jobs:
               run: |
                   ./target/debug/personhog-test-harness gate \
                     --leaders 3 --partitions 8 --persons 50 --concurrency 10 --duration 15s \
-                    --cache-capacity 10 --writer-pause-after 3s --writer-pause-duration 8s
+                    --cache-capacity 4096 --writer-pause-after 3s --writer-pause-duration 8s
 
             - name: Run the e2e gate under chaos (kill + scale-up)
               run: |
@@ -623,6 +623,51 @@ jobs:
                   ./target/debug/personhog-test-harness gate \
                     --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 18s \
                     --shutdown-after 3s --zombie-after 8s --zombie-duration 6s \
+                    --writer-pause-after 4s --writer-pause-duration 6s
+
+            # Broker-enforced epoch fencing, on the scenario it exists for:
+            # a SIGSTOPped leader whose lease is revoked wakes inside its
+            # own window and tries to append. Everything else in this file
+            # runs the flag off, so without this step the entire fenced
+            # arm — warm-time acquisition, the transaction windows, the
+            # write path's error mapping — ships with no end-to-end
+            # coverage at all.
+            #
+            # The gate rides along because startup refuses fencing without
+            # it: acquisition moves a partition's broker epoch, and a pod
+            # that has stopped renewing has no standing to do that.
+            #
+            # Guarded on the flag existing so a branch that predates
+            # --leader-env skips it rather than failing before its own
+            # tests run.
+            - name: Run the e2e gate with epoch fencing (zombie + writer lag)
+              run: |
+                  if ! ./target/debug/personhog-test-harness gate --help | grep -q -- --leader-env; then
+                    # Graceful degradation for unrebased branches (see the
+                    # CI back-compat rule) — but loud, so a harness
+                    # regression that drops the flag cannot silently
+                    # retire this gate.
+                    echo "::warning title=fenced e2e gate skipped::harness predates --leader-env; the fenced gate did not run"
+                    exit 0
+                  fi
+                  # The freeze has to outlive the lease, or the woken pod
+                  # still holds a valid claim and neither the lease gate
+                  # nor the broker fence is ever asked anything. 27s is
+                  # the lowest TTL validate_fencing_timescales accepts
+                  # with fencing on (the write budget pays the drain's
+                  # settle slack first), so the freeze runs past it and
+                  # the run is sized to leave the woken zombie time to
+                  # try. The gate asserts rejection by consequence (an
+                  # unfenced landing fails the verifier; a crash fails
+                  # the liveness check), not by scraping fence metrics —
+                  # the deterministic fencing_integration tests carry the
+                  # per-arm coverage.
+                  ./target/debug/personhog-test-harness gate \
+                    --leader-env KAFKA_TRANSACTIONAL_FENCING=true \
+                    --leader-env LEASE_GATED_AUTHORITY=true \
+                    --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 45s \
+                    --leader-lease-ttl 27 \
+                    --zombie-after 5s --zombie-duration 32s \
                     --writer-pause-after 4s --writer-pause-duration 6s
 
             - name: Run the e2e gate under chaos (TTL-expiry kill + restarts)
@@ -695,20 +740,21 @@ jobs:
                   sparse-checkout-cone-mode: false
                   clean: false
 
-            - name: Install system OpenSSL
-              run: |
-                  sudo rm -f /etc/apt/sources.list.d/*twingate*
-                  sudo apt-get update
-                  sudo apt-get install -y libssl-dev pkg-config
+            - parallel:
+                  - name: Install system OpenSSL
+                    run: |
+                        sudo rm -f /etc/apt/sources.list.d/*twingate*
+                        sudo apt-get update
+                        sudo apt-get install -y libssl-dev pkg-config
 
-            - name: Install protoc
-              uses: ./.github/actions/setup-protoc
+                  - name: Install protoc
+                    uses: ./.github/actions/setup-protoc
 
-            - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-              with:
-                  toolchain: 1.91.1
-                  components: clippy,rustfmt
+                  - name: Install rust
+                    uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+                    with:
+                        toolchain: 1.91.1
+                        components: clippy,rustfmt
 
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"

@@ -39,7 +39,9 @@ export type State = {
     Record<PrefixedString<'cachedOrg'>, CachedOrg | undefined> &
     Record<PrefixedString<'cachedOrgFetchedAt'>, number | undefined> &
     Record<PrefixedString<'cachedProject'>, CachedProject | undefined> &
-    Record<PrefixedString<'cachedProjectFetchedAt'>, number | undefined>
+    Record<PrefixedString<'cachedProjectFetchedAt'>, number | undefined> &
+    Record<PrefixedString<'gatewayTools'>, Schemas.AvailableToolsResponse | undefined> &
+    Record<PrefixedString<'gatewayToolsFetchedAt'>, number | undefined>
 
 export type Env = {
     /**
@@ -114,6 +116,13 @@ export type Tool<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = {
     title: string
     description: string
     schema: TSchema
+    /**
+     * JSON Schema to advertise instead of deriving one from `schema`. Set for proxied
+     * third-party tools, whose contract is defined upstream as JSON Schema: their `schema`
+     * is permissive (the upstream server validates), so deriving from it would describe
+     * nothing. PostHog's own tools leave this unset and stay Zod-derived.
+     */
+    rawInputSchema?: Record<string, unknown>
     handler: (context: Context, params: z.infer<TSchema>) => Promise<TResult>
     scopes: string[]
     annotations: {
