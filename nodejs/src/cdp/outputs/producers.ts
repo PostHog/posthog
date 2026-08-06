@@ -16,8 +16,9 @@ export const WAREHOUSE_PRODUCER = 'WAREHOUSE_PRODUCER' as const
 export type WarehouseProducer = typeof WAREHOUSE_PRODUCER
 
 /**
- * Targets the dedicated Warpstream cluster for clickhouse precalculated /
- * prefiltered events (`KAFKA_WARPSTREAM_CALCULATED_EVENTS_PRODUCER_*`).
+ * Targets the dedicated Warpstream calculated-events cluster
+ * (`KAFKA_WARPSTREAM_CALCULATED_EVENTS_PRODUCER_*`). Currently unused — see
+ * `createCdpProducerRegistry` for why it stays registered.
  */
 export const WARPSTREAM_CALCULATED_EVENTS_PRODUCER = 'WARPSTREAM_CALCULATED_EVENTS_PRODUCER' as const
 export type WarpstreamCalculatedEventsProducer = typeof WARPSTREAM_CALCULATED_EVENTS_PRODUCER
