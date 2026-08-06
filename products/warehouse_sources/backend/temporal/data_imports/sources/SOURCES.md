@@ -328,6 +328,7 @@ the row lists both.
 | huntr                            | HTTP                        | requests                                                        | ✅                          |
 | hyperspell                       | HTTP                        | requests                                                        | ✅                          |
 | imagga                           | HTTP                        | requests                                                        | ✅                          |
+| impact                           | HTTP                        | requests                                                        | ✅                          |
 | incident_io                      | HTTP                        | requests                                                        | ✅                          |
 | infisical                        | HTTP                        | requests                                                        | ✅                          |
 | inflowinventory                  | HTTP                        | requests                                                        | ✅                          |
@@ -1058,7 +1059,6 @@ doesn't conflict with concurrent PRs.
 - ikas
 - illumina_basespace
 - imf_data
-- impact
 - imperva
 - influxdb_cloud
 - infor_nexus
