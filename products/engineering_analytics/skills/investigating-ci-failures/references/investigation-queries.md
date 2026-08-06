@@ -140,25 +140,25 @@ a computed column and forces a full jobs scan. It's coarse (a whole-day, string 
 
 ## 7. Job failure rate (for failures with no test rows)
 
-For a job that failed _before_ its tests ran — docker setup, a runner port collision, a dependency
-install — there is no `FAILED` line, so `ci_failures` and the span-derived tools are all blind to it.
-Job conclusions are the only substrate that sees it, and unlike those tools they carry greens, so
-this is the one place a real rate is honest.
+A job that failed _before_ its tests ran (docker setup, a runner port collision, a dependency
+install) writes no `FAILED` line, so `ci_failures` and the span-derived tools are blind to it. Job
+conclusions are the only place it shows up, and they record greens too, so this is the one rate here
+with an honest denominator.
 
 ```sql
 SELECT
     countIf(conclusion = 'success') AS ok,
-    countIf(conclusion = 'failure') AS fail,
-    round(100.0 * countIf(conclusion = 'failure')
-          / nullIf(countIf(conclusion IN ('success', 'failure')), 0), 2) AS fail_pct
+    countIf(conclusion IN ('failure', 'timed_out')) AS fail,
+    round(100.0 * fail / nullIf(ok + fail, 0), 2) AS fail_pct
 FROM engineering_analytics_ci_job_history
 WHERE job_name = '<failing job name>'
   AND created_at >= now() - INTERVAL 7 DAY
   AND created_at_raw >= '<8 days ago, YYYY-MM-DD>'
 ```
 
-`cancelled` and `skipped` stay out of the denominator: neither reached a verdict, and both are
-common enough here (superseded pushes, path filters) to halve the rate if counted.
+`timed_out` counts as a failure, the same set every other rate in this product uses. `cancelled` and
+`skipped` are absent from `ok + fail` on purpose: neither reached a verdict, and both are common
+enough here (superseded pushes, path filters) to halve the rate if counted.
 
 A percentage alone can't tell an old flake from a live outage. Break the same window down by hour:
 
@@ -166,7 +166,7 @@ A percentage alone can't tell an old flake from a live outage. Break the same wi
 SELECT
     toStartOfHour(created_at) AS hour,
     countIf(conclusion = 'success') AS ok,
-    countIf(conclusion = 'failure') AS fail
+    countIf(conclusion IN ('failure', 'timed_out')) AS fail
 FROM engineering_analytics_ci_job_history
 WHERE job_name = '<failing job name>'
   AND created_at >= now() - INTERVAL 12 HOUR
@@ -175,8 +175,8 @@ GROUP BY hour
 ORDER BY hour DESC
 ```
 
-Reading: a low percentage with recent hours mostly green = transient, retry is reasonable. Recent
-hours entirely red = an outage; stop advising retries. Steady across days = a standing defect that
-looks like noise one run at a time.
+Reading: a low percentage with recent hours mostly green = transient, so recommend a retry rather
+than a code change. Recent hours entirely red = an outage; stop advising retries. Steady across days
+= a standing defect that looks like noise one run at a time.
 
 Both queries keep the `created_at_raw` string floor for the same pruning reason as query 6.
