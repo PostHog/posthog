@@ -115,6 +115,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const classes = new Set();
+const toggles = [];
 const style = {};
 const listeners = { message: [] };
 globalThis.window = globalThis;
@@ -123,7 +124,12 @@ globalThis.location = { hash: "#theme=dark" };
 globalThis.document = {
     readyState: "complete",
     documentElement: {
-        classList: { toggle: (name, force) => void (force ? classes.add(name) : classes.delete(name)) },
+        classList: {
+            toggle: (name, force) => {
+                toggles.push([name, force]);
+                force ? classes.add(name) : classes.delete(name);
+            },
+        },
         style,
     },
 };
@@ -138,6 +144,8 @@ const bridge = new MessageChannel();
 for (const handler of listeners.message) {
     handler({ source: globalThis.parent, data: { channel: "posthog-canvas", type: "connect" }, ports: [bridge.port2] });
 }
+bridge.port1.postMessage({ channel: "posthog-canvas", type: "set-theme", theme: "solarized" });
+bridge.port1.postMessage({ channel: "posthog-canvas", type: "set-theme" });
 bridge.port1.postMessage({ channel: "posthog-canvas", type: "set-theme", theme: "light" });
 const deadline = Date.now() + 5000;
 while (classes.has("dark") && Date.now() < deadline) {
@@ -145,6 +153,10 @@ while (classes.has("dark") && Date.now() < deadline) {
 }
 assert.ok(!classes.has("dark"), "the set-theme frame did not remove the dark class");
 assert.equal(style.colorScheme, "light");
+// Port delivery is ordered, so by the light flip the invalid frames were
+// already processed — exactly two toggles proves they were ignored, not
+// coerced to light.
+assert.deepEqual(toggles, [["dark", true], ["dark", false]]);
 bridge.port1.close();
 """
         with tempfile.TemporaryDirectory() as directory:
