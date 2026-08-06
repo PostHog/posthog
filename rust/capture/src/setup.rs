@@ -17,6 +17,7 @@ use crate::ai_s3::AiBlobStorage;
 use crate::config::{AiRouting, AiSinkMode, CaptureMode, Config, KafkaConfig};
 use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
 use crate::global_rate_limiter::GlobalRateLimiter;
+use crate::prometheus::setup_metrics_recorder;
 use crate::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter,
 };
@@ -160,6 +161,15 @@ pub async fn build_components(
         readiness,
         liveness,
     } = handles;
+
+    // Must come first: metrics emitted before the global recorder exists are
+    // silently dropped, and its `role`/`capture_mode` labels are fixed here.
+    let recorder_handle = config.export_prometheus.then(|| {
+        setup_metrics_recorder(
+            config.otel_service_name.clone(),
+            config.capture_mode.as_tag(),
+        )
+    });
 
     let redis_client = Arc::new(
         RedisClient::with_config(
@@ -480,9 +490,8 @@ pub async fn build_components(
         quota_limiter,
         token_dropper,
         event_restriction_service,
-        config.export_prometheus,
+        recorder_handle,
         config.capture_mode,
-        config.otel_service_name.clone(),
         config.concurrency_limit,
         event_payload_max_bytes,
         config.enable_historical_rerouting,
@@ -645,7 +654,7 @@ async fn create_sink(
 
         let kafka_sink = KafkaSink::new(config.kafka.clone(), Some(kafka_handle.clone()))
             .await
-            .expect("failed to start Kafka sink");
+            .context("failed to start Kafka sink")?;
 
         let s3_sink = S3Sink::new(
             config
@@ -669,7 +678,7 @@ async fn create_sink(
         // full `Secondary` cutover hands the gating handle to the secondary).
         let kafka_sink = KafkaSink::new(config.kafka.clone(), sink_handle)
             .await
-            .expect("failed to start Kafka sink");
+            .context("failed to start Kafka sink")?;
 
         Ok(Box::new(kafka_sink))
     }
@@ -750,9 +759,11 @@ async fn create_ingestion_warning_emitter(
     }
 
     // Past this point the operator asked for warnings, so every exit reports
-    // through the gauge. Leaving it unset above keeps "disabled" distinct from
-    // "enabled but broken".
-    let report_disabled = || gauge!(INGESTION_WARNINGS_EMITTER_ENABLED).set(0.0);
+    // through the gauge with the reason it bailed. Leaving it unset above keeps
+    // "disabled" distinct from "enabled but broken".
+    let report_disabled = |reason: &'static str| {
+        gauge!(INGESTION_WARNINGS_EMITTER_ENABLED, "reason" => reason).set(0.0)
+    };
 
     let hosts = config.capture_ingestion_warnings_kafka_hosts.clone();
     let topic = config.capture_ingestion_warnings_kafka_topic.clone();
@@ -763,7 +774,7 @@ async fn create_ingestion_warning_emitter(
             "ingestion warnings enabled but CAPTURE_INGESTION_WARNINGS_KAFKA_HOSTS is unset; \
              emitter disabled"
         );
-        report_disabled();
+        report_disabled("hosts_unset");
         return None;
     }
 
@@ -772,7 +783,7 @@ async fn create_ingestion_warning_emitter(
             "ingestion warnings enabled but CAPTURE_INGESTION_WARNINGS_KAFKA_TOPIC is unset; \
              emitter disabled"
         );
-        report_disabled();
+        report_disabled("topic_unset");
         return None;
     }
 
@@ -780,7 +791,7 @@ async fn create_ingestion_warning_emitter(
         warn!(
             "ingestion warnings enabled but no lifecycle handle was registered; emitter disabled"
         );
-        report_disabled();
+        report_disabled("no_handle");
         return None;
     };
 
@@ -801,7 +812,7 @@ async fn create_ingestion_warning_emitter(
             tracing::error!(
                 "failed to create ingestion warnings producer, emitter disabled: {e:#}"
             );
-            report_disabled();
+            report_disabled("producer_create_failed");
             return None;
         }
     };
@@ -830,7 +841,7 @@ async fn create_ingestion_warning_emitter(
         }
     });
 
-    gauge!(INGESTION_WARNINGS_EMITTER_ENABLED).set(1.0);
+    gauge!(INGESTION_WARNINGS_EMITTER_ENABLED, "reason" => "ok").set(1.0);
     info!(topic = topic.as_str(), "ingestion warnings emitter enabled");
     Some(emitter)
 }
@@ -907,7 +918,65 @@ fn create_event_restriction_service(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
+    use rstest::rstest;
     use std::collections::HashMap;
+
+    fn warnings_config(enabled: bool, hosts: &str, topic: &str) -> Config {
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", "events"),
+            ("KAFKA_HOSTS", "v0-broker:9092"),
+            ("KAFKA_TOPIC", "events_plugin_ingestion"),
+            (
+                "CAPTURE_INGESTION_WARNINGS_ENABLED",
+                if enabled { "true" } else { "false" },
+            ),
+            ("CAPTURE_INGESTION_WARNINGS_KAFKA_HOSTS", hosts),
+            ("CAPTURE_INGESTION_WARNINGS_KAFKA_TOPIC", topic),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config")
+    }
+
+    /// The emitter gauge as `(reason, value)`, or `None` if never emitted.
+    fn emitter_enabled_gauge(snapshotter: &Snapshotter) -> Option<(String, f64)> {
+        snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .find(|(ckey, _, _, _)| ckey.key().name() == INGESTION_WARNINGS_EMITTER_ENABLED)
+            .map(|(ckey, _, _, value)| {
+                let reason = ckey
+                    .key()
+                    .labels()
+                    .find(|label| label.key() == "reason")
+                    .map(|label| label.value().to_string())
+                    .expect("every emission must carry a reason label");
+                match value {
+                    DebugValue::Gauge(v) => (reason, v.into_inner()),
+                    other => panic!("expected a gauge, got {other:?}"),
+                }
+            })
+    }
+
+    /// Run `f` with metrics captured locally. The recorder is thread-scoped, so
+    /// callers drive futures on this thread via `current_thread_runtime`.
+    fn capture_metrics<T>(f: impl FnOnce() -> T) -> (T, Snapshotter) {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let out = metrics::with_local_recorder(&recorder, f);
+        (out, snapshotter)
+    }
+
+    fn current_thread_runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+    }
 
     #[test]
     fn create_v1_sink_router_fails_on_invalid_config() {
@@ -1111,5 +1180,108 @@ mod tests {
         assert!(!set.contains(""));
 
         assert!(super::parse_token_allowlist("  ,  , ").is_empty());
+    }
+
+    /// A blank output topic makes `create_sink` refuse to boot in every capture
+    /// mode — the misconfig fails fast at startup (via the `OutputRegistry`
+    /// completeness check inside `KafkaSink::new`) rather than at first produce.
+    #[rstest::rstest]
+    #[case(CaptureMode::Events)]
+    #[case(CaptureMode::Recordings)]
+    #[case(CaptureMode::Ai)]
+    #[case(CaptureMode::Import)]
+    #[tokio::test]
+    async fn create_sink_refuses_boot_on_missing_output_topic(#[case] mode: CaptureMode) {
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", mode.as_tag()),
+            ("KAFKA_HOSTS", "localhost:9092"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let mut config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+        config.kafka.outputs_completeness_check_enabled = true;
+        config.kafka.kafka_dlq_topic = String::new();
+
+        let err = create_sink(&config, None, None)
+            .await
+            .err()
+            .expect("boot must be refused when an output topic is empty");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("dlq"),
+            "error should name the missing output: {msg}"
+        );
+
+        // The default: with the check off, the same blank topic boots (and
+        // would fail at first produce instead).
+        config.kafka.outputs_completeness_check_enabled = false;
+        create_sink(&config, None, None)
+            .await
+            .expect("boot must proceed when the completeness check is disabled");
+    }
+
+    /// Absent gauge means warnings are off on purpose; `0` means an operator
+    /// asked for them and we could not build them. `reason` says which.
+    #[rstest]
+    #[case::off_on_purpose(false, "", "", None)]
+    #[case::hosts_unset(true, "", "", Some("hosts_unset"))]
+    #[case::topic_unset(true, "broker:9092", "", Some("topic_unset"))]
+    #[case::no_handle(true, "broker:9092", "client_ingestion_warning", Some("no_handle"))]
+    fn emitter_gauge_reports_why_warnings_are_off(
+        #[case] enabled: bool,
+        #[case] hosts: &str,
+        #[case] topic: &str,
+        #[case] expected_reason: Option<&str>,
+    ) {
+        let config = warnings_config(enabled, hosts, topic);
+        let runtime = current_thread_runtime();
+
+        let (emitter, snapshotter) =
+            capture_metrics(|| runtime.block_on(create_ingestion_warning_emitter(&config, None)));
+
+        assert!(emitter.is_none(), "no case here can build an emitter");
+        match expected_reason {
+            Some(reason) => assert_eq!(
+                emitter_enabled_gauge(&snapshotter),
+                Some((reason.to_string(), 0.0)),
+            ),
+            None => assert!(
+                emitter_enabled_gauge(&snapshotter).is_none(),
+                "disabled must stay unset, or it looks misconfigured",
+            ),
+        }
+    }
+
+    #[test]
+    fn healthy_emitter_reports_ok() {
+        // TEST-NET-1 host: the no-ping constructor never dials it, so the real
+        // success path runs offline.
+        let config = warnings_config(true, "192.0.2.1:9092", "client_ingestion_warning");
+        let mut manager = lifecycle::Manager::builder("test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .build();
+        // Mirrors the registration in `register_components`.
+        let handle = manager.register(
+            "ingestion-warnings",
+            lifecycle::ComponentOptions::new()
+                .with_liveness_deadline(Duration::from_secs(30))
+                .is_advisory(true),
+        );
+        let runtime = current_thread_runtime();
+
+        let (emitter, snapshotter) = capture_metrics(|| {
+            runtime.block_on(create_ingestion_warning_emitter(&config, Some(handle)))
+        });
+
+        assert!(emitter.is_some(), "emitter must be built");
+        assert_eq!(
+            emitter_enabled_gauge(&snapshotter),
+            Some(("ok".to_string(), 1.0)),
+            "healthy and failed emissions must share a label set",
+        );
     }
 }

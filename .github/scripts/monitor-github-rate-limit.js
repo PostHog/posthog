@@ -10,6 +10,7 @@
 
 const POSTHOG_HOST = 'https://us.i.posthog.com'
 const EVENT_NAME = 'github_rate_limit_observed'
+const MINT_FAILURE_EVENT_NAME = 'github_app_token_mint_failed'
 const DEFAULT_SOURCE = 'github_token'
 
 async function captureEvent({ fetchImpl, posthogToken, event, distinctId, properties, timestamp }) {
@@ -54,9 +55,10 @@ function buildTrigger(context) {
 }
 
 // `source` identifies which rate-limit bucket the snapshot came from: the
-// per-repo default GITHUB_TOKEN, or a dedicated GitHub App installation bucket
-// (e.g. posthog-devex-general, the setup-action offload bucket). The two are
-// separate 15k buckets, so downstream they're a per-bucket time series.
+// per-repo default GITHUB_TOKEN (30k/hr core on this repo), or a dedicated
+// GitHub App installation bucket (e.g. posthog-devex-general, the setup-action
+// offload bucket, 15k/hr). The buckets are independent, so downstream they're
+// a per-bucket time series.
 function buildProperties({ resource, snapshot, observedAt, observedAtSeconds, repo, runId, trigger, source = DEFAULT_SOURCE }) {
     const used = typeof snapshot.used === 'number' ? snapshot.used : snapshot.limit - snapshot.remaining
     const utilization = snapshot.limit > 0 ? used / snapshot.limit : 0
@@ -74,6 +76,53 @@ function buildProperties({ resource, snapshot, observedAt, observedAtSeconds, re
         workflow_run_id: runId || null,
         ...trigger,
     }
+}
+
+// Every App-token mint in the workflows is `continue-on-error`, and every
+// consumer reads `steps.<mint>.outputs.token || github.token`. That combination
+// degrades silently: a broken App credential leaves the run green while the
+// bucket's entire call volume moves onto the shared per-repo GITHUB_TOKEN — a
+// whole matrix's worth of stampede that only shows up downstream as an
+// unexplained burn. Emitting the failure makes the fallback alertable.
+async function reportMintFailures({ context, core }, { mints, now: _now, fetch: _fetch } = {}) {
+    const posthogToken = process.env.POSTHOG_DEVEX_PROJECT_API_TOKEN
+    if (!posthogToken) {
+        core.warning('POSTHOG_DEVEX_PROJECT_API_TOKEN not set; nothing to emit')
+        core.setOutput('mint_failures', '0')
+        return []
+    }
+
+    const fetchImpl = _fetch || fetch
+    const observedAt = (_now ? _now() : new Date()).toISOString()
+    const repo = `${context.repo.owner}/${context.repo.repo}`
+    // An App whose secrets aren't configured yet is a deliberate no-op, not a
+    // failure — only a configured App that handed back no token is broken.
+    const failed = (mints || []).filter((mint) => mint.configured && !mint.minted)
+
+    for (const { source } of failed) {
+        core.warning(`App token mint failed for ${source}; its callers fell back to the shared GITHUB_TOKEN bucket`)
+        try {
+            await captureEvent({
+                fetchImpl,
+                posthogToken,
+                event: MINT_FAILURE_EVENT_NAME,
+                distinctId: repo,
+                properties: {
+                    repo,
+                    source,
+                    observed_at: observedAt,
+                    workflow_run_id: process.env.GITHUB_RUN_ID || null,
+                },
+                timestamp: observedAt,
+            })
+        } catch (err) {
+            core.warning(`Failed to emit mint failure for ${source}: ${err.message}`)
+        }
+    }
+
+    core.info(`${failed.length} App token mint failure(s)`)
+    core.setOutput('mint_failures', String(failed.length))
+    return failed.map(({ source }) => source)
 }
 
 module.exports = async ({ github, context, core }, { now: _now, fetch: _fetch, source: _source } = {}) => {
@@ -127,3 +176,4 @@ module.exports = async ({ github, context, core }, { now: _now, fetch: _fetch, s
 module.exports.buildProperties = buildProperties
 module.exports.buildTrigger = buildTrigger
 module.exports.captureEvent = captureEvent
+module.exports.reportMintFailures = reportMintFailures

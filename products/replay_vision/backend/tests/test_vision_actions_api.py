@@ -19,7 +19,7 @@ from products.replay_vision.backend.api.vision_actions import (
     _redact_webhook_url,
 )
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
 
 # The webhook destination template lives in the nodejs registry (no Python source object like Slack's).
@@ -107,6 +107,26 @@ class _VisionActionAPITestCase(APIBaseTest):
 
 
 class TestVisionActionViewSet(_VisionActionAPITestCase):
+    def test_create_rejects_an_inline_scan_as_the_target(self) -> None:
+        # Binding an action to an inline scan would put a scheduled digest on a row minted for one
+        # throwaway question, and keep it alive past the reaper by giving it observations forever.
+        scan = ReplayScanner.all_origins.create(
+            team=self.team,
+            name="",
+            origin=ScannerOrigin.INLINE,
+            inline_key="k",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "one-off"},
+            model=ScannerModel.GEMINI_3_6_FLASH,
+            enabled=False,
+            sampling_rate=0.0,
+        )
+
+        resp = self.client.post(self.actions_url, data=self._create_payload(scanner=str(scan.id)), format="json")
+
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertIn("scanner", resp.json()["attr"] or "")
+
     def test_create_happy_path(self) -> None:
         resp = self.client.post(self.actions_url, data=self._create_payload(), format="json")
         self.assertEqual(resp.status_code, 201, resp.content)
@@ -260,6 +280,38 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
             self.assertIn("access", resp.json()["detail"])
         # The promotion rolled back: the restricted digest is untouched and the summary wasn't flagged.
         self.assertEqual(self._flagged_digest_ids(), [str(current.id)])
+
+    def test_creating_a_digest_dedupes_a_taken_name(self) -> None:
+        # The "Turn on daily digest" button derives a fixed name from the scanner. If another action
+        # already holds it, the create must succeed with a suffixed name, not 400 on (team, name).
+        taken = f"Daily digest: {self.scanner.name}"
+        VisionAction.all_teams.create(
+            team=self.team,
+            scanner=self.scanner,
+            name=taken,
+            trigger_config={"rrule": "FREQ=DAILY", "timezone": "UTC"},
+        )
+        resp = self.client.post(
+            self.actions_url, data=self._create_payload(name=taken, is_scanner_digest=True), format="json"
+        )
+        self.assertEqual(resp.status_code, 201, resp.content)
+        self.assertTrue(resp.json()["is_scanner_digest"])
+        self.assertEqual(resp.json()["name"], f"{taken} (2)")
+
+    def test_creating_a_digest_with_a_user_typed_duplicate_name_still_400s(self) -> None:
+        # Dedupe applies only to the auto-derived name; a user-typed name that collides must keep
+        # the explicit duplicate error rather than being silently renamed.
+        VisionAction.all_teams.create(
+            team=self.team,
+            scanner=self.scanner,
+            name="my-digest",
+            trigger_config={"rrule": "FREQ=DAILY", "timezone": "UTC"},
+        )
+        resp = self.client.post(
+            self.actions_url, data=self._create_payload(name="my-digest", is_scanner_digest=True), format="json"
+        )
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertEqual(resp.json()["attr"], "name")
 
     def test_alert_cannot_be_featured_digest(self) -> None:
         payload = self._create_payload(

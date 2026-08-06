@@ -198,14 +198,17 @@ def clari_source(
                 should_use_incremental_field=should_use_incremental_field,
                 db_incremental_field_last_value=db_incremental_field_last_value,
             ),
-            # Audit events carry no unique id — dedupe on the natural composite.
+            # Audit events carry no unique id — dedupe on the natural composite. This composite can
+            # still collide, but that's expected, not a data-quality problem the user can fix, so
+            # don't set has_duplicate_primary_keys: that flag tells validate_incremental_sync to
+            # block incremental syncing altogether. The merge's own per-batch dedup
+            # (keep-last-per-key) already resolves the collision safely.
             primary_keys=["eventTimestamp", "actorId", "sessionId", "event"],
             partition_count=1,
             partition_size=1,
             # Result ordering is undocumented, so only commit the watermark
             # once a sync completes.
             sort_mode="desc",
-            has_duplicate_primary_keys=True,
         )
 
     return SourceResponse(

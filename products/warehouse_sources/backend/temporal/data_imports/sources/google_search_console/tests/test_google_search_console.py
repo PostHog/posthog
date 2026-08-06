@@ -242,7 +242,7 @@ def test_source_yields_rows_and_advances_dates(monkeypatch):
 
     queries: list[tuple[str, int]] = []
 
-    def fake_query(session, site_url, start_date, end_date, dimensions, start_row, row_limit=25000):
+    def fake_query(session, site_url, start_date, end_date, dimensions, start_row, row_limit=25000, data_state="final"):
         queries.append((start_date, start_row))
         pages = pages_per_date.get(start_date, [[]])
         return pages.pop(0) if pages else []
@@ -282,7 +282,7 @@ def test_source_resumes_from_saved_state(monkeypatch):
     fake_today = dt.date(2026, 4, 30)
     queries: list[tuple[str, int]] = []
 
-    def fake_query(session, site_url, start_date, end_date, dimensions, start_row, row_limit=25000):
+    def fake_query(session, site_url, start_date, end_date, dimensions, start_row, row_limit=25000, data_state="final"):
         queries.append((start_date, start_row))
         return []
 
@@ -339,6 +339,244 @@ def test_source_response_has_partition_metadata():
     assert response.partition_format == "day"
     assert response.partition_count == 1
     assert response.partition_size == 1
+
+
+def test_hourly_schema_refetches_full_window_with_hourly_data_state(monkeypatch):
+    # Hourly data is only retained for 10 days and Google keeps restating the most recent
+    # hours, so the table must ignore the watermark and refetch the whole window each sync.
+    # Resuming at the watermark would freeze partial rows at their first-imported values,
+    # and reusing the daily window would fire ~16 months of pointless requests.
+    config = GoogleSearchConsoleSourceConfig(
+        site_url="https://example.com/",
+        google_search_console_integration_id=1,
+    )
+    fake_today = dt.date(2026, 4, 30)
+    calls: list[dict] = []
+
+    def fake_query(**kwargs):
+        calls.append(kwargs)
+        return []
+
+    monkeypatch.setattr(gsc, "_today", lambda: fake_today)
+    monkeypatch.setattr(gsc, "google_search_console_session", lambda *a, **kw: mock.MagicMock())
+    monkeypatch.setattr(gsc, "_query_search_analytics", fake_query)
+
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = False
+    response = google_search_console_source(
+        config=config,
+        resource_name="search_analytics_by_hour",
+        team_id=1,
+        resumable_source_manager=manager,
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=dt.date(2026, 4, 29),
+    )
+    list(response.items())  # type: ignore[arg-type]
+
+    queried_dates = [call["start_date"] for call in calls]
+    assert queried_dates[0] == "2026-04-20"
+    assert queried_dates[-1] == "2026-04-30"
+    assert {call["data_state"] for call in calls} == {"hourly_all"}
+    assert {tuple(call["dimensions"]) for call in calls} == {("hour",)}
+    assert response.primary_keys == ["date", "hour"]
+
+
+def test_daily_schemas_keep_final_data_state_and_freshness_lag(monkeypatch):
+    config = GoogleSearchConsoleSourceConfig(
+        site_url="https://example.com/",
+        google_search_console_integration_id=1,
+    )
+    fake_today = dt.date(2026, 4, 30)
+    calls: list[dict] = []
+
+    def fake_query(**kwargs):
+        calls.append(kwargs)
+        return []
+
+    monkeypatch.setattr(gsc, "_today", lambda: fake_today)
+    monkeypatch.setattr(gsc, "google_search_console_session", lambda *a, **kw: mock.MagicMock())
+    monkeypatch.setattr(gsc, "_query_search_analytics", fake_query)
+
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = False
+    response = google_search_console_source(
+        config=config,
+        resource_name="search_analytics_by_country_device",
+        team_id=1,
+        resumable_source_manager=manager,
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=dt.date(2026, 4, 25),
+    )
+    list(response.items())  # type: ignore[arg-type]
+
+    assert [call["start_date"] for call in calls] == ["2026-04-25", "2026-04-26", "2026-04-27"]
+    assert {call["data_state"] for call in calls} == {"final"}
+    assert response.primary_keys == ["date", "country", "device"]
+
+
+def test_row_to_dict_parses_hour_dimension():
+    # The hour dimension arrives as an ISO-8601 offset string; storing it raw would make the
+    # column a string and break time filtering on the warehouse table.
+    row = {"keys": ["2026-04-15T13:00:00-07:00"], "clicks": 2, "impressions": 9, "ctr": 0.2, "position": 1.5}
+    out = _row_to_dict(row, ["hour"], iter_date=dt.date(2026, 4, 15))
+
+    assert out["hour"] == dt.datetime(2026, 4, 15, 13, 0, tzinfo=dt.timezone(-dt.timedelta(hours=7)))
+    assert out["date"] == dt.date(2026, 4, 15)
+
+
+def test_row_to_dict_tolerates_unparseable_hour():
+    row = {"keys": ["not-a-timestamp"], "clicks": 0, "impressions": 0, "ctr": 0, "position": 0}
+    out = _row_to_dict(row, ["hour"], iter_date=dt.date(2026, 4, 15))
+
+    assert out["hour"] is None
+
+
+def test_sitemap_to_dict_fills_omitted_counters_and_flags():
+    # Google omits zero counters and false flags entirely. Left missing, the first sync would
+    # store the column with whatever type the first present value had (or not at all), so a
+    # later sitemap with errors could not be merged in.
+    out = gsc._sitemap_to_dict(
+        {
+            "path": "https://example.com/sitemap.xml",
+            "type": "SITEMAP",
+            "lastSubmitted": "2026-04-15T10:30:00.000Z",
+        }
+    )
+
+    assert out["errors"] == 0
+    assert out["warnings"] == 0
+    assert out["isPending"] is False
+    assert out["isSitemapsIndex"] is False
+    assert out["lastSubmitted"] == dt.datetime(2026, 4, 15, 10, 30, tzinfo=dt.UTC)
+    assert out["lastDownloaded"] is None
+
+
+def test_sitemap_to_dict_coerces_string_serialized_counters():
+    # `errors` and `warnings` are int64 fields, which Google serializes as JSON strings.
+    out = gsc._sitemap_to_dict({"path": "https://example.com/sitemap.xml", "errors": "3", "warnings": "12"})
+
+    assert out["errors"] == 3
+    assert out["warnings"] == 12
+
+
+def test_sitemap_content_rows_carry_parent_path():
+    # `type` alone is not unique across sitemaps, so every content row must carry its parent
+    # sitemap path — that pair is the table's primary key.
+    rows = gsc._sitemap_content_rows(
+        {
+            "path": "https://example.com/sitemap.xml",
+            "contents": [{"type": "WEB", "submitted": "120"}, {"type": "IMAGE"}],
+        }
+    )
+
+    assert rows == [
+        {"path": "https://example.com/sitemap.xml", "type": "WEB", "submitted": 120},
+        {"path": "https://example.com/sitemap.xml", "type": "IMAGE", "submitted": 0},
+    ]
+
+
+def test_sitemap_content_rows_for_sitemap_without_contents():
+    assert gsc._sitemap_content_rows({"path": "https://example.com/sitemap.xml"}) == []
+
+
+@pytest.mark.parametrize(
+    "resource_name,primary_keys",
+    [
+        ("sites", ["siteUrl"]),
+        ("sitemaps", ["path"]),
+        ("sitemap_contents", ["path", "type"]),
+    ],
+)
+def test_property_source_response_is_unpartitioned_snapshot(resource_name, primary_keys):
+    # These tables have no date column, so declaring the daily partitioning the search
+    # analytics tables use would point the pipeline at a field that does not exist.
+    config = GoogleSearchConsoleSourceConfig(
+        site_url="https://example.com/",
+        google_search_console_integration_id=1,
+    )
+    response = google_search_console_source(
+        config=config,
+        resource_name=resource_name,
+        team_id=1,
+        resumable_source_manager=mock.MagicMock(),
+    )
+
+    assert response.primary_keys == primary_keys
+    assert response.partition_keys is None
+    assert response.partition_mode is None
+    assert response.sort_mode is None
+
+
+@pytest.mark.parametrize(
+    "resource_name,expected",
+    [
+        (
+            "sites",
+            [{"siteUrl": "https://example.com/", "permissionLevel": "siteOwner"}],
+        ),
+        (
+            "sitemap_contents",
+            [{"path": "https://example.com/sitemap.xml", "type": "WEB", "submitted": 5}],
+        ),
+    ],
+)
+def test_property_source_yields_rows(monkeypatch, resource_name, expected):
+    config = GoogleSearchConsoleSourceConfig(
+        site_url="https://example.com/",
+        google_search_console_integration_id=1,
+    )
+    monkeypatch.setattr(gsc, "google_search_console_session", lambda *a, **kw: mock.MagicMock())
+    monkeypatch.setattr(
+        gsc,
+        "list_sites",
+        lambda _session: [{"siteUrl": "https://example.com/", "permissionLevel": "siteOwner"}],
+    )
+    monkeypatch.setattr(
+        gsc,
+        "list_sitemaps",
+        lambda _session, _site: [
+            {"path": "https://example.com/sitemap.xml", "contents": [{"type": "WEB", "submitted": 5}]}
+        ],
+    )
+
+    response = google_search_console_source(
+        config=config,
+        resource_name=resource_name,
+        team_id=1,
+        resumable_source_manager=mock.MagicMock(),
+    )
+
+    assert list(response.items()) == [expected]  # type: ignore[arg-type]
+
+
+def test_property_source_yields_nothing_when_property_has_no_sitemaps(monkeypatch):
+    config = GoogleSearchConsoleSourceConfig(
+        site_url="https://example.com/",
+        google_search_console_integration_id=1,
+    )
+    monkeypatch.setattr(gsc, "google_search_console_session", lambda *a, **kw: mock.MagicMock())
+    monkeypatch.setattr(gsc, "list_sitemaps", lambda _session, _site: [])
+
+    response = google_search_console_source(
+        config=config,
+        resource_name="sitemaps",
+        team_id=1,
+        resumable_source_manager=mock.MagicMock(),
+    )
+
+    assert list(response.items()) == []  # type: ignore[arg-type]
+
+
+def test_list_sitemaps_percent_encodes_the_property(monkeypatch):
+    session = mock.MagicMock()
+    session.get.return_value = _fake_response(200, {"sitemap": [{"path": "https://example.com/sitemap.xml"}]})
+
+    sitemaps = gsc.list_sitemaps(session, "sc-domain:example.com")
+
+    assert sitemaps == [{"path": "https://example.com/sitemap.xml"}]
+    # The property is a path segment, so `sc-domain:` and any `/` in a URL-prefix property
+    # must be escaped or Google resolves a different (or non-existent) route.
+    session.get.assert_called_once_with(f"{gsc.GSC_API_BASE}/sites/sc-domain%3Aexample.com/sitemaps")
 
 
 def test_unknown_resource_name_raises():

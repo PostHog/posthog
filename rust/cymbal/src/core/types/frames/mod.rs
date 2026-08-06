@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use common_types::error_tracking::{FrameData, FrameId, RawFrameId};
-use releases::ReleaseRecord;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -173,8 +172,6 @@ pub struct Frame {
     // use in the frontend
     #[serde(skip)]
     pub context: Option<Context>,
-    #[serde(skip)]
-    pub release: Option<ReleaseRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]

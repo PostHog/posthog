@@ -88,7 +88,7 @@ export interface LoopContextOutputsDTOApi {
 export interface LoopContextTargetDTOApi {
     /** What the loop maintains in this context each run. */
     outputs: LoopContextOutputsDTOApi
-    folder_id: string
+    channel_id: string
     name: string
 }
 
@@ -333,10 +333,10 @@ export interface LoopContextOutputsWriteApi {
 }
 
 export interface LoopContextTargetWriteApi {
-    /** Desktop folder id of the context this loop is attached to. */
-    folder_id: string
+    /** Id of the channel (context) this loop is attached to. */
+    channel_id: string
     /**
-     * Context (channel) name, used to file runs into its feed.
+     * Display name of the context, shown in the loop's publish prompt.
      * @maxLength 128
      */
     name: string
@@ -368,7 +368,7 @@ export interface LoopTriggerWriteApi {
     type: LoopTriggerTypeEnumApi
     /** Whether this trigger is active. Disabling pauses only this trigger. */
     enabled?: boolean
-    /** Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels}`; api takes no config. */
+    /** Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels, payload}`. Use `actions` for the event action; `payload` is for anything else in the webhook body, as a list of `{path, equals}` conditions where `path` is a dot-path of object keys and `equals` is a string or list of strings, e.g. `[{"path": "requested_team.slug", "equals": "team-security"}]` to run only when that team is asked to review. All filters must match. API triggers take no config. */
     config?: unknown
 }
 
@@ -1128,8 +1128,12 @@ export interface ChannelDTOApi {
     id: string
     name: string
     channel_type: string
+    /** @nullable */
+    github_integration: number | null
+    repositories: string[]
     created_at: string
     created_by?: TaskUserBasicInfoApi | null
+    starred?: boolean
 }
 
 export interface PaginatedChannelDTOListApi {
@@ -1203,15 +1207,93 @@ export interface ChannelFeedMessageWriteApi {
     created_at?: string
 }
 
-/**
- * Request body for creating (resolve-or-create) or renaming a public channel.
- */
-export interface PatchedChannelWriteApi {
+export interface PatchedChannelUpdateApi {
     /**
      * Channel name, rendered as #<name>. Normalized to lowercase-dashed.
      * @maxLength 128
      */
     name?: string
+    /**
+     * Team GitHub integration used for repositories linked to this channel.
+     * @nullable
+     */
+    github_integration?: number | null
+    /**
+     * GitHub repositories inherited by new tasks in this channel.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    repositories?: string[]
+}
+
+/**
+ * The task currently generating this channel's CONTEXT.md, or null.
+ */
+export interface ChannelContextGenerationApi {
+    /** @nullable */
+    task_id: string | null
+}
+
+/**
+ * Response shape for a channel's CONTEXT.md instructions version.
+ */
+export interface ChannelInstructionsDTOApi {
+    channel: string
+    content: string
+    version: number
+    /** @nullable */
+    created_at?: string | null
+    created_by?: TaskUserBasicInfoApi | null
+}
+
+/**
+ * Request body for publishing a new instructions version.
+ */
+export interface ChannelInstructionsWriteApi {
+    /**
+     * The complete markdown instructions (CONTEXT.md) for the channel.
+     * @maxLength 100000
+     */
+    content: string
+    /**
+     * Optimistic-concurrency guard: the version the edit is based on (0 for a channel with no instructions yet). A stale base is rejected with 409; omit to publish unguarded.
+     * @minimum 0
+     * @nullable
+     */
+    base_version?: number | null
+}
+
+/**
+ * Request body for publishing a new instructions version.
+ */
+export interface PatchedChannelInstructionsWriteApi {
+    /**
+     * The complete markdown instructions (CONTEXT.md) for the channel.
+     * @maxLength 100000
+     */
+    content?: string
+    /**
+     * Optimistic-concurrency guard: the version the edit is based on (0 for a channel with no instructions yet). A stale base is rejected with 409; omit to publish unguarded.
+     * @minimum 0
+     * @nullable
+     */
+    base_version?: number | null
+}
+
+export interface PaginatedChannelInstructionsDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ChannelInstructionsDTOApi[]
+}
+
+/**
+ * Request body for starring/unstarring a channel for the requesting user.
+ */
+export interface ChannelStarWriteApi {
+    starred: boolean
 }
 
 /**
@@ -1263,6 +1345,30 @@ export const TaskRunDetailDTOProviderEnumApi = {
     Openai: 'openai',
 } as const
 
+/**
+ * * `off` - off
+ * * `minimal` - minimal
+ * * `low` - low
+ * * `medium` - medium
+ * * `high` - high
+ * * `xhigh` - xhigh
+ * * `max` - max
+ * * `ultracode` - ultracode
+ */
+export type TaskRunReasoningEffortEnumApi =
+    (typeof TaskRunReasoningEffortEnumApi)[keyof typeof TaskRunReasoningEffortEnumApi]
+
+export const TaskRunReasoningEffortEnumApi = {
+    Off: 'off',
+    Minimal: 'minimal',
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Xhigh: 'xhigh',
+    Max: 'max',
+    Ultracode: 'ultracode',
+} as const
+
 export interface TaskRunArtifactMetadataApi {
     /**
      * Name of the local skill included in a skill_bundle artifact.
@@ -1311,6 +1417,8 @@ export interface TaskRunArtifactResponseApi {
     storage_path: string
     /** Timestamp when the artifact was uploaded */
     uploaded_at: string
+    /** Presigned download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file directly; it is time-limited and not persisted on the manifest. */
+    url?: string
 }
 
 /**
@@ -1355,13 +1463,15 @@ export interface TaskRunDetailDTOApi {
     model?: string | null
     /** Configured reasoning effort for this run when the selected model supports it.
      *
+     * * `off` - off
+     * * `minimal` - minimal
      * * `low` - low
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max
      * * `ultracode` - ultracode */
-    reasoning_effort?: ReasoningEffortEnumApi | null
+    reasoning_effort?: TaskRunReasoningEffortEnumApi | null
     /**
      * Presigned S3 URL for log access (valid for 1 hour).
      * @nullable
@@ -1409,6 +1519,7 @@ export interface TaskDetailDTOApi {
     readonly runtime: RuntimeEnumApi
     /** @nullable */
     repository: string | null
+    repositories: string[]
     /** @nullable */
     github_integration: number | null
     /** @nullable */
@@ -1503,7 +1614,7 @@ export interface TaskCreateApi {
     title_manually_set?: boolean
     /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
     description?: string
-    /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+    /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
      *
      * * `onboarding` - Onboarding
      * * `error_tracking` - Error Tracking
@@ -1530,6 +1641,12 @@ export interface TaskCreateApi {
      * @nullable
      */
     repository?: string | null
+    /**
+     * GitHub repositories available to this task, each in `organization/repo` format.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    repositories?: string[]
     /**
      * GitHub integration for this task.
      * @nullable
@@ -1640,7 +1757,7 @@ export interface TaskWriteApi {
     title_manually_set?: boolean
     /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
     description?: string
-    /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+    /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
      *
      * * `onboarding` - Onboarding
      * * `error_tracking` - Error Tracking
@@ -1667,6 +1784,12 @@ export interface TaskWriteApi {
      * @nullable
      */
     repository?: string | null
+    /**
+     * GitHub repositories available to this task, each in `organization/repo` format.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    repositories?: string[]
     /**
      * GitHub integration for this task.
      * @nullable
@@ -1762,7 +1885,7 @@ export interface PatchedTaskWriteApi {
     title_manually_set?: boolean
     /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
     description?: string
-    /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+    /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
      *
      * * `onboarding` - Onboarding
      * * `error_tracking` - Error Tracking
@@ -1789,6 +1912,12 @@ export interface PatchedTaskWriteApi {
      * @nullable
      */
     repository?: string | null
+    /**
+     * GitHub repositories available to this task, each in `organization/repo` format.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    repositories?: string[]
     /**
      * GitHub integration for this task.
      * @nullable
@@ -1865,6 +1994,18 @@ export interface PatchedTaskWriteApi {
      * @nullable
      */
     channel?: string | null
+}
+
+export interface TaskPinRequestApi {
+    /** Whether the task should be pinned for the requester. */
+    pinned: boolean
+}
+
+export interface TaskPinResponseApi {
+    /** Task whose pin state was updated. */
+    task_id: string
+    /** Current pin state for the requester. */
+    pinned: boolean
 }
 
 /**
@@ -2507,13 +2648,15 @@ export interface TaskRunBootstrapCreateRequestApi {
     model?: string
     /** Reasoning effort to request for models that expose an effort control.
      *
+     * * `off` - off
+     * * `minimal` - minimal
      * * `low` - low
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max
      * * `ultracode` - ultracode */
-    reasoning_effort?: ReasoningEffortEnumApi
+    reasoning_effort?: TaskRunReasoningEffortEnumApi
     /** Context window size for models that support the 1M window.
      *
      * * `200k` - 200k
@@ -2842,9 +2985,10 @@ export const JsonrpcEnumApi = {
  * * `queue_get` - queue_get
  * * `queue_clear` - queue_clear
  */
-export type MethodEnumApi = (typeof MethodEnumApi)[keyof typeof MethodEnumApi]
+export type TaskRunCommandRequestMethodEnumApi =
+    (typeof TaskRunCommandRequestMethodEnumApi)[keyof typeof TaskRunCommandRequestMethodEnumApi]
 
-export const MethodEnumApi = {
+export const TaskRunCommandRequestMethodEnumApi = {
     UserMessage: 'user_message',
     Cancel: 'cancel',
     Close: 'close',
@@ -2875,7 +3019,7 @@ export interface TaskRunCommandRequestApi {
      * * `pi/rpc` - pi/rpc
      * * `queue_get` - queue_get
      * * `queue_clear` - queue_clear */
-    method: MethodEnumApi
+    method: TaskRunCommandRequestMethodEnumApi
     /** Parameters for the command */
     params?: TaskRunCommandRequestApiParams
     /** Optional JSON-RPC request ID (string or number) */
@@ -3236,6 +3380,35 @@ export interface TaskRunLivingArtifactEditRequestApi {
     metadata?: TaskRunLivingArtifactEditRequestApiMetadata
 }
 
+/**
+ * Insight query JSON to render ad hoc, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}. SQL queries (DataVisualizationNode, HogQLQuery) are not supported yet. Provide exactly one of query or insight_id.
+ */
+export type TaskRunLivingArtifactChartRequestApiQuery = { [key: string]: unknown }
+
+export interface TaskRunLivingArtifactChartRequestApi {
+    /**
+     * Chart title, also used as the delivered file name.
+     * @maxLength 255
+     */
+    name: string
+    /** Insight query JSON to render ad hoc, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}. SQL queries (DataVisualizationNode, HogQLQuery) are not supported yet. Provide exactly one of query or insight_id. */
+    query?: TaskRunLivingArtifactChartRequestApiQuery
+    /** Numeric id of a saved insight to render. Provide exactly one of query or insight_id. */
+    insight_id?: number
+}
+
+export interface TaskRunLivingArtifactChartResponseApi {
+    /** The living artifact registered for delivery. */
+    artifact: TaskRunLivingArtifactResponseApi
+    /** Id of the rendered PNG export backing the chart. */
+    export_asset_id: number
+    /**
+     * Link to explore this chart interactively in PostHog.
+     * @nullable
+     */
+    url?: string | null
+}
+
 export type TaskThreadMessageDTOApiPayload = { [key: string]: unknown }
 
 /**
@@ -3288,6 +3461,11 @@ export interface WizardCloudRunDTOApi {
      * @nullable
      */
     started_at?: string | null
+}
+
+export interface PinnedTaskIdsResponseApi {
+    /** Visible task IDs pinned by the requester, newest pin first. */
+    task_ids: string[]
 }
 
 export interface TaskRepositoriesResponseApi {

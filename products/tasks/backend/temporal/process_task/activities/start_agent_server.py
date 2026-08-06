@@ -109,26 +109,26 @@ def _ensure_repository_on_disk(ctx: TaskProcessingContext, sandbox: SandboxBase)
     repeated 5-minute attempts surfacing as a misleading "Failed to start agent server". Check
     the directory upfront and fail non-retryably with the actual reason instead.
     """
-    if not ctx.repository:
+    if not ctx.repositories:
         return
-    repo_path = sandbox_repo_path(ctx.repository)
-    result = sandbox.execute(f"test -d {shlex.quote(repo_path)}", timeout_seconds=10)
-    if result.exit_code == 0:
-        return
-    raise SandboxMissingRepositoryError(
-        f"Repository {ctx.repository} is not present in the sandbox at {repo_path} — it was never "
-        "cloned (no snapshot restored and no usable GitHub credentials for this task)",
-        {
-            "task_id": ctx.task_id,
-            "run_id": ctx.run_id,
-            "sandbox_id": sandbox.id,
-            "repository": ctx.repository,
-            "repo_path": repo_path,
-            "github_integration_id": ctx.github_integration_id,
-            "github_user_integration_id": ctx.github_user_integration_id,
-        },
-        cause=RuntimeError(f"missing repository directory {repo_path}"),
-    )
+    for repository in ctx.repositories:
+        repo_path = sandbox_repo_path(repository)
+        result = sandbox.execute(f"test -d {shlex.quote(repo_path)}", timeout_seconds=10)
+        if result.exit_code != 0:
+            raise SandboxMissingRepositoryError(
+                f"Repository {repository} is not present in the sandbox at {repo_path} — it was never "
+                "cloned (no snapshot restored and no usable GitHub credentials for this task)",
+                {
+                    "task_id": ctx.task_id,
+                    "run_id": ctx.run_id,
+                    "sandbox_id": sandbox.id,
+                    "repository": repository,
+                    "repo_path": repo_path,
+                    "github_integration_id": ctx.github_integration_id,
+                    "github_user_integration_id": ctx.github_user_integration_id,
+                },
+                cause=RuntimeError(f"missing repository directory {repo_path}"),
+            )
 
 
 @dataclass
@@ -188,7 +188,8 @@ def _include_personal_mcp_for_task(task: Task) -> bool:
     """Whether a run may pull the task creator's *personal* MCP installations.
 
     Internal/autonomous runs (support reply, signals) must never pull a
-    resolved member's personal creds — they get shared team connections only.
+    resolved member's personal creds. Agent-specific grant filtering happens
+    in the MCP Store facade.
     User-initiated Code runs get shared + the creator's personal installs.
     """
     return not task.internal
@@ -252,6 +253,8 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         include_personal=include_personal,
         interaction_origin=ctx.interaction_origin,
         allowed_installation_ids=loop_mcp_installation_allowlist(ctx.state),
+        origin_product=task.origin_product,
+        task_agent_key=task.mcp_builtin_agent_key,
     )
     if user_mcp_configs:
         mcp_configs = mcp_configs + user_mcp_configs
@@ -329,7 +332,7 @@ def _invoke_start_agent_server(
 ) -> None:
     try:
         sandbox.start_agent_server(
-            repository=ctx.repository,
+            repository=ctx.repository if len(ctx.repositories) <= 1 else None,
             task_id=ctx.task_id,
             run_id=ctx.run_id,
             mode=ctx.mode,

@@ -38,6 +38,8 @@ from posthog.permissions import is_service_auth
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
+    SessionBucketsBurstRateThrottle,
+    SessionBucketsSustainedRateThrottle,
     SessionContextsBurstRateThrottle,
     SessionContextsSustainedRateThrottle,
 )
@@ -49,7 +51,7 @@ from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculatio
 from posthog.user_permissions import UserPermissions
 
 from products.approvals.backend.mixins import ApprovalHandlingMixin
-from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
 # TODO: Route through facade instead of direct import
@@ -68,9 +70,12 @@ from products.experiments.backend.presentation.serializers import (
     EndExperimentSerializer,
     ExperimentActivityQuerySerializer,
     ExperimentBasicSerializer,
+    ExperimentFlagCleanupTargetSerializer,
     ExperimentFlagCleanupTaskSerializer,
     ExperimentMetricsRecalculationSerializer,
     ExperimentSerializer,
+    ExperimentSessionBucketRequestSerializer,
+    ExperimentSessionBucketResponseSerializer,
     ExperimentSessionContextResponseSerializer,
     ExperimentSessionContextsRequestSerializer,
     ExperimentSessionContextsResponseSerializer,
@@ -97,6 +102,12 @@ from products.experiments.backend.running_time_calculator import (
     calculate_variance,
     calculate_variance_from_stats,
 )
+from products.experiments.backend.session_buckets import (
+    SessionBucket,
+    SessionBucketUnavailable,
+    finalize_session_bucket,
+    get_experiment_session_bucket,
+)
 from products.experiments.backend.session_context import get_session_experiment_context, get_session_experiment_contexts
 from products.experiments.backend.temporal.models import (
     ExperimentMetricsRecalculationWorkflowInputs as MetricsRecalcInputs,
@@ -104,7 +115,6 @@ from products.experiments.backend.temporal.models import (
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.access import has_tasks_access
 
 tracer = trace.get_tracer(__name__)
 
@@ -374,6 +384,14 @@ class EnterpriseExperimentsViewSet(
             return ExperimentBasicSerializer
         return ExperimentSerializer
 
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Structured 409 body ({detail, current_version, conflicting_*}) so clients can refetch
+        # and retry precisely; the default exception handler would flatten it to a plain string.
+        try:
+            return super().update(request, *args, **kwargs)
+        except ExperimentVersionConflict as err:
+            return Response(err.response_data(), status=err.status_code)
+
     @tracer.start_as_current_span("ExperimentViewSet.list")
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return super().list(request, *args, **kwargs)
@@ -417,15 +435,21 @@ class EnterpriseExperimentsViewSet(
             scopes = ["experiment:write"]
             if request.data.get("open_cleanup_pr", False) in serializers.BooleanField.TRUE_VALUES:
                 scopes.append("task:write")
+            # Saving the team default cleanup repository writes environment-wide configuration,
+            # so the token also needs project:write, matching the experiments_config surface.
+            if request.data.get("set_repository_as_team_default", False) in serializers.BooleanField.TRUE_VALUES:
+                scopes.append("project:write")
             return scopes
         return None
 
-    def _check_cleanup_pr_access(self, request: Request) -> None:
-        """Opening a cleanup PR starts a Desktop task on the user's behalf. The task:write
-        scope only gates token auth (see dangerously_get_required_scopes); session auth
-        has no scopes, so gate every caller on PostHog Desktop product access instead."""
-        if not has_tasks_access(cast(User, request.user)):
-            raise PermissionDenied("Opening a flag cleanup PR requires access to PostHog Desktop.")
+    def _check_team_default_repository_access(self, request: Request) -> None:
+        """The team default cleanup repository is environment-wide configuration; writing it via
+        experiments_config requires project admin (TeamMemberStrictManagementPermission), so the
+        write through end/ship_variant must hold the same bar."""
+        user_permissions = UserPermissions(user=cast(User, request.user))
+        effective_level = user_permissions.team(self.team).effective_membership_level
+        if effective_level is None or effective_level < OrganizationMembership.Level.ADMIN:
+            raise PermissionDenied("Setting the default cleanup repository requires project admin access.")
 
     def _token_can_write_feature_flag(self, request: Request) -> bool:
         """Whether the request's token carries feature_flag:write.
@@ -550,14 +574,16 @@ class EnterpriseExperimentsViewSet(
         experiment: Experiment = self.get_object()
         request_serializer = EndExperimentSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
-        if request_serializer.validated_data["open_cleanup_pr"]:
-            self._check_cleanup_pr_access(request)
+        if request_serializer.validated_data["set_repository_as_team_default"]:
+            self._check_team_default_repository_access(request)
         service = ExperimentService(team=self.team, user=request.user)
         ended_experiment = service.end_experiment(
             experiment,
             conclusion=request_serializer.validated_data.get("conclusion"),
             conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
             open_cleanup_pr=request_serializer.validated_data["open_cleanup_pr"],
+            repository=request_serializer.validated_data.get("repository"),
+            set_repository_as_team_default=request_serializer.validated_data["set_repository_as_team_default"],
             request=request,
         )
         return Response(ExperimentSerializer(ended_experiment, context=self.get_serializer_context()).data)
@@ -595,8 +621,8 @@ class EnterpriseExperimentsViewSet(
         experiment: Experiment = self.get_object()
         request_serializer = ShipVariantSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
-        if request_serializer.validated_data["open_cleanup_pr"]:
-            self._check_cleanup_pr_access(request)
+        if request_serializer.validated_data["set_repository_as_team_default"]:
+            self._check_team_default_repository_access(request)
         service = ExperimentService(team=self.team, user=request.user)
         shipped_experiment = service.ship_variant(
             experiment,
@@ -605,6 +631,8 @@ class EnterpriseExperimentsViewSet(
             conclusion=request_serializer.validated_data.get("conclusion"),
             conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
             open_cleanup_pr=request_serializer.validated_data["open_cleanup_pr"],
+            repository=request_serializer.validated_data.get("repository"),
+            set_repository_as_team_default=request_serializer.validated_data["set_repository_as_team_default"],
             request=request,
         )
         return Response(ExperimentSerializer(shipped_experiment, context=self.get_serializer_context()).data)
@@ -655,6 +683,25 @@ class EnterpriseExperimentsViewSet(
             }
         )
         return Response(response_serializer.data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentFlagCleanupTargetSerializer,
+    )
+    @action(methods=["GET"], detail=True, url_path="flag_cleanup_target", required_scopes=["experiment:read"])
+    def flag_cleanup_target(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Repository a flag-cleanup pull request for this experiment would be opened in.
+
+        Resolution order: the experiment's saved repository, else the environment's default
+        cleanup repository, else the team's only connected GitHub repository. When the team
+        has several repositories and none is saved (source=ambiguous), pass one via
+        `repository` on end/ship_variant.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        target = service.get_cleanup_repository_target(experiment)
+        return Response(ExperimentFlagCleanupTargetSerializer(target).data)
 
     @validated_request(
         query_serializer=ExperimentActivityQuerySerializer,
@@ -852,6 +899,12 @@ class EnterpriseExperimentsViewSet(
         metric per selected template, each scoped to the prompt's $ai_prompt_name.
         Resulting experiment is in draft state.
         """
+        # Scope checks alone don't cover resource-level access controls: this action runs on the
+        # experiment viewset, so AccessControlPermission only verifies experiment access. Check
+        # prompt access explicitly before validation queries LLMPrompt and leaks which names exist.
+        if not self.user_access_control.check_access_level_for_resource("llm_prompt", required_level="viewer"):
+            raise PermissionDenied("Creating an experiment from a prompt requires LLM analytics access.")
+
         serializer = CreateFromPromptInputSerializer(data=request.data, context={"team": self.team})
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -1378,6 +1431,64 @@ class EnterpriseExperimentsViewSet(
             {"results": [{"session_id": session_id, "results": items} for session_id, items in contexts.items()]}
         )
         return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=ExperimentSessionBucketRequestSerializer,
+        responses={200: OpenApiResponse(response=ExperimentSessionBucketResponseSerializer)},
+    )
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="session_buckets",
+        required_scopes=["experiment:read", "session_recording:read"],
+        # Heavier than the session-context batch (it scans the run window rather than a known id
+        # list) and called by the session-authenticated web app, which the ClickHouse* pair
+        # doesn't cover.
+        throttle_classes=[SessionBucketsBurstRateThrottle, SessionBucketsSustainedRateThrottle],
+    )
+    def session_buckets(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        """Session recordings of this experiment matching a bucket.
+
+        Answers the questions a recordings query can't express on its own — "fired any of these
+        metrics", "fired none of them", "was exposed but never completed the funnel in this
+        session" — by returning a bounded, most-recent-first list of session IDs to pass back as
+        a recordings query's session_ids. POST because the metric list doesn't fit a query
+        string; the endpoint only reads.
+
+        Session-scoped and goal-free: the set describes what happened in each session, while the
+        experiment analysis counts per person over the whole run window. A session can be in the
+        drop-off bucket while the same person converts in a later one.
+        """
+        experiment: Experiment = self.get_object()
+
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Reading experiment session buckets requires session replay access.")
+
+        try:
+            scan = get_experiment_session_bucket(
+                team=self.team,
+                # user threads through to the HogQL query: metric sources and exposure criteria
+                # can filter on arbitrary properties, which must respect the viewer's
+                # property-level access control.
+                user=cast(User, request.user),
+                experiment=experiment,
+                bucket=SessionBucket(request.validated_data["bucket"]),
+                metric_uuids=request.validated_data["metric_uuids"],
+                variant=request.validated_data["variant"],
+                limit=request.validated_data["limit"],
+            )
+        except SessionBucketUnavailable as error:
+            raise ValidationError(str(error))
+
+        # Applied to the computed set rather than inside the scan: the bucket is cached per
+        # viewer, so filtering on read honors a revocation that lands while an entry is warm. The
+        # cut to `limit` follows it, so a denied recording never spends a returned slot and
+        # `truncated` describes what this viewer may see.
+        result = finalize_session_bucket(
+            scan,
+            _accessible_session_ids(request, self.user_access_control, self.team, scan.candidate_session_ids),
+        )
+        return Response(ExperimentSessionBucketResponseSerializer(result).data)
 
 
 def _serialize_recalculation(recalc: ExperimentMetricsRecalculation, active_run: dict | None = None) -> dict:
