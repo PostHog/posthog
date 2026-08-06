@@ -162,9 +162,6 @@ export interface aiFirstHomepageLogicActions {
     setQuery: (query: string) => {
         query: string
     }
-    typeQuery: (query: string) => {
-        query: string
-    }
     setSelectedCapability: (key: string | null) => {
         key: string | null
     }
@@ -173,6 +170,9 @@ export interface aiFirstHomepageLogicActions {
     }
     submitQuery: (mode: 'ai' | 'search') => {
         mode: 'ai' | 'search'
+    }
+    typeQuery: (query: string) => {
+        query: string
     }
 }
 
