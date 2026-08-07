@@ -49,6 +49,10 @@ class IssueEventsWindow:
     end: str
 
 
+# The join every ready_to_merge_expr consumer pairs with the ready_by_pr CTE.
+READY_BY_PR_JOIN = "LEFT JOIN ready_by_pr AS re ON re.pr_number = pr.number"
+
+
 def ready_to_merge_expr(window: IssueEventsWindow) -> str:
     """Bare per-PR ready-to-merge seconds (SPEC §6), for a query that joins the PR source as ``pr``
     to the ``ready_by_pr`` CTE as ``re``.

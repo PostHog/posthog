@@ -21,7 +21,11 @@ from products.engineering_analytics.backend.facade.contracts import (
     RepoRef,
 )
 from products.engineering_analytics.backend.logic.cost import PRCostAggregate
-from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, ready_to_merge_expr
+from products.engineering_analytics.backend.logic.queries._curated import (
+    READY_BY_PR_JOIN,
+    CuratedGitHubSource,
+    ready_to_merge_expr,
+)
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_list_costs
 
 _LIMIT = 1000
@@ -56,8 +60,6 @@ _SELECT = f"""
     ORDER BY pr.created_at DESC
     LIMIT {_LIMIT + 1}
 """
-
-_READY_JOIN = "LEFT JOIN ready_by_pr AS re ON re.pr_number = pr.number"
 
 
 # Per-push CI rounds for the visible PRs, for the push-history sparkline. Verdicts collapse like
@@ -144,7 +146,7 @@ def query_pull_request_list(
     window = curated.issue_events_window()
     if window is not None:
         ready_column = f"{ready_to_merge_expr(window)} AS ready_to_merge_seconds"
-        ready_join = _READY_JOIN
+        ready_join = READY_BY_PR_JOIN
     else:
         ready_column = "NULL AS ready_to_merge_seconds"
         ready_join = ""

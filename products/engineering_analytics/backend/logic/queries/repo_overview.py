@@ -33,6 +33,7 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
     window_buckets,
 )
 from products.engineering_analytics.backend.logic.queries._curated import (
+    READY_BY_PR_JOIN,
     CuratedGitHubSource,
     opt_float,
     ready_to_merge_expr,
@@ -74,8 +75,6 @@ _PR_SELECT = """
     __READY_JOIN__
     WHERE merged_at IS NOT NULL AND merged_at >= {prev_from}
 """
-
-_READY_JOIN = "LEFT JOIN ready_by_pr AS re ON re.pr_number = pr.number"
 
 _DEFAULT_BRANCH_SELECT = """
     SELECT countIf(head_branch = 'master') AS master_runs, countIf(head_branch = 'main') AS main_runs
@@ -204,7 +203,7 @@ def query_ready_to_merge_series(
         placeholders["date_to"] = ast.Constant(value=date_to)
     select = (
         _READY_TO_MERGE_SERIES_SELECT.replace("__RTM__", ready_to_merge_expr(window))
-        .replace("__READY_JOIN__", _READY_JOIN)
+        .replace("__READY_JOIN__", READY_BY_PR_JOIN)
         .replace("__PR_SOURCE__", curated.pr_source())
         .replace("__DATE_TO_MERGED__", date_to_clause)
         .replace("__BUCKET_FN__", bucket_expr(granularity, "merged_at"))
@@ -358,7 +357,7 @@ def query_repo_overview(
             f"quantileIf(0.5)({rtm}, __CUR_MERGED__ AND NOT is_bot AND NOT is_draft) AS ready_median_cur,\n"
             f"quantileIf(0.5)({rtm}, __PREV_MERGED__ AND NOT is_bot AND NOT is_draft) AS ready_median_prev"
         )
-        ready_join = _READY_JOIN
+        ready_join = READY_BY_PR_JOIN
         cte_prefix = f"WITH {ready_cte} "
     else:
         ready_medians = "NULL AS ready_median_cur,\nNULL AS ready_median_prev"

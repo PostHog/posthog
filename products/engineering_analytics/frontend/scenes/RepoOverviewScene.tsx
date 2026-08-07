@@ -160,7 +160,6 @@ export function RepoOverviewScene(): JSX.Element {
                         caption="Median time-to-green on pull requests: successful runs only, default branch excluded."
                     />
 
-                    {/* Cycle time: ready→merge when transition data exists, else the coarse open→merge. */}
                     <TrendCard
                         title={readyToMergeSeries ? 'Median PR ready→merge' : 'Median PR open→merge'}
                         series={readyToMergeSeries ?? openToMergeSeries}
