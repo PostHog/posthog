@@ -168,10 +168,10 @@ separate project.
 | test.yml | desktop-test.yml | gating: `workflow_call` child of desktop-ci.yml + `Desktop Tests Pass`; live-gateway e2e kept with `POSTHOG_CODE_E2E_*` org secrets |
 | code-storybook.yml | _(not ported)_ | removed post-merge: the code-signed VR baseline flagged every story as new from this repo (see the Visual Review baseline note). Do not re-port on resync unless VR is re-registered against posthog/posthog first |
 | code-build-test.yml | desktop-build-test.yml | `workflow_dispatch` only; the source's `refactor/electron-vite` push trigger is a code-repo branch and is dropped |
-| code-release.yml | desktop-release.yml | tags `desktop-v*`; legacy publishing to PostHog/code releases kept (see below) |
+| code-release.yml | desktop-release.yml | tags and GitHub releases use `desktop-v*` in PostHog/posthog; release commands use the releaser GitHub App token |
 | code-tag.yml | desktop-tag.yml | computes and pushes `desktop-v*` tags; quiet-period check and patch count scoped `-- products/desktop/` (monorepo master always has fresh commits; unscoped counts would be meaningless) |
 | code-update-e2e.yml | desktop-update-e2e.yml | nightly + dispatch; the source's temporary push trigger for `test/macos-auto-update-e2e` is dropped (code-repo branch, and default-only triggers exempt its caches from the cache-write lint) |
-| cleanup-draft-releases.yml | desktop-cleanup-draft-releases.yml | targets PostHog/code explicitly via the releaser app token: `github.repository` is now the monorepo, whose drafts belong to other products |
+| cleanup-draft-releases.yml | desktop-cleanup-draft-releases.yml | same-repo cleanup is restricted to draft releases whose tags start with `desktop-v` |
 | agent-release.yml | desktop-agent-release.yml | sandbox rebuild dispatch is now same-repo with `actions: write` (cross-repo GH app retired) |
 | agent-tag.yml | desktop-agent-tag.yml | agent tags stay `agent-v*`; patch count scoped `-- products/desktop/packages/agent` (unscoped would count every monorepo commit) |
 | mobile-build.yml | desktop-mobile-build.yml | |
@@ -187,7 +187,7 @@ Dropped (the monorepo already provides the function):
 | stale.yml | monorepo `stale.yaml` |
 | trunk-impacted-targets.yml | code repo's Trunk merge queue does not carry over; desktop inherits the monorepo queue |
 | pr-approval-agent.yml | monorepo runs its own `pr-approval-agent.yml` on all PRs |
-| code-discord-release.yml | desktop releases are published on PostHog/code (legacy feed), where the original workflow remains active; a monorepo port would fire for every other product's releases and never for desktop's |
+| code-discord-release.yml | not ported; a monorepo-wide release trigger would fire for unrelated products unless explicitly filtered to `desktop-v*` |
 
 ## Transform rules
 
@@ -224,15 +224,14 @@ ports from source using these rules.
    - Neither the parent nor the children may take a trigger-level `paths:` filter; a required
      check that never dispatches leaves the PR stuck waiting for status. Change detection
      stays in each child's internal `changes` job.
-8. **Tags**: app release tags are `desktop-v*` in the monorepo (the AWS release role trusts
-   `repo:PostHog/posthog:ref:refs/tags/desktop-v*`). Tag triggers, version extraction, tag
-   globs and created tags all use the namespace. Agent tags stay `agent-v*`. Releases
-   created **on PostHog/code** (legacy update feed) keep bare `v` names.
+8. **Tags**: app release tags and GitHub Releases are `desktop-v*` in the monorepo (the
+   AWS release role trusts `repo:PostHog/posthog:ref:refs/tags/desktop-v*`). Tag triggers,
+   version extraction, tag globs and created tags all use the namespace. Agent tags stay
+   `agent-v*`.
 9. **Same-repo simplifications**: the agent-release sandbox image rebuild dispatches
    `cd-sandbox-base-image.yml` with the ambient `GITHUB_TOKEN` (`actions: write`) instead
    of the retired cross-repo GitHub App.
-10. **Untouched on purpose**: pinned action SHAs, secrets names, runner labels and
-    `--repo PostHog/code` release publishing.
+10. **Untouched on purpose**: pinned action SHAs, secrets names and runner labels.
 11. **Monorepo workflow lint** (`hogli lint:workflows`, enforced by CI; run it locally
     after a resync):
     - every job declares `timeout-minutes`;
@@ -273,21 +272,6 @@ ports from source using these rules.
     that already carry a desktop, twig or code qualifier (`AWS_DESKTOP_*`, `AWS_TWIG_*`,
     `POSTHOG_CODE_E2E_*`) and genuinely repo-wide ones (`TRUNK_API_TOKEN`, `VR_API_TOKEN`,
     `GH_APP_POSTHOG_PATHS_FILTER_*`). Reapply on resync: the source uses the bare names.
-
-## Intentional references still pointing at PostHog/code
-
-- `desktop-release.yml` creates and publishes GitHub releases on PostHog/code: every
-  install built before the update feed moves to S3 polls that repo's releases. Publishing
-  a release there auto-creates a bare `v*` tag at the old repo's frozen main; harmless,
-  feed-only. This dual-publish retires once app-version telemetry shows the old feed is
-  quiet. PostHog/code#3490 (S3 feed) simplifies this on its next resync into this import.
-- `desktop-cleanup-draft-releases.yml` cleans PostHog/code draft releases for the same
-  reason.
-- `products/desktop/packages/agent/package.json` still declares
-  `"repository": "https://github.com/PostHog/code"` (apps/code/package.json has no
-  repository field). Fix it alongside the npm trusted-publisher re-registration, ideally
-  upstream in PostHog/code. Other in-repo docs referencing PostHog/code are cosmetic,
-  fixed opportunistically.
 
 ## Not done in this PR (follow-ups)
 

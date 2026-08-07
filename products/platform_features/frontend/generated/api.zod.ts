@@ -349,12 +349,17 @@ export const ChangeRequestsRejectCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const commentsCreateBodyScopeMax = 79
+
 export const commentsCreateBodyIsTaskDefault = false
 export const commentsCreateBodyItemIdMax = 72
 
-export const commentsCreateBodyScopeMax = 79
-
 export const CommentsCreateBody = /* @__PURE__ */ zod.object({
+    scope: zod.string().max(commentsCreateBodyScopeMax).optional(),
+    item_context: zod
+        .unknown()
+        .optional()
+        .describe('Metadata for the comment target, anchor, thread state, and owning task.'),
     deleted: zod.boolean().nullish(),
     mentions: zod.array(zod.number()).optional(),
     slug: zod.string().optional(),
@@ -367,17 +372,20 @@ export const CommentsCreateBody = /* @__PURE__ */ zod.object({
     content: zod.string().nullish(),
     rich_content: zod.unknown().optional(),
     item_id: zod.string().max(commentsCreateBodyItemIdMax).nullish(),
-    item_context: zod.unknown().optional(),
-    scope: zod.string().max(commentsCreateBodyScopeMax),
     source_comment: zod.uuid().nullish(),
 })
+
+export const commentsUpdateBodyScopeMax = 79
 
 export const commentsUpdateBodyIsTaskDefault = false
 export const commentsUpdateBodyItemIdMax = 72
 
-export const commentsUpdateBodyScopeMax = 79
-
 export const CommentsUpdateBody = /* @__PURE__ */ zod.object({
+    scope: zod.string().max(commentsUpdateBodyScopeMax).optional(),
+    item_context: zod
+        .unknown()
+        .optional()
+        .describe('Metadata for the comment target, anchor, thread state, and owning task.'),
     deleted: zod.boolean().nullish(),
     mentions: zod.array(zod.number()).optional(),
     slug: zod.string().optional(),
@@ -390,17 +398,20 @@ export const CommentsUpdateBody = /* @__PURE__ */ zod.object({
     content: zod.string().nullish(),
     rich_content: zod.unknown().optional(),
     item_id: zod.string().max(commentsUpdateBodyItemIdMax).nullish(),
-    item_context: zod.unknown().optional(),
-    scope: zod.string().max(commentsUpdateBodyScopeMax),
     source_comment: zod.uuid().nullish(),
 })
+
+export const commentsPartialUpdateBodyScopeMax = 79
 
 export const commentsPartialUpdateBodyIsTaskDefault = false
 export const commentsPartialUpdateBodyItemIdMax = 72
 
-export const commentsPartialUpdateBodyScopeMax = 79
-
 export const CommentsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    scope: zod.string().max(commentsPartialUpdateBodyScopeMax).optional(),
+    item_context: zod
+        .unknown()
+        .optional()
+        .describe('Metadata for the comment target, anchor, thread state, and owning task.'),
     deleted: zod.boolean().nullish(),
     mentions: zod.array(zod.number()).optional(),
     slug: zod.string().optional(),
@@ -413,9 +424,20 @@ export const CommentsPartialUpdateBody = /* @__PURE__ */ zod.object({
     content: zod.string().nullish(),
     rich_content: zod.unknown().optional(),
     item_id: zod.string().max(commentsPartialUpdateBodyItemIdMax).nullish(),
-    item_context: zod.unknown().optional(),
-    scope: zod.string().max(commentsPartialUpdateBodyScopeMax).optional(),
     source_comment: zod.uuid().nullish(),
+})
+
+/**
+ * Mirror this discussion thread to a Slack channel. Posts the comment (and its existing replies) as a new Slack thread; later replies on either side sync across. A discussion mirrors to exactly one Slack thread: re-calling with the same channel returns the existing mirror; a different channel is a 400 naming the existing one. 409 while a concurrent send is in flight. 404 when the feature is not enabled for the team.
+ */
+export const commentsSendToSlackCreateBodyChannelIdMax = 255
+
+export const CommentsSendToSlackCreateBody = /* @__PURE__ */ zod.object({
+    integration_id: zod.number().describe("ID of the Slack integration (kind='slack') whose bot posts the thread."),
+    channel_id: zod
+        .string()
+        .max(commentsSendToSlackCreateBodyChannelIdMax)
+        .describe('Slack channel ID to create the mirrored thread in. The bot must be a member of the channel.'),
 })
 
 /**

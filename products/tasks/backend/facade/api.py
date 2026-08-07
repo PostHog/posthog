@@ -75,6 +75,7 @@ from products.tasks.backend.models import (
     TaskActivity,
     TaskAutomation,
     TaskClientProvenance,
+    TaskCommentActivity,
     TaskPin,
     TaskRun,
     TaskSession,
@@ -157,6 +158,7 @@ __all__ = [
     "ensure_sandbox_custom_image_builder_task",
     "delete_task_automation",
     "edit_task_run_living_artifact",
+    "enqueue_comment_activity_retry",
     "complete_idle_local_task_run",
     "fail_task_run",
     "finalize_task_run_artifact_uploads",
@@ -185,7 +187,6 @@ __all__ = [
     "get_task_run_stream_info",
     "get_task_summaries",
     "is_internal_debug_team",
-    "is_signal_report_task",
     "is_task_controllable_by_user",
     "is_valid_sandbox_env_var_key",
     "latest_task_run_pr_merged_subquery",
@@ -205,6 +206,7 @@ __all__ = [
     "presign_task_run_artifact",
     "read_task_run_artifact",
     "read_task_run_logs",
+    "record_comment_activity",
     "record_task_run_user_activity",
     "redeem_code_invite",
     "redispatch_task_run",
@@ -230,6 +232,10 @@ __all__ = [
     "task_run_is_terminal",
     "task_runtime",
     "task_visible",
+    "task_comment_mentions_allowed",
+    "list_task_artifacts",
+    "list_task_comments",
+    "retrieve_task_comment",
     "update_sandbox_environment",
     "update_task",
     "update_task_automation",
@@ -605,24 +611,6 @@ def task_exists(task_id: str | UUID, team_id: int) -> bool:
 
 def task_owned_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id, created_by_id=user_id).exists()
-
-
-def is_signal_report_task(task_id: str | UUID, team_id: int) -> bool:
-    """Whether the task is a genuine Signals report task rather than a PostHog Code task.
-
-    True only when the origin is ``SIGNAL_REPORT`` and it links to a report in this team. The Inbox
-    "Create PR" / "Discuss" actions create such tasks, and acting on them is entitled through
-    self-driving (the ``product-autonomy`` Inbox, which is generally available) — not the PostHog
-    Code (``tasks``) product. So the ``run`` gate skips the Code entitlement for them, matching
-    auto-start, which runs the same tasks server-side without a Code check. The report link is
-    team-scoped by the write serializer, so a caller can't forge it onto another team's report.
-    """
-    return Task.objects.filter(
-        id=task_id,
-        team_id=team_id,
-        origin_product=Task.OriginProduct.SIGNAL_REPORT,
-        signal_report__isnull=False,
-    ).exists()
 
 
 def count_in_progress_runs_for_github_integration(team_id: int, integration_id: int) -> int:
@@ -2807,6 +2795,7 @@ def finalize_task_run_artifact_uploads(
     manifest = list(run.artifacts or [])
     artifact_prefix = f"{run.get_artifact_s3_prefix()}/"
     finalized_entries: list[dict] = []
+    new_entries: list[dict] = []
     new_storage_paths: list[str] = []
 
     for artifact in artifacts:
@@ -2847,10 +2836,21 @@ def finalize_task_run_artifact_uploads(
             metadata=artifact.get("metadata"),
         )
         manifest.append(entry)
+        new_entries.append(entry)
         finalized_entries.append(entry)
         new_storage_paths.append(storage_path)
 
-    _save_artifact_manifest(run, manifest)
+    if new_entries:
+        # Re-read the manifest under the row lock rather than writing back the snapshot taken
+        # above: verifying the uploads does S3 I/O, and a dismissal that commits in that window
+        # would be silently reverted by a blind whole-array write.
+        with transaction.atomic():
+            locked_run = TaskRun.objects.select_for_update().get(pk=run.pk)
+            new_ids = {entry["id"] for entry in new_entries}
+            merged = [entry for entry in (locked_run.artifacts or []) if entry.get("id") not in new_ids]
+            merged.extend(new_entries)
+            _save_artifact_manifest(locked_run, merged)
+
     for storage_path in new_storage_paths:
         _tag_artifact_object(run, storage_path)
 
@@ -2986,6 +2986,48 @@ def presign_task_run_artifact(
     if not url:
         return None, "unavailable"
     return url, None
+
+
+def _without_dismissal(entry: dict) -> dict:
+    return {key: value for key, value in entry.items() if key != "dismissed_at"}
+
+
+def set_task_run_artifacts_dismissed(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_ids: list[str], dismissed: bool
+) -> tuple[list[dict] | None, str | None]:
+    """Mark run artifacts as dismissed, or bring them back.
+
+    Dismissal is a ``dismissed_at`` stamp on the manifest entry rather than a delete: the object
+    stays in storage until its TTL expires, so a file dismissed by mistake can be restored.
+
+    Returns ``(manifest, error)``: ``(None, None)`` when the run isn't found, ``(None, "not_found")``
+    when an id isn't on the run, else ``(updated_manifest, None)``.
+    """
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None, None
+
+    with transaction.atomic():
+        locked_run = TaskRun.objects.select_for_update().get(pk=run.pk)
+        manifest = list(locked_run.artifacts or [])
+        requested = set(artifact_ids)
+        if not requested.issubset({entry.get("id") for entry in manifest}):
+            return None, "not_found"
+
+        # Restoring drops the key rather than nulling it, so a manifest entry only ever carries
+        # ``dismissed_at`` while it is dismissed and the response shape stays a plain optional.
+        dismissed_at = django_timezone.now().isoformat()
+        manifest = [
+            (
+                ({**entry, "dismissed_at": dismissed_at} if dismissed else _without_dismissal(entry))
+                if entry.get("id") in requested
+                else entry
+            )
+            for entry in manifest
+        ]
+        _save_artifact_manifest(locked_run, manifest)
+
+    return manifest, None
 
 
 def read_task_run_artifact(
@@ -6031,6 +6073,120 @@ def _index_thread_message_mentions(message: TaskThreadMessage, mentioned_user_id
         )
 
 
+def task_comment_target_is_accessible(
+    *, team_id: int, user_id: int | None, task_id: str | UUID, scope: str, item_id: str | None
+) -> bool:
+    from products.tasks.backend.logic.services.comment_activity import target_is_accessible
+
+    return target_is_accessible(team_id=team_id, user_id=user_id, task_id=task_id, scope=scope, item_id=item_id)
+
+
+def task_comment_mentions_allowed(*, team_id: int, task_id: str | UUID) -> bool:
+    from products.tasks.backend.logic.services.comment_activity import notifications_allowed
+
+    return notifications_allowed(team_id=team_id, task_id=task_id)
+
+
+def record_comment_activity(
+    *,
+    team_id: int,
+    comment_id: UUID,
+    mentioned_user_ids: Sequence[int],
+    include_relationship_recipients: bool = True,
+    target_owner_id: int | None = None,
+    activity_at: datetime | None = None,
+) -> None:
+    from products.tasks.backend.logic.services.comment_activity import project_comment_activity
+
+    project_comment_activity(
+        team_id=team_id,
+        comment_id=comment_id,
+        mentioned_user_ids=mentioned_user_ids,
+        include_relationship_recipients=include_relationship_recipients,
+        target_owner_id=target_owner_id,
+        activity_at=activity_at,
+    )
+
+
+def enqueue_comment_activity_retry(
+    *,
+    team_id: int,
+    comment_id: str,
+    mentioned_user_ids: list[int],
+    include_relationship_recipients: bool,
+    target_owner_id: int | None,
+    activity_at: str | None,
+) -> None:
+    from products.tasks.backend.tasks.tasks import (  # noqa: PLC0415 — avoids the facade/task circular import
+        project_task_comment_activity,
+    )
+
+    project_task_comment_activity.delay(
+        team_id=team_id,
+        comment_id=comment_id,
+        mentioned_user_ids=mentioned_user_ids,
+        include_relationship_recipients=include_relationship_recipients,
+        target_owner_id=target_owner_id,
+        activity_at=activity_at,
+    )
+
+
+def list_task_artifacts(*, team_id: int, task_id: UUID) -> list[contracts.TaskArtifactDTO]:
+    from products.tasks.backend.logic.services.task_comments import list_artifacts
+
+    return list_artifacts(team_id=team_id, task_id=task_id)
+
+
+def list_task_comments(
+    *,
+    team_id: int,
+    task_id: UUID,
+    artifact_id: str | None,
+    include_resolved: bool,
+    limit: int,
+    cursor: str | None,
+) -> contracts.TaskCommentPageDTO:
+    from products.tasks.backend.logic.services.task_comments import InvalidTaskCommentCursor, list_comments
+
+    try:
+        return list_comments(
+            team_id=team_id,
+            task_id=task_id,
+            artifact_id=artifact_id,
+            include_resolved=include_resolved,
+            limit=limit,
+            cursor=cursor,
+        )
+    except InvalidTaskCommentCursor:
+        raise ValueError("Invalid task comment cursor") from None
+
+
+def retrieve_task_comment(
+    *,
+    team_id: int,
+    task_id: UUID,
+    comment_id: UUID,
+    limit: int,
+    cursor: str | None,
+    content_comment_id: UUID | None,
+    content_offset: int,
+) -> contracts.TaskCommentDetailDTO | None:
+    from products.tasks.backend.logic.services.task_comments import InvalidTaskCommentCursor, retrieve_comment
+
+    try:
+        return retrieve_comment(
+            team_id=team_id,
+            task_id=task_id,
+            comment_id=comment_id,
+            limit=limit,
+            cursor=cursor,
+            content_comment_id=content_comment_id,
+            content_offset=content_offset,
+        )
+    except InvalidTaskCommentCursor:
+        raise ValueError("Invalid task comment cursor") from None
+
+
 def list_mentions(
     team_id: int, user_id: int | None, *, since: datetime | None = None, limit: int = 100
 ) -> list[contracts.TaskMentionDTO]:
@@ -6119,14 +6275,24 @@ def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
     visibility gate belongs on read rather than being enforced when projecting.
     """
     visible_tasks = _visible_task_qs(team_id, user_id).filter(internal=False, archived=False)
-    return TaskActivity.objects.filter(team_id=team_id, user_id=user_id, task__in=visible_tasks)
+    return TaskActivity.objects.for_team(team_id).filter(user_id=user_id, task__in=visible_tasks)
+
+
+def _comment_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskCommentActivity]:
+    visible_tasks = _visible_task_qs(team_id, user_id).filter(internal=False, archived=False)
+    return TaskCommentActivity.objects.for_team(team_id).filter(
+        user_id=user_id, task__in=visible_tasks, comment__deleted=False
+    )
 
 
 def count_unread_task_activity(team_id: int, user_id: int | None) -> int:
     """Unread tasks across the requester's whole feed. Backs the sidebar badge."""
     if user_id is None:
         return 0
-    return _task_activity_qs(team_id, user_id).filter(read_at__isnull=True).count()
+    return (
+        _task_activity_qs(team_id, user_id).filter(read_at__isnull=True).count()
+        + _comment_activity_qs(team_id, user_id).filter(read_at__isnull=True).count()
+    )
 
 
 def list_task_activity(
@@ -6137,20 +6303,33 @@ def list_task_activity(
     before: datetime | None = None,
     before_id: UUID | None = None,
 ) -> contracts.TaskActivityPageDTO:
-    """The requester's feed: one row per task they are involved in, newest activity first.
+    """The requester's task and comment activity, newest first.
 
     ``unread_count`` counts every unread row the requester can see, not just the ones in
     this page, so the sidebar badge stays honest past ``limit``.
     """
     if user_id is None:
         return contracts.TaskActivityPageDTO(results=[], unread_count=0)
-    qs = _task_activity_qs(team_id, user_id)
+    task_qs = _task_activity_qs(team_id, user_id)
+    comment_qs = _comment_activity_qs(team_id, user_id)
     if before is not None and before_id is not None:
-        qs = qs.filter(Q(activity_at__lt=before) | Q(activity_at=before, id__lt=before_id))
-    rows = list(qs.select_related("task__channel", "message__author").order_by("-activity_at", "-id")[: limit + 1])
+        cursor = Q(activity_at__lt=before) | Q(activity_at=before, id__lt=before_id)
+        task_qs = task_qs.filter(cursor)
+        comment_qs = comment_qs.filter(cursor)
+    task_rows = task_qs.select_related("task__channel", "message__author").order_by("-activity_at", "-id")[: limit + 1]
+    comment_rows = comment_qs.select_related("task__channel", "comment__created_by").order_by("-activity_at", "-id")[
+        : limit + 1
+    ]
+    activity_rows: list[TaskActivity | TaskCommentActivity] = [*task_rows, *comment_rows]
+    rows: list[TaskActivity | TaskCommentActivity] = sorted(
+        activity_rows,
+        key=lambda row: (row.activity_at, row.id),
+        reverse=True,
+    )[: limit + 1]
     has_more = len(rows) > limit
     rows = rows[:limit]
     next_row = rows[-1] if has_more else None
+
     return contracts.TaskActivityPageDTO(
         results=[
             contracts.TaskActivityDTO(
@@ -6161,31 +6340,67 @@ def list_task_activity(
                 channel_name=row.task.channel.name if row.task.channel else None,
                 activity_at=row.activity_at,
                 activity_kind=row.kind,
-                snippet=row.message.content if row.message else "",
-                latest_author=_user_basic_info(row.message.author if row.message and row.message.author_id else None),
-                latest_message_id=row.message_id,
+                snippet=_bounded_activity_snippet(
+                    (row.comment.content or "" if row.comment else "")
+                    if isinstance(row, TaskCommentActivity)
+                    else (row.message.content if row.message else "")
+                ),
+                latest_author=_user_basic_info(
+                    row.comment.created_by
+                    if isinstance(row, TaskCommentActivity)
+                    else (row.message.author if row.message and row.message.author_id else None)
+                ),
+                latest_message_id=None if isinstance(row, TaskCommentActivity) else row.message_id,
+                latest_comment_id=row.root_comment_id if isinstance(row, TaskCommentActivity) else None,
+                latest_comment_scope=row.comment.scope if isinstance(row, TaskCommentActivity) else None,
+                latest_comment_item_id=row.comment.item_id if isinstance(row, TaskCommentActivity) else None,
                 is_unread=row.read_at is None,
             )
             for row in rows
         ],
-        unread_count=_task_activity_qs(team_id, user_id).filter(read_at__isnull=True).count(),
+        unread_count=count_unread_task_activity(team_id, user_id),
         next_before=next_row.activity_at if next_row else None,
         next_before_id=next_row.id if next_row else None,
     )
 
 
-def mark_task_activity_read(team_id: int, user_id: int | None, activities: Sequence[tuple[UUID, datetime]]) -> int:
+def _bounded_activity_snippet(content: str, limit: int = 1024) -> str:
+    return content.encode("utf-8")[:limit].decode("utf-8", errors="ignore")
+
+
+def mark_task_activity_read(
+    team_id: int,
+    user_id: int | None,
+    activities: Sequence[tuple[UUID, datetime, UUID | None]],
+) -> int:
     """Mark feed rows read only when their latest activity was visible to the requester."""
     if user_id is None or not activities:
         return 0
     activity_versions = Q()
-    for task_id, seen_before in activities:
-        activity_versions |= Q(task_id=task_id, activity_at__lte=seen_before)
-    return (
-        TaskActivity.objects.filter(team_id=team_id, user_id=user_id, read_at__isnull=True)
-        .filter(activity_versions)
+    comment_activity_ids: list[UUID] = []
+    for task_id, seen_before, comment_activity_id in activities:
+        if comment_activity_id:
+            comment_activity_ids.append(comment_activity_id)
+        else:
+            activity_versions |= Q(task_id=task_id, activity_at__lte=seen_before)
+    task_rows = 0
+    if activity_versions:
+        task_rows = (
+            TaskActivity.objects.for_team(team_id)
+            .filter(user_id=user_id, read_at__isnull=True)
+            .filter(activity_versions)
+            .update(read_at=django_timezone.now())
+        )
+    comment_rows = (
+        TaskCommentActivity.objects.for_team(team_id)
+        .filter(
+            user_id=user_id,
+            id__in=comment_activity_ids,
+            read_at__isnull=True,
+        )
         .update(read_at=django_timezone.now())
     )
+    return task_rows + comment_rows
 
 
 def delete_thread_message(message_id: str | UUID, task_id: str | UUID, team_id: int, user_id: int | None) -> str:

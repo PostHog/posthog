@@ -41,9 +41,8 @@ from products.tasks.backend.facade.run_config import TaskArtifactAdapter, TaskAr
 from products.tasks.backend.logic.services.code_usage_gate import (
     CodeUsageStatus,
     _gateway_usage_url,
-    cloud_usage_limit_response,
-    code_access_required_response,
     get_posthog_code_usage,
+    usage_limit_response,
 )
 from products.tasks.backend.logic.services.connection_token import (
     create_sandbox_event_ingest_token,
@@ -4490,7 +4489,8 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
         mock_sync_schedule.assert_called_once_with(automation)
 
     @patch("products.tasks.backend.automation_service.sync_automation_schedule")
-    def test_create_automation_requires_code_access(self, mock_sync_schedule):
+    def test_create_automation_without_code_access(self, mock_sync_schedule):
+        # `tasks` gates the Desktop client's UI, not the API.
         self.set_tasks_feature_flag(False)
 
         response = self.client.post(
@@ -4505,10 +4505,9 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["code"], "code_access_required")
-        self.assertFalse(TaskAutomation.objects.exists())
-        mock_sync_schedule.assert_not_called()
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(TaskAutomation.objects.exists())
+        mock_sync_schedule.assert_called_once()
 
     def test_list_automations(self):
         automation = self.create_automation()
@@ -4623,7 +4622,7 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
         mock_sync_schedule.assert_called_once_with(automation)
 
     @patch("products.tasks.backend.automation_service.sync_automation_schedule")
-    def test_enable_automation_requires_code_access(self, mock_sync_schedule):
+    def test_enable_automation_without_code_access(self, mock_sync_schedule):
         automation = self.create_automation()
         automation.enabled = False
         automation.save(update_fields=["enabled", "updated_at"])
@@ -4635,11 +4634,10 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["code"], "code_access_required")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         automation.refresh_from_db()
-        self.assertFalse(automation.enabled)
-        mock_sync_schedule.assert_not_called()
+        self.assertTrue(automation.enabled)
+        mock_sync_schedule.assert_called_once()
 
     @patch("products.tasks.backend.facade.api._sync_automation_schedule")
     def test_update_automation_rolls_back_automation_when_task_update_fails(self, mock_sync_schedule):
@@ -4680,15 +4678,14 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
         mock_run_task_automation.assert_called_once_with(str(automation.id))
 
     @patch("products.tasks.backend.automation_service.run_task_automation")
-    def test_run_requires_code_access(self, mock_run_task_automation):
+    def test_run_without_code_access(self, mock_run_task_automation):
         self.set_tasks_feature_flag(False)
         automation = self.create_automation()
 
         response = self.client.post(f"/api/projects/@current/task_automations/{automation.id}/run/")
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["code"], "code_access_required")
-        mock_run_task_automation.assert_not_called()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_run_task_automation.assert_called_once_with(str(automation.id))
 
 
 _PR_URL = "https://github.com/posthog/posthog-js/pull/1"
@@ -7617,6 +7614,105 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
+class TestTaskRunArtifactDismissAPI(BaseTaskAPITest):
+    def _create_run_with_artifacts(self) -> tuple[Task, TaskRun]:
+        task = self.create_task()
+        run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        run.artifacts = [
+            build_task_artifact_entry(
+                artifact_id=artifact_id,
+                name=name,
+                artifact_type="output",
+                source="agent_output",
+                size=1024,
+                content_type="text/markdown",
+                storage_path=f"tasks/artifacts/team_{self.team.id}/task_{task.id}/run_{run.id}/{artifact_id}_{name}",
+            )
+            for artifact_id, name in (
+                ("artifact-1", "report.md"),
+                ("artifact-2", "report.md"),
+                ("artifact-3", "chart.png"),
+            )
+        ]
+        run.save(update_fields=["artifacts", "updated_at"])
+        return task, run
+
+    def _dismiss(self, task: Task, run: TaskRun, artifact_ids: list[str], dismissed: bool):
+        return self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/dismiss/",
+            {"artifact_ids": artifact_ids, "dismissed": dismissed},
+            format="json",
+        )
+
+    def test_dismiss_flags_only_the_requested_artifacts_and_can_be_undone(self):
+        task, run = self._create_run_with_artifacts()
+
+        response = self._dismiss(task, run, ["artifact-1", "artifact-2"], True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        dismissed_at = {artifact["id"]: artifact.get("dismissed_at") for artifact in run.artifacts}
+        self.assertIsNotNone(dismissed_at["artifact-1"])
+        self.assertIsNotNone(dismissed_at["artifact-2"])
+        self.assertIsNone(dismissed_at.get("artifact-3"))
+        self.assertEqual([artifact["id"] for artifact in response.json()["artifacts"]], list(dismissed_at))
+
+        self.assertEqual(self._dismiss(task, run, ["artifact-1", "artifact-2"], False).status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        self.assertTrue(all("dismissed_at" not in artifact for artifact in run.artifacts))
+
+    def test_dismiss_unknown_artifact_leaves_the_manifest_alone(self):
+        task, run = self._create_run_with_artifacts()
+
+        response = self._dismiss(task, run, ["artifact-1", "artifact-missing"], True)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.json()["error"], "Artifact not found on this run")
+        run.refresh_from_db()
+        self.assertTrue(all(artifact.get("dismissed_at") is None for artifact in run.artifacts))
+
+    @patch("posthog.storage.object_storage.get_presigned_url")
+    @patch("posthog.storage.object_storage.tag")
+    @patch("posthog.storage.object_storage.head_object")
+    def test_dismissal_survives_a_finalize_upload_that_overlaps_it(self, mock_head_object, mock_tag, mock_presign):
+        task, run = self._create_run_with_artifacts()
+        new_artifact_id = uuid.uuid4().hex
+        storage_path = f"{run.get_artifact_s3_prefix()}/{new_artifact_id[:8]}_summary.pdf"
+        mock_presign.return_value = None
+
+        # Dismissing from inside head_object lands the dismissal in the window where finalize has
+        # read the manifest but not yet written it — the overlap when an agent revises a file the
+        # user is dismissing.
+        def dismiss_mid_flight(_storage_path):
+            self._dismiss(task, run, ["artifact-1"], True)
+            return {"ContentLength": 4096, "ContentType": "application/pdf"}
+
+        mock_head_object.side_effect = dismiss_mid_flight
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/finalize_upload/",
+            {
+                "artifacts": [
+                    {
+                        "id": new_artifact_id,
+                        "name": "summary.pdf",
+                        "type": "output",
+                        "source": "agent_output",
+                        "storage_path": storage_path,
+                        "content_type": "application/pdf",
+                    }
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        artifacts_by_id = {artifact["id"]: artifact for artifact in run.artifacts}
+        self.assertIsNotNone(artifacts_by_id["artifact-1"].get("dismissed_at"))
+        self.assertIn(new_artifact_id, artifacts_by_id)
+
+
 class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
     """Tests for the GET .../session_logs/ endpoint that returns filtered log entries."""
 
@@ -9041,7 +9137,9 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         )
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
-    def test_command_user_message_requires_code_access(self, mock_signal_followup):
+    def test_command_user_message_without_code_access_still_sends(self, mock_signal_followup):
+        # The Inbox drops users straight into this composer after starting an interactive run,
+        # so replying must not require Desktop waitlist access.
         self.set_tasks_feature_flag(False)
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
@@ -9052,9 +9150,8 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["code"], "code_access_required")
-        mock_signal_followup.assert_not_called()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_signal_followup.assert_called_once()
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_signals_user_message_without_active_sandbox(self, mock_signal_followup):
@@ -10604,7 +10701,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
     @patch("products.tasks.backend.facade.api.warm_task_sandbox")
     @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
-    def test_warm_without_code_access_returns_403_before_provisioning(self, _mock_warm_enabled, mock_warm):
+    def test_warm_without_code_access_still_provisions(self, _mock_warm_enabled, mock_warm):
         self.set_tasks_feature_flag(False)
 
         response = self.client.post(
@@ -10613,13 +10710,14 @@ class TestCloudUsageGate(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["code"], "code_access_required")
-        mock_warm.assert_not_called()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
-    def test_run_without_code_access_returns_403_before_usage_check(self, mock_gate, mock_workflow):
+    def test_run_without_code_access_still_runs(self, mock_gate, mock_workflow):
+        # The generally-available Inbox runs report and scout tasks through this endpoint, so the
+        # Desktop waitlist (`tasks` flag) must not gate it.
+        mock_gate.return_value = None
         self.set_tasks_feature_flag(False)
         task = self.create_task()
 
@@ -10629,11 +10727,9 @@ class TestCloudUsageGate(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["code"], "code_access_required")
-        self.assertFalse(TaskRun.objects.filter(task=task).exists())
-        mock_gate.assert_not_called()
-        mock_workflow.assert_not_called()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(TaskRun.objects.filter(task=task).exists())
+        mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_run_over_limit_returns_429_and_creates_no_run(self, mock_gate):
@@ -10665,6 +10761,22 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(response.json()["code"], "usage_limit_exceeded")
         self.assertFalse(TaskRun.objects.filter(task=task).exists())
+
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
+    def test_create_cloud_run_without_code_access_still_runs(self, mock_gate):
+        # Desktop is usage-billed, so cloud runs are metered rather than waitlist-gated.
+        mock_gate.return_value = None
+        self.set_tasks_feature_flag(False)
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {"environment": "cloud"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(TaskRun.objects.filter(task=task).exists())
 
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_create_local_run_is_not_gated(self, mock_gate):
@@ -10741,37 +10853,13 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertTrue(TaskRun.objects.filter(task=task).exists())
         mock_workflow.assert_called_once()
 
-    def _signal_report_task(self):
-        from products.signals.backend.models import SignalReport
-
-        report = SignalReport.objects.create(team=self.team)
-        return Task.objects.create(
-            team=self.team,
-            created_by=self.user,
-            title="Act on report",
-            description="Act on report",
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
-            signal_report=report,
-        )
-
-    @parameterized.expand(
-        [
-            ("under_limit_runs", CodeUsageStatus(False, None, None, False), status.HTTP_200_OK),
-            ("over_limit_still_blocked", OVER_LIMIT, status.HTTP_429_TOO_MANY_REQUESTS),
-        ]
-    )
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
-    def test_run_signal_report_task_bypasses_code_access_but_keeps_usage_backstop(
-        self, _name, gate_return, expected_status, mock_gate, _mock_workflow
-    ):
-        # Self-driving is entitled through the Inbox (`product-autonomy`), not PostHog Code, so a
-        # signal-report task runs with the `tasks` flag off — where a plain task 403s (see
-        # test_run_without_code_access_returns_403_before_usage_check). The usage cost-backstop must
-        # still fire, so an over-limit team is blocked even on the entitlement-bypassed path.
+    def test_run_without_code_access_keeps_usage_backstop(self, mock_gate):
+        # Usage limits are the only cost backstop left on this endpoint, so they have to fire
+        # with the `tasks` flag off.
         self.set_tasks_feature_flag(False)
-        mock_gate.return_value = gate_return
-        task = self._signal_report_task()
+        mock_gate.return_value = self.OVER_LIMIT
+        task = self.create_task()
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/run/",
@@ -10779,9 +10867,8 @@ class TestCloudUsageGate(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, expected_status)
-        mock_gate.assert_called_once()
-        self.assertEqual(TaskRun.objects.filter(task=task).exists(), expected_status == status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
 
 
 class TestGetPosthogCodeUsage(TestCase):
@@ -10860,26 +10947,19 @@ class TestGetPosthogCodeUsage(TestCase):
         mock_token.assert_not_called()
 
 
-class TestCloudUsageGateResponse(SimpleTestCase):
+class TestUsageLimitResponse(SimpleTestCase):
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
-    @patch("products.tasks.backend.logic.services.code_usage_gate.has_tasks_access")
-    def test_missing_code_access_returns_403_before_usage_check(self, mock_access, mock_usage):
-        mock_access.return_value = False
+    def test_over_limit_response_is_structured(self, mock_usage):
+        mock_usage.return_value = CodeUsageStatus(
+            is_rate_limited=True, limit_type="burst", reset_at="2026-06-09T00:00:00Z", is_pro=False
+        )
 
-        response = cloud_usage_limit_response(MagicMock(), 1)
-
-        assert response is not None
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.data["code"], "code_access_required")
-        mock_usage.assert_not_called()
-
-    @patch("products.tasks.backend.logic.services.code_usage_gate.has_tasks_access", return_value=False)
-    def test_code_access_required_response_is_structured(self, _mock_access):
-        response = code_access_required_response(MagicMock())
+        response = usage_limit_response(MagicMock(), 1)
 
         assert response is not None
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.data["code"], "code_access_required")
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.data["code"], "usage_limit_exceeded")
+        self.assertEqual(response.data["limit_type"], "burst")
 
 
 def _make_custom_image(*, team: Team, user: User, **kwargs) -> SandboxCustomImage:

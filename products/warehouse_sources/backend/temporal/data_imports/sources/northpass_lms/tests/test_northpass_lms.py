@@ -184,6 +184,18 @@ class TestTopLevelPagination:
         assert off_host_url not in sent
         assert sent == [COURSES_P1]
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_treats_404_on_first_page_as_empty_collection(self, mock_make_session):
+        # An account with no rows in a collection 404s instead of returning `data: []` (seen on
+        # /learning-paths). This must not fail the sync -- it's the same "no data" outcome as an
+        # empty body, not a retryable or fatal error.
+        pages = {COURSES_P1: _resp({"errors": []}, status=404)}
+        _wire(mock_make_session, pages)
+
+        rows = _rows("courses", _make_manager())
+
+        assert rows == []
+
 
 class TestFanOut:
     def _parent_and_children(self) -> dict[str, Any]:
@@ -257,6 +269,17 @@ class TestFanOut:
 
         with pytest.raises(requests.HTTPError):
             _rows("course_enrollments", _make_manager())
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_treats_404_on_parent_enumeration_as_empty(self, mock_make_session):
+        # The parent list itself (not a per-parent child page) 404s when the account has no
+        # parent rows. Fanning out over zero parents must yield zero rows, not crash the sync.
+        pages = {"https://api.northpass.com/v2/courses?limit=100": _resp({"errors": []}, status=404)}
+        _wire(mock_make_session, pages)
+
+        rows = _rows("course_enrollments", _make_manager())
+
+        assert rows == []
 
 
 class TestNorthpassSource:

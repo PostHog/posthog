@@ -311,6 +311,15 @@ tools:
     tasks-active-wizard-run-retrieve:
         operation: tasks_active_wizard_run_retrieve
         enabled: false
+    tasks-artifacts-list:
+        operation: tasks_artifacts_list
+        enabled: false
+    tasks-comments-list:
+        operation: tasks_comments_list
+        enabled: false
+    tasks-comments-retrieve:
+        operation: tasks_comments_retrieve
+        enabled: false
     tasks-create:
         operation: tasks_create
         enabled: true
@@ -434,6 +443,9 @@ tools:
         enabled: false
     tasks-runs-artifacts-create:
         operation: tasks_runs_artifacts_create
+        enabled: false
+    tasks-runs-artifacts-dismiss-create:
+        operation: tasks_runs_artifacts_dismiss_create
         enabled: false
     tasks-runs-artifacts-download-create:
         operation: tasks_runs_artifacts_download_create

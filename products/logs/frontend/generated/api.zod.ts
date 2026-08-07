@@ -399,6 +399,30 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
     date_from: zod.string().describe("Relative date string for how far back to simulate (e.g. '-24h', '-7d', '-30d')."),
 })
 
+/**
+ * Runs anomaly detection on demand over one service's log volume for the given window. Learns per severity baselines from up to 6 weeks of history and returns per bucket expected bands plus any spike, drop, or silence issues. Synchronous and read only.
+ * @summary Scan a service's logs for volume anomalies
+ */
+export const LogsAnomaliesScanCreateBody = /* @__PURE__ */ zod.object({
+    serviceName: zod
+        .string()
+        .describe(
+            "Service to scan (the log record's service_name). Required: the scan aggregates weeks of baseline history from raw logs, so it is scoped to one service per call."
+        ),
+    dateRange: zod
+        .object({
+            date_from: zod.iso
+                .datetime({ offset: true })
+                .describe(
+                    'Start of the evaluation window (ISO 8601). Buckets before this are only used as baseline history.'
+                ),
+            date_to: zod.iso
+                .datetime({ offset: true })
+                .describe('End of the evaluation window (ISO 8601), clamped to now.'),
+        })
+        .describe('Evaluation window to scan for anomalies. May span at most 7 days.'),
+})
+
 export const LogsCountCreateBody = /* @__PURE__ */ zod.object({
     query: zod
         .object({
@@ -618,13 +642,19 @@ export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
                 ])
                 .optional()
                 .describe(
-                    'Top-level column to facet on. Provide exactly one of facetField or facetResourceAttribute. Its own filter is excluded so counts reflect the other active filters.\n\n\* `severity_text` - severity_text\n\* `service_name` - service_name'
+                    'Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own filter is excluded so counts reflect the other active filters.\n\n\* `severity_text` - severity_text\n\* `service_name` - service_name'
                 ),
             facetResourceAttribute: zod
                 .string()
                 .nullish()
                 .describe(
-                    "Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField or facetResourceAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters."
+                    "Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters."
+                ),
+            facetAttribute: zod
+                .string()
+                .nullish()
+                .describe(
+                    "Log attribute key to facet on (e.g. 'log.iostream'). Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Counts honour severity, service and resource-attribute filters, but not body search, other log-attribute filters, or this facet's own filter."
                 ),
             dateRange: zod
                 .object({

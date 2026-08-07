@@ -125,6 +125,7 @@ class Feature(StrEnum):
     # would be misleading; tagging by endpoint name keeps the signal honest.
     EVENTS_VALUES_API = "events_values_api"
     USAGE_REPORT = "usage_report"
+    DATA_FRESHNESS = "data_freshness"  # "when did this project last receive data" probes
     BILLING_ETL = "billing_etl"
     QUOTA_LIMITING = "quota_limiting"
     MIGRATION = "migration"
@@ -186,6 +187,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.FUNNELS_QUERY
             | NodeKind.RETENTION_QUERY
             | NodeKind.PATHS_QUERY
+            | NodeKind.PATHS_V2_QUERY
             | NodeKind.STICKINESS_QUERY
             | NodeKind.LIFECYCLE_QUERY
             | NodeKind.EVENTS_QUERY
@@ -304,6 +306,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.FUNNELS_ACTORS_QUERY
             | NodeKind.FUNNEL_CORRELATION_QUERY
             | NodeKind.FUNNEL_CORRELATION_ACTORS_QUERY
+            | NodeKind.PATHS_V2_ACTORS_QUERY
             # data-source nodes, not full queries
             | NodeKind.EVENTS_NODE
             | NodeKind.GROUP_NODE

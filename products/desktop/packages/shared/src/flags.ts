@@ -1,10 +1,5 @@
 export const BILLING_FLAG = "posthog-code-billing";
 export const SPEND_ANALYSIS_FLAG = "posthog-code-spend-analysis";
-/**
- * Launch switch for the one-time usage-based billing announcement: flip at
- * cutover, delete once the fleet has acknowledged.
- */
-export const USAGE_BILLING_FLAG = "posthog-code-usage-billing";
 export const EXPERIMENT_SUGGESTIONS_FLAG =
   "posthog-code-experiment-suggestions";
 export const SYNC_CLOUD_TASKS_FLAG = "posthog-code-sync-cloud-tasks";
@@ -47,3 +42,10 @@ export const TASK_COST_FLAG = "posthog-code-task-cost";
  * the legacy stop-polling-once-staged behavior.
  */
 export const STAGED_UPDATES_FLAG = "posthog-desktop-staged-updates";
+/**
+ * Remote in-app announcements. The flag's JSON payload carries the
+ * announcements (schema: `announcements.ts`); rollout % arms the system.
+ * All broad announcements go through this — do not add ad-hoc promo
+ * surfaces (see docs/ANNOUNCEMENTS.md).
+ */
+export const ANNOUNCEMENTS_FLAG = "posthog-desktop-announcements";

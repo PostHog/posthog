@@ -67,11 +67,14 @@ import type {
     TaskActivityMarkReadApi,
     TaskActivityMarkReadResponseApi,
     TaskActivityPageDTOApi,
+    TaskArtifactsResponseApi,
     TaskAutomationDTOApi,
     TaskAutomationWriteApi,
     TaskAutomationsListParams,
     TaskChannelsFeedListParams,
     TaskChannelsListParams,
+    TaskCommentDetailApi,
+    TaskCommentsResponseApi,
     TaskCreateApi,
     TaskDetailDTOApi,
     TaskMentionsListParams,
@@ -82,6 +85,8 @@ import type {
     TaskRunAppendLogRequestApi,
     TaskRunArtifactPresignRequestApi,
     TaskRunArtifactPresignResponseApi,
+    TaskRunArtifactsDismissRequestApi,
+    TaskRunArtifactsDismissResponseApi,
     TaskRunArtifactsFinalizeUploadRequestApi,
     TaskRunArtifactsFinalizeUploadResponseApi,
     TaskRunArtifactsPrepareUploadRequestApi,
@@ -114,6 +119,8 @@ import type {
     TaskThreadMessageDTOApi,
     TaskThreadMessageWriteApi,
     TaskWriteApi,
+    TasksCommentsListParams,
+    TasksCommentsRetrieveParams,
     TasksListParams,
     TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
@@ -659,7 +666,7 @@ export const getTaskActivityListUrl = (projectId: string, params?: TaskActivityL
 }
 
 /**
- * Tasks the requester is involved in (created, mentioned, or messaged), one row per task, most-recent activity first, restricted to tasks they can see.
+ * Task lifecycle rows collapse per task. Comment notifications remain separate. Results are most-recent first and restricted to tasks the requester can see.
  * @summary List the requester's task activity
  */
 export const taskActivityList = async (
@@ -678,7 +685,7 @@ export const getTaskActivityMarkReadCreateUrl = (projectId: string) => {
 }
 
 /**
- * Clear the unread flag on the requester's feed rows for the given tasks. Read state is per task, so opening a task through any surface clears the same row.
+ * Clear collapsed task activity through task timestamps and individual comment activity through activity IDs.
  * @summary Mark task activity read
  */
 export const taskActivityMarkReadCreate = async (
@@ -1323,6 +1330,92 @@ export const tasksDestroy = async (projectId: string, id: string, options?: Requ
     })
 }
 
+export const getTasksArtifactsListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/artifacts/`
+}
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
+export const tasksArtifactsList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskArtifactsResponseApi> => {
+    return apiMutator<TaskArtifactsResponseApi>(getTasksArtifactsListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksCommentsListUrl = (projectId: string, id: string, params?: TasksCommentsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${id}/comments/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${id}/comments/`
+}
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
+export const tasksCommentsList = async (
+    projectId: string,
+    id: string,
+    params?: TasksCommentsListParams,
+    options?: RequestInit
+): Promise<TaskCommentsResponseApi> => {
+    return apiMutator<TaskCommentsResponseApi>(getTasksCommentsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksCommentsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    rootCommentId: string,
+    params?: TasksCommentsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${id}/comments/${rootCommentId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${id}/comments/${rootCommentId}/`
+}
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
+export const tasksCommentsRetrieve = async (
+    projectId: string,
+    id: string,
+    rootCommentId: string,
+    params?: TasksCommentsRetrieveParams,
+    options?: RequestInit
+): Promise<TaskCommentDetailApi> => {
+    return apiMutator<TaskCommentDetailApi>(getTasksCommentsRetrieveUrl(projectId, id, rootCommentId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getTasksPinCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${id}/pin/`
 }
@@ -1594,6 +1687,32 @@ export const tasksRunsArtifactsCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(taskRunArtifactsUploadRequestApi),
     })
+}
+
+export const getTasksRunsArtifactsDismissCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/dismiss/`
+}
+
+/**
+ * Hides artifacts from clients without deleting them from storage, so a file dismissed by mistake can be restored.
+ * @summary Dismiss or restore task run artifacts
+ */
+export const tasksRunsArtifactsDismissCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunArtifactsDismissRequestApi: TaskRunArtifactsDismissRequestApi,
+    options?: RequestInit
+): Promise<TaskRunArtifactsDismissResponseApi> => {
+    return apiMutator<TaskRunArtifactsDismissResponseApi>(
+        getTasksRunsArtifactsDismissCreateUrl(projectId, taskId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunArtifactsDismissRequestApi),
+        }
+    )
 }
 
 export const getTasksRunsArtifactsDownloadCreateUrl = (projectId: string, taskId: string, id: string) => {
