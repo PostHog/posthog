@@ -376,9 +376,11 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     const isPositionPending = isAttached && (x == null || y == null)
 
     // Surface the invisible "opening" frame to consumers so they can keep their trigger inert.
+    // The unmount cleanup clears it so a consumer's flag can't get stuck if we unmount mid-open.
     const positionPending = visible && !!isPositionPending
     useEffect(() => {
         onPositionPendingChange?.(positionPending)
+        return () => onPositionPendingChange?.(false)
     }, [positionPending]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
