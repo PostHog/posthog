@@ -29175,6 +29175,8 @@ export namespace Schemas {
     }
 
     export interface ExperimentApiExposureCriteria {
+      /** Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`. */
+      activation_config?: ExperimentApiExposureConfig | null;
       exposure_config?: ExperimentApiExposureConfig | null;
       filterTestAccounts?: boolean | null;
       /** How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure. */
@@ -29491,6 +29493,8 @@ export namespace Schemas {
     }
 
     export interface ExperimentExposureCriteria {
+      /** Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`. */
+      activation_config?: ExperimentEventExposureConfig | ActionsNode | null;
       exposure_config?: ExperimentEventExposureConfig | ActionsNode | null;
       filterTestAccounts?: boolean | null;
       multiple_variant_handling?: MultipleVariantHandling | null;
@@ -39479,6 +39483,18 @@ export namespace Schemas {
       readonly code_name: string | null;
       /** Allowed values for List variables. Null for other variable types. */
       values?: unknown;
+      /** Whether a List variable accepts multiple selected values. */
+      is_multi?: boolean;
+      /**
+         * HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.
+         * @nullable
+         */
+      values_query?: string | null;
+      /**
+         * ID of the external data source connection values_query runs against. Null runs it against PostHog.
+         * @nullable
+         */
+      values_query_connection_id?: string | null;
     }
 
     export interface InsightViewedRequest {
@@ -54788,6 +54804,18 @@ export namespace Schemas {
       readonly code_name?: string | null;
       /** Allowed values for List variables. Null for other variable types. */
       values?: unknown;
+      /** Whether a List variable accepts multiple selected values. */
+      is_multi?: boolean;
+      /**
+         * HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.
+         * @nullable
+         */
+      values_query?: string | null;
+      /**
+         * ID of the external data source connection values_query runs against. Null runs it against PostHog.
+         * @nullable
+         */
+      values_query_connection_id?: string | null;
     }
 
     /**
