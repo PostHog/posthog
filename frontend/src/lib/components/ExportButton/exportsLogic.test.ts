@@ -201,8 +201,10 @@ describe('exportsLogic', () => {
                 )
                 // Every export lands in the exports panel, including a synchronous one that already
                 // downloaded itself, so no completion toast may dead-end without a way back to it.
+                // A failed export puts nothing there, so its frame keeps no button.
                 const toastOptions = jest.mocked(lemonToast.promise).mock.calls[0][2]
                 expect(toastOptions?.button?.label).toEqual('View exports')
+                expect(toastOptions?.hideErrorButton).toBe(true)
                 const runPromise = jest.mocked(lemonToast.promise).mock.calls[0][0]
                 if ('resolved' in settles) {
                     await expect(runPromise).resolves.toBe(settles.resolved)

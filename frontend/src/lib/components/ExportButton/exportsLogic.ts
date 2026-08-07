@@ -593,7 +593,9 @@ export const exportsLogic = kea<exportsLogicType>([
                                     success: EXPORT_COMPLETE_MESSAGE,
                                     error: 'Export failed',
                                 },
-                                { toastId: exportToastId, button: viewExportsButton }
+                                // A failed export has nothing waiting in the panel, so the button
+                                // rides only the pending and success frames.
+                                { toastId: exportToastId, button: viewExportsButton, hideErrorButton: true }
                             )
                             const settledRenderer = claimNudge()
                             if (settledRenderer) {

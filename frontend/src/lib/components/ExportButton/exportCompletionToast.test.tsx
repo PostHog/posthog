@@ -94,6 +94,21 @@ describe('export completion toast', () => {
         expect(captureExportNudgeCheckFailed).toHaveBeenCalledWith('timeout')
     })
 
+    it('does not offer the exports panel when the export failed', async () => {
+        jest.mocked(resolveExportNudgeEligibility).mockResolvedValue(null)
+        jest.mocked(api.exports.create).mockRejectedValue(new Error('render crashed'))
+
+        render(<ToastContainer />)
+        logic.actions.createExport({ exportData: { export_format: ExporterFormat.PNG, dashboard: 7 } })
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(SETTLE_MS)
+        })
+
+        // Nothing landed in the panel, so the link would send the user somewhere with no answer.
+        expect(document.querySelector('[data-attr="error-toast"]')).toBeTruthy()
+        expect(screen.queryByText('View exports')).toBeNull()
+    })
+
     it('keeps one toast carrying the nudge from the wait through to completion', async () => {
         jest.mocked(resolveExportNudgeEligibility).mockResolvedValue({ dashboardId: 7, dashboardName: 'Weekly' })
         let finishExport: (asset: ExportedAssetType) => void = () => {}
