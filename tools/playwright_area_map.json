@@ -66,6 +66,7 @@
     "smoke_subset": ["playwright/e2e/auth.spec.ts"],
     "scenes_smoke_only": ["billing", "groups", "hog-functions", "integrations", "max", "web-analytics"],
     "products": {
+        "ai_observability": ["products/ai_observability/frontend/e2e/"],
         "posthog_ai": ["products/posthog_ai/frontend/e2e/"],
         "replay": ["products/replay/frontend/e2e/"],
         "surveys": ["products/surveys/frontend/e2e/"]
