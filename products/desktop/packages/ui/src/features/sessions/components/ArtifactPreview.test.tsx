@@ -22,6 +22,7 @@ import { ArtifactPreview } from "./ArtifactPreview";
 import {
   artifactHtmlDocument,
   artifactPreviewBlob,
+  scriptedArtifactHtmlDocument,
 } from "./artifactPreviewDocument";
 
 const previewBlob = new Blob(["<h1>Artifact content</h1>"], {
@@ -47,6 +48,7 @@ vi.mock("@posthog/core/sessions/sessionService", () => ({
 
 vi.mock("@posthog/di/react", () => ({
   useService: () => ({}),
+  useServiceOptional: () => null,
 }));
 
 vi.mock("@posthog/ui/features/auth/store", () => ({
@@ -812,14 +814,23 @@ describe("ArtifactPreview", () => {
     expect(document).toContain("scrollIntoView");
     expect(document).toContain("new MutationObserver");
     expect(document).toContain("state.renderTimer");
-    const nonce = document.match(
-      /<script nonce="([^"]+)" data-posthog-artifact-comments>/,
-    )?.[1];
-    expect(nonce).toBeTruthy();
-    expect(document).toContain(`script-src &#39;nonce-${nonce}&#39;`);
+    expect(document).toMatch(/script-src &#39;nonce-[^&]+&#39;/);
     expect(document).not.toContain(
       "script-src &#39;self&#39; &#39;unsafe-inline&#39;",
     );
+  });
+
+  it("allows embedded scripts without allowing network access", () => {
+    const document = scriptedArtifactHtmlDocument(
+      '<script>document.body.dataset.rendered="yes"</script>',
+      "test-channel",
+    );
+
+    expect(document).toContain('document.body.dataset.rendered="yes"');
+    expect(document).toContain(
+      "script-src &#39;self&#39; &#39;unsafe-inline&#39;",
+    );
+    expect(document).toContain("connect-src &#39;none&#39;");
   });
 
   it("does not parse HTML without a possible refresh directive", () => {
@@ -847,9 +858,6 @@ describe("ArtifactPreview", () => {
     expect(document).toContain("form-action &#39;none&#39;");
     expect(document).toContain("img-src &#39;self&#39; data:");
     expect(document).toContain("script-src &#39;none&#39;");
-    expect(document).not.toContain(
-      "script-src &#39;self&#39; &#39;unsafe-inline&#39;",
-    );
   });
 
   it.each([

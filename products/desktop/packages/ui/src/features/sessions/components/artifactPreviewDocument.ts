@@ -32,6 +32,17 @@ export function artifactHtmlDocument(
     nonce,
   );
 }
+
+export function scriptedArtifactHtmlDocument(
+  html: string,
+  commentBridgeChannel?: string,
+): string {
+  const safeHtml = removeAutomaticRedirects(html);
+  if (!commentBridgeChannel) return applyCspToHtml(safeHtml);
+  return applyCspToHtml(
+    injectArtifactHtmlCommentBridge(safeHtml, commentBridgeChannel),
+  );
+}
 export async function artifactPreviewBlob(
   blob: Blob,
   filename: string,
