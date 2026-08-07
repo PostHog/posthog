@@ -83,6 +83,7 @@ export interface errorTrackingIssueSceneLogicValues {
     searchQuery: string // issueFiltersLogic
     aggregations: ErrorTrackingIssueAggregations | undefined
     breadcrumbs: Breadcrumb[]
+    detailError: string | null
     eventsQuery: EventsQuery
     eventsQueryKey: string
     firstSeen: Dayjs | null
@@ -217,6 +218,9 @@ export interface errorTrackingIssueSceneLogicActions {
         payload?: {
             timestamp: string
         }
+    }
+    retryDetailLoad: () => {
+        value: true
     }
     loadIssue: () => {
         value: true
@@ -551,6 +555,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         loadIssue: true,
         loadSummary: true,
         loadInitialEvent: (timestamp: string) => ({ timestamp }),
+        retryDetailLoad: true,
         setMobileDetailOpen: (mobileDetailOpen: boolean) => ({ mobileDetailOpen }),
         setInitialEventTimestamp: (timestamp: string | null) => ({ timestamp }),
         setIssue: (issue: ErrorTrackingRelationalIssue) => ({ issue }),
@@ -605,6 +610,14 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 return state
             },
         },
+        detailError: [
+            null as string | null,
+            {
+                loadInitialEvent: () => null,
+                loadInitialEventSuccess: () => null,
+                loadInitialEventFailure: (_, { error }) => error || 'We could not load this exception.',
+            },
+        ],
         selectedEvent: {
             selectEvent: (_, { event }) => {
                 if (!event && values.initialEvent) {
@@ -684,13 +697,21 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 if (!positionEvent) {
                     return null
                 }
+                // Malformed properties (truncated payloads, non-JSON) would otherwise throw out of
+                // the loader and strand the detail pane. Treat it as "no initial event" instead.
+                let properties: ErrorEventProperties
+                try {
+                    properties = JSON.parse(positionEvent.properties)
+                } catch {
+                    return null
+                }
                 const initialEvent: ErrorEventType = {
                     event: '$exception',
                     uuid: positionEvent.uuid,
                     distinct_id: positionEvent.distinct_id,
                     timestamp: positionEvent.timestamp,
                     person: { distinct_ids: [], properties: {} },
-                    properties: JSON.parse(positionEvent.properties),
+                    properties,
                 }
                 if (!values.selectedEvent) {
                     actions.selectEvent(initialEvent)
@@ -854,6 +875,18 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     })),
 
     listeners(({ props, values, actions }) => {
+        // Ensure loadInitialEvent runs exactly once so `initialEventLoading` always clears.
+        // Prefer a candidate timestamp, then anything already set, then the issue's first_seen;
+        // with none available, dispatch the loader with an empty value so it resolves to "no
+        // event" rather than leaving the detail pane spinning.
+        const resolveInitialEvent = (candidate?: string | null): void => {
+            const timestamp = candidate ?? values.initialEventTimestamp ?? values.issue?.first_seen ?? null
+            if (timestamp) {
+                actions.setInitialEventTimestamp(timestamp)
+            } else {
+                actions.loadInitialEvent('')
+            }
+        }
         return {
             setDateRange: () => {
                 actions.loadSummary()
@@ -865,9 +898,18 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             loadSummarySuccess: ({ summary }: { summary: ErrorTrackingIssueSummary | null }) => {
                 if (summary && summary.last_seen) {
                     actions.setLastSeen(summary.last_seen)
-                    actions.setInitialEventTimestamp(summary.last_seen)
-                } else {
-                    actions.setInitialEventTimestamp(values.issue?.first_seen ?? null)
+                }
+                // The detail pane's `initialEventLoading` is seeded true and only cleared once
+                // `loadInitialEvent` runs. That loader is dispatched by the `initialEventTimestamp`
+                // subscription, which never fires if no timestamp is ever set (empty/failed summary
+                // and no first_seen). Guarantee the loader runs so the pane never spins forever.
+                resolveInitialEvent(summary?.last_seen)
+            },
+            loadSummaryFailure: () => resolveInitialEvent(),
+            retryDetailLoad: () => {
+                actions.loadSummary()
+                if (values.initialEventTimestamp) {
+                    actions.loadInitialEvent(values.initialEventTimestamp)
                 }
             },
             loadIssueFailure: ({ errorObject: { status, data } }) => {
@@ -881,11 +923,15 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             updateStatus: ({ status }) => actions.updateIssueStatus(props.id, status),
             selectEvent: ({ event }) => {
                 if (event) {
+                    // Write an ISO timestamp so a shared/reloaded URL round-trips through the
+                    // `initialEventTimestamp` validity guard. ClickHouse hands back a non-ISO
+                    // "2026-08-05 20:30:09.697000+00:00" shape that the guard would reject.
+                    const parsed = dayjs(event.timestamp)
                     router.actions.replace(
                         router.values.currentLocation.pathname,
                         {
                             ...router.values.searchParams,
-                            timestamp: event.timestamp,
+                            timestamp: parsed.isValid() ? parsed.toISOString() : event.timestamp,
                         },
                         router.values.hashParams
                     )

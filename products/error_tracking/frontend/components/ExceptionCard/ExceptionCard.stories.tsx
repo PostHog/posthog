@@ -83,6 +83,21 @@ export function ExceptionCardLoading(): JSX.Element {
 }
 ExceptionCardLoading.tags = ['test-skip']
 
+export function ExceptionCardError(): JSX.Element {
+    return (
+        <div className="w-[800px] h-[500px]">
+            <ExceptionCard
+                issueId="issue-id"
+                issueName={null}
+                loading={false}
+                event={undefined}
+                error="We could not load this exception."
+                onRetry={() => {}}
+            />
+        </div>
+    )
+}
+
 export function ExceptionCardSessionTimelineWithSteps(): JSX.Element {
     const event = buildSessionTimelineEvent([
         {

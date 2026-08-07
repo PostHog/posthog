@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
 import { IconLogomark } from '@posthog/icons'
-import { LemonCard } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCard } from '@posthog/lemon-ui'
 
 import { ErrorPropertiesLogicProps, errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorEventType } from 'lib/components/Errors/types'
@@ -20,6 +20,9 @@ interface ExceptionCardContentProps {
     label?: JSX.Element
     /** Hide timestamp and label from the tab bar (e.g. when shown elsewhere on mobile) */
     hideEventMeta?: boolean
+    /** Message shown when the exception failed to load. Content still falls back to `event`. */
+    error?: string | null
+    onRetry?: () => void
 
     renderStackTraceActions?: () => JSX.Element | null
 }
@@ -72,12 +75,23 @@ function ExceptionCardContent({
     renderStackTraceActions,
     label,
     hideEventMeta,
+    error,
+    onRetry,
 }: ExceptionCardContentProps): JSX.Element {
     const { currentTab } = useValues(exceptionCardLogic)
     const { setCurrentTab } = useActions(exceptionCardLogic)
 
     return (
         <LemonCard hoverEffect={false} className="p-0 relative w-full h-full border-0 rounded-none flex flex-col">
+            {error && (
+                <LemonBanner
+                    type="error"
+                    className="m-2 shrink-0"
+                    action={onRetry ? { children: 'Retry', onClick: onRetry } : undefined}
+                >
+                    {error}
+                </LemonBanner>
+            )}
             <TabsPrimitive value={currentTab} onValueChange={setCurrentTab} className="flex flex-col flex-1 min-h-0">
                 <div className="flex justify-between h-[2rem] items-center w-full px-2 border-b shrink-0">
                     <TabsPrimitiveList className="flex justify-between w-full h-full items-center">

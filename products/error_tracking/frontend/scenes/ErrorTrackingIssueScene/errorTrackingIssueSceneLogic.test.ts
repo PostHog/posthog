@@ -1,11 +1,21 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
+import { ErrorEventType, ErrorTrackingFingerprint } from 'lib/components/Errors/types'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { errorTrackingIssueSceneLogic, toErrorTrackingIssueSummary } from './errorTrackingIssueSceneLogic'
+
+const makeEvent = (timestamp: string): ErrorEventType => ({
+    event: '$exception',
+    uuid: 'event-1',
+    distinct_id: 'person-1',
+    timestamp,
+    person: { distinct_ids: [], properties: {} },
+    properties: {},
+})
 
 const makeFingerprints = (fingerprint: string = 'fp-1'): ErrorTrackingFingerprint[] => [
     { fingerprint, issue_id: 'issue-1', created_at: '2026-01-01T00:00:00Z' },
@@ -48,6 +58,48 @@ describe('errorTrackingIssueSceneLogic', () => {
         logic.actions.setSearchQuery('needle')
 
         expect(logic.values.eventsQueryKey).not.toBe(initialKey)
+    })
+
+    // The detail pane seeds `initialEventLoading: true` and only clears it once `loadInitialEvent`
+    // runs. An empty summary (no last_seen) plus an issue with no first_seen used to leave the
+    // timestamp null, so the loader never dispatched and the pane spun forever.
+    it('resolves the detail loader on mount even when the summary is empty', async () => {
+        await expectLogic(logic).toDispatchActions([
+            'loadSummarySuccess',
+            'loadInitialEvent',
+            'loadInitialEventSuccess',
+        ])
+        expect(logic.values.initialEventLoading).toBe(false)
+    })
+
+    it('resolves the detail loader when the summary request fails so the pane stops spinning', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadSummaryFailure('boom')
+        }).toDispatchActions(['loadSummaryFailure', 'loadInitialEvent', 'loadInitialEventSuccess'])
+        expect(logic.values.initialEventLoading).toBe(false)
+        expect(logic.values.detailError).toBeNull()
+    })
+
+    it('writes an ISO timestamp to the URL when selecting an event', () => {
+        // ClickHouse returns a space-and-offset timestamp that the initialEventTimestamp validity
+        // guard rejects; the URL must carry the ISO form so a reload round-trips.
+        logic.actions.selectEvent(makeEvent('2026-08-05 20:30:09.697000+00:00'))
+        expect(router.values.searchParams.timestamp).toBe('2026-08-05T20:30:09.697Z')
+    })
+
+    it('does not strand the loader when the last event properties are malformed JSON', async () => {
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/': {
+                    results: [{ last_event: { uuid: 'e', distinct_id: 'd', timestamp: 't', properties: 'not json' } }],
+                },
+            },
+        })
+        await expectLogic(logic, () => {
+            logic.actions.loadInitialEvent('2026-01-01T00:00:00Z')
+        })
+            .toDispatchActions(['loadInitialEventSuccess'])
+            .toMatchValues({ initialEvent: null })
     })
 
     it('handles an empty initial event query result', async () => {

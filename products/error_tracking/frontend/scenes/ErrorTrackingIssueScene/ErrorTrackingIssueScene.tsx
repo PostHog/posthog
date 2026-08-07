@@ -255,7 +255,9 @@ const RightHandColumn = ({
     isOpen: boolean
     onClose: () => void
 }): JSX.Element | null => {
-    const { issue, issueLoading, selectedEvent, initialEventLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { issue, issueLoading, selectedEvent, initialEventLoading, detailError } =
+        useValues(errorTrackingIssueSceneLogic)
+    const { retryDetailLoad } = useActions(errorTrackingIssueSceneLogic)
     const tagRenderer = useErrorTagRenderer()
 
     if (isMobile && !isOpen) {
@@ -286,6 +288,8 @@ const RightHandColumn = ({
                     issueId={issue?.id ?? 'no-issue'}
                     issueName={issue?.name ?? null}
                     loading={issueLoading || initialEventLoading}
+                    error={!initialEventLoading && !selectedEvent ? detailError : null}
+                    onRetry={retryDetailLoad}
                     event={selectedEvent ?? undefined}
                     label={tagRenderer(selectedEvent)}
                     hideEventMeta={isMobile}
