@@ -641,10 +641,11 @@ describe('taskRunStreamLogic transport', () => {
         })
 
         it('carries the PR url through a server-reported completion', async () => {
-            // The regression the reconcileCloudRun docstring is worried about: a completion the
-            // client never watched live must still render its PR link, not a bare "done" with no
-            // handoff. The thin reconcile payload has no output field, so this only works if the
-            // settle goes through the run's REST detail rather than synthesizing state from it.
+            // Pins WHERE the settle reads from, not which status it handles. The reconcile payload
+            // carries no output field, so building state from it would still pass the terminal test
+            // above (the status is right either way) while silently dropping the PR link. That is
+            // the regression the reconcileCloudRun docstring is worried about, and this is the only
+            // test that catches it. Do not delete it as redundant with the terminal case.
             mockRunRetrieve.mockResolvedValue(
                 runDetail({
                     status: 'completed',

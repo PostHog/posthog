@@ -356,12 +356,18 @@ describe('activeCloudRunLogic', () => {
         })
 
         describe('serverReportedRun', () => {
-            it('publishes a non-terminal status while keeping the tracked handle', async () => {
-                // Guards against over-correcting: a live-run answer must not read as terminal news.
+            // Neither direction covers the other. Publishing only on a terminal status would leave
+            // taskRunStreamLogic unable to tell "still running" from "no answer yet", and clearing
+            // the handle on a terminal one would drop the finished-run handoff (completion card, PR
+            // link) before the user dismissed it. taskRunStreamLogic acts on what is published here.
+            it.each([
+                ['a live run', 'in_progress'],
+                ['a finished run', 'failed'],
+            ])('publishes the server status for %s while keeping the tracked handle', async (_name, status) => {
                 mockActiveWizardRun.mockResolvedValue({
                     task_id: 'task-1',
                     run_id: 'run-1',
-                    status: 'in_progress',
+                    status,
                     started_at: RUN_STARTED_AT,
                 })
                 logic = activeCloudRunLogic()
@@ -370,26 +376,7 @@ describe('activeCloudRunLogic', () => {
                 await expectLogic(logic).toDispatchActions(['hydrateFromServer'])
 
                 expect(logic.values.activeCloudRun).toMatchObject({ taskId: 'task-1', runId: 'run-1' })
-                expect(logic.values.serverReportedRun).toEqual({ runId: 'run-1', status: 'in_progress' })
-            })
-
-            it('publishes a terminal status without clearing the handle', async () => {
-                // The handle must survive a terminal answer: clearing it here would drop the
-                // finished-run handoff (completion card, PR link) before the user dismissed it.
-                // taskRunStreamLogic is what acts on the terminal status published here.
-                mockActiveWizardRun.mockResolvedValue({
-                    task_id: 'task-1',
-                    run_id: 'run-1',
-                    status: 'failed',
-                    started_at: RUN_STARTED_AT,
-                })
-                logic = activeCloudRunLogic()
-                logic.mount()
-                logic.actions.setActiveCloudRun('task-1', 'run-1', RUN_STARTED_AT, MOCK_TEAM_ID)
-                await expectLogic(logic).toDispatchActions(['hydrateFromServer'])
-
-                expect(logic.values.activeCloudRun).not.toBeNull()
-                expect(logic.values.serverReportedRun).toEqual({ runId: 'run-1', status: 'failed' })
+                expect(logic.values.serverReportedRun).toEqual({ runId: 'run-1', status })
             })
 
             it('publishes a terminal status for a run adopted from the server', async () => {
