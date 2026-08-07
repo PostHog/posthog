@@ -94,8 +94,7 @@ export const dashboardExportNudgeLogic = kea<dashboardExportNudgeLogicType>([
         loadFreeTierSubscriptionCountFailure: ({ error, errorObject }) => {
             // A failed count check silently excludes a free-tier user (fail closed) — capture it so
             // the readout can tell that apart from genuinely being at the limit.
-            posthog.capture('dashboard export nudge check failed', {
-                step: 'limit',
+            captureExportNudgeCheckFailed('limit', {
                 error_name: errorObject?.name,
                 error_status: errorObject?.status,
                 error_message: error,
@@ -103,6 +102,17 @@ export const dashboardExportNudgeLogic = kea<dashboardExportNudgeLogicType>([
         },
     })),
 ])
+
+/**
+ * Every way the eligibility check can come back empty other than the user being ineligible, under
+ * one event so the readout can tell the modes apart by `step`.
+ */
+export function captureExportNudgeCheckFailed(
+    step: 'limit' | 'check' | 'timeout',
+    properties: Record<string, unknown> = {}
+): void {
+    posthog.capture('dashboard export nudge check failed', { step, ...properties })
+}
 
 /** A dashboard whose exporter cleared every eligibility check except the experiment flag. */
 export interface ExportNudgeCandidate {
@@ -174,9 +184,8 @@ async function fetchHasExistingSubscription(dashboardId: number): Promise<boolea
     try {
         return await fetchHasSubscriptionForDashboard(dashboardId)
     } catch (error: any) {
-        posthog.capture('dashboard export nudge check failed', {
+        captureExportNudgeCheckFailed('check', {
             dashboard_id: dashboardId,
-            step: 'check',
             error_name: error?.name,
             error_status: error?.status,
             error_message: error?.message ?? String(error),

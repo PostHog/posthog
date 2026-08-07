@@ -29,6 +29,7 @@ jest.mock('./exporter', () => ({
 // The eligibility rules themselves are covered by dashboardExportNudgeLogic's tests.
 jest.mock('scenes/dashboard/dashboardExportNudgeLogic', () => ({
     resolveExportNudgeEligibility: jest.fn(async () => null),
+    captureExportNudgeCheckFailed: jest.fn(),
 }))
 jest.mock('scenes/dashboard/DashboardExportNudgeToast', () => ({
     claimExportNudgeMessage: jest.fn(() => null),

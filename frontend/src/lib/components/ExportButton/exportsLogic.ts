@@ -7,10 +7,14 @@ import api from 'lib/api'
 import { TriggerExportProps, downloadBlob, downloadExportedAsset } from 'lib/components/ExportButton/exporter'
 import { isLongRunningExportFormat } from 'lib/components/ExportButton/exportStatus'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { delay, withTimeout } from 'lib/utils/async'
+import { PromiseTimeoutError, delay, withTimeout } from 'lib/utils/async'
 import { uuid } from 'lib/utils/dom'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { ExportNudgeCandidate, resolveExportNudgeEligibility } from 'scenes/dashboard/dashboardExportNudgeLogic'
+import {
+    ExportNudgeCandidate,
+    captureExportNudgeCheckFailed,
+    resolveExportNudgeEligibility,
+} from 'scenes/dashboard/dashboardExportNudgeLogic'
 import { ExportNudgeRenderer, claimExportNudgeMessage } from 'scenes/dashboard/DashboardExportNudgeToast'
 import type { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
@@ -85,7 +89,14 @@ const settleNudgeCandidate = async (
     if (!candidate) {
         return null
     }
-    return await withTimeout(candidate, NUDGE_RESOLUTION_TIMEOUT_MS).catch(() => null)
+    return await withTimeout(candidate, NUDGE_RESOLUTION_TIMEOUT_MS).catch((error) => {
+        if (error instanceof PromiseTimeoutError) {
+            // Every other failure reports its own step, so without this one a stalled check is
+            // indistinguishable from an exporter who was simply ineligible.
+            captureExportNudgeCheckFailed('timeout')
+        }
+        return null
+    })
 }
 
 // A nudge asks for a decision, so it stays up until dismissed.

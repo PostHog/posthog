@@ -2,7 +2,10 @@ import { act, cleanup, render, screen } from '@testing-library/react'
 import { ToastContainer, toast } from 'react-toastify'
 
 import api from 'lib/api'
-import { resolveExportNudgeEligibility } from 'scenes/dashboard/dashboardExportNudgeLogic'
+import {
+    captureExportNudgeCheckFailed,
+    resolveExportNudgeEligibility,
+} from 'scenes/dashboard/dashboardExportNudgeLogic'
 import { claimExportNudgeMessage } from 'scenes/dashboard/DashboardExportNudgeToast'
 
 import { initKeaTests } from '~/test/init'
@@ -16,6 +19,7 @@ jest.mock('./exporter', () => ({
 }))
 jest.mock('scenes/dashboard/dashboardExportNudgeLogic', () => ({
     resolveExportNudgeEligibility: jest.fn(async () => null),
+    captureExportNudgeCheckFailed: jest.fn(),
 }))
 jest.mock('scenes/dashboard/DashboardExportNudgeToast', () => ({
     claimExportNudgeMessage: jest.fn(),
@@ -85,6 +89,9 @@ describe('export completion toast', () => {
         expect(screen.getByText('Export complete!')).toBeTruthy()
         // The export finished, so leaving its spinner up strands the user on "Preparing export…".
         expect(screen.queryByText('Preparing export…')).toBeNull()
+        // A stall reports its own step, otherwise the readout cannot tell it from an exporter who
+        // was simply ineligible.
+        expect(captureExportNudgeCheckFailed).toHaveBeenCalledWith('timeout')
     })
 
     it('keeps one toast carrying the nudge from the wait through to completion', async () => {
