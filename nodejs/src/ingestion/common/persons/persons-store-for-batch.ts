@@ -45,7 +45,7 @@ export interface PersonsStoreTransactionForBatch {
     claimLifecycleMarks(opId: string, teamId: number, persons: LifecycleMarkPerson[], distinctId: string): Promise<void>
 
     /** Releases a merge's lifecycle marks; same transaction as the claim. */
-    releaseLifecycleMarks(opId: string, distinctId: string): Promise<void>
+    releaseLifecycleMarks(opId: string, teamId: number, distinctId: string): Promise<void>
 
     /** Whether the person is live; only meaningful while holding its lifecycle mark. */
     isPersonLive(person: InternalPerson, distinctId: string): Promise<boolean>
@@ -251,8 +251,8 @@ class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactionForBat
         return this.tx.claimLifecycleMarks(opId, teamId, persons, distinctId)
     }
 
-    releaseLifecycleMarks(opId: string, distinctId: string): Promise<void> {
-        return this.tx.releaseLifecycleMarks(opId, distinctId)
+    releaseLifecycleMarks(opId: string, teamId: number, distinctId: string): Promise<void> {
+        return this.tx.releaseLifecycleMarks(opId, teamId, distinctId)
     }
 
     isPersonLive(person: InternalPerson, distinctId: string): Promise<boolean> {
@@ -486,8 +486,13 @@ export class BatchBoundPersonsStore implements PersonsStoreForBatch {
         return this.store.claimLifecycleMarks(opId, teamId, persons, distinctId, tx)
     }
 
-    releaseLifecycleMarks(opId: string, distinctId: string, tx?: PersonRepositoryTransaction): Promise<void> {
-        return this.store.releaseLifecycleMarks(opId, distinctId, tx)
+    releaseLifecycleMarks(
+        opId: string,
+        teamId: number,
+        distinctId: string,
+        tx?: PersonRepositoryTransaction
+    ): Promise<void> {
+        return this.store.releaseLifecycleMarks(opId, teamId, distinctId, tx)
     }
 
     isPersonLive(person: InternalPerson, distinctId: string, tx?: PersonRepositoryTransaction): Promise<boolean> {

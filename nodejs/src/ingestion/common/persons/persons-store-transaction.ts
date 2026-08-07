@@ -91,8 +91,8 @@ export class PersonsStoreTransaction {
         return await this.store.claimLifecycleMarks(opId, teamId, persons, distinctId, this.tx)
     }
 
-    async releaseLifecycleMarks(opId: string, distinctId: string): Promise<void> {
-        return await this.store.releaseLifecycleMarks(opId, distinctId, this.tx)
+    async releaseLifecycleMarks(opId: string, teamId: number, distinctId: string): Promise<void> {
+        return await this.store.releaseLifecycleMarks(opId, teamId, distinctId, this.tx)
     }
 
     async isPersonLive(person: InternalPerson, distinctId: string): Promise<boolean> {

@@ -967,15 +967,17 @@ export class PostgresPersonRepository
         }
     }
 
-    async releaseLifecycleMarks(opId: string, tx?: TransactionClient): Promise<void> {
+    async releaseLifecycleMarks(opId: string, teamId: number, tx?: TransactionClient): Promise<void> {
         // lifecycle_op_person rows go with the header via ON DELETE CASCADE. Running in
         // the claiming transaction means committed state never contains this merge's
         // marks: a concurrent claimant blocked on the index proceeds the moment we
         // commit, and the delete saga's sweeper never sees an ingestion op to resume.
+        // The team and op-type guards keep a caller bug or op-id collision from ever
+        // deleting another team's op or a delete saga's.
         await this.postgres.query(
             tx ?? PostgresUse.PERSONS_WRITE,
-            'DELETE FROM lifecycle_op WHERE op_id = $1',
-            [opId],
+            `DELETE FROM lifecycle_op WHERE op_id = $1 AND team_id = $2 AND op_type = 'merge'`,
+            [opId, teamId],
             'releaseLifecycleMarks'
         )
     }

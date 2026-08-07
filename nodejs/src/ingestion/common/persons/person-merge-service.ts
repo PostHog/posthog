@@ -325,7 +325,7 @@ export class PersonMergeService {
                 const kafkaMessages = await tx.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion)
                 await this.context.produceMessages(kafkaMessages)
                 if (this.context.mergeTombstoneEnabled) {
-                    await tx.releaseLifecycleMarks(lifecycleOpId, this.context.distinctId)
+                    await tx.releaseLifecycleMarks(lifecycleOpId, this.context.team.id, this.context.distinctId)
                 }
                 return mergeSuccess(existingPerson, Promise.resolve(), true)
             })
@@ -710,7 +710,7 @@ export class PersonMergeService {
                 }
 
                 if (this.context.mergeTombstoneEnabled) {
-                    await tx.releaseLifecycleMarks(lifecycleOpId, this.context.distinctId)
+                    await tx.releaseLifecycleMarks(lifecycleOpId, this.context.team.id, this.context.distinctId)
                 }
                 return [person, [...updateMessages, ...moveResult.messages, ...addMessages, ...deleteMessages]]
             }
@@ -936,7 +936,7 @@ export class PersonMergeService {
 
                     const deletePersonMessages = await tx.deletePerson(currentSourcePerson, this.context.distinctId)
                     if (this.context.mergeTombstoneEnabled) {
-                        await tx.releaseLifecycleMarks(lifecycleOpId, this.context.distinctId)
+                        await tx.releaseLifecycleMarks(lifecycleOpId, this.context.team.id, this.context.distinctId)
                     }
                     return [person, [...updatePersonMessages, ...allDistinctIdMessages, ...deletePersonMessages]]
                 }

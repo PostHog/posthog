@@ -63,8 +63,8 @@ export class PostgresPersonRepositoryTransaction implements PersonRepositoryTran
         return await this.repository.claimLifecycleMarks(opId, teamId, persons, this.transaction)
     }
 
-    async releaseLifecycleMarks(opId: string): Promise<void> {
-        return await this.repository.releaseLifecycleMarks(opId, this.transaction)
+    async releaseLifecycleMarks(opId: string, teamId: number): Promise<void> {
+        return await this.repository.releaseLifecycleMarks(opId, teamId, this.transaction)
     }
 
     async isPersonLive(person: InternalPerson): Promise<boolean> {

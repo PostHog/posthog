@@ -517,7 +517,7 @@ describe('PostgresPersonRepository', () => {
                 ])
                 await expect(countLifecycleRows(opId)).resolves.toEqual({ ops: 1, persons: 1 })
 
-                await repository.releaseLifecycleMarks(opId)
+                await repository.releaseLifecycleMarks(opId, team.id)
                 await expect(countLifecycleRows(opId)).resolves.toEqual({ ops: 0, persons: 0 })
             })
 
@@ -538,7 +538,22 @@ describe('PostgresPersonRepository', () => {
                     ])
                 ).rejects.toThrow(PersonClaimedByLifecycleOpError)
 
-                await repository.releaseLifecycleMarks(sagaOpId)
+                await repository.releaseLifecycleMarks(sagaOpId, team.id)
+            })
+
+            it('release scoped to another team leaves the marks in place', async () => {
+                const team = await getFirstTeam(hub.postgres)
+                const person = await createTestPerson(team.id, 'mark-scoped-did')
+                const opId = new UUIDT().toString()
+                await repository.claimLifecycleMarks(opId, team.id, [
+                    { personId: person.id, personUuid: person.uuid, role: 'target' },
+                ])
+
+                await repository.releaseLifecycleMarks(opId, team.id + 1)
+                await expect(countLifecycleRows(opId)).resolves.toEqual({ ops: 1, persons: 1 })
+
+                await repository.releaseLifecycleMarks(opId, team.id)
+                await expect(countLifecycleRows(opId)).resolves.toEqual({ ops: 0, persons: 0 })
             })
 
             it('a released mark no longer blocks a new claim', async () => {
@@ -548,13 +563,13 @@ describe('PostgresPersonRepository', () => {
                 await repository.claimLifecycleMarks(firstOpId, team.id, [
                     { personId: person.id, personUuid: person.uuid, role: 'target' },
                 ])
-                await repository.releaseLifecycleMarks(firstOpId)
+                await repository.releaseLifecycleMarks(firstOpId, team.id)
 
                 const secondOpId = new UUIDT().toString()
                 await repository.claimLifecycleMarks(secondOpId, team.id, [
                     { personId: person.id, personUuid: person.uuid, role: 'target' },
                 ])
-                await repository.releaseLifecycleMarks(secondOpId)
+                await repository.releaseLifecycleMarks(secondOpId, team.id)
             })
         })
 

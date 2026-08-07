@@ -1414,9 +1414,14 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return await (tx || this.personRepository).claimLifecycleMarks(opId, teamId, persons)
     }
 
-    async releaseLifecycleMarks(opId: string, distinctId: string, tx?: PersonRepositoryTransaction): Promise<void> {
+    async releaseLifecycleMarks(
+        opId: string,
+        teamId: number,
+        distinctId: string,
+        tx?: PersonRepositoryTransaction
+    ): Promise<void> {
         this.incrementDatabaseOperation('releaseLifecycleMarks', distinctId)
-        return await (tx || this.personRepository).releaseLifecycleMarks(opId)
+        return await (tx || this.personRepository).releaseLifecycleMarks(opId, teamId)
     }
 
     async isPersonLive(person: InternalPerson, distinctId: string, tx?: PersonRepositoryTransaction): Promise<boolean> {

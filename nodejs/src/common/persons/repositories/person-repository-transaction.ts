@@ -35,7 +35,7 @@ export interface PersonRepositoryTransaction {
     claimLifecycleMarks(opId: string, teamId: number, persons: LifecycleMarkPerson[]): Promise<void>
 
     /** See PersonRepository.releaseLifecycleMarks. */
-    releaseLifecycleMarks(opId: string): Promise<void>
+    releaseLifecycleMarks(opId: string, teamId: number): Promise<void>
 
     /** See PersonRepository.isPersonLive; only meaningful while holding the person's mark. */
     isPersonLive(person: InternalPerson): Promise<boolean>

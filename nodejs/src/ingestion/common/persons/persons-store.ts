@@ -108,7 +108,12 @@ export interface PersonsStore extends BatchWritingStore<FlushResult> {
     ): Promise<void>
 
     /** Releases a merge's lifecycle marks; same transaction as the claim. */
-    releaseLifecycleMarks(opId: string, distinctId: string, tx?: PersonRepositoryTransaction): Promise<void>
+    releaseLifecycleMarks(
+        opId: string,
+        teamId: number,
+        distinctId: string,
+        tx?: PersonRepositoryTransaction
+    ): Promise<void>
 
     /** Whether the person is live; only meaningful while holding its lifecycle mark. */
     isPersonLive(person: InternalPerson, distinctId: string, tx?: PersonRepositoryTransaction): Promise<boolean>

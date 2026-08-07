@@ -224,8 +224,8 @@ export class PersonHogPersonRepository implements PersonRepository {
         return this.postgres.claimLifecycleMarks(opId, teamId, persons)
     }
 
-    releaseLifecycleMarks(opId: string): Promise<void> {
-        return this.postgres.releaseLifecycleMarks(opId)
+    releaseLifecycleMarks(opId: string, teamId: number): Promise<void> {
+        return this.postgres.releaseLifecycleMarks(opId, teamId)
     }
 
     isPersonLive(person: InternalPerson): Promise<boolean> {

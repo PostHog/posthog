@@ -207,7 +207,7 @@ export interface PersonRepository {
     claimLifecycleMarks(opId: string, teamId: number, persons: LifecycleMarkPerson[]): Promise<void>
 
     /** Releases a merge's lifecycle marks; must run in the same transaction as the claim. */
-    releaseLifecycleMarks(opId: string): Promise<void>
+    releaseLifecycleMarks(opId: string, teamId: number): Promise<void>
 
     /**
      * Whether the person row exists and is not tombstoned. Only meaningful while the

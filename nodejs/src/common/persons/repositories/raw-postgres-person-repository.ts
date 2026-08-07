@@ -69,7 +69,7 @@ export interface RawPostgresPersonRepository {
     ): Promise<void>
 
     /** See PersonRepository.releaseLifecycleMarks. */
-    releaseLifecycleMarks(opId: string, tx?: TransactionClient): Promise<void>
+    releaseLifecycleMarks(opId: string, teamId: number, tx?: TransactionClient): Promise<void>
 
     /** See PersonRepository.isPersonLive. */
     isPersonLive(person: InternalPerson, tx?: TransactionClient): Promise<boolean>
