@@ -332,6 +332,8 @@ class TestRejectSerdeUnsafeFilters(SimpleTestCase):
             ("property_key_bool", {"groups": [{"properties": [{"key": True, "type": "person"}]}]}),
             ("property_key_list", {"groups": [{"properties": [{"key": [], "type": "person"}]}]}),
             ("multivariate_not_dict", {"multivariate": []}),
+            ("multivariate_variants_missing", {"multivariate": {}}),
+            ("multivariate_variants_null", {"multivariate": {"variants": None}}),
             ("variants_not_list", {"multivariate": {"variants": {}}}),
             ("variant_not_dict", {"multivariate": {"variants": ["x"]}}),
             ("variant_rollout_null", {"multivariate": {"variants": [{"key": "a", "rollout_percentage": None}]}}),

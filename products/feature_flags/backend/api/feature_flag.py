@@ -962,6 +962,8 @@ def _reject_serde_unsafe_filters(filters: Any) -> None:
         raise serializers.ValidationError(
             f"multivariate must be a dictionary or null, got {type(multivariate).__name__}"
         )
+    if isinstance(multivariate, dict) and multivariate.get("variants") is None:
+        raise serializers.ValidationError("multivariate.variants must be a list")
     variants = (multivariate or {}).get("variants")
     variants = [] if variants is None else variants
     if not isinstance(variants, list):
