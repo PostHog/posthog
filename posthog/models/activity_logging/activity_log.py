@@ -510,12 +510,14 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "referenced_table_names",
     ],
     "DataQualityCheck": [
-        # Written by the runner and the scheduler, not by a person editing the check.
+        # Written by the runner, not by a person editing the check.
         "last_run_at",
         "last_status",
-        "next_run_at",
         "subject_name",
         "subject_status",
+        # Subject FKs are immutable after create and not JSON-serializable for the change detail.
+        "saved_query",
+        "table",
     ],
     "Loop": [
         # FK relations are not JSON-serializable for the change detail (same reason

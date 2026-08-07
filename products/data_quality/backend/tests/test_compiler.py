@@ -211,8 +211,6 @@ class TestCheckSerialization:
             "severity": "warn",
             "enabled": False,
             "tags": ["finance"],
-            "run_on_materialization": False,
-            "schedule_interval_minutes": 30,
         }
         entry = to_config_entry(check)
         assert to_config_entry(from_config_entry(entry)) == entry

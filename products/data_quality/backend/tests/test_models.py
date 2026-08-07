@@ -11,13 +11,13 @@ from products.data_quality.backend.models import DataQualityCheck, DataQualityCh
 class TestDataQualityModels(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.subject_uuid = uuid4()
+        self.saved_query_id = uuid4()
 
     def _create_check(self, **kwargs) -> DataQualityCheck:
         defaults = {
             "team": self.team,
             "subject_type": SubjectType.VIEW,
-            "subject_uuid": self.subject_uuid,
+            "saved_query_id": self.saved_query_id,
             "subject_name": "orders",
             "check_type": CheckType.NOT_NULL,
             "column_name": "customer_id",
@@ -29,16 +29,32 @@ class TestDataQualityModels(BaseTest):
         self._create_check()
         with self.assertRaises(IntegrityError), transaction.atomic():
             self._create_check()
-        other_subject = self._create_check(subject_uuid=uuid4(), subject_name="refunds")
+        other_subject = self._create_check(saved_query_id=uuid4(), subject_name="refunds")
         assert other_subject.pk is not None
+        table_subject = self._create_check(
+            saved_query_id=None, table_id=uuid4(), subject_type=SubjectType.TABLE, subject_name="stripe_charges"
+        )
+        assert table_subject.pk is not None
+
+    def test_orphaned_checks_escape_fingerprint_uniqueness(self) -> None:
+        # SET_NULL orphaning must never be blocked by the constraint, even for twin fingerprints.
+        self._create_check(saved_query_id=None)
+        second = self._create_check(saved_query_id=None)
+        assert second.pk is not None
+
+    def test_subject_binding_rejects_contradictory_rows(self) -> None:
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self._create_check(table_id=uuid4())
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self._create_check(subject_type=SubjectType.TABLE)
 
     def test_blank_names_coexist_but_set_names_are_unique(self) -> None:
         self._create_check()
-        self._create_check(subject_uuid=uuid4(), subject_name="refunds")
+        self._create_check(saved_query_id=uuid4(), subject_name="refunds")
 
-        self._create_check(subject_uuid=uuid4(), subject_name="shipments", name="orders_customer_id_not_null")
+        self._create_check(saved_query_id=uuid4(), subject_name="shipments", name="orders_customer_id_not_null")
         with self.assertRaises(IntegrityError), transaction.atomic():
-            self._create_check(subject_uuid=uuid4(), subject_name="returns", name="orders_customer_id_not_null")
+            self._create_check(saved_query_id=uuid4(), subject_name="returns", name="orders_customer_id_not_null")
 
     def test_run_history_survives_deleting_the_definition(self) -> None:
         check = self._create_check()
@@ -50,7 +66,7 @@ class TestDataQualityModels(BaseTest):
             quality_check=check,
             suite_run=suite_run,
             subject_type=SubjectType.VIEW,
-            subject_uuid=self.subject_uuid,
+            subject_uuid=self.saved_query_id,
             subject_name="orders",
             check_type=CheckType.NOT_NULL,
             check_fingerprint=check.fingerprint,

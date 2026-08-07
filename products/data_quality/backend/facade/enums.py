@@ -61,18 +61,23 @@ class SuiteRunStatus(StrEnum):
 
 
 class SuiteRunTrigger(StrEnum):
-    """What started a suite run."""
+    """What started a suite run.
+
+    Every automatic trigger is an event on the subject's own data -- a materialization or a source
+    sync completing. Checks have no independent schedule.
+    """
 
     MANUAL = "manual"
-    SCHEDULE = "schedule"
     MATERIALIZATION = "materialization"
+    SOURCE_SYNC = "source_sync"
 
 
 class SubjectType(StrEnum):
     """Kind of catalog object a check targets.
 
-    References are loose ``(subject_type, subject_uuid, subject_name)`` tuples rather than foreign
-    keys, because subjects live in other products and Django models must not cross that boundary.
+    On the check itself the subject is a foreign key (``saved_query`` for views, ``table`` for
+    warehouse tables); run history denormalizes it as loose ``(subject_type, subject_uuid, name)``
+    tuples so it outlives hard deletes.
     """
 
     TABLE = "table"

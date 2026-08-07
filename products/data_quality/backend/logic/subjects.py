@@ -1,8 +1,9 @@
-"""Resolve a loose ``(subject_type, subject_uuid)`` reference to something queryable.
+"""Resolve a check's subject id to something queryable.
 
-Subjects live in other products, so there is no foreign key to lean on. Integrity is app-layer:
-resolve through the owning product's facade, mark unresolvable subjects orphaned, and refresh the
-denormalized name on every run so renames self-heal.
+The check row carries the subject as a foreign key (``saved_query`` or ``table``); resolution still
+goes through the owning product's facade rather than traversing the FK, so model instances never
+cross the product boundary. A subject that no longer resolves marks the check orphaned, and the
+denormalized name is refreshed on every run so renames self-heal.
 """
 
 from uuid import UUID

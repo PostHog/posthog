@@ -6,7 +6,9 @@ files and read them back: the DB stays the source of truth, files are a projecti
 
 The fingerprint is the identity agents author against -- re-creating a semantically identical check
 upserts instead of duplicating -- so it must depend only on what the check *asserts*, never on
-presentation (name, description, tags, owner) or scheduling.
+presentation (name, description, tags, owner). ``subject_uuid`` here is the id of whichever subject
+FK the check carries (saved query or table); the file format keeps the loose pair so it stays
+portable.
 """
 
 import json
@@ -38,8 +40,6 @@ class CheckConfigEntry(BaseModel):
     severity: CheckSeverity = CheckSeverity.ERROR
     enabled: bool = True
     tags: list[str] = Field(default_factory=list)
-    run_on_materialization: bool = True
-    schedule_interval_minutes: int | None = None
 
 
 def to_config_entry(check: dict[str, Any]) -> dict[str, Any]:

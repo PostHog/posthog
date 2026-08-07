@@ -22,7 +22,7 @@ class DataQualitySuiteRun(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFie
     trigger = models.CharField(
         max_length=32,
         choices=[(t.value, t.value) for t in SuiteRunTrigger],
-        help_text="What started this run: manual, schedule, or materialization.",
+        help_text="What started this run: manual, materialization, or source_sync.",
     )
     status = models.CharField(
         max_length=16,

@@ -1,3 +1,5 @@
+import uuid
+
 from django.core.validators import RegexValidator
 from django.db import models
 
@@ -27,8 +29,19 @@ class DataQualityCheck(
     identical check upserts instead of duplicating), and it is also the stable identity a git-synced
     config file would round-trip against.
 
+    The subject is one of two foreign keys -- ``saved_query`` (views and matviews) or ``table``
+    (warehouse source tables) -- and never both. The data modeling Node for a subject is resolved at
+    trigger time rather than referenced here: node rows are per-DAG structural records that DAG sync
+    deletes and recreates, so they cannot anchor a check's identity, and a table in no DAG has no
+    node at all. A hard-deleted subject nulls its FK (the check turns ``orphaned`` and is skipped);
+    orphaned checks fall outside the partial fingerprint constraints, so duplicate-fingerprint
+    orphans are possible and harmless.
+
     ``last_status`` / ``last_run_at`` are denormalized from the newest ``DataQualityCheckRun`` so
     per-subject health is a single indexed read rather than a correlated subquery over run history.
+
+    Checks carry no cadence: they run when their subject's data changes (a sync completes, a
+    materialization runs) or on demand, never on a timer of their own.
     """
 
     # db_constraint=False on FKs to hot tables (posthog_team, posthog_user): a real FK constraint
@@ -59,9 +72,26 @@ class DataQualityCheck(
     subject_type = models.CharField(
         max_length=32,
         choices=[(t.value, t.value) for t in SubjectType],
-        help_text="Kind of catalog object being checked: table or view.",
+        help_text="Kind of catalog object being checked: table or view. Kept so orphaned checks stay readable.",
     )
-    subject_uuid = models.UUIDField(help_text="Id of the subject in its owning product. Not a foreign key.")
+    saved_query = models.ForeignKey(
+        "data_modeling.DataWarehouseSavedQuery",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        related_name="+",
+        help_text="The view or matview this check audits. Exclusive with table.",
+    )
+    table = models.ForeignKey(
+        "warehouse_sources.DataWarehouseTable",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        related_name="+",
+        help_text="The warehouse source table this check audits. Exclusive with saved_query.",
+    )
     subject_name = models.CharField(
         max_length=400,
         help_text="Queryable name of the subject, refreshed on every run so renames self-heal.",
@@ -97,19 +127,6 @@ class DataQualityCheck(
     enabled = models.BooleanField(default=True, help_text="Disabled checks are never run by any trigger.")
     tags = models.JSONField(default=list, blank=True, help_text="Free-form labels for grouping and filtering.")
 
-    run_on_materialization = models.BooleanField(
-        default=True,
-        help_text="Run this check after its view materializes. Never delays or fails the materialization.",
-    )
-    schedule_interval_minutes = models.IntegerField(
-        null=True,
-        blank=True,
-        help_text="Independent cadence in minutes. Null means no schedule of its own.",
-    )
-    next_run_at = models.DateTimeField(
-        null=True, blank=True, help_text="When the due-checks scanner should next pick this check up."
-    )
-
     last_run_at = models.DateTimeField(null=True, blank=True, help_text="When the check last executed.")
     last_status = models.CharField(
         max_length=16,
@@ -135,9 +152,26 @@ class DataQualityCheck(
 
     class Meta:
         constraints = [
+            # The subject invariant: at most one FK set, and subject_type must match the FK that is.
+            # Both FKs null is the orphaned state.
+            models.CheckConstraint(
+                name="quality_check_subject_binding",
+                condition=(
+                    ~models.Q(saved_query__isnull=False, table__isnull=False)
+                    & ~models.Q(saved_query__isnull=False, subject_type=SubjectType.TABLE)
+                    & ~models.Q(table__isnull=False, subject_type=SubjectType.VIEW)
+                ),
+            ),
+            # Partial per FK: orphaned checks (both FKs null) are exempt on purpose.
             models.UniqueConstraint(
-                fields=["team", "subject_type", "subject_uuid", "fingerprint"],
-                name="unique_quality_check_fingerprint",
+                fields=["team", "saved_query", "fingerprint"],
+                condition=models.Q(saved_query__isnull=False),
+                name="unique_quality_check_fp_view",
+            ),
+            models.UniqueConstraint(
+                fields=["team", "table", "fingerprint"],
+                condition=models.Q(table__isnull=False),
+                name="unique_quality_check_fp_table",
             ),
             # Partial: a blank name is the "address me by id" case, and many checks share it.
             models.UniqueConstraint(
@@ -147,13 +181,22 @@ class DataQualityCheck(
             ),
         ]
         indexes = [
-            models.Index(fields=["team", "subject_type", "subject_uuid"]),
             models.Index(
-                fields=["next_run_at"],
-                condition=models.Q(enabled=True) & models.Q(deleted=False),
-                name="quality_check_due_idx",
+                fields=["team", "saved_query"],
+                condition=models.Q(saved_query__isnull=False),
+                name="quality_check_saved_query_idx",
+            ),
+            models.Index(
+                fields=["team", "table"],
+                condition=models.Q(table__isnull=False),
+                name="quality_check_table_idx",
             ),
         ]
+
+    @property
+    def subject_uuid(self) -> "uuid.UUID | None":
+        """Id of whichever subject FK is set; None once orphaned."""
+        return self.saved_query_id or self.table_id
 
     def __str__(self) -> str:
         return self.name or f"{self.check_type} on {self.subject_name}"
