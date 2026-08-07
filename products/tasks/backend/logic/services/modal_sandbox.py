@@ -1378,6 +1378,8 @@ class ModalSandbox(SandboxBase):
             raise RuntimeError("Sandbox not in running state.")
 
         if self._agent_server_is_healthy():
+            if wait_for_health:
+                self.wait_for_agent_server_ready(allowed_domains)
             logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")
             return
         self._free_agent_server_port()
@@ -1465,6 +1467,12 @@ class ModalSandbox(SandboxBase):
 
     def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None:
         if self._wait_for_health_check():
+            if allowed_domains is not None and not self._agentsh_daemon_is_healthy():
+                raise SandboxExecutionError(
+                    "Failed to verify agentsh network enforcement",
+                    {"sandbox_id": self.id},
+                    cause=RuntimeError("agentsh daemon health check failed"),
+                )
             logger.info(f"Agent-server ready in sandbox {self.id}")
             return
         diagnostics = self._diagnose_startup_failure(allowed_domains)

@@ -768,6 +768,7 @@ class TestModalSandboxAgentServer:
 
         with (
             patch.object(mock_sandbox, "_agent_server_is_healthy", return_value=True),
+            patch.object(mock_sandbox, "wait_for_agent_server_ready") as wait_for_ready,
             patch.object(mock_sandbox, "_free_agent_server_port") as mock_free,
         ):
             mock_sandbox.start_agent_server(
@@ -775,10 +776,20 @@ class TestModalSandboxAgentServer:
                 task_id="task-123",
                 run_id="run-456",
                 mode="background",
+                allowed_domains=["example.com"],
             )
 
+        wait_for_ready.assert_called_once_with(["example.com"])
         mock_free.assert_not_called()
         mock_sandbox.execute.assert_not_called()
+
+    def test_wait_for_agent_server_ready_rejects_unhealthy_agentsh(self, mock_sandbox: Any):
+        with (
+            patch.object(mock_sandbox, "_wait_for_health_check", return_value=True),
+            patch.object(mock_sandbox, "_agentsh_daemon_is_healthy", return_value=False),
+        ):
+            with pytest.raises(SandboxExecutionError, match="Failed to verify agentsh network enforcement"):
+                mock_sandbox.wait_for_agent_server_ready(["example.com"])
 
     def test_start_agent_server_frees_port_before_relaunch(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
