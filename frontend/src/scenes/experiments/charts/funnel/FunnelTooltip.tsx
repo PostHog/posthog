@@ -25,15 +25,9 @@ interface FunnelTooltipProps {
     stepIndex: number
     series: FunnelStepWithConversionMetrics
     embedded?: boolean
-    hasSessionData?: boolean
 }
 
-function FunnelTooltipContent({
-    stepIndex,
-    series,
-    embedded = false,
-    hasSessionData = false,
-}: FunnelTooltipProps): JSX.Element {
+function FunnelTooltipContent({ stepIndex, series, embedded = false }: FunnelTooltipProps): JSX.Element {
     return (
         <div
             className={clsx('FunnelTooltip InsightTooltip', {
@@ -93,24 +87,16 @@ function FunnelTooltipContent({
                     )}
                 </tbody>
             </table>
-            {hasSessionData && (
-                <>
-                    <LemonDivider className="my-2" />
-                    <ClickToInspectActors groupTypeLabel="persons" />
-                </>
-            )}
+
+            <LemonDivider className="my-2" />
+            <ClickToInspectActors groupTypeLabel="persons" />
         </div>
     )
 }
 
 export function useFunnelTooltip(): {
     vizRef: React.RefObject<HTMLDivElement>
-    showTooltip: (
-        rect: [number, number, number],
-        stepIndex: number,
-        series: FunnelStepWithConversionMetrics,
-        hasSessionData?: boolean
-    ) => void
+    showTooltip: (rect: [number, number, number], stepIndex: number, series: FunnelStepWithConversionMetrics) => void
     hideTooltip: () => void
 } {
     const vizRef = useRef<HTMLDivElement>(null)
@@ -119,18 +105,15 @@ export function useFunnelTooltip(): {
     const [isTooltipShown, setIsTooltipShown] = useState(false)
     const [currentTooltip, setCurrentTooltip] = useState<FunnelTooltipData | null>(null)
     const [tooltipOrigin, setTooltipOrigin] = useState<[number, number, number] | null>(null)
-    const [hasSessionData, setHasSessionData] = useState(false)
 
     const showTooltip = (
         rect: [number, number, number],
         stepIndex: number,
-        series: FunnelStepWithConversionMetrics,
-        hasSessionData: boolean = false
+        series: FunnelStepWithConversionMetrics
     ): void => {
         setIsTooltipShown(true)
         setCurrentTooltip({ stepIndex, series })
         setTooltipOrigin(rect)
-        setHasSessionData(hasSessionData)
     }
 
     const hideTooltip = (): void => {
@@ -147,11 +130,7 @@ export function useFunnelTooltip(): {
 
         if (tooltipOrigin && currentTooltip) {
             tooltipRoot.render(
-                <FunnelTooltipContent
-                    stepIndex={currentTooltip.stepIndex}
-                    series={currentTooltip.series}
-                    hasSessionData={hasSessionData}
-                />
+                <FunnelTooltipContent stepIndex={currentTooltip.stepIndex} series={currentTooltip.series} />
             )
 
             // Put the tooltip to the bottom right of the cursor, but flip to left if tooltip doesn't fit

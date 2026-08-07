@@ -5,7 +5,7 @@ import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { errorTrackingIssueSceneLogic, toErrorTrackingIssueSummary } from './errorTrackingIssueSceneLogic'
 
 const makeFingerprints = (fingerprint: string = 'fp-1'): ErrorTrackingFingerprint[] => [
     { fingerprint, issue_id: 'issue-1', created_at: '2026-01-01T00:00:00Z' },
@@ -31,29 +31,21 @@ describe('errorTrackingIssueSceneLogic', () => {
 
     afterEach(() => logic?.unmount())
 
-    // eventsQueryKey is the kea key of the events table's data source logic: every key change
-    // unmounts and remounts the whole table tree. It used to be uuid() per recompute, so even a
-    // deep-equal fingerprints refetch rebuilt the table. These lock in the key contract both ways.
-    it('keeps eventsQuery and eventsQueryKey stable across deep-equal fingerprint loads', () => {
+    it('keeps the events query stable when the loaded fingerprints change', () => {
         logic.actions.loadIssueFingerprintsSuccess(makeFingerprints())
         const initialQuery = logic.values.eventsQuery
         const initialKey = logic.values.eventsQueryKey
 
-        // Freshly constructed but deep-equal — as a refetch would deliver.
-        logic.actions.loadIssueFingerprintsSuccess(makeFingerprints())
+        logic.actions.loadIssueFingerprintsSuccess(makeFingerprints('fp-2'))
 
         expect(logic.values.eventsQuery).toBe(initialQuery)
         expect(logic.values.eventsQueryKey).toBe(initialKey)
     })
 
-    it.each<[string, (logic: ReturnType<typeof errorTrackingIssueSceneLogic.build>) => void]>([
-        ['fingerprints change', (l) => l.actions.loadIssueFingerprintsSuccess(makeFingerprints('fp-2'))],
-        ['search query changes', (l) => l.actions.setSearchQuery('needle')],
-    ])('changes eventsQueryKey when the %s', (_name, mutate) => {
-        logic.actions.loadIssueFingerprintsSuccess(makeFingerprints())
+    it('changes the events query key when the search query changes', () => {
         const initialKey = logic.values.eventsQueryKey
 
-        mutate(logic)
+        logic.actions.setSearchQuery('needle')
 
         expect(logic.values.eventsQueryKey).not.toBe(initialKey)
     })
@@ -64,6 +56,34 @@ describe('errorTrackingIssueSceneLogic', () => {
         })
             .toDispatchActions(['loadInitialEventSuccess'])
             .toMatchValues({ initialEvent: null })
+    })
+
+    it('keeps stable first and last event IDs in the issue summary', () => {
+        expect(
+            toErrorTrackingIssueSummary({
+                first_seen: '2026-01-01T00:00:00Z',
+                last_seen: '2026-01-02T00:00:00Z',
+                first_event: {
+                    uuid: 'first-event',
+                    distinct_id: 'first-person',
+                    timestamp: '2026-01-01T00:00:00Z',
+                    properties: '{}',
+                },
+                last_event: {
+                    uuid: 'last-event',
+                    distinct_id: 'last-person',
+                    timestamp: '2026-01-02T00:00:00Z',
+                    properties: '{}',
+                },
+                aggregations: { occurrences: 2, sessions: 2, users: 2, volume_buckets: [] },
+            })
+        ).toEqual({
+            first_seen: '2026-01-01T00:00:00Z',
+            last_seen: '2026-01-02T00:00:00Z',
+            first_event_uuid: 'first-event',
+            last_event_uuid: 'last-event',
+            aggregations: { occurrences: 2, sessions: 2, users: 2, volume_buckets: [] },
+        })
     })
 
     // A malformed `timestamp` URL param used to be stored and fed to getNarrowDateRange, where
