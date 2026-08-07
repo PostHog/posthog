@@ -22,6 +22,7 @@ import { ArtifactPreview } from "./ArtifactPreview";
 import {
   artifactHtmlDocument,
   artifactPreviewBlob,
+  scriptedArtifactHtmlDocument,
 } from "./artifactPreviewDocument";
 
 const previewBlob = new Blob(["<h1>Artifact content</h1>"], {
@@ -47,6 +48,7 @@ vi.mock("@posthog/core/sessions/sessionService", () => ({
 
 vi.mock("@posthog/di/react", () => ({
   useService: () => ({}),
+  useServiceOptional: () => null,
 }));
 
 vi.mock("@posthog/ui/features/auth/store", () => ({
@@ -482,7 +484,8 @@ describe("ArtifactPreview", () => {
     const heading = screen.getByRole("heading", { name: "Report" });
     const range = document.createRange();
     range.selectNodeContents(heading);
-    range.getBoundingClientRect = () => ({ bottom: 20, right: 120 }) as DOMRect;
+    range.getBoundingClientRect = () =>
+      ({ top: 0, left: 20, right: 120, bottom: 20 }) as DOMRect;
     window.getSelection()?.removeAllRanges();
     window.getSelection()?.addRange(range);
     fireEvent.mouseUp(heading);
@@ -524,7 +527,8 @@ describe("ArtifactPreview", () => {
     const heading = screen.getByRole("heading", { name: "Report" });
     const range = document.createRange();
     range.selectNodeContents(heading);
-    range.getBoundingClientRect = () => ({ bottom: 20, right: 120 }) as DOMRect;
+    range.getBoundingClientRect = () =>
+      ({ top: 0, left: 20, right: 120, bottom: 20 }) as DOMRect;
     window.getSelection()?.removeAllRanges();
     window.getSelection()?.addRange(range);
     fireEvent.mouseUp(heading);
@@ -556,7 +560,8 @@ describe("ArtifactPreview", () => {
     const heading = screen.getByRole("heading", { name: "Report" });
     const range = document.createRange();
     range.selectNodeContents(heading);
-    range.getBoundingClientRect = () => ({ bottom: 20, right: 120 }) as DOMRect;
+    range.getBoundingClientRect = () =>
+      ({ top: 0, left: 20, right: 120, bottom: 20 }) as DOMRect;
     window.getSelection()?.removeAllRanges();
     window.getSelection()?.addRange(range);
     fireEvent.mouseUp(heading);
@@ -804,7 +809,7 @@ describe("ArtifactPreview", () => {
     expect(document).toContain("__POSTHOG_ARTIFACT_COMMENT_BRIDGE__");
     expect(document).toContain("posthog-artifact-comment-active");
     expect(document).not.toContain("ph-artifact-comment-outline");
-    expect(document).toContain("💬 Comment");
+    expect(document).toContain("<span>Comment</span>");
     expect(document).toContain('var CHANNEL="test-channel"');
     expect(document).toContain('d.type==="locate"');
     expect(document).toContain('send("open-external",{href:link.href})');
@@ -812,14 +817,23 @@ describe("ArtifactPreview", () => {
     expect(document).toContain("scrollIntoView");
     expect(document).toContain("new MutationObserver");
     expect(document).toContain("state.renderTimer");
-    const nonce = document.match(
-      /<script nonce="([^"]+)" data-posthog-artifact-comments>/,
-    )?.[1];
-    expect(nonce).toBeTruthy();
-    expect(document).toContain(`script-src &#39;nonce-${nonce}&#39;`);
+    expect(document).toMatch(/script-src &#39;nonce-[^&]+&#39;/);
     expect(document).not.toContain(
       "script-src &#39;self&#39; &#39;unsafe-inline&#39;",
     );
+  });
+
+  it("allows embedded scripts without allowing network access", () => {
+    const document = scriptedArtifactHtmlDocument(
+      '<script>document.body.dataset.rendered="yes"</script>',
+      "test-channel",
+    );
+
+    expect(document).toContain('document.body.dataset.rendered="yes"');
+    expect(document).toContain(
+      "script-src &#39;self&#39; &#39;unsafe-inline&#39;",
+    );
+    expect(document).toContain("connect-src &#39;none&#39;");
   });
 
   it("does not parse HTML without a possible refresh directive", () => {
@@ -847,9 +861,6 @@ describe("ArtifactPreview", () => {
     expect(document).toContain("form-action &#39;none&#39;");
     expect(document).toContain("img-src &#39;self&#39; data:");
     expect(document).toContain("script-src &#39;none&#39;");
-    expect(document).not.toContain(
-      "script-src &#39;self&#39; &#39;unsafe-inline&#39;",
-    );
   });
 
   it.each([

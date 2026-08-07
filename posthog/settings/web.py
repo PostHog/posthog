@@ -109,6 +109,7 @@ PRODUCTS_APPS = [
     "products.approvals.backend.apps.ApprovalsConfig",
     "products.pulse.backend.apps.PulseConfig",
     "products.data_catalog.backend.apps.DataCatalogConfig",
+    "products.data_quality.backend.apps.DataQualityConfig",
 ]
 
 INSTALLED_APPS = [

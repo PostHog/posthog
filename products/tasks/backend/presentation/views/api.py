@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, quote, urlparse
 from uuid import UUID
 
 from django.conf import settings
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 
 import pydantic
 import requests as http_requests
@@ -840,6 +840,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=WarmTaskResponseSerializer,
                 description="Warm Run provisioned (`task_id`/`run_id` to activate on submit), or an empty body when the feature is off, capped, or the integration didn't resolve.",
             ),
+            429: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
+            ),
         },
         summary="Warm a task sandbox",
         description=(
@@ -860,16 +863,20 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if user_id is None:
             return Response(status=status.HTTP_200_OK)
 
-        github_integration_id = tasks_facade.resolve_team_github_integration_id(
-            self.team_id, request.validated_data["github_integration"]
-        )
-        if github_integration_id is None:
-            return Response(status=status.HTTP_200_OK)
+        if limit_response := usage_limit_response(request.user, self.team_id):
+            return limit_response
+
+        github_integration_id = request.validated_data.get("github_integration")
+        if github_integration_id is not None:
+            github_integration_id = tasks_facade.resolve_team_github_integration_id(self.team_id, github_integration_id)
+            if github_integration_id is None:
+                return Response(status=status.HTTP_200_OK)
 
         result = tasks_facade.warm_task_sandbox(
             self.team_id,
             user_id,
-            repository=request.validated_data["repository"],
+            repository=request.validated_data.get("repository"),
+            repositories=request.validated_data.get("repositories"),
             github_integration_id=github_integration_id,
             branch=request.validated_data.get("branch"),
             runtime_adapter=request.validated_data.get("runtime_adapter"),
@@ -1062,6 +1069,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "stream_token",
         "artifacts_presign",
         "artifacts_download",
+        "artifacts_download_by_id",
     )
 
     def _ensure_task_accessible(self) -> str:
@@ -1762,6 +1770,46 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             f'attachment; filename="{os.path.basename(str(artifact.get("name") or "artifact"))}"'
         )
         return response
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "artifact_id",
+                OpenApiTypes.STR,
+                OpenApiParameter.PATH,
+                description="Manifest id of the artifact to download",
+            )
+        ],
+        responses={
+            302: OpenApiResponse(description="Redirect to a short-lived presigned download URL"),
+            400: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="Unable to generate download URL"
+            ),
+            404: OpenApiResponse(description="Artifact not found"),
+        },
+        summary="Download a task run artifact by id",
+        description=(
+            "Redirects to a short-lived presigned URL for the artifact, so callers can share a stable "
+            "link instead of a raw presigned URL."
+        ),
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"artifacts/(?P<artifact_id>[^/]+)/download",
+        required_scopes=["task:read"],
+    )
+    def artifacts_download_by_id(self, request, pk=None, artifact_id=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        url, error = tasks_facade.presign_task_run_artifact_download(pk, task_id, self.team_id, artifact_id=artifact_id)
+        if error == "unavailable":
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Unable to generate download URL"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if url is None:
+            raise NotFound()
+        return HttpResponseRedirect(url)
 
     @extend_schema(
         extensions={"x-product": "logs"},

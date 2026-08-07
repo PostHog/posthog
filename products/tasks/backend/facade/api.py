@@ -32,12 +32,14 @@ from django.db import IntegrityError, transaction
 from django.db.models import CharField, Count, Exists, F, Func, Min, OuterRef, Q, QuerySet, Subquery
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone as django_timezone
+from django.utils.http import content_disposition_header
 
 import posthoganalytics
 
 from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.integration import Integration
+from posthog.utils import absolute_uri
 
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
@@ -204,6 +206,7 @@ __all__ = [
     "prepare_task_run_artifact_uploads",
     "prepare_task_staged_artifacts",
     "presign_task_run_artifact",
+    "presign_task_run_artifact_download",
     "read_task_run_artifact",
     "read_task_run_logs",
     "record_comment_activity",
@@ -1848,6 +1851,10 @@ def _sync_automation_schedule(automation: TaskAutomation) -> None:
 #     signal or terminate-and-restart it.
 #   - pending_external_followups / pending_external_followups_generation are the workflow-owned
 #     durable queue; a caller could otherwise inject actor identity into a restored follow-up.
+#   - timed_out_inactivity / timed_out_wall_clock / sandbox_gone are the workflow's terminal reason
+#     markers, written only by the update_task_run_status activity. Slack reads them to decide that
+#     a FAILED run was a timeout and stays quiet (post_slack_update._post_failure_or_timeout), so a
+#     caller could otherwise stamp one on a genuine failure and suppress its error card.
 # These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
@@ -1885,6 +1892,13 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "cancel_fallback_cleanup_complete",
         "pending_external_followups",
         "pending_external_followups_generation",
+        # Terminal reason markers owned by the workflow (see the note above). Spelled as literals
+        # rather than imported from the update_task_run_status activity, which would pull temporalio
+        # onto this module's import path; the workflow writes them through
+        # TaskRun.update_state_atomic, which does not go through this filter.
+        "timed_out_inactivity",
+        "timed_out_wall_clock",
+        "sandbox_gone",
         # Credential grant decided at Task.create_and_run time by server-owned callers (the scout
         # runner); a PATCHable key would let any task controller mint a GitHub token onto a
         # queued repo-less run.
@@ -2412,15 +2426,46 @@ def set_task_run_output(
     return _task_run_detail_to_dto(run)
 
 
+def _entries_show_agent_activity(entries: list[dict]) -> bool:
+    """Classify a log batch as agent activity, but only judge batches that speak ACP.
+
+    Within an ACP batch, only ``session/*`` notifications count as the agent doing work.
+    Infra frames (``_posthog/console``, credential-refresh notices, errors) must not reset
+    the workflow's inactivity timeout: the workflow's own periodic credential refresh makes
+    the sandbox log a line, so counting every frame lets a run whose agent went silent keep
+    itself alive forever.
+
+    Batches with no ACP frame at all are not sandbox chatter, they come from callers that
+    only ever post generic ``{type, message}`` entries. Those runs have always relied on the
+    append itself as their heartbeat, so they keep the old behaviour rather than silently
+    losing their inactivity extension.
+    """
+    saw_acp_frame = False
+    for entry in entries:
+        notification = entry.get("notification")
+        if not isinstance(notification, dict):
+            continue
+        saw_acp_frame = True
+        method = notification.get("method")
+        if isinstance(method, str) and method.startswith("session/"):
+            return True
+    return bool(entries) and not saw_acp_frame
+
+
 def append_task_run_log(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, entries: list[dict]
 ) -> contracts.TaskRunDetailDTO | None:
-    """Append log entries to a run's S3 log and heartbeat its workflow."""
+    """Append log entries to a run's S3 log and heartbeat its workflow.
+
+    The heartbeat only reports the agent as active when the entries show real agent
+    activity; sandbox infra frames are still appended but heartbeat with
+    ``agent_active=False``, which the workflow's signal handler ignores.
+    """
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
     run.append_log(entries)
-    run.heartbeat_workflow(agent_active=True)
+    run.heartbeat_workflow(agent_active=_entries_show_agent_activity(entries))
     return _task_run_detail_to_dto(run)
 
 
@@ -2599,6 +2644,10 @@ def _build_artifact_storage_path(run: TaskRun, artifact_id: str, name: str) -> t
     return safe_name, f"{prefix}/{artifact_id[:8]}_{safe_name}"
 
 
+def _build_artifact_download_path(run: TaskRun, artifact_id: str) -> str:
+    return f"/api/projects/{run.team_id}/tasks/{run.task_id}/runs/{run.id}/artifacts/{artifact_id}/download/"
+
+
 def _tag_artifact_object(run: TaskRun, storage_path: str) -> None:
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
 
@@ -2656,7 +2705,7 @@ def upload_task_run_artifacts(
     """Write artifact bytes to S3 and append them to the run manifest.
 
     Returns ``(uploaded, manifest)`` — the entries created for ``artifacts`` and the full
-    manifest including them — or ``None`` when the run isn't visible.
+    manifest including them, each carrying a ``url`` — or ``None`` when the run isn't visible.
 
     An artifact may carry an explicit ``id``; entries with that id are upserted into the
     manifest (same-id S3 writes overwrite the same key), so callers that derive ids
@@ -2715,7 +2764,17 @@ def upload_task_run_artifacts(
         manifest.extend(uploaded)
         _save_artifact_manifest(run, manifest)
 
-    return uploaded, manifest
+    # Same download URL the finalize-upload path returns, so a caller that reaches storage
+    # through this endpoint instead of a presigned POST still gets a link to surface. Built
+    # after the save so it stays off the persisted manifest.
+    response_manifest = [
+        {**entry, "url": absolute_uri(_build_artifact_download_path(run, entry["id"]))}
+        if entry.get("id")
+        else dict(entry)
+        for entry in manifest
+    ]
+
+    return uploaded, response_manifest
 
 
 def prepare_task_run_artifact_uploads(
@@ -2854,13 +2913,17 @@ def finalize_task_run_artifact_uploads(
     for storage_path in new_storage_paths:
         _tag_artifact_object(run, storage_path)
 
-    # Mint a fresh presigned download URL per response entry so the caller (e.g. the
-    # upload_artifact tool) can surface a link to the file. Presigned URLs expire, so
-    # they are attached to the response only and never written back to the manifest.
+    # Attach a download URL per response entry so the caller (e.g. the upload_artifact
+    # tool) can surface a link to the file. The app URL redirects to a fresh presigned
+    # URL on each request, so unlike a raw presigned URL it stays short and works for
+    # the artifact's full retention window rather than one presign TTL; it is attached
+    # to the response only and never written back to the manifest.
     response_entries: list[dict] = []
     for entry in finalized_entries:
-        presigned_url = object_storage.get_presigned_url(entry["storage_path"])
-        response_entries.append({**entry, "url": presigned_url} if presigned_url else dict(entry))
+        entry_id = entry.get("id")
+        response_entries.append(
+            {**entry, "url": absolute_uri(_build_artifact_download_path(run, entry_id))} if entry_id else dict(entry)
+        )
 
     return response_entries, None
 
@@ -3028,6 +3091,35 @@ def set_task_run_artifacts_dismissed(
         _save_artifact_manifest(locked_run, manifest)
 
     return manifest, None
+
+
+def presign_task_run_artifact_download(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str
+) -> tuple[str | None, str | None]:
+    """Presign a download URL for an artifact addressed by its manifest id.
+
+    Returns ``(url, error)``: ``(None, None)`` if the run isn't found, ``(None, "not_found")`` if
+    the artifact isn't on the run, ``(None, "unavailable")`` if presigning fails, else ``(url, None)``.
+    """
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None, None
+
+    entry = next((a for a in run.artifacts or [] if a.get("id") == artifact_id), None)
+    if entry is None:
+        return None, "not_found"
+
+    filename = str(entry.get("name") or "artifact")
+    url = object_storage.get_presigned_url(
+        entry["storage_path"],
+        content_type=str(entry.get("content_type") or "") or None,
+        content_disposition=content_disposition_header(as_attachment=True, filename=filename) or "attachment",
+    )
+    if not url:
+        return None, "unavailable"
+    return url, None
 
 
 def read_task_run_artifact(
@@ -4278,14 +4370,14 @@ def create_task(
     if (
         warm_branch_provided
         and validated_data["origin_product"] == Task.OriginProduct.USER_CREATED
-        and validated_data.get("repository")
-        and len(validated_data.get("repositories", [])) <= 1
         and user_id is not None
     ):
         warm_run = _find_idling_warm_run(
             team_id,
             user_id,
-            repository=validated_data["repository"],
+            repository=validated_data.get("repository"),
+            repositories=validated_data.get("repositories", []),
+            github_integration_id=getattr(validated_data.get("github_integration"), "id", None),
             branch=warm_branch,
             runtime_adapter=warm_runtime_adapter,
             model=warm_model,
@@ -4653,6 +4745,8 @@ def _find_idling_warm_run(
     user_id: int | None,
     *,
     repository: str | None,
+    repositories: list[str] | None = None,
+    github_integration_id: int | None,
     branch: str | None,
     runtime_adapter: str | None = None,
     model: str | None = None,
@@ -4662,7 +4756,7 @@ def _find_idling_warm_run(
 ) -> TaskRun | None:
     """Most-recent idling pre-warmed Run matching this user's cloud composing selection, or ``None``.
 
-    A warm Run is a non-terminal ``USER_CREATED`` Run for the same repo+branch still awaiting its
+    A warm Run is a non-terminal ``USER_CREATED`` Run for the same optional repo+branch still awaiting its
     first user message (the ``await_user_message`` state marker). This is the backend's single source
     of truth for the warm pool: it dedupes warm provisioning (so a repeated ``warm`` call reuses the
     live Run instead of spawning a second) and lets the normal create+run path transparently reuse a
@@ -4670,20 +4764,23 @@ def _find_idling_warm_run(
 
     Reuse also requires the warm Run's runtime, sandbox environment, and custom image selections to
     match the request. A mismatch returns ``None`` so the caller cold-creates on the correct sandbox.
-    The repo/branch/``await_user_message`` predicates stay in the query; the remaining selection is
+    The optional repo/branch/``await_user_message`` predicates stay in the query; the remaining selection is
     matched in Python over the small candidate set.
     """
-    if user_id is None or not repository:
+    if user_id is None:
         return None
+    normalized_repositories = [repo.lower() for repo in (repositories or ([repository] if repository else []))]
+    repository_filter = {"task__repository__iexact": repository} if repository else {"task__repository__isnull": True}
     candidates = (
         TaskRun.objects.filter(  # nosemgrep: idor-lookup-without-team — team_id filter applied via the task FK below
             task__team_id=team_id,
             task__created_by_id=user_id,
             task__origin_product=Task.OriginProduct.USER_CREATED,
-            task__repository__iexact=repository,
             task__deleted=False,
+            task__github_integration_id=github_integration_id,
             state__await_user_message=True,
             branch=branch or None,
+            **repository_filter,
         )
         .exclude(status__in=_TERMINAL_TASK_RUN_STATUSES)
         .select_related("task")
@@ -4698,6 +4795,11 @@ def _find_idling_warm_run(
     )
     for run in candidates:
         state = run.state or {}
+        have_repositories = [
+            repo.lower() for repo in (run.task.repositories or ([run.task.repository] if run.task.repository else []))
+        ]
+        if have_repositories != normalized_repositories:
+            continue
         have = (
             state.get("runtime_adapter") or None,
             state.get("model") or None,
@@ -4814,8 +4916,9 @@ def warm_task_sandbox(
     team_id: int,
     user_id: int,
     *,
-    repository: str,
-    github_integration_id: int,
+    repository: str | None,
+    repositories: list[str] | None = None,
+    github_integration_id: int | None,
     branch: str | None,
     runtime_adapter: str | None = None,
     model: str | None = None,
@@ -4827,7 +4930,7 @@ def warm_task_sandbox(
     """Warm a full idling Run for a Code-app cloud task while the user composes.
 
     Births a draft Task (``USER_CREATED``), then ``SandboxWarmer.warm()`` provisions an interactive
-    Run that boots + clones + checks out ``branch`` + starts the agent on the selected
+    Run that boots, optionally clones and checks out ``branch``, then starts the agent on the selected
     ``runtime_adapter``/``model``/``reasoning_effort`` (carried on the Run state and read by the
     agent-server at launch, so the sandbox boots on the right runtime), then idles awaiting the first
     ``user_message``. The Run is dispatched with ``create_pr=True`` so that, once activated on submit,
@@ -4837,8 +4940,8 @@ def warm_task_sandbox(
     (``QuotaLimitExceeded``), product not enabled (``PermissionDenied``), or the warm pool is full
     (``Throttled``). The caller treats ``None`` as "no warm run; fall through to a cold create+run".
 
-    ``github_integration_id`` must already be re-scoped to ``team_id`` by the caller
-    (see :func:`resolve_team_github_integration_id`).
+    When present, ``github_integration_id`` must already be re-scoped to ``team_id`` by the caller
+    (see :func:`resolve_team_github_integration_id`). Repository-less warms omit it.
     """
     from rest_framework.exceptions import (  # noqa: PLC0415 — keep DRF exception types off the api import path
         PermissionDenied,
@@ -4857,10 +4960,15 @@ def warm_task_sandbox(
     )
 
     team = Team.objects.get(id=team_id)
-    github_integration = Integration.objects.filter(id=github_integration_id, team_id=team_id, kind="github").first()
-    if github_integration is None:
+    normalized_repositories = [repo.lower() for repo in (repositories or ([repository] if repository else []))]
+    repository = normalized_repositories[0] if normalized_repositories else None
+    github_integration = None
+    if github_integration_id is not None:
+        github_integration = Integration.objects.filter(
+            id=github_integration_id, team_id=team_id, kind="github"
+        ).first()
+    if bool(normalized_repositories) != bool(github_integration):
         return None
-
     sandbox_environment = None
     if sandbox_environment_id is not None:
         sandbox_environment = SandboxEnvironment.get_accessible_for_task(
@@ -4885,6 +4993,8 @@ def warm_task_sandbox(
         team_id,
         user_id,
         repository=repository,
+        repositories=normalized_repositories,
+        github_integration_id=github_integration_id,
         branch=branch,
         runtime_adapter=runtime_adapter,
         model=model,
@@ -4904,6 +5014,9 @@ def warm_task_sandbox(
         repository=repository,
         client_provenance=client_provenance,
     )
+    task.repositories = normalized_repositories
+    task.github_integration = github_integration
+    task.save(update_fields=["repositories", "github_integration", "updated_at"])
     assert task.created_by is not None  # create_without_run always sets created_by from user_id
 
     provider = get_provider_for_runtime_adapter(runtime_adapter)

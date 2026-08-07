@@ -327,6 +327,46 @@ describe("TaskArtifactsList", () => {
     expect(screen.getByText("File · 2 KB")).toBeInTheDocument();
   });
 
+  // A file dismissed in the chat's Files box has to go from this pane too, but
+  // only once every version of it is dismissed.
+  it.each([
+    {
+      name: "keeps a file whose newest upload alone was dismissed",
+      dismissedNewest: true,
+      dismissedOldest: false,
+      visible: true,
+    },
+    {
+      name: "leaves out a file whose every version was dismissed",
+      dismissedNewest: true,
+      dismissedOldest: true,
+      visible: false,
+    },
+  ])("$name", ({ dismissedNewest, dismissedOldest, visible }) => {
+    const dismissedAt = "2026-07-27T10:00:00+00:00";
+    mocks.runs = [
+      run("run-1", {
+        artifacts: [
+          outputFile({
+            id: "a",
+            uploaded_at: "2026-07-27T08:00:00+00:00",
+            ...(dismissedOldest ? { dismissed_at: dismissedAt } : {}),
+          }),
+          outputFile({
+            id: "b",
+            storage_path: "runs/1/report-v2.md",
+            uploaded_at: "2026-07-27T09:00:00+00:00",
+            ...(dismissedNewest ? { dismissed_at: dismissedAt } : {}),
+          }),
+        ],
+      }),
+    ];
+
+    render(<TaskArtifactsList task={task} timeline={[]} />);
+
+    expect(screen.queryByText("report.md") !== null).toBe(visible);
+  });
+
   it.each([
     { name: "a plan", type: "plan" as const },
     { name: "a user attachment", type: "user_attachment" as const },

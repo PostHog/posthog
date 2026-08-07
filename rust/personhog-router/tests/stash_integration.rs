@@ -78,6 +78,8 @@ fn mk_request(team_id: i64, person_id: i64, set_email: &str) -> UpdatePersonProp
         set_properties: serde_json::to_vec(&serde_json::json!({ "email": set_email })).unwrap(),
         set_once_properties: Vec::new(),
         unset_properties: Vec::new(),
+        is_identified: None,
+        last_seen_at: None,
     }
 }
 
