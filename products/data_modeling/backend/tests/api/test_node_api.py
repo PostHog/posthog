@@ -9,6 +9,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Team
+from posthog.temporal.common.logger import resolve_log_source
 
 from products.data_modeling.backend.logic.node_frequency import set_declared_target
 from products.data_modeling.backend.logic.node_suspension import mark_node_suspended, suspension_state
@@ -237,6 +238,14 @@ class TestNodeViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_client.start_workflow.assert_called_once()
+
+        # The workflow id must resolve back to the saved query id, or the run's log lines
+        # detach from the materialization history UI (which queries by saved query id).
+        workflow_id = mock_client.start_workflow.call_args.kwargs["id"]
+        self.assertEqual(
+            resolve_log_source("data-modeling-run", workflow_id),
+            ("data_modeling_run", str(self.saved_query.id)),
+        )
 
     def _suspend(self, node: Node) -> None:
         mark_node_suspended(node, engine="clickhouse", reason="boom", job_id=str(uuid4()), fingerprint=None)

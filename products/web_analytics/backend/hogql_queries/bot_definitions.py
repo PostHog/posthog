@@ -627,6 +627,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         documentation_url="https://github.com/internetarchive/heritrix3",
     ),
     "crawlcrawl-actors": BotDefinition("crawlcrawl", "search_crawler", "Bot", "Unknown"),
+    "crawler_eb_germany": BotDefinition("crawler_eb_germany", "search_crawler", "Bot", "Unknown"),
     # AI / agent crawlers
     "Inkeep-Crawler": BotDefinition(
         "Inkeep", "ai_crawler", "AI Agent", "Inkeep", documentation_url="https://inkeep.com/"

@@ -53,6 +53,12 @@ Each workflow is gated by its own feature flag (evaluated via `feature_enabled`)
 
 The two data-import flags are independent and target the same stable DuckLake table. During rollout, enable only the intended path for a project; if both run for the same import, the last atomic table swap wins.
 
+## Data Ops workflow status
+
+The copy and registration workflows both write their lifecycle to `ManagedWarehouseSourceJob`. Each row identifies the project, source schema, external data job, workflow type, and workflow attempt. The supported states are running, completed, failed, skipped, and stale.
+
+The Data Ops overview reads the latest workflow attempt for each source schema from this shared model. It also reads the most recent completed attempt separately, so a later failed or stale attempt does not erase when data was last applied successfully. The Duckgres consumer sink state is not used for source readiness.
+
 ## Target bucket layout
 
 Every copy is written to a deterministic schema inside DuckLake. Each workflow namespaces its data under a workflow-specific schema:

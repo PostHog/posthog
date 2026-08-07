@@ -16,6 +16,7 @@ export const KAFKA_PERSON_DISTINCT_ID2 = `${prefix}clickhouse_person_distinct_id
 export const KAFKA_EVENTS_PLUGIN_INGESTION = `${prefix}events_plugin_ingestion${suffix}`
 export const KAFKA_EVENTS_PLUGIN_INGESTION_DLQ = `${prefix}events_plugin_ingestion_dlq${suffix}`
 export const KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW = `${prefix}events_plugin_ingestion_overflow${suffix}`
+export const KAFKA_EVENTS_PLUGIN_INGESTION_AI = `${prefix}events_plugin_ingestion_ai${suffix}`
 export const KAFKA_EVENTS_PLUGIN_INGESTION_ASYNC = `${prefix}events_plugin_ingestion_async${suffix}`
 export const KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL = `${prefix}events_plugin_ingestion_historical${suffix}`
 export const KAFKA_PLUGIN_LOG_ENTRIES = `${prefix}plugin_log_entries${suffix}`
@@ -67,8 +68,6 @@ export const KAFKA_MESSAGE_ASSETS = `${prefix}clickhouse_message_assets${suffix}
 export const KAFKA_CDP_FUNCTION_OVERFLOW = `${prefix}cdp_function_overflow${suffix}`
 export const KAFKA_CDP_INTERNAL_EVENTS = `${prefix}cdp_internal_events${suffix}`
 export const KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES = `${prefix}clickhouse_behavioral_cohorts_matches${suffix}`
-export const KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS = `${prefix}clickhouse_prefiltered_events${suffix}`
-export const KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES = `${prefix}clickhouse_precalculated_person_properties${suffix}`
 export const KAFKA_COHORT_MEMBERSHIP_CHANGED = `${prefix}cohort_membership_changed${suffix}`
 // Cross-partition merge protocol trigger consumed by the cohort-stream-processor (Rust).
 export const KAFKA_PERSON_MERGE_EVENTS = `${prefix}person_merge_events${suffix}`

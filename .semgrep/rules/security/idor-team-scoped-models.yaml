@@ -115,11 +115,15 @@ rules:
                               |DashboardWidget
                               |DataColorTheme
                               |DataModelingJob
+                              |DataQualityCheck
+                              |DataQualityCheckRun
+                              |DataQualitySuiteRun
                               |Dataset
                               |DatasetItem
                               |DatasetItemVersion
                               |DatasetRevision
                               |DataWarehouseCredential
+                              |DataWarehouseExpression
                               |DataWarehouseJoin
                               |DataWarehouseManagedViewSet
                               |DataWarehouseModelPath
@@ -156,6 +160,7 @@ rules:
                               |ErrorTrackingSuppressionRule
                               |ErrorTrackingSymbolSet
                               |Evaluation
+                              |EvaluationDirectory
                               |Experiment
                               |ExperimentHoldout
                               |ExperimentMetricsRecalculation
@@ -216,7 +221,10 @@ rules:
                               |LLMSkillOwner
                               |LLMTraceSummary
                               |ManagedWarehouseBackfillPartition
+                              |ManagedWarehouseSourceJob
                               |MarketingAnalyticsGoalMapping
+                              |Meeting
+                              |MeetingParticipant
                               |MessageCategory
                               |MessageRecipientPreference
                               |MessageSuppression
@@ -276,6 +284,7 @@ rules:
                               |SharingConfiguration
                               |SignalEmissionRecord
                               |SignalReport
+                              |SignalReportAction
                               |SignalReportArtefact
                               |SignalReportRefund
                               |SignalReportTask
@@ -286,13 +295,12 @@ rules:
                               |SignalScoutRun
                               |SignalScoutEmission
                               |SignalScoutNote
+                              |SignalScoutStructuredOutput
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
                               |SourceBatch
-                              |SourceBatchDuckgresApply
-                              |SourceDuckgresGroupLease
                               |SourceGroupLease
                               |StreamlitApp
                               |Subscription
@@ -305,6 +313,7 @@ rules:
                               |Task
                               |TaskActivity
                               |TaskArtifact
+                              |TaskCommentActivity
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
@@ -458,11 +467,15 @@ rules:
                         |DashboardWidget
                         |DataColorTheme
                         |DataModelingJob
+                        |DataQualityCheck
+                        |DataQualityCheckRun
+                        |DataQualitySuiteRun
                         |Dataset
                         |DatasetItem
                         |DatasetItemVersion
                         |DatasetRevision
                         |DataWarehouseCredential
+                        |DataWarehouseExpression
                         |DataWarehouseJoin
                         |DataWarehouseManagedViewSet
                         |DataWarehouseModelPath
@@ -499,6 +512,7 @@ rules:
                         |ErrorTrackingSuppressionRule
                         |ErrorTrackingSymbolSet
                         |Evaluation
+                        |EvaluationDirectory
                         |Experiment
                         |ExperimentHoldout
                         |ExperimentMetricsRecalculation
@@ -554,7 +568,10 @@ rules:
                         |LLMSkillOwner
                         |LLMTraceSummary
                         |ManagedWarehouseBackfillPartition
+                        |ManagedWarehouseSourceJob
                         |MarketingAnalyticsGoalMapping
+                        |Meeting
+                        |MeetingParticipant
                         |MessageCategory
                         |MessageRecipientPreference
                         |MessageSuppression
@@ -613,6 +630,7 @@ rules:
                         |SharingConfiguration
                         |SignalEmissionRecord
                         |SignalReport
+                        |SignalReportAction
                         |SignalReportArtefact
                         |SignalReportRefund
                         |SignalReportTask
@@ -623,13 +641,12 @@ rules:
                         |SignalScoutRun
                         |SignalScoutEmission
                         |SignalScoutNote
+                        |SignalScoutStructuredOutput
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
                         |SourceBatch
-                        |SourceBatchDuckgresApply
-                        |SourceDuckgresGroupLease
                         |SourceGroupLease
                         |StreamlitApp
                         |Subscription
@@ -642,6 +659,7 @@ rules:
                         |Task
                         |TaskActivity
                         |TaskArtifact
+                        |TaskCommentActivity
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
@@ -936,7 +954,8 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              DashboardPrivilege
+                              CommunitySkillVote
+                              |DashboardPrivilege
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
                               |SignalUserAutonomyConfig
@@ -991,7 +1010,8 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        DashboardPrivilege
+                        CommunitySkillVote
+                        |DashboardPrivilege
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
                         |SignalUserAutonomyConfig

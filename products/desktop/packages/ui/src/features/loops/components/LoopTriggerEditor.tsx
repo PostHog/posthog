@@ -1,6 +1,7 @@
 import {
   CalendarBlank,
   Clock,
+  DotsThreeVertical,
   GithubLogo,
   Globe,
   Plus,
@@ -10,6 +11,8 @@ import {
 import type { LoopSchemas } from "@posthog/api-client/loops";
 import {
   Button,
+  Chip,
+  ChipClose,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -19,12 +22,15 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
+  Input,
   ItemContent,
   ItemDescription,
   ItemMedia,
   ItemMenuItem,
   ItemTitle,
   Switch,
+  ToggleGroup,
+  ToggleGroupItem,
 } from "@posthog/quill";
 import { CopyButton } from "@posthog/ui/features/agent-applications/components/CopyButton";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
@@ -34,8 +40,8 @@ import {
   formatScheduleTimestamp,
   systemTimezone,
 } from "@posthog/ui/primitives/timezone";
-import { Box, Checkbox, Flex, IconButton, Text } from "@radix-ui/themes";
-import type { ReactNode } from "react";
+import { Box, Checkbox, Flex, Text } from "@radix-ui/themes";
+import { type ReactNode, useState } from "react";
 import {
   compileCronSchedule,
   DEFAULT_SCHEDULE_TIME,
@@ -45,8 +51,11 @@ import {
 import { nextScheduleRun } from "../loopDisplay";
 import {
   defaultLoopTriggerOfType,
+  githubTriggerActionOptions,
   isTriggerDraftValid,
   type LoopTriggerDraft,
+  withGithubTriggerEvents,
+  withGithubTriggerFilters,
 } from "../loopFormTypes";
 import { LoopRepositoryPicker } from "./LoopRepositoryPicker";
 
@@ -82,6 +91,21 @@ const TRIGGER_TYPES: {
 
 function triggerTypeMeta(type: LoopSchemas.LoopTriggerTypeEnum) {
   return TRIGGER_TYPES.find((t) => t.type === type) ?? TRIGGER_TYPES[0];
+}
+
+/** Names whichever half of the trigger is unfinished, so the disabled save button has a
+ * reason. A blank condition row used to report the repository and events as missing. */
+function githubTriggerInvalidMessage(
+  config: LoopSchemas.LoopGithubTriggerConfig,
+): string {
+  if (
+    !config.repository ||
+    !config.github_integration_id ||
+    !config.events.length
+  ) {
+    return "Pick a repository and at least one event to finish this trigger.";
+  }
+  return "Fill in a path and a value for each payload condition, or remove the empty rows.";
 }
 
 interface LoopTriggerEditorProps {
@@ -218,21 +242,23 @@ function TriggerCard({
   const invalidMessage = isTriggerDraftValid(trigger)
     ? null
     : trigger.type === "github"
-      ? "Pick a repository and at least one event to finish this trigger."
+      ? githubTriggerInvalidMessage(
+          trigger.config as LoopSchemas.LoopGithubTriggerConfig,
+        )
       : "Set when this trigger fires.";
 
   return (
     <Flex
       direction="column"
-      className="overflow-hidden rounded-(--radius-3) border border-border bg-(--gray-1)"
+      className="overflow-hidden rounded-(--radius-2) border border-border bg-(--gray-1)"
     >
-      <Flex align="center" gap="3" className="px-4 py-3">
+      <Flex align="center" gap="2.5" className="px-3 py-2.5">
         <Flex
           align="center"
           justify="center"
-          className="size-8 shrink-0 rounded-(--radius-2) bg-(--gray-3)"
+          className="size-6 shrink-0 rounded-(--radius-1) bg-(--gray-3)"
         >
-          <Icon size={16} className="text-gray-11" />
+          <Icon size={14} className="text-gray-11" />
         </Flex>
         <Flex direction="column" className="min-w-0 flex-1">
           <Text className="font-medium text-[13px] text-gray-12">
@@ -248,20 +274,41 @@ function TriggerCard({
           disabled={disabled}
           aria-label={trigger.enabled ? "Disable trigger" : "Enable trigger"}
         />
-        <IconButton
-          variant="ghost"
-          color="gray"
-          size="1"
-          aria-label="Remove trigger"
-          disabled={disabled}
-          onClick={onRemove}
-        >
-          <Trash size={15} />
-        </IconButton>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                type="button"
+                variant="link-muted"
+                size="sm"
+                disabled={disabled}
+                aria-label="Trigger actions"
+                className="text-gray-10"
+              >
+                <DotsThreeVertical size={16} weight="bold" />
+              </Button>
+            }
+          />
+          <DropdownMenuContent align="end" side="bottom" sideOffset={6}>
+            <DropdownMenuItem
+              onClick={onRemove}
+              render={
+                <ItemMenuItem size="xs" className="w-full text-(--red-11)">
+                  <ItemMedia variant="icon" className="mt-2 ml-2">
+                    <Trash size={15} />
+                  </ItemMedia>
+                  <ItemContent variant="menuItem">
+                    <ItemTitle>Remove trigger</ItemTitle>
+                  </ItemContent>
+                </ItemMenuItem>
+              }
+            />
+          </DropdownMenuContent>
+        </DropdownMenu>
       </Flex>
 
       <Box
-        className={`border-border border-t px-4 py-4 ${
+        className={`border-border border-t px-3 py-3 ${
           trigger.enabled ? "" : "opacity-60"
         }`}
       >
@@ -530,6 +577,62 @@ const GITHUB_EVENT_OPTIONS: {
   },
 ];
 
+/** Each accepted value is a discrete chip, committed with Enter. A single delimited text field
+ * cannot represent a value that contains the delimiter, and GitHub payload fields we can match
+ * on (a PR title, a team name) legitimately contain commas. */
+function PayloadConditionValues({
+  values,
+  disabled,
+  onChange,
+}: {
+  values: string[];
+  disabled?: boolean;
+  onChange: (values: string[]) => void;
+}) {
+  const [draft, setDraft] = useState("");
+
+  const commit = () => {
+    const value = draft.trim();
+    if (value && !values.includes(value)) {
+      onChange([...values, value]);
+    }
+    setDraft("");
+  };
+
+  return (
+    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1 rounded-(--radius-2) border border-border px-1.5 py-1">
+      {values.map((value) => (
+        <Chip key={value} size="sm" className="max-w-full">
+          <span className="truncate">{value}</span>
+          <ChipClose
+            disabled={disabled}
+            aria-label={`Remove ${value}`}
+            onClick={() => onChange(values.filter((v) => v !== value))}
+          />
+        </Chip>
+      ))}
+      <input
+        value={draft}
+        disabled={disabled}
+        placeholder={values.length === 0 ? "team-security" : "Add value"}
+        aria-label="Condition value"
+        className="min-w-[80px] flex-1 bg-transparent text-[13px] text-gray-12 outline-none placeholder:text-gray-9"
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commit();
+          }
+          if (event.key === "Backspace" && !draft && values.length > 0) {
+            onChange(values.slice(0, -1));
+          }
+        }}
+      />
+    </div>
+  );
+}
+
 function GithubTriggerFields({
   config,
   disabled,
@@ -546,7 +649,35 @@ function GithubTriggerFields({
     const events = checked
       ? [...config.events, event]
       : config.events.filter((e) => e !== event);
-    onChange({ ...config, events });
+    onChange(withGithubTriggerEvents(config, events));
+  };
+
+  const offerableActions = githubTriggerActionOptions(config.events);
+  // A trigger set up through the API can hold an action we don't model, which would otherwise
+  // render no chip: invisible, unremovable, and quietly narrowing the trigger.
+  const actionOptions = [
+    ...offerableActions,
+    ...(config.filters?.actions ?? []).filter(
+      (action) => !offerableActions.includes(action),
+    ),
+  ];
+  const conditions = config.filters?.payload ?? [];
+
+  const setConditions = (
+    next: LoopSchemas.LoopGithubTriggerPayloadFilter[],
+  ) => {
+    onChange(withGithubTriggerFilters(config, { payload: next }));
+  };
+
+  const updateCondition = (
+    index: number,
+    patch: Partial<LoopSchemas.LoopGithubTriggerPayloadFilter>,
+  ) => {
+    setConditions(
+      conditions.map((condition, i) =>
+        i === index ? { ...condition, ...patch } : condition,
+      ),
+    );
   };
 
   return (
@@ -597,6 +728,103 @@ function GithubTriggerFields({
             </Text>
           ))}
         </Flex>
+      </SubField>
+
+      {actionOptions.length > 0 ? (
+        <SubField label="Actions">
+          <div className="flex flex-col gap-2">
+            <span className="text-[12px] text-gray-10">
+              Optional. Leave empty to run on every action.
+            </span>
+            <ToggleGroup
+              multiple
+              className="flex flex-wrap gap-1.5"
+              value={config.filters?.actions ?? []}
+              disabled={disabled}
+              onValueChange={(actions: string[]) =>
+                onChange(withGithubTriggerFilters(config, { actions }))
+              }
+            >
+              {actionOptions.map((action) => (
+                <ToggleGroupItem
+                  key={action}
+                  value={action}
+                  size="sm"
+                  variant="outline"
+                  className="text-[12px] data-[pressed]:border-(--accent-9) data-[pressed]:bg-(--accent-3) data-[pressed]:text-(--accent-11)"
+                >
+                  {action}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </div>
+        </SubField>
+      ) : null}
+
+      <SubField label="Payload conditions">
+        <div className="flex flex-col gap-2">
+          <span className="text-[12px] text-gray-10">
+            Optional. Match any other field in the GitHub payload, like{" "}
+            <code>requested_team.slug</code> for the team asked to review.
+          </span>
+          {conditions.map((condition, index) => (
+            <div
+              // Keying on the path instead would remount the input on every keystroke.
+              // biome-ignore lint/suspicious/noArrayIndexKey: rows carry no id and cannot be reordered, and both inputs are controlled off the config, so the index is a correct identity
+              key={index}
+              className="flex items-center gap-2"
+            >
+              <Input
+                value={condition.path}
+                disabled={disabled}
+                placeholder="requested_team.slug"
+                // The placeholder stops naming the field as soon as someone types into it.
+                aria-label="Condition path"
+                className="h-7 flex-1"
+                onChange={(event) =>
+                  updateCondition(index, { path: event.target.value })
+                }
+              />
+              <span className="text-[12px] text-gray-10">is</span>
+              <PayloadConditionValues
+                values={
+                  Array.isArray(condition.equals)
+                    ? condition.equals
+                    : [condition.equals].filter(Boolean)
+                }
+                disabled={disabled}
+                onChange={(equals) => updateCondition(index, { equals })}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={disabled}
+                aria-label={
+                  condition.path
+                    ? `Remove condition ${condition.path}`
+                    : "Remove condition"
+                }
+                onClick={() =>
+                  setConditions(conditions.filter((_, i) => i !== index))
+                }
+              >
+                <Trash size={13} />
+              </Button>
+            </div>
+          ))}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={disabled}
+            className="self-start"
+            onClick={() =>
+              setConditions([...conditions, { path: "", equals: "" }])
+            }
+          >
+            <Plus size={13} />
+            Add condition
+          </Button>
+        </div>
       </SubField>
     </Flex>
   );

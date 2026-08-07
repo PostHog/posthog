@@ -1,4 +1,4 @@
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -32,6 +32,30 @@ export function pushIdentityVerificationPayload(
     return mode === resolvePushIdentityVerification(integration) ? {} : { push_identity_verification: mode }
 }
 
+/**
+ * Seed the public-key field from the stored key. The backend keeps up to two (for rotation); the UI
+ * edits the primary one, so an empty field means "no key registered".
+ */
+export function resolvePushIdentityPublicKey(integration?: IntegrationType | null): string {
+    const stored = integration?.config?.push_identity_public_keys
+    return Array.isArray(stored) && typeof stored[0] === 'string' ? stored[0] : ''
+}
+
+/**
+ * Config fragment for the public key. Like the mode, an unchanged field is omitted so reconnecting a
+ * channel carries the stored key forward; a non-empty value registers/replaces it, an empty one clears it.
+ */
+export function pushIdentityPublicKeysPayload(
+    publicKey: string,
+    integration?: IntegrationType | null
+): { push_identity_public_keys?: string[] } {
+    const trimmed = publicKey.trim()
+    if (trimmed === resolvePushIdentityPublicKey(integration)) {
+        return {}
+    }
+    return { push_identity_public_keys: trimmed ? [trimmed] : [] }
+}
+
 const MODE_HELP: Record<PushIdentityVerificationMode, string> = {
     disabled: 'Any client with your project API key can register a device for any user.',
     optional:
@@ -46,20 +70,34 @@ const MODE_HELP: Record<PushIdentityVerificationMode, string> = {
  */
 export function PushIdentityVerificationField({ mode }: { mode: PushIdentityVerificationMode }): JSX.Element {
     return (
-        <LemonField
-            name="identityVerification"
-            label="Identity verification"
-            info="A device token says where to deliver a notification, not who the device belongs to. Turn this on to have your backend sign a short-lived token for the logged-in user, which your app sends when registering the device."
-            help={MODE_HELP[mode]}
-        >
-            <LemonSegmentedButton
-                options={[
-                    { value: 'disabled', label: 'Disabled' },
-                    { value: 'optional', label: 'Optional' },
-                    { value: 'required', label: 'Required' },
-                ]}
-                fullWidth
-            />
-        </LemonField>
+        <>
+            <LemonField
+                name="identityVerification"
+                label="Identity verification"
+                info="A device token says where to deliver a notification, not who the device belongs to. Turn this on to have your backend sign a short-lived token for the logged-in user, which your app sends when registering the device."
+                help={MODE_HELP[mode]}
+            >
+                <LemonSegmentedButton
+                    options={[
+                        { value: 'disabled', label: 'Disabled' },
+                        { value: 'optional', label: 'Optional' },
+                        { value: 'required', label: 'Required' },
+                    ]}
+                    fullWidth
+                />
+            </LemonField>
+            {mode !== 'disabled' && (
+                <LemonField
+                    name="identityPublicKey"
+                    label="Public key"
+                    info="Paste the EC (P-256) public key that pairs with your backend's signing key. Your backend signs each identity token (ES256) with the private key; PostHog verifies it with this public key, which never leaves your control. Leave blank to instead verify with your project's Feature flags secure API key (HS256)."
+                >
+                    <LemonTextArea
+                        placeholder={'-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----'}
+                        minRows={4}
+                    />
+                </LemonField>
+            )}
+        </>
     )
 }

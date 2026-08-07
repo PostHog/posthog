@@ -39,7 +39,6 @@ from posthog.api.sdk_health import sdk_health
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
-from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
@@ -509,7 +508,6 @@ urlpatterns = [
         "api/projects/<int:parent_lookup_team_id>/property_access_controls/",
         include("products.access_control.backend.presentation.urls"),
     ),
-    opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
     path(
         "api/streamlit_bridge/query/",
         csrf_exempt(StreamlitBridgeView.as_view()),
@@ -584,6 +582,10 @@ urlpatterns = [
     path(
         "api/projects/<str:team_id>/internal/hog_flows/user_blast_radius_persons",
         csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_user_blast_radius_persons"})),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/hog_flows/account_audience",
+        csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_account_audience"})),
     ),
     path(
         "api/internal/hog_flows/process_due_schedules",
