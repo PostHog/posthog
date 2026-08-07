@@ -38,6 +38,7 @@ class TestClerkSource:
         [
             "401 Client Error: Unauthorized for url: https://api.clerk.com",
             "403 Client Error: Forbidden for url: https://api.clerk.com",
+            "422 Client Error: Unprocessable Entity for url: https://api.clerk.com/v1/saml_connections",
         ],
     )
     def test_non_retryable_errors_includes_clerk_key(self, expected_key):
@@ -45,10 +46,16 @@ class TestClerkSource:
 
         assert expected_key in errors
 
-    def test_non_retryable_errors_matches_observed_error_message(self):
-        # Matches the full error string seen in production for the `users` endpoint.
-        observed_error = "401 Client Error: Unauthorized for url: https://api.clerk.com/v1/users?limit=100"
-
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            # `users` endpoint, invalid/revoked secret key.
+            "401 Client Error: Unauthorized for url: https://api.clerk.com/v1/users?limit=100",
+            # `saml_connections` endpoint, SAML/Enterprise SSO not available on the account's plan.
+            "422 Client Error: Unprocessable Entity for url: https://api.clerk.com/v1/saml_connections?limit=100",
+        ],
+    )
+    def test_non_retryable_errors_matches_observed_error_message(self, observed_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
 
@@ -63,6 +70,16 @@ class TestClerkSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
 
         assert not any(key in other_vendor_error for key in non_retryable_errors)
+
+    def test_non_retryable_errors_does_not_match_422_on_other_clerk_endpoints(self):
+        # A 422 from a different endpoint is a genuinely bad request worth investigating, not an
+        # account limitation — the match must stay scoped to `saml_connections`.
+        other_endpoint_error = (
+            "422 Client Error: Unprocessable Entity for url: https://api.clerk.com/v1/users?limit=100"
+        )
+
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_endpoint_error for key in non_retryable_errors)
 
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

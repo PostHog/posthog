@@ -869,7 +869,7 @@ export const SandboxPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Request body for creating or updating a sandbox environment.')
 
 /**
- * Clear the unread flag on the requester's feed rows for the given tasks. Read state is per task, so opening a task through any surface clears the same row.
+ * Clear collapsed task activity through task timestamps and individual comment activity through activity IDs.
  * @summary Mark task activity read
  */
 export const taskActivityMarkReadCreateBodyActivitiesMax = 500
@@ -880,6 +880,10 @@ export const TaskActivityMarkReadCreateBody = /* @__PURE__ */ zod
             .array(
                 zod.object({
                     task_id: zod.uuid().describe('Task whose displayed activity should be marked read.'),
+                    activity_id: zod
+                        .uuid()
+                        .nullish()
+                        .describe('Comment activity row to mark read. Omit for collapsed task activity.'),
                     seen_before: zod.iso
                         .datetime({ offset: true })
                         .describe('Mark activity at or before this timestamp read without clearing newer activity.'),
@@ -2491,6 +2495,29 @@ export const TasksRunsArtifactsCreateBody = /* @__PURE__ */ zod.object({
             })
         )
         .describe('Array of artifacts to upload'),
+})
+
+/**
+ * Hides artifacts from clients without deleting them from storage, so a file dismissed by mistake can be restored.
+ * @summary Dismiss or restore task run artifacts
+ */
+export const tasksRunsArtifactsDismissCreateBodyArtifactIdsItemMax = 128
+
+export const tasksRunsArtifactsDismissCreateBodyArtifactIdsMax = 100
+
+export const tasksRunsArtifactsDismissCreateBodyDismissedDefault = true
+
+export const TasksRunsArtifactsDismissCreateBody = /* @__PURE__ */ zod.object({
+    artifact_ids: zod
+        .array(zod.string().max(tasksRunsArtifactsDismissCreateBodyArtifactIdsItemMax))
+        .max(tasksRunsArtifactsDismissCreateBodyArtifactIdsMax)
+        .describe(
+            'Manifest ids of the artifacts to update. Pass every version of a file together so the whole file is dismissed rather than a single upload of it.'
+        ),
+    dismissed: zod
+        .boolean()
+        .default(tasksRunsArtifactsDismissCreateBodyDismissedDefault)
+        .describe('True to hide the artifacts from clients, false to show them again.'),
 })
 
 /**

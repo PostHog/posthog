@@ -34,7 +34,7 @@ import {
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
 } from '~/ingestion/common/outputs/producers'
-import { createAiConsumer, createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
+import { createAiConsumer } from '~/ingestion/pipelines/ai'
 import { createOutputsRegistry as createAiOutputsRegistry } from '~/ingestion/pipelines/ai/outputs/registry'
 import { createOutputsRegistry } from '~/ingestion/pipelines/analytics/outputs/registry'
 import { createClientWarningsConsumer } from '~/ingestion/pipelines/clientwarnings'
@@ -281,7 +281,6 @@ export class IngestionGeneralServer implements NodeServer {
             personRepository,
             cookielessManager,
             hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
-            aiSubpipelineFactory: createAiEventSubpipeline,
         }
 
         const startClientWarnings = (override?: { topic: string; groupId: string }) => {

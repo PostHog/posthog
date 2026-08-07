@@ -454,6 +454,14 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         operation_id="canvases_builds_retrieve",
         responses={200: CanvasBuildsResponseSerializer},
         request=None,
+        parameters=[
+            OpenApiParameter(
+                name="version_id",
+                type=OpenApiTypes.UUID,
+                required=False,
+                description="Include the retained ready build for this historical source version.",
+            )
+        ],
     )
     @action(methods=["GET"], detail=True)
     def builds(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -471,6 +479,21 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             published = canvas.builds.filter(id=canvas.published_build_id).first()
             if published is not None:
                 builds.append(published)
+        requested_version_id = request.query_params.get("version_id")
+        if requested_version_id:
+            try:
+                requested_version = canvas.source_versions.filter(id=requested_version_id).first()
+            except DjangoValidationError:
+                requested_version = None
+            if requested_version is None:
+                return Response({"detail": "Version not found for this canvas."}, status=status.HTTP_404_NOT_FOUND)
+            historical_build = (
+                canvas.builds.filter(source_version_id=requested_version.id, status=CanvasBuild.STATUS_READY)
+                .order_by("-created_at")
+                .first()
+            )
+            if historical_build is not None and all(build.id != historical_build.id for build in builds):
+                builds.append(historical_build)
         response = {
             "published_build_id": str(canvas.published_build_id) if canvas.published_build_id else None,
             "current_version_id": (str(canvas.current_source_version_id) if canvas.current_source_version_id else None),

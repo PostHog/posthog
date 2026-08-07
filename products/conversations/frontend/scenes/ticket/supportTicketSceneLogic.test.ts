@@ -60,13 +60,13 @@ import { conversationsTicketsNotesPartialUpdate } from 'products/conversations/f
 
 const submitAiFeedbackMock = api.conversationsTickets.submitAiFeedback as jest.Mock
 
-function makeAiComment(id: string): CommentType {
+function makeAiComment(id: string, isPrivate: boolean = true): CommentType {
     return {
         id,
         content: 'AI reply body',
         scope: 'conversations_ticket',
         item_id: 'ticket-1',
-        item_context: { author_type: 'AI', is_private: true },
+        item_context: { author_type: 'AI', is_private: isPrivate },
         created_at: '2026-01-01T00:00:00Z',
         created_by: null,
     } as unknown as CommentType
@@ -100,6 +100,7 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
         submitAiFeedbackMock.mockClear()
         logic = supportTicketSceneLogic({ id: 'new' })
         logic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: true })
         logic.actions.setTicket(makeTicket())
         logic.actions.setMessages([makeAiComment('msg-ai-1')])
     })
@@ -177,7 +178,7 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
     })
 })
 
-function makeCustomerComment(id: string, itemContext: Record<string, any>): CommentType {
+function makeCustomerComment(id: string, itemContext: Record<string, any> = {}): CommentType {
     return {
         id,
         content: 'reply body',
@@ -208,6 +209,28 @@ describe('supportTicketSceneLogic chatMessages author attribution', () => {
     ])('%s', (_name, itemContext, expectedName) => {
         logic.actions.setMessages([makeCustomerComment('msg-1', itemContext)])
         expect(logic.values.chatMessages[0].authorName).toBe(expectedName)
+    })
+})
+
+describe('supportTicketSceneLogic AI note visibility', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = supportTicketSceneLogic({ id: 'new' })
+        logic.mount()
+        logic.actions.setTicket(makeTicket())
+    })
+
+    test.each<[string, boolean, boolean, string[]]>([
+        ['hides AI private notes without the flag', false, true, ['msg-customer']],
+        ['shows AI private notes with the flag', true, true, ['msg-customer', 'msg-ai']],
+        ['keeps sent AI replies visible without the flag', false, false, ['msg-customer', 'msg-ai']],
+    ])('%s', (_name, flagEnabled, isPrivate, expectedIds) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: flagEnabled })
+        logic.actions.setMessages([makeCustomerComment('msg-customer'), makeAiComment('msg-ai', isPrivate)])
+
+        expect(logic.values.chatMessages.map((m) => m.id)).toEqual(expectedIds)
     })
 })
 
