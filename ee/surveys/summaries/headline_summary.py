@@ -103,20 +103,18 @@ def generate_survey_headline(
     start_date = (survey.start_date or survey.created_at).replace(hour=0, minute=0, second=0, microsecond=0)
     end_date = (survey.end_date or datetime.now()).replace(hour=23, minute=59, second=59, microsecond=0)
 
-    # Merge a submission's `survey sent` events instead of collapsing to a single one. Group by
-    # $survey_submission_id and, per question, keep the latest event that actually carried an
-    # answer. This stops multi-event submissions (e.g. AI-feedback manual capture, where a rating
-    # and a free-text follow-up can arrive on separate events) from dropping answers that only
-    # appeared on a non-final event, matching the fix already applied to the response fetchers and
-    # per-question stats.
+    # A submission's answers can be split across separate `survey sent` events (for example the
+    # AI-feedback manual-capture flow, where a rating and a free-text follow-up arrive on different
+    # events). Group events by $survey_submission_id and, per question, keep the latest event that
+    # carried an answer, so an answer is not lost just because it landed on a non-final event.
     inner_answer_fields = []
     outer_answer_fields = []
     for orig_idx, q in questions_with_idx:
         is_multiple_choice = q.get("type", "").lower() == SurveyQuestionType.MULTIPLE_CHOICE
         field = get_survey_response_clickhouse_query(orig_idx, q.get("id"), is_multiple_choice)
         inner_answer_fields.append(f"{field} AS raw_q{orig_idx}")
-        # Multiple-choice answers are arrays, so "answered" is a non-empty array rather than a
-        # non-null value. Using isNotNull here would let a later empty array clobber a real answer.
+        # Multiple-choice answers are arrays, so "answered" means a non-empty array. isNotNull would
+        # treat an empty array as an answer and let a later empty selection overwrite a real one.
         if is_multiple_choice:
             outer_answer_fields.append(
                 f"argMaxIf(raw_q{orig_idx}, timestamp, length(raw_q{orig_idx}) > 0) AS q{orig_idx}"
@@ -126,49 +124,56 @@ def generate_survey_headline(
                 f"argMaxIf(raw_q{orig_idx}, timestamp, isNotNull(raw_q{orig_idx})) AS q{orig_idx}"
             )
 
-    # Collapse a submission's events into one group. Events without a $survey_submission_id are
-    # keyed by their own uuid, so each stays a distinct response (the legacy single-event
-    # behavior). This is the same grouping the response fetchers use.
+    # Events without a $survey_submission_id are keyed by their own uuid, so each stays a distinct
+    # response. The response fetchers group submissions by this same key.
     submission_grouping_key = (
         "if(coalesce(properties.$survey_submission_id, '') = '', toString(uuid), properties.$survey_submission_id)"
     )
 
-    # When partial responses are disabled we still only summarize completed submissions, so the
-    # completed filter stays on the per-event scan. When enabled, every event of a submission is
-    # eligible and the per-submission merge above replaces the old dedupe.
-    if survey.enable_partial_responses:
-        completed_filter = ""
-    else:
-        completed_filter = """AND (
-            NOT JSONHas(properties, '$survey_completed')
-            OR JSONExtractBool(properties, '$survey_completed') = true
-        )"""
+    inner_select_fields = [
+        *inner_answer_fields,
+        "timestamp",
+        "uuid",
+        f"{submission_grouping_key} AS submission_key",
+    ]
+    having_conditions: list[str] = []
 
-    # Get archived response UUIDs to exclude.
+    # With partial responses disabled the headline covers completed submissions only. The gate runs
+    # after grouping (a submission is completed when any of its events is completed) rather than
+    # filtering non-completed events before the merge, because such an event can still carry the
+    # only copy of an answer. An event is completed when it has no $survey_completed property (legacy
+    # events) or sets it to true.
+    if not survey.enable_partial_responses:
+        inner_select_fields.append(
+            "if(NOT JSONHas(properties, '$survey_completed') "
+            "OR JSONExtractBool(properties, '$survey_completed') = true, 1, 0) AS is_completed"
+        )
+        having_conditions.append("max(is_completed) = 1")
+
+    # A submission is archived by its representative (latest) uuid, which is argMax(uuid, timestamp)
+    # over all of its events. Computing it over every event, not a completed-only subset, matches the
+    # uuid the response fetchers archive, so exclusion here stays consistent with what was archived.
     # UUIDs are pre-validated by Django's UUIDField when stored in SurveyResponseArchive.
-    # Archiving records a submission's representative (latest) uuid, which is what argMax(uuid)
-    # surfaces after the merge, so exclude by that after grouping.
     archived_uuids = get_archived_response_uuids(survey.id, team.pk)
-    archived_having = "HAVING argMax(uuid, timestamp) NOT IN {exclude_uuids}" if archived_uuids else ""
+    if archived_uuids:
+        having_conditions.append("argMax(uuid, timestamp) NOT IN {exclude_uuids}")
+
+    having_clause = ("HAVING " + " AND ".join(having_conditions)) if having_conditions else ""
 
     with timer("query"):
         query = f"""
             SELECT {", ".join(outer_answer_fields)}
             FROM (
                 SELECT
-                    {", ".join(inner_answer_fields)},
-                    timestamp,
-                    uuid,
-                    {submission_grouping_key} AS submission_key
+                    {", ".join(inner_select_fields)}
                 FROM events
                 WHERE event == 'survey sent'
                     AND properties.$survey_id = {{survey_id}}
                     AND timestamp >= {{start_date}}
                     AND timestamp <= {{end_date}}
-                    {completed_filter}
             )
             GROUP BY submission_key
-            {archived_having}
+            {having_clause}
             ORDER BY max(timestamp) DESC
         """
 

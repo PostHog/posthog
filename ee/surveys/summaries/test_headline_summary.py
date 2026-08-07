@@ -4,7 +4,9 @@ from datetime import UTC, datetime
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
-from products.surveys.backend.models import Survey
+from parameterized import parameterized
+
+from products.surveys.backend.models import Survey, SurveyResponseArchive
 
 from ee.surveys.summaries.headline_summary import generate_survey_headline
 
@@ -19,7 +21,8 @@ class TestGenerateSurveyHeadline(ClickhouseTestMixin, APIBaseTest):
         prompt_messages = mock_llm.invoke.call_args[0][0]
         return result, prompt_messages[1].content
 
-    def test_merges_answers_split_across_submission_events(self):
+    @parameterized.expand([("partial_on", True), ("partial_off", False)])
+    def test_merges_answers_split_across_submission_events(self, _name, enable_partial_responses):
         rating_qid = str(uuid.uuid4())
         text_qid = str(uuid.uuid4())
         survey = Survey.objects.create(
@@ -31,7 +34,7 @@ class TestGenerateSurveyHeadline(ClickhouseTestMixin, APIBaseTest):
                 {"id": text_qid, "type": "open", "question": "Any comments?"},
             ],
             start_date=datetime(2024, 5, 1, tzinfo=UTC),
-            enable_partial_responses=True,
+            enable_partial_responses=enable_partial_responses,
         )
         submission_id = str(uuid.uuid4())
         # Earlier event (not completed): rating only.
@@ -47,7 +50,9 @@ class TestGenerateSurveyHeadline(ClickhouseTestMixin, APIBaseTest):
                 "$survey_completed": False,
             },
         )
-        # Later (completed) event: free text only, rating is NOT repeated.
+        # Later (completed) event: free text only, rating is NOT repeated. With partial responses
+        # off the submission still counts because this event completed it, and the merge must keep
+        # the rating even though its event was never completed.
         _create_event(
             team=self.team,
             event="survey sent",
@@ -68,6 +73,54 @@ class TestGenerateSurveyHeadline(ClickhouseTestMixin, APIBaseTest):
         assert result["responses_sampled"] == 1
         assert "9" in prompt
         assert "Loved the onboarding" in prompt
+
+    def test_excludes_archived_submission_by_latest_event_uuid(self):
+        text_qid = str(uuid.uuid4())
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Feedback",
+            type="popover",
+            questions=[{"id": text_qid, "type": "open", "question": "Any comments?"}],
+            start_date=datetime(2024, 5, 1, tzinfo=UTC),
+            enable_partial_responses=False,
+        )
+        submission_id = str(uuid.uuid4())
+        # The completed event carries the answer.
+        _create_event(
+            team=self.team,
+            event="survey sent",
+            distinct_id="archived",
+            timestamp="2024-06-10 09:00:00",
+            properties={
+                "$survey_id": str(survey.id),
+                "$survey_submission_id": submission_id,
+                f"$survey_response_{text_qid}": "Archived feedback",
+                "$survey_completed": True,
+            },
+        )
+        # A later, non-completed event is the submission's representative (latest) uuid, which is the
+        # uuid archiving records. Excluding by a completed-only representative would use the earlier
+        # event's uuid and miss the archive.
+        latest_uuid = _create_event(
+            team=self.team,
+            event="survey sent",
+            distinct_id="archived",
+            timestamp="2024-06-10 09:01:00",
+            properties={
+                "$survey_id": str(survey.id),
+                "$survey_submission_id": submission_id,
+                "$survey_completed": False,
+            },
+        )
+        flush_persons_and_events()
+        SurveyResponseArchive.objects.create(team=self.team, survey=survey, response_uuid=latest_uuid)
+
+        # No rows reach the LLM, so call directly rather than through _run_headline (which reads the
+        # prompt from an invoke that never happens).
+        with patch("ee.surveys.summaries.headline_summary.MaxChatOpenAI"):
+            result = generate_survey_headline(survey, self.team, self.user)
+
+        assert result["responses_sampled"] == 0
 
     def test_merges_multiple_choice_across_submission_events(self):
         choice_qid = str(uuid.uuid4())
