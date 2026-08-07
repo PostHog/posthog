@@ -10,7 +10,7 @@ from posthog.models.oauth import OAuthApplication
 
 from ee.api.agentic_provisioning import github_grants
 from ee.api.agentic_provisioning.constants import GITHUB_GRANT_CACHE_PREFIX
-from ee.api.agentic_provisioning.test.base import TEST_PARTNER_CLIENT_SECRET, ProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import TEST_PARTNER_CLIENT_SECRET, ProvisioningTestBase, provisioning_config
 
 ACCESS_TOKEN = "gho_secret_user_token"
 
@@ -149,8 +149,7 @@ class TestGitHubGrants(ProvisioningTestBase):
             redirect_uris="https://pkce.example.com",
             algorithm="RS256",
             is_provisioning_partner=True,
-            provisioning_active=True,
-            provisioning_can_create_accounts=True,
+            _provisioning_config=provisioning_config(active=True, can_create_accounts=True),
         )
         response = self.client.post(
             "/api/agentic/provisioning/github/grants",
@@ -199,14 +198,14 @@ class TestGitHubGrants(ProvisioningTestBase):
         assert response.status_code == 401
 
     def test_create_grant_requires_account_creation_permission(self):
-        self.partner.provisioning_can_create_accounts = False
+        self.partner.update_provisioning(can_create_accounts=False)
         self.partner.save()
         response = self._post_grants({"code": "gh_code"})
         assert response.status_code == 403
         assert response.json()["error"]["code"] == "forbidden"
 
     def test_create_grant_partner_rate_limited(self):
-        self.partner.provisioning_rate_limit_github_grants = 1
+        self.partner.update_provisioning_rate_limits(github_grants=1)
         self.partner.save()
         first = self._create_grant_via_api()
         assert first.status_code == 200
@@ -215,8 +214,8 @@ class TestGitHubGrants(ProvisioningTestBase):
         assert second["Retry-After"]
 
     def test_capability_refusal_does_not_spend_grant_budget(self):
-        self.partner.provisioning_rate_limit_github_grants = 1
-        self.partner.provisioning_can_create_accounts = False
+        self.partner.update_provisioning(can_create_accounts=False)
+        self.partner.update_provisioning_rate_limits(github_grants=1)
         self.partner.save()
 
         for _ in range(3):
@@ -224,7 +223,7 @@ class TestGitHubGrants(ProvisioningTestBase):
             assert refused.status_code == 403
             assert refused.json()["error"]["code"] == "forbidden"
 
-        self.partner.provisioning_can_create_accounts = True
+        self.partner.update_provisioning(can_create_accounts=True)
         self.partner.save()
         assert self._create_grant_via_api().status_code == 200
 
@@ -259,7 +258,7 @@ class TestGitHubGrants(ProvisioningTestBase):
         assert response.json()["error"]["code"] == "grant_not_found"
 
     def _create_other_partner(
-        self, *, partner_type: str = "other_test_partner", is_cimd_client: bool = False
+        self, *, can_use_github_grants: bool = True, is_cimd_client: bool = False
     ) -> OAuthApplication:
         return OAuthApplication.objects.create(
             name="Other Partner",
@@ -271,9 +270,9 @@ class TestGitHubGrants(ProvisioningTestBase):
             redirect_uris="https://other.example.com",
             algorithm="RS256",
             is_provisioning_partner=True,
-            provisioning_partner_type=partner_type,
-            provisioning_active=True,
-            provisioning_can_create_accounts=True,
+            _provisioning_config=provisioning_config(
+                active=True, can_create_accounts=True, can_use_github_grants=can_use_github_grants
+            ),
         )
 
     def test_repositories_grant_of_other_partner_returns_404(self):
@@ -322,12 +321,12 @@ class TestGitHubGrants(ProvisioningTestBase):
         assert foreign.status_code == 404
         assert owner.status_code == 200
 
-    def test_repositories_rejects_a_self_registered_cimd_partner(self):
+    def test_repositories_rejects_a_partner_without_the_capability(self):
         # A CIMD client self-registers by publishing a metadata document and becomes confidential
-        # by declaring private_key_jwt, so authenticating cannot be the only gate here. An
-        # admin-set provisioning_partner_type is what separates one PostHog vouched for.
+        # by declaring private_key_jwt, so authenticating cannot be the only gate here. The
+        # capability is granted by an admin, and self-registration never grants it.
         grant = github_grants.create_grant(self.partner, AUTHORIZATION, "octocat@example.com")
-        unvouched = self._create_other_partner(partner_type="", is_cimd_client=True)
+        unvouched = self._create_other_partner(can_use_github_grants=False, is_cimd_client=True)
         response = self._get_api(
             f"/api/agentic/provisioning/github/grants/{grant.grant_id}/repositories",
             HTTP_AUTHORIZATION=self._basic_auth_header(unvouched),
@@ -335,12 +334,11 @@ class TestGitHubGrants(ProvisioningTestBase):
         assert response.status_code == 403
         assert response.json()["error"]["code"] == "forbidden"
 
-    def test_repositories_allows_a_non_cimd_partner_with_no_partner_type(self):
-        # Only CIMD auto-registration can make a partner without an admin, so a non-CIMD app is
-        # vouched for by the fact that it exists. Requiring a partner type of it too would lock
-        # out an already-configured partner whose type field was left blank.
+    def test_repositories_allows_a_partner_granted_the_capability(self):
+        # The other half of the gate: the capability is what admits a partner, whether or not it
+        # is a CIMD client.
         grant = github_grants.create_grant(self.partner, AUTHORIZATION, "octocat@example.com")
-        admin_registered = self._create_other_partner(partner_type="")
+        admin_registered = self._create_other_partner(can_use_github_grants=True)
 
         def fake_github_request(method, request_url, **kwargs):
             if request_url.endswith("/user/installations"):

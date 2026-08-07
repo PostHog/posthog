@@ -19,7 +19,7 @@ from products.replay_vision.backend.api.vision_actions import (
     _redact_webhook_url,
 )
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
 
 # The webhook destination template lives in the nodejs registry (no Python source object like Slack's).
@@ -107,6 +107,26 @@ class _VisionActionAPITestCase(APIBaseTest):
 
 
 class TestVisionActionViewSet(_VisionActionAPITestCase):
+    def test_create_rejects_an_inline_scan_as_the_target(self) -> None:
+        # Binding an action to an inline scan would put a scheduled digest on a row minted for one
+        # throwaway question, and keep it alive past the reaper by giving it observations forever.
+        scan = ReplayScanner.all_origins.create(
+            team=self.team,
+            name="",
+            origin=ScannerOrigin.INLINE,
+            inline_key="k",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "one-off"},
+            model=ScannerModel.GEMINI_3_6_FLASH,
+            enabled=False,
+            sampling_rate=0.0,
+        )
+
+        resp = self.client.post(self.actions_url, data=self._create_payload(scanner=str(scan.id)), format="json")
+
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertIn("scanner", resp.json()["attr"] or "")
+
     def test_create_happy_path(self) -> None:
         resp = self.client.post(self.actions_url, data=self._create_payload(), format="json")
         self.assertEqual(resp.status_code, 201, resp.content)
@@ -182,17 +202,128 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
         resp = self.client.patch(f"{self.actions_url}{resp.json()['id']}/", data={"enabled": True}, format="json")
         self.assertEqual(resp.status_code, 400, resp.content)
 
-    def test_second_digest_for_scanner_rejected(self) -> None:
+    def _flagged_digest_ids(self) -> list[str]:
+        return [
+            str(pk)
+            for pk in VisionAction.all_teams.filter(scanner=self.scanner, is_scanner_digest=True).values_list(
+                "id", flat=True
+            )
+        ]
+
+    def test_promote_existing_summary_to_digest(self) -> None:
+        # The user's case: no digest exists (deleted), a plain summary does — promoting it via PATCH
+        # should make it the featured digest.
+        created = self.client.post(self.actions_url, data=self._create_payload(name="my-summary"), format="json")
+        self.assertEqual(created.status_code, 201, created.content)
+        summary_id = created.json()["id"]
+        self.assertFalse(created.json()["is_scanner_digest"])
+
+        promoted = self.client.patch(
+            f"{self.actions_url}{summary_id}/", data={"is_scanner_digest": True}, format="json"
+        )
+        self.assertEqual(promoted.status_code, 200, promoted.content)
+        self.assertTrue(promoted.json()["is_scanner_digest"])
+        self.assertEqual(self._flagged_digest_ids(), [summary_id])
+
+    def test_promoting_a_summary_demotes_the_current_digest(self) -> None:
+        old = self.client.post(
+            self.actions_url, data=self._create_payload(name="digest-1", is_scanner_digest=True), format="json"
+        )
+        self.assertEqual(old.status_code, 201, old.content)
+        new = self.client.post(self.actions_url, data=self._create_payload(name="summary-2"), format="json")
+        self.assertEqual(new.status_code, 201, new.content)
+        new_id = new.json()["id"]
+
+        promoted = self.client.patch(f"{self.actions_url}{new_id}/", data={"is_scanner_digest": True}, format="json")
+        self.assertEqual(promoted.status_code, 200, promoted.content)
+        # Exactly one featured digest per scanner, and it's the newly promoted one.
+        self.assertEqual(self._flagged_digest_ids(), [new_id])
+
+    def test_creating_a_digest_swaps_the_existing_one(self) -> None:
         first = self.client.post(
             self.actions_url, data=self._create_payload(name="digest-1", is_scanner_digest=True), format="json"
         )
         self.assertEqual(first.status_code, 201, first.content)
-        self.assertTrue(first.json()["is_scanner_digest"])
         second = self.client.post(
             self.actions_url, data=self._create_payload(name="digest-2", is_scanner_digest=True), format="json"
         )
-        self.assertEqual(second.status_code, 400, second.content)
-        self.assertIn("daily digest", second.json()["detail"].lower())
+        self.assertEqual(second.status_code, 201, second.content)
+        self.assertEqual(self._flagged_digest_ids(), [second.json()["id"]])
+
+    def test_promotion_blocked_when_current_digest_reads_a_restricted_scanner(self) -> None:
+        # Demoting the current digest is a write to it. If that digest's selection reads from a scanner
+        # the promoting user can't access, a direct PATCH would be rejected — promoting must not be a
+        # back door around that check, and the restricted digest must stay put.
+        hidden = self._create_scanner(name="restricted")
+        current = VisionAction.all_teams.create(
+            team=self.team,
+            scanner=self.scanner,
+            name="current-digest",
+            is_scanner_digest=True,
+            selection={"scanner_ids": [str(hidden.id)]},
+            trigger_config={"rrule": "FREQ=DAILY", "timezone": "UTC"},
+        )
+        summary = VisionAction.all_teams.create(
+            team=self.team,
+            scanner=self.scanner,
+            name="promote-me",
+            trigger_config={"rrule": "FREQ=DAILY", "timezone": "UTC"},
+        )
+        with patch(
+            "products.replay_vision.backend.scanner_access.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.exclude(pk=hidden.pk),
+        ):
+            resp = self.client.patch(
+                f"{self.actions_url}{summary.id}/", data={"is_scanner_digest": True}, format="json"
+            )
+            self.assertEqual(resp.status_code, 400, resp.content)
+            self.assertIn("access", resp.json()["detail"])
+        # The promotion rolled back: the restricted digest is untouched and the summary wasn't flagged.
+        self.assertEqual(self._flagged_digest_ids(), [str(current.id)])
+
+    def test_creating_a_digest_dedupes_a_taken_name(self) -> None:
+        # The "Turn on daily digest" button derives a fixed name from the scanner. If another action
+        # already holds it, the create must succeed with a suffixed name, not 400 on (team, name).
+        taken = f"Daily digest: {self.scanner.name}"
+        VisionAction.all_teams.create(
+            team=self.team,
+            scanner=self.scanner,
+            name=taken,
+            trigger_config={"rrule": "FREQ=DAILY", "timezone": "UTC"},
+        )
+        resp = self.client.post(
+            self.actions_url, data=self._create_payload(name=taken, is_scanner_digest=True), format="json"
+        )
+        self.assertEqual(resp.status_code, 201, resp.content)
+        self.assertTrue(resp.json()["is_scanner_digest"])
+        self.assertEqual(resp.json()["name"], f"{taken} (2)")
+
+    def test_creating_a_digest_with_a_user_typed_duplicate_name_still_400s(self) -> None:
+        # Dedupe applies only to the auto-derived name; a user-typed name that collides must keep
+        # the explicit duplicate error rather than being silently renamed.
+        VisionAction.all_teams.create(
+            team=self.team,
+            scanner=self.scanner,
+            name="my-digest",
+            trigger_config={"rrule": "FREQ=DAILY", "timezone": "UTC"},
+        )
+        resp = self.client.post(
+            self.actions_url, data=self._create_payload(name="my-digest", is_scanner_digest=True), format="json"
+        )
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertEqual(resp.json()["attr"], "name")
+
+    def test_alert_cannot_be_featured_digest(self) -> None:
+        payload = self._create_payload(
+            name="an-alert",
+            mode="alert",
+            alert_config={"frequency": "every_match", "metric": "count"},
+            selection={},
+            is_scanner_digest=True,
+        )
+        resp = self.client.post(self.actions_url, data=payload, format="json")
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertIn("summaries", resp.json()["detail"].lower())
 
     def test_list(self) -> None:
         self.client.post(self.actions_url, data=self._create_payload(), format="json")

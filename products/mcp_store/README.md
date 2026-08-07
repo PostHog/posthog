@@ -5,6 +5,40 @@ Connected servers are consumed by agent surfaces via the `backend/facade/` packa
 
 This is unrelated to `products/*/mcp/tools.yaml`, which exposes PostHog's own endpoints as MCP tools.
 
+## Settings experience and rollout
+
+Two independent feature flags gate two surfaces — neither flag depends on the other:
+
+- The Settings → MCP servers page is gated by the `mcp-servers` feature flag (`MCP_SERVERS`).
+  On that page, the `mcp-gateway` feature flag (`MCP_GATEWAY`) selects the gateway experience described below; when it is off, Settings renders the existing marketplace UI.
+- The standalone gateway scene at `/mcp-servers` and its nav entry are gated solely by `mcp-gateway` and are reachable even with `mcp-servers` off.
+
+Keep both layers until the legacy `mcp-servers` flag and marketplace logic are removed in a follow-up change.
+
+The gateway experience has these pages and workflows:
+
+- **MCP servers**: Browse the catalog, search by server details, filter by category, and see connection status.
+  Users with permission can add a hosted custom server and choose OAuth or API key authentication.
+  Admins can set its team availability, and eligible users can grant initial agent access.
+  Connecting starts the appropriate authorization flow, while an existing connection opens its configuration.
+- **Server details**: Manage a personal connection by enabling, reconnecting, disconnecting, or removing it.
+  Admins can also manage team and member access.
+  Agent access can be granted or revoked with a per-tool policy, and tool policies can be searched, changed individually, or changed in bulk.
+  Tool discovery can be refreshed from the connected server.
+  Tool descriptions and input schemas are available for inspection, while organization rules remain locked.
+- **Team and agents**: Search agents and members, inspect their access at a glance, and open a detail page.
+  Agent details show identity, shared servers, per-server policies, and recent calls.
+  Member details show connection and access status across registered servers, with admin controls for enabling or disabling access.
+- **Team settings**: Control whether members can add custom servers or manage agent access.
+  Admins can also configure member and agent policy baselines, enable or disable servers for the team, and manage organization rules.
+- **Audit log**: Project admins can review all gateway activity. Members can review calls made through their own connections, including calls made by agents using connections they shared. The log supports quick filters, agent caller filters, and pagination.
+
+The standalone gateway routes under `/mcp-servers` use the same data and page components.
+When `MCP_GATEWAY` is off, the top-level scene renders a "not enabled" banner in place, while the detail routes (wrapped in `GatewayRouteGuard`) redirect to the Settings page.
+Server details are available to members, while agent and member details require project admin access — the guard sends non-admins back to the gateway home.
+The flag gates the frontend only: the gateway REST API has no flag check and stays reachable when the flag is off.
+Settings supplies its own navigation shell so the gateway workflows fit the main PostHog application without importing the PostHog Code layout.
+
 ## How the catalog works
 
 The catalog is **code**: `backend/catalog.py` holds one `CatalogEntry` per server.
@@ -81,6 +115,22 @@ To show brand icons on a self-hosted instance, create a logo.dev account, genera
 3. `oauth_metadata` should already be populated by the sync; if empty, run the "Discover metadata" admin action.
 4. Tick "is active". Repeat per environment — templates are per-database rows.
 
+## Reaching connected servers from an agent
+
+There are two ways a caller uses a connection, and they differ in who speaks MCP.
+
+- **`POST .../mcp_server_installations/:id/proxy/`** is a transparent JSON-RPC passthrough.
+  The caller is an MCP client that runs its own `initialize` handshake and holds the session — PostHog Code points a sandbox at this URL as if it were the vendor's server.
+  Built-in agents get the equivalent root-level route with a signed token (see `backend/facade/api.py`).
+- **`POST .../mcp_server_installations/:id/call_tool/`** takes `{tool_name, arguments}` and returns one tool result.
+  The caller wants a result, not a transport, so PostHog runs the handshake server-side (`call_upstream_tool` in `backend/tools.py`).
+  This is what the PostHog MCP's `exec` uses, so an external agent (Claude Code, Codex) can call a connected server's tools through its existing PostHog connection instead of authenticating each vendor separately.
+  Discovery for that path is `GET .../mcp_server_installations/available_tools/`, which returns every callable tool across the caller's connections in one request, each namespaced by a server slug (`linear__create_issue`).
+  The `exec` side lives in `services/mcp/src/lib/gateway-tools.ts` and is gated on the `mcp-gateway` flag.
+
+Both paths resolve policy through the same `resolve_call_decision` / `_gateway_decision` in `backend/proxy.py` and write the same `MCPAuditEvent` rows, so approval state and the audit trail cannot diverge between them.
+`needs_approval` and `do_not_use` tools are refused before any upstream request.
+
 ## Key modules
 
 | Path                                   | What it is                                                                      |
@@ -90,6 +140,6 @@ To show brand icons on a self-hosted instance, create a logo.dev account, genera
 | `backend/probe.py`                     | Live server verification, up to the OAuth consent screen                        |
 | `backend/models.py`                    | `MCPServerTemplate`, `MCPServerInstallation` (+ per-install tools, OAuth state) |
 | `backend/oauth.py`                     | RFC 9728/8414 discovery, RFC 7591 DCR, token exchange/refresh                   |
-| `backend/proxy.py`, `backend/tools.py` | MCP request proxying and tool discovery                                         |
+| `backend/proxy.py`, `backend/tools.py` | MCP request proxying, tool discovery, and single tool calls                     |
 | `backend/facade/`                      | The only cross-product import surface                                           |
 | `frontend/scene/`                      | Marketplace UI (`MarketplaceBrowser`, `ServerCard`, ...)                        |

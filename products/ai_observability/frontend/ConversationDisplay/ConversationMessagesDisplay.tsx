@@ -12,7 +12,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { isObject } from 'lib/utils/guards'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { resolveAiBlobUrl, resolveDataUri } from '../aiBlob'
+import { aiBlobRenderHandlers, resolveAiBlobUrl, resolveDataUri } from '../aiBlob'
 import { getJsonContainerForDisplay, JSONValueDisplay } from '../components/JSONValueDisplay'
 import { MessageSentimentBar } from '../components/SentimentTag'
 import { LLMInputOutput } from '../LLMInputOutput'
@@ -386,7 +386,8 @@ export const ImageMessageDisplay = ({ message }: { message: ImageDisplayMessage 
     if (typeof content === 'string') {
         return <span>{content}</span>
     } else if (content?.image) {
-        return <img src={resolveAiBlobUrl(content.image, currentTeamId)} alt="User sent image" />
+        const src = resolveAiBlobUrl(content.image, currentTeamId)
+        return <img src={src} alt="User sent image" {...aiBlobRenderHandlers(src, 'image')} />
     }
 
     return <span>{String(content ?? '')}</span>
@@ -430,18 +431,27 @@ function renderContentItem(
     }
 
     if (isOpenAIImageURLMessage(item)) {
+        const src = resolveAiBlobUrl(item.image_url.url, currentTeamId)
         return (
             <img
-                src={resolveAiBlobUrl(item.image_url.url, currentTeamId)}
+                src={src}
                 alt="Message content"
                 className="max-w-full max-h-[400px] rounded"
+                {...aiBlobRenderHandlers(src, 'image')}
             />
         )
     }
 
     if (isAnthropicImageMessage(item)) {
         const src = resolveDataUri(item.source.data, item.source.media_type, currentTeamId)
-        return <img src={src} alt="Message content" className="max-w-full max-h-[400px] rounded" />
+        return (
+            <img
+                src={src}
+                alt="Message content"
+                className="max-w-full max-h-[400px] rounded"
+                {...aiBlobRenderHandlers(src, 'image')}
+            />
+        )
     }
 
     if (isGeminiImageMessage(item)) {
@@ -450,7 +460,14 @@ function renderContentItem(
             return null
         }
         const src = resolveDataUri(inlineData.data, inlineData.mime_type, currentTeamId)
-        return <img src={src} alt="Message content" className="max-w-full max-h-[400px] rounded" />
+        return (
+            <img
+                src={src}
+                alt="Message content"
+                className="max-w-full max-h-[400px] rounded"
+                {...aiBlobRenderHandlers(src, 'image')}
+            />
+        )
     }
 
     if (isOpenAIFileMessage(item)) {
@@ -499,7 +516,7 @@ function renderContentItem(
 
         return (
             <div className="space-y-2">
-                <audio controls className="w-[500px]" src={src} />
+                <audio controls className="w-[500px]" src={src} {...aiBlobRenderHandlers(src, 'audio')} />
                 {transcript && typeof transcript === 'string' && (
                     <div className="text-xs text-muted p-2 bg-bg-light rounded border">
                         <div className="font-semibold mb-1">Transcript:</div>

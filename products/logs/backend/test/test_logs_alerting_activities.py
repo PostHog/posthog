@@ -608,6 +608,79 @@ class TestRunCohortQueryFallbackEndToEnd(ClickhouseTestMixin, APIBaseTest):
         assert "simulated per-alert query failure" in str(bad_prefetch.error)
         assert bad_prefetch.query_duration_ms is not None and bad_prefetch.query_duration_ms >= 0
 
+    @freeze_time("2026-01-01T10:05:00Z")
+    @patch("products.logs.backend.alert_check_query.HOIST_BATCHED_ALERT_PREDICATES", True)
+    def test_attribute_filter_single_alert_cohort_succeeds_end_to_end(self):
+        # The shape that broke in production: a size-1, projection-ineligible
+        # cohort whose alert filters on a log attribute. Runs the real batched
+        # query via _run_cohort_query with predicate hoisting enabled, so it
+        # catches wiring drift between the activity call site and
+        # BatchedAlertCheckQuery that tests constructing the query class
+        # directly cannot.
+        from products.logs.backend.temporal.activities import _AlertCohort, _run_cohort_query
+
+        rows = [
+            {
+                "uuid": f"incident-{i}",
+                "team_id": self.team.id,
+                "timestamp": ts,
+                "body": "",
+                "severity_text": "error",
+                "severity_number": 17,
+                "service_name": "incident_usage_reporter",
+                "resource_attributes": {},
+                "attributes_map_str": attributes,
+            }
+            for i, (ts, attributes) in enumerate(
+                [
+                    ("2026-01-01 10:01:10", {"job_kind__str": "usage-rollup"}),
+                    ("2026-01-01 10:02:20", {"job_kind__str": "usage-rollup"}),
+                    ("2026-01-01 10:03:30", {}),
+                ]
+            )
+        ]
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+
+        alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="incident shape",
+            threshold_count=0,
+            threshold_operator="above",
+            window_minutes=5,
+            evaluation_periods=3,
+            filters={
+                "serviceNames": ["incident_usage_reporter"],
+                "filterGroup": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "job_kind",
+                                    "value": "usage-rollup",
+                                    "operator": "exact",
+                                    "type": "log_attribute",
+                                }
+                            ],
+                        }
+                    ],
+                },
+            },
+        )
+        cohort = _AlertCohort(
+            alerts=(alert,),
+            date_to=datetime(2026, 1, 1, 10, 5, 0, tzinfo=UTC),
+            projection_eligible=False,
+        )
+
+        result = _run_cohort_query(cohort)
+
+        prefetched = result.per_alert[str(alert.id)]
+        assert prefetched.error is None
+        assert prefetched.buckets is not None
+        assert sum(b.count for b in prefetched.buckets) == 2
+
 
 class TestEvaluateSingleAlert(APIBaseTest):
     def setUp(self):
@@ -2154,6 +2227,7 @@ class TestEvaluateCohortBatchActivity(NonAtomicBaseTest):
         assert result.alerts_checked == 1
 
     @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.alerts.backend.delivery_slo.get_instance_region", return_value="US")
     @patch("posthog.slo.context.emit_slo_completed")
     @patch("posthog.slo.context.emit_slo_started")
     @patch("products.alerts.backend.destinations.flush_internal_events_producer", return_value=0)
@@ -2166,6 +2240,7 @@ class TestEvaluateCohortBatchActivity(NonAtomicBaseTest):
         _mock_flush,
         mock_emit_slo_started,
         mock_emit_slo_completed,
+        _mock_region,
     ):
         from products.logs.backend.temporal.activities import (
             CohortManifest,
@@ -2217,15 +2292,37 @@ class TestEvaluateCohortBatchActivity(NonAtomicBaseTest):
         assert result.notified == []
         # The cycle still advances so the next cycle re-evaluates and retries the notification.
         assert alert.next_check_at is not None
-        mock_emit_slo_started.assert_called_once()
-        mock_emit_slo_completed.assert_called_once()
-        assert mock_emit_slo_completed.call_args.kwargs["properties"].outcome == SloOutcome.FAILURE
-        assert mock_emit_slo_completed.call_args.kwargs["extra_properties"] == {
+        assert mock_emit_slo_started.call_count == 2
+        assert mock_emit_slo_completed.call_count == 2
+        started_by_operation = {
+            call.kwargs["properties"].operation: call for call in mock_emit_slo_started.call_args_list
+        }
+        completed_by_operation = {
+            call.kwargs["properties"].operation: call for call in mock_emit_slo_completed.call_args_list
+        }
+        alert_check_completed = completed_by_operation[SloOperation.ALERT_CHECK]
+        assert alert_check_completed.kwargs["properties"].outcome == SloOutcome.FAILURE
+        assert alert_check_completed.kwargs["extra_properties"] == {
             "alert_type": "logs",
             "check_interval_minutes": alert.check_interval_minutes,
             "window_minutes": alert.window_minutes,
-            "correlation_id": mock_emit_slo_started.call_args.kwargs["extra_properties"]["correlation_id"],
+            "correlation_id": started_by_operation[SloOperation.ALERT_CHECK].kwargs["extra_properties"][
+                "correlation_id"
+            ],
             "alert_state": AlertState.NOT_FIRING,
             "notification_action": NotificationAction.FIRE.value,
+            "failure_phase": "notification_delivery",
+        }
+        delivery_completed = completed_by_operation[SloOperation.ALERT_DELIVERY]
+        assert delivery_completed.kwargs["properties"].outcome == SloOutcome.FAILURE
+        assert delivery_completed.kwargs["extra_properties"] == {
+            "alert_type": "logs",
+            "notification_action": NotificationAction.FIRE.value,
+            "region": "US",
+            "check_interval_minutes": alert.check_interval_minutes,
+            "window_minutes": alert.window_minutes,
+            "correlation_id": started_by_operation[SloOperation.ALERT_DELIVERY].kwargs["extra_properties"][
+                "correlation_id"
+            ],
             "failure_phase": "notification_delivery",
         }

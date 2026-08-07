@@ -1,6 +1,8 @@
+import * as fetchEventSourceModule from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
 import api, { ApiConfig, ApiError, ApiRequest } from 'lib/api'
+import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -56,6 +58,84 @@ describe('API helper', () => {
                     },
                 }
             )
+        })
+    })
+
+    describe('dashboard tile streaming', () => {
+        it.each([
+            { status: 401, body: { detail: 'Authentication expired.' }, expectedCode: null },
+            {
+                status: 403,
+                body: { detail: 'Access denied.', code: 'permission_denied' },
+                expectedCode: 'permission_denied',
+            },
+        ])('preserves status handling for HTTP $status', async ({ status, body, expectedCode }) => {
+            const onApiResponse = jest.fn()
+            const apiStatusLogicSpy = jest
+                .spyOn(apiStatusLogic, 'findMounted')
+                .mockReturnValueOnce({ actions: { onApiResponse } } as any)
+
+            const fetchEventSourceSpy = jest
+                .spyOn(fetchEventSourceModule, 'fetchEventSource')
+                .mockReturnValueOnce(new Promise<void>(() => {}))
+
+            const onError = jest.fn()
+            await api.dashboards.streamTiles(5, {}, jest.fn(), jest.fn(), onError)
+            expect(fetchEventSourceSpy).toHaveBeenCalledTimes(1)
+
+            const response = new Response(JSON.stringify(body), {
+                status,
+                headers: { 'Content-Type': 'application/json' },
+            })
+            await fetchEventSourceSpy.mock.calls[0][1].onopen?.(response)
+
+            expect(onApiResponse).toHaveBeenCalledTimes(1)
+            expect(onApiResponse.mock.calls[0][0]).toMatchObject({ status })
+            expect(onError).toHaveBeenCalledWith(expect.objectContaining({ status, code: expectedCode }))
+            fetchEventSourceSpy.mockRestore()
+            apiStatusLogicSpy.mockRestore()
+        })
+
+        it('reports connection failures and ignores intentional aborts', async () => {
+            const onApiResponse = jest.fn()
+            const apiStatusLogicSpy = jest
+                .spyOn(apiStatusLogic, 'findMounted')
+                .mockReturnValue({ actions: { onApiResponse } } as any)
+            const fetchEventSourceSpy = jest
+                .spyOn(fetchEventSourceModule, 'fetchEventSource')
+                .mockReturnValueOnce(new Promise<void>(() => {}))
+            const onError = jest.fn()
+
+            await api.dashboards.streamTiles(5, {}, jest.fn(), jest.fn(), onError)
+
+            const streamOptions = fetchEventSourceSpy.mock.calls[0][1]
+            const connectionError = new TypeError('Failed to fetch')
+            streamOptions.onerror?.(connectionError)
+            expect(onApiResponse).toHaveBeenCalledWith(undefined, connectionError)
+            expect(onError).toHaveBeenCalledWith(connectionError)
+
+            const abortError = new DOMException('The operation was aborted', 'AbortError')
+            streamOptions.onerror?.(abortError)
+            expect(onApiResponse).toHaveBeenCalledTimes(1)
+            expect(onError).toHaveBeenCalledTimes(1)
+
+            fetchEventSourceSpy.mockRestore()
+            apiStatusLogicSpy.mockRestore()
+        })
+
+        it('reports a stream that closes before completion', async () => {
+            const fetchEventSourceSpy = jest.spyOn(fetchEventSourceModule, 'fetchEventSource').mockResolvedValueOnce()
+            const onError = jest.fn()
+
+            await api.dashboards.streamTiles(5, {}, jest.fn(), jest.fn(), onError)
+            await Promise.resolve()
+
+            expect(onError).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: 'Dashboard stream ended before loading finished. Refresh the page.',
+                })
+            )
+            fetchEventSourceSpy.mockRestore()
         })
     })
 

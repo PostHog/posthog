@@ -51,11 +51,11 @@ from posthog.temporal.data_modeling.run_workflow import (
     run_dag_activity,
     start_run_activity,
 )
-from posthog.temporal.ducklake.types import DuckLakeCopyModelInput
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse, truncate_table
 
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.managed_warehouse.backend.facade.temporal import DuckLakeCopyModelInput
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]

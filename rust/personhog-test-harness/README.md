@@ -116,13 +116,13 @@ Four real leader-path bugs surfaced under specific gate configurations; two are 
 They are documented here so red or noisy runs read as signal, not harness flakiness.
 
 **Cache eviction under writer lag loses acked writes — FIXED, now a CI regression gate.**
-`--cache-capacity` sets the leader cache size in entries; below `--persons` it forces eviction of dirty entries whose writes the writer has not yet flushed.
+`--cache-capacity` sets the leader cache budget in bytes (entries are weighed by serialized size); set it below the seeded pool's footprint to force eviction of dirty entries whose writes the writer has not yet flushed.
 Every operation used to reload the stale Postgres row on the next miss, later merges built on the stale base, and acked writes disappeared (this exact configuration once produced 4,886 violations).
 The leader now marks every acked produce in a dirty index and recovers evicted marked persons from their changelog record instead of trusting PG; the scenario runs in CI (with a writer pause to guarantee the lag) and must stay green:
 
 ```bash
 target/debug/personhog-test-harness gate --leaders 3 --partitions 8 --persons 50 \
-  --cache-capacity 10 --duration 15s --writer-pause-after 3s --writer-pause-duration 8s
+  --cache-capacity 4096 --duration 15s --writer-pause-after 3s --writer-pause-duration 8s
 ```
 
 **Graceful shutdown black-holes the leader's partitions — FIXED via lifecycle shutdown phases.**

@@ -264,12 +264,21 @@ export const cohortsModel = kea<cohortsModelType>([
         allCohorts: {
             __default: { count: 0, results: [] } as CountedPaginatedResponse<CohortType>,
             loadAllCohorts: async () => {
-                const response = await api.cohorts.listPaginated({
+                // `allCohorts` feeds `cohortsById`, mostly id + name lookups, so request the
+                // basic payload that drops the legacy `groups`/`query` JSON. Fetching the full
+                // payload for up to 2,000 cohorts on this hot path was slow enough to hit the
+                // gateway timeout on cohort-heavy teams. `filters` stays in the basic payload:
+                // the feature-flag intent warning reads it off `cohortsById` (see
+                // featureFlagIntentWarningLogic.hasBehavioralCriteria), and its raw shape is
+                // what that check expects, so no `processCohort` normalization is needed here.
+                const response = await api.cohorts.listBasic({
                     limit: MAX_COHORTS_FOR_FULL_LIST,
                 })
                 return {
                     count: response.count,
-                    results: response.results.map((cohort) => processCohort(cohort)),
+                    // `groups` is dropped from the basic payload but required on CohortType, so
+                    // add the empty default back — nothing reading `cohortsById` uses `groups`.
+                    results: response.results.map((cohort): CohortType => ({ ...cohort, groups: [] })),
                 }
             },
         },
@@ -410,7 +419,9 @@ export const cohortsModel = kea<cohortsModelType>([
                         // own, or pickers keep serving the deleted-state cache for staleTime.
                         invalidateTaxonomicResourcesWhere(isCohortTaxonomicListKey)
                     }
-                    actions.loadCohorts()
+                    // Refresh `allCohorts` (the source for `cohortsById`) so an undo restores
+                    // the row's name to breadcrumbs and pickers, not just the `cohorts` list.
+                    actions.loadAllCohorts()
                     if (cohort.id && cohort.id !== 'new') {
                         if (undo) {
                             refreshTreeItem('cohort', String(cohort.id))
@@ -436,7 +447,6 @@ export const cohortsModel = kea<cohortsModelType>([
                 actions.hydrateAllCohortsFromExport(exportedCohorts)
             }
         }
-        actions.loadCohorts()
     }),
     permanentlyMount(),
 ])

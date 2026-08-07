@@ -1101,9 +1101,8 @@ fn build_router_for_mode_at(mode: CaptureMode, fixed_time: &str) -> (Router, Mem
             quota_limiter,
             TokenDropper::default(),
             None, // event_restriction_service
-            false,
+            None, // recorder_handle
             mode,
-            String::from("capture"),
             None,
             25 * 1024 * 1024,
             enable_historical_rerouting,

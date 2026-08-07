@@ -6,11 +6,11 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.apps import apps
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.tagged_item import set_tags_on_object
 from posthog.constants import AvailableFeature
 from posthog.models import Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -33,7 +33,6 @@ from products.customer_analytics.backend.models import (
     DisplayType,
     TargetType,
 )
-from products.customer_analytics.backend.models.account import AccountAssignment
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.models.insight import Insight
@@ -430,7 +429,7 @@ class TestAccountViewSet(APIBaseTest):
             {
                 "name": "Acme Corp",
                 "external_id": "acme-123",
-                "properties": {"csm": {"id": self.user.id, "email": self.user.email}},
+                "properties": {"stripe_customer_id": "cus_123"},
             },
             format="json",
         )
@@ -440,14 +439,14 @@ class TestAccountViewSet(APIBaseTest):
         self.assertIn("id", data)
         self.assertEqual(data["name"], "Acme Corp")
         self.assertEqual(data["external_id"], "acme-123")
-        self.assertEqual(data["properties"]["csm"], {"id": self.user.id, "email": self.user.email})
+        self.assertEqual(data["properties"]["stripe_customer_id"], "cus_123")
         self.assertIn("created_at", data)
         self.assertIn("updated_at", data)
 
         account = Account.objects.unscoped().get(id=data["id"])  # nosemgrep: idor-lookup-without-team
         self.assertEqual(account.created_by, self.user)
         self.assertEqual(account.team, self.team)
-        self.assertEqual(account.properties.csm, AccountAssignment(id=self.user.id, email=self.user.email))
+        self.assertEqual(account.properties.stripe_customer_id, "cus_123")
 
     def test_create_minimal_payload_uses_defaults(self):
         response = self.client.post(self.endpoint_base, {"name": "Bare Account"}, format="json")
@@ -476,7 +475,7 @@ class TestAccountViewSet(APIBaseTest):
     def test_retrieve(self):
         account = self._create_account(
             external_id="ext-1",
-            properties={"csm": {"id": self.user.id, "email": self.user.email}},
+            properties={"stripe_customer_id": "cus_123"},
         )
 
         response = self.client.get(f"{self.endpoint_base}{account.id}/")
@@ -486,16 +485,27 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(data["id"], str(account.id))
         self.assertEqual(data["name"], "Acme Corp")
         self.assertEqual(data["external_id"], "ext-1")
-        self.assertEqual(data["properties"]["csm"], {"id": self.user.id, "email": self.user.email})
+        self.assertEqual(data["properties"]["stripe_customer_id"], "cus_123")
+
+    def test_retrieve_hides_retired_role_keys_in_stored_rows(self):
+        # Rows not yet cleaned by backfill_account_relationships must not leak role keys:
+        # the frontend read-modify-writes `properties`, and echoing them back would 400.
+        account = self._create_account(
+            _properties={"csm": {"id": self.user.id, "email": self.user.email}, "billing_id": "B-1"}
+        )
+
+        response = self.client.get(f"{self.endpoint_base}{account.id}/")
+
+        self.assertEqual(response.json()["properties"], {"billing_id": "B-1"})
 
     def test_update(self):
-        account = self._create_account(properties={"csm": {"id": self.user.id, "email": self.user.email}})
+        account = self._create_account(properties={"stripe_customer_id": "cus_123"})
 
         response = self.client.patch(
             f"{self.endpoint_base}{account.id}/",
             {
                 "name": "Renamed",
-                "properties": {"account_owner": {"id": self.user.id, "email": self.user.email}},
+                "properties": {"sfdc_id": "001xx"},
             },
             format="json",
         )
@@ -503,7 +513,7 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_200_OK, response.status_code)
         account.refresh_from_db()
         self.assertEqual(account.name, "Renamed")
-        self.assertEqual(account.properties.account_owner, AccountAssignment(id=self.user.id, email=self.user.email))
+        self.assertEqual(account.properties.sfdc_id, "001xx")
 
     def test_delete(self):
         account = self._create_account()
@@ -621,13 +631,8 @@ class TestAccountViewSet(APIBaseTest):
                 "properties",
             ),
             (
-                "properties_assignment_missing_email",
-                {"name": "Acme", "properties": {"csm": {"id": 1}}},
-                "properties",
-            ),
-            (
-                "properties_assignment_wrong_id_type",
-                {"name": "Acme", "properties": {"csm": {"id": "not-an-int", "email": "a@b.co"}}},
+                "properties_retired_role_key",
+                {"name": "Acme", "properties": {"csm": {"id": 1, "email": "a@b.co"}}},
                 "properties",
             ),
         ]
@@ -833,72 +838,21 @@ class TestAccountViewSet(APIBaseTest):
         new_logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Account", activity="updated").count()
         self.assertGreater(new_logs, initial_logs)
 
-    def test_list_accounts_filter_by_csm_user_id(self):
-        self._create_account(name="A", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        self._create_account(name="B", _properties={"csm": {"id": 9, "email": "b@x.com"}})
-        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?csm=7")
-        names = [r["name"] for r in response.json()["results"]]
-        assert names == ["A"]
-
-    @parameterized.expand(
-        [
-            # `_properties` defaults to {} — every role key is absent.
-            ("absent_keys", {"_properties": {}}),
-            # The manager fills every role key with an explicit JSON null.
-            ("null_valued_keys", {"properties": {}}),
-        ]
-    )
-    def test_list_accounts_filter_by_csm_unassigned(self, _name, unassigned_kwargs):
-        self._create_account(name="Assigned", properties={"csm": {"id": 7, "email": "a@x.com"}})
-        self._create_account(name="Unassigned", **unassigned_kwargs)
-        response = self.client.get(f"{self.endpoint_base}?csm=unassigned")
-        assert [r["name"] for r in response.json()["results"]] == ["Unassigned"]
-
-    def test_list_accounts_filter_by_account_executive_user_id(self):
-        self._create_account(name="A", _properties={"account_executive": {"id": 7, "email": "a@x.com"}})
-        self._create_account(name="B")
-        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?account_executive=7")
-        assert [r["name"] for r in response.json()["results"]] == ["A"]
-
-    def test_list_accounts_filter_by_account_owner_user_id(self):
-        self._create_account(name="A", _properties={"account_owner": {"id": 7, "email": "a@x.com"}})
-        self._create_account(name="B")
-        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?account_owner=7")
-        assert [r["name"] for r in response.json()["results"]] == ["A"]
-
-    @parameterized.expand(
-        [
-            # `_properties` defaults to {} — every role key is absent.
-            ("absent_keys", {"_properties": {}}),
-            # The manager fills every role key with an explicit JSON null.
-            ("null_valued_keys", {"properties": {}}),
-        ]
-    )
-    def test_list_accounts_filter_all_roles_unassigned(self, _name, unassigned_kwargs):
-        # Created through the manager, so every role key is present and csm has a real id.
-        self._create_account(name="Has CSM", properties={"csm": {"id": 7, "email": "a@x.com"}})
-        self._create_account(name="Unassigned", **unassigned_kwargs)
+    def test_list_accounts_filter_all_roles_unassigned(self):
+        definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name="CSM"
+        )
+        assigned = self._create_account(name="Has CSM")
+        AccountRelationship.objects.for_team(self.team.id).create(
+            team_id=self.team.id, account=assigned, definition=definition, user=self.user
+        )
+        ended = self._create_account(name="Ended CSM")
+        AccountRelationship.objects.for_team(self.team.id).create(
+            team_id=self.team.id, account=ended, definition=definition, user=self.user, ended_at=timezone.now()
+        )
+        self._create_account(name="Unassigned")
         response = self.client.get(f"{self.endpoint_base}?all_roles_unassigned=true")
-        assert [r["name"] for r in response.json()["results"]] == ["Unassigned"]
-
-    def test_list_accounts_filter_combined_role_and_tags(self):
-        account_a = self._create_account(name="A", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        account_b = self._create_account(name="B", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        account_c = self._create_account(name="C", _properties={"csm": {"id": 8, "email": "c@x.com"}})
-        set_tags_on_object(["enterprise"], account_a)
-        set_tags_on_object(["startup"], account_b)
-        set_tags_on_object(["enterprise"], account_c)
-        response = self.client.get(f'/api/environments/{self.team.id}/accounts/?csm=7&tags=["enterprise"]')
-        assert [r["name"] for r in response.json()["results"]] == ["A"]
-
-    def test_list_accounts_invalid_csm_value_is_ignored(self):
-        # Malformed user id should be a no-op (return both accounts), not "match nothing".
-        self._create_account(name="A")
-        self._create_account(name="B", _properties={"csm": {"id": 7, "email": "b@x.com"}})
-        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?csm=not-a-user")
-        assert response.status_code == status.HTTP_200_OK
-        names = sorted(r["name"] for r in response.json()["results"])
-        assert names == ["A", "B"]
+        assert sorted(r["name"] for r in response.json()["results"]) == ["Ended CSM", "Unassigned"]
 
     def test_list_accounts_ordering_by_name_asc(self):
         # Create in alphabetical order so default `-created_at` order is [Banana, Apple];
@@ -951,17 +905,6 @@ class TestAccountViewSet(APIBaseTest):
         self._create_account(name="Acme Corp")
         response = self.client.get(f"{self.endpoint_base}?search=acme")
         assert len(response.json()["results"]) == 1
-
-    def test_list_accounts_role_filter_respects_team_isolation(self):
-        other_team = Team.objects.create(organization=self.organization, name="other")
-        self._create_account(
-            team=other_team,
-            name="OtherTeamAccount",
-            _properties={"csm": {"id": 7, "email": "a@x.com"}},
-        )
-        self._create_account(name="MyAccount", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?csm=7")
-        assert [r["name"] for r in response.json()["results"]] == ["MyAccount"]
 
     def test_retrieve_returns_empty_notebooks_when_none_linked(self):
         account = self._create_account()
@@ -2353,33 +2296,36 @@ class TestAccountNotesViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_list_filter_by_assigned_to(self):
-        # "My accounts" on the Notes tab: notes on accounts where the user is CSM or AE.
-        # account_owner is deliberately not treated as "assigned" (mirrors the accounts list).
-        csm_account = Account.objects.unscoped().create(
-            team=self.team, name="CSM Co", _properties={"csm": {"id": self.user.id, "email": self.user.email}}
+        # "My accounts" on the Notes tab: notes on accounts where the user actively holds any
+        # relationship (mirrors the accounts list runner's assignedToUserIds).
+        definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name="CSM"
         )
-        ae_account = Account.objects.unscoped().create(
-            team=self.team,
-            name="AE Co",
-            _properties={"account_executive": {"id": self.user.id, "email": self.user.email}},
+        other_user = User.objects.create_and_join(self.organization, "other-holder@posthog.com", None)
+        assigned_account = Account.objects.unscoped().create(team=self.team, name="Assigned Co")
+        AccountRelationship.objects.for_team(self.team.id).create(
+            team_id=self.team.id, account=assigned_account, definition=definition, user=self.user
         )
-        owner_account = Account.objects.unscoped().create(
-            team=self.team,
-            name="Owner Co",
-            _properties={"account_owner": {"id": self.user.id, "email": self.user.email}},
+        ended_account = Account.objects.unscoped().create(team=self.team, name="Ended Co")
+        AccountRelationship.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            account=ended_account,
+            definition=definition,
+            user=self.user,
+            ended_at=timezone.now(),
         )
-        other_account = Account.objects.unscoped().create(
-            team=self.team, name="Other Co", _properties={"csm": {"id": 999999, "email": "someone@x.com"}}
+        other_account = Account.objects.unscoped().create(team=self.team, name="Other Co")
+        AccountRelationship.objects.for_team(self.team.id).create(
+            team_id=self.team.id, account=other_account, definition=definition, user=other_user
         )
-        self._link_note(title="CSM note", account=csm_account)
-        self._link_note(title="AE note", account=ae_account)
-        self._link_note(title="Owner note", account=owner_account)
+        self._link_note(title="Assigned note", account=assigned_account)
+        self._link_note(title="Ended note", account=ended_account)
         self._link_note(title="Other note", account=other_account)
 
         response = self.client.get(f"{self.endpoint_base}?assigned_to={self.user.id}")
 
         titles = {n["title"] for n in response.json()["results"]}
-        self.assertEqual(titles, {"CSM note", "AE note"})
+        self.assertEqual(titles, {"Assigned note"})
 
     @parameterized.expand(
         [

@@ -4,6 +4,10 @@ import { Counter, Histogram } from 'prom-client'
 import { personMergeFailureCounter } from '~/common/persons/metrics'
 import { PersonMessage } from '~/common/persons/person-message'
 import { isDistinctIdIllegal } from '~/common/persons/person-utils'
+import {
+    PersonClaimedByLifecycleOpError,
+    PersonTombstoneBlockedError,
+} from '~/common/persons/repositories/person-repository'
 import { timeoutGuard } from '~/common/utils/db/utils'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
@@ -26,6 +30,7 @@ import {
     mergeSuccess,
 } from './person-merge-types'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
+import { lifecycleOpIdFromEvent } from './person-uuid'
 import { PersonsStoreTransactionForBatch } from './persons-store-for-batch'
 
 export const mergeFinalFailuresCounter = new Counter({
@@ -62,6 +67,18 @@ export const mergeFoldSizeHistogram = new Histogram({
     buckets: [2, 5, 10, 25, 50, 100, 250, 500],
 })
 
+export const mergeClaimDroppedCounter = new Counter({
+    name: 'person_merge_claim_dropped_total',
+    help: 'Merges dropped because another lifecycle operation held a person through every retry.',
+    labelNames: ['call'],
+})
+
+export const mergeDistinctIdOverrideCounter = new Counter({
+    name: 'person_merge_distinct_id_override_total',
+    help: 'Distinct id mapping rows written during merges, split by whether their version writes a ClickHouse override row.',
+    labelNames: ['call', 'overrideWritten'],
+})
+
 /** Thrown inside the fold transaction to roll it back when merge-mode move bounds would be exceeded. */
 class MergeFoldLimitError extends Error {}
 
@@ -73,7 +90,11 @@ function foldFallbackReason(error: unknown): 'limit' | 'conflict' | 'deadlock' |
     if (error instanceof MergeFoldLimitError) {
         return 'limit'
     }
-    if (error instanceof MergeFoldConflictError) {
+    if (
+        error instanceof MergeFoldConflictError ||
+        error instanceof PersonTombstoneBlockedError ||
+        error instanceof PersonClaimedByLifecycleOpError
+    ) {
         return 'conflict'
     }
     if ((error as { code?: string })?.code === '40P01') {
@@ -135,6 +156,31 @@ export class PersonMergeService {
                 )
             }
         } catch (e) {
+            if (e instanceof PersonClaimedByLifecycleOpError) {
+                // Expected contention, not a failure: another lifecycle operation held one of
+                // the persons through every retry. Drop the merge with a warning; the event's
+                // property updates still apply to whatever the distinct ids resolve to next.
+                // The counter is the rollout's drop-rate signal; the warning is debounced by
+                // the standard limiter so a long-held claim cannot flood the warnings topic.
+                mergeClaimDroppedCounter.labels({ call: this.context.event.event }).inc()
+                await emitIngestionWarning(this.context.outputs, this.context.team.id, {
+                    type: 'merge_race_condition',
+                    details: {
+                        distinctId: this.context.distinctId,
+                        eventUuid: this.context.event.uuid,
+                        sourcePersonDistinctId: String(
+                            this.context.eventProperties['$anon_distinct_id'] ?? this.context.eventProperties['alias']
+                        ),
+                        targetPersonDistinctId: this.context.distinctId,
+                    },
+                    pipelineStep: 'person-merge',
+                })
+                logger.warn('🤔', 'merge dropped: person claimed by a concurrent lifecycle operation', {
+                    team_id: this.context.team.id,
+                    distinctId: this.context.distinctId,
+                })
+                return mergeSuccess(undefined, Promise.resolve(), true)
+            }
             captureException(e, {
                 tags: { team_id: this.context.team.id, pipeline_step: 'processPersonsStep' },
                 extra: {
@@ -241,6 +287,11 @@ export class PersonMergeService {
         //      the Distinct ID has been merged. This is important so that an event being processed
         //      concurrently for that Distinct ID doesn't emit an event and _miss_ that a different
         //      Person UUID needs to be used now. (See the `processPerson` code in `update` for more.)
+        //
+        // When `mergeAlwaysV1` is on for the team, check 1 is skipped: every merge-added mapping
+        // gets version 1 regardless of personless history. Version 1 is safe in both cases — the
+        // override either re-points real personless events or is a harmless transient row the
+        // squash job deletes. The upsert (check 2) still runs for the `is_merged` race hint.
 
         if ((otherPerson && !mergeIntoPerson) || (!otherPerson && mergeIntoPerson)) {
             // Only one of the two Distinct IDs points at an existing Person
@@ -253,18 +304,46 @@ export class PersonMergeService {
                 }
             })()
 
-            return await this.context.personStore.inTransaction('mergeDistinctIds-OneExists', async (tx) => {
+            this.discardOverrideCounts()
+            const lifecycleOpId = lifecycleOpIdFromEvent(this.context.team.id, this.context.event.uuid)
+            const result = await this.context.personStore.inTransaction('mergeDistinctIds-OneExists', async (tx) => {
+                // New-world merges claim the person's lifecycle mark, which keeps a concurrent
+                // tombstone from landing between this check and the distinct id insert (an
+                // orphaned mapping); old-world merges rely on the delete's FK violation instead.
+                if (this.context.mergeTombstoneEnabled) {
+                    await tx.claimLifecycleMarks(
+                        lifecycleOpId,
+                        existingPerson.team_id,
+                        [{ personId: existingPerson.id, personUuid: existingPerson.uuid, role: 'target' }],
+                        this.context.distinctId
+                    )
+                    if (!(await tx.isPersonLive(existingPerson, this.context.distinctId))) {
+                        // Purge the stale cache entries so the promiseRetry attempt
+                        // re-fetches from Postgres instead of replaying the cached,
+                        // now-tombstoned person into the same failure.
+                        this.context.personStore.removeDistinctIdFromCache(teamId, otherPersonDistinctId)
+                        this.context.personStore.removeDistinctIdFromCache(teamId, mergeIntoDistinctId)
+                        throw new TargetPersonNotFoundError(
+                            'Person was deleted before the merge could add a distinct id'
+                        )
+                    }
+                }
                 // See comment above about `distinctIdVersion`
-                const insertedDistinctId = await tx.addPersonlessDistinctIdForMerge(
-                    this.context.team.id,
-                    distinctIdToAdd
-                )
-                const distinctIdVersion = insertedDistinctId ? 0 : 1
+                const insertedDistinctId = this.context.personlessRollout.writesDisabled
+                    ? false
+                    : await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctIdToAdd)
+                const distinctIdVersion = this.context.personlessRollout.mergeAlwaysV1 || !insertedDistinctId ? 1 : 0
+                this.recordOverrideCount('oneExists', distinctIdVersion > 0)
 
                 const kafkaMessages = await tx.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion)
                 await this.context.produceMessages(kafkaMessages)
+                if (this.context.mergeTombstoneEnabled) {
+                    await tx.releaseLifecycleMarks(lifecycleOpId, this.context.team.id, this.context.distinctId)
+                }
                 return mergeSuccess(existingPerson, Promise.resolve(), true)
             })
+            this.flushOverrideCounts()
+            return result
         } else if (otherPerson && mergeIntoPerson) {
             // Both Distinct IDs point at an existing Person
 
@@ -287,12 +366,16 @@ export class PersonMergeService {
             let distinctId1 = mergeIntoDistinctId
             let distinctId2 = otherPersonDistinctId
 
-            return await this.context.personStore.inTransaction('mergeDistinctIds-NeitherExist', async (tx) => {
-                // See comment above about `distinctIdVersion`
-                const insertedDistinctId1 = await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctId1)
-
-                // See comment above about `distinctIdVersion`
-                const insertedDistinctId2 = await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctId2)
+            this.discardOverrideCounts()
+            const result = await this.context.personStore.inTransaction('mergeDistinctIds-NeitherExist', async (tx) => {
+                // See comment above about `distinctIdVersion`. With personless writes disabled the
+                // upserts are skipped; the always-v1 branch below never reads the results.
+                const insertedDistinctId1 = this.context.personlessRollout.writesDisabled
+                    ? false
+                    : await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctId1)
+                const insertedDistinctId2 = this.context.personlessRollout.writesDisabled
+                    ? false
+                    : await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctId2)
 
                 // `createPerson` uses the first Distinct ID provided to generate the Person
                 // UUID. That means the first Distinct ID definitely doesn't need an override,
@@ -301,7 +384,11 @@ export class PersonMergeService {
                 // need to actually write an override. (But mostly we're being verbose for
                 // documentation purposes)
                 let distinctId2Version = 0
-                if (insertedDistinctId1 && insertedDistinctId2) {
+                if (this.context.personlessRollout.mergeAlwaysV1) {
+                    // The upsert results are not consulted: the second Distinct ID always gets an
+                    // override, and no swap is needed since the first one derives the Person UUID.
+                    distinctId2Version = 1
+                } else if (insertedDistinctId1 && insertedDistinctId2) {
                     // We were the first to insert both (neither was used for Personless), so we
                     // can use either as the primary Person UUID and create no overrides.
                 } else if (insertedDistinctId1 && !insertedDistinctId2) {
@@ -321,6 +408,7 @@ export class PersonMergeService {
                 // The first Distinct ID is used to create the new Person's UUID, and so it
                 // never needs an override.
                 const distinctId1Version = 0
+                this.recordOverrideCount('neitherExist', distinctId2Version > 0)
 
                 const [person, wasCreated] = await this.personCreateService.createPerson(
                     timestamp,
@@ -339,6 +427,8 @@ export class PersonMergeService {
                 const needsPersonUpdate = !wasCreated && !person.is_identified
                 return mergeSuccess(person, Promise.resolve(), needsPersonUpdate)
             })
+            this.flushOverrideCounts()
+            return result
         }
     }
 
@@ -550,9 +640,32 @@ export class PersonMergeService {
         const version = Math.max(target.version, ...mergeSources.map((source) => source.version)) + 1
 
         const currentTarget = target
+        this.discardOverrideCounts()
+        const lifecycleOpId = lifecycleOpIdFromEvent(this.context.team.id, this.context.event.uuid)
         const [mergedPerson, kafkaMessages] = await this.context.personStore.inTransaction(
             'mergePeopleFold',
             async (tx) => {
+                // New-world folds claim every person, keeping concurrent lifecycle operations
+                // (other merges, the delete saga) off the targets and sources until commit.
+                if (this.context.mergeTombstoneEnabled) {
+                    await tx.claimLifecycleMarks(
+                        lifecycleOpId,
+                        currentTarget.team_id,
+                        [
+                            { personId: currentTarget.id, personUuid: currentTarget.uuid, role: 'target' },
+                            ...mergeSources.map((source, index) => ({
+                                personId: source.id,
+                                personUuid: source.uuid,
+                                role: 'source' as const,
+                                ordinal: index,
+                            })),
+                        ],
+                        this.context.distinctId
+                    )
+                    if (!(await tx.isPersonLive(currentTarget, this.context.distinctId))) {
+                        throw new MergeFoldConflictError('Fold target was deleted concurrently')
+                    }
+                }
                 const expectedMoveCount = await this.assertFoldSourcesWithinMoveBounds(tx, mergeSources)
 
                 let person = currentTarget
@@ -585,12 +698,16 @@ export class PersonMergeService {
                 if (moveResult.distinctIdsMoved.length !== expectedMoveCount) {
                     throw new MergeFoldConflictError('folded merge moved an unexpected number of distinct ids')
                 }
+                this.recordOverrideCount('bothExistMove', true, moveResult.distinctIdsMoved.length)
 
                 const addMessages: PersonMessage[] = []
                 for (const pair of missingPairs) {
                     // See mergeDistinctIds for the personless distinctIdVersion logic.
-                    const inserted = await tx.addPersonlessDistinctIdForMerge(teamId, pair.anonDistinctId)
-                    const distinctIdVersion = inserted ? 0 : 1
+                    const inserted = this.context.personlessRollout.writesDisabled
+                        ? false
+                        : await tx.addPersonlessDistinctIdForMerge(teamId, pair.anonDistinctId)
+                    const distinctIdVersion = this.context.personlessRollout.mergeAlwaysV1 || !inserted ? 1 : 0
+                    this.recordOverrideCount('fold', distinctIdVersion > 0)
                     addMessages.push(...(await tx.addDistinctId(person, pair.anonDistinctId, distinctIdVersion)))
                 }
 
@@ -605,10 +722,14 @@ export class PersonMergeService {
                     deleteMessages = await tx.deletePersons(mergeSources, this.context.distinctId)
                 }
 
+                if (this.context.mergeTombstoneEnabled) {
+                    await tx.releaseLifecycleMarks(lifecycleOpId, this.context.team.id, this.context.distinctId)
+                }
                 return [person, [...updateMessages, ...moveResult.messages, ...addMessages, ...deleteMessages]]
             }
         )
 
+        this.flushOverrideCounts()
         plan.status = 'executed'
         plan.mergedPerson = mergedPerson
         mergeFoldExecutedCounter.inc()
@@ -742,9 +863,44 @@ export class PersonMergeService {
                 })
                 .inc()
 
+            this.discardOverrideCounts()
+            const lifecycleOpId = lifecycleOpIdFromEvent(this.context.team.id, this.context.event.uuid)
             const [mergedPerson, kafkaMessages] = await this.context.personStore.inTransaction(
                 'mergePeople',
                 async (tx) => {
+                    // New-world merges claim both persons in the lifecycle mark table: at
+                    // most one live operation (merge or delete saga) may hold a person, so
+                    // neither can be tombstoned under this transaction. The marks say
+                    // nothing about tombstones committed before the claim, so assert both
+                    // persons are still live while holding them. Liveness checks are
+                    // separate statements because a claim that waited on the mark index
+                    // resumes with a stale snapshot.
+                    if (this.context.mergeTombstoneEnabled) {
+                        await tx.claimLifecycleMarks(
+                            lifecycleOpId,
+                            currentTargetPerson.team_id,
+                            [
+                                {
+                                    personId: currentTargetPerson.id,
+                                    personUuid: currentTargetPerson.uuid,
+                                    role: 'target',
+                                },
+                                {
+                                    personId: currentSourcePerson.id,
+                                    personUuid: currentSourcePerson.uuid,
+                                    role: 'source',
+                                    ordinal: 0,
+                                },
+                            ],
+                            this.context.distinctId
+                        )
+                        if (!(await tx.isPersonLive(currentTargetPerson, this.context.distinctId))) {
+                            throw new TargetPersonNotFoundError('Target person was deleted concurrently')
+                        }
+                        if (!(await tx.isPersonLive(currentSourcePerson, this.context.distinctId))) {
+                            throw new SourcePersonNotFoundError('Source person was deleted concurrently')
+                        }
+                    }
                     const [person, updatePersonMessages] = await tx.updatePersonForMerge(
                         currentTargetPerson,
                         {
@@ -792,10 +948,14 @@ export class PersonMergeService {
                     )
 
                     const deletePersonMessages = await tx.deletePerson(currentSourcePerson, this.context.distinctId)
+                    if (this.context.mergeTombstoneEnabled) {
+                        await tx.releaseLifecycleMarks(lifecycleOpId, this.context.team.id, this.context.distinctId)
+                    }
                     return [person, [...updatePersonMessages, ...allDistinctIdMessages, ...deletePersonMessages]]
                 }
             )
 
+            this.flushOverrideCounts()
             mergeTxnSuccessCounter
                 .labels({
                     call: this.context.event.event, // $identify, $create_alias or $merge_dangerously
@@ -820,11 +980,11 @@ export class PersonMergeService {
                 return mergeError(error)
             } else if (error instanceof PersonMergeLimitExceededError) {
                 return mergeError(error)
-            } else if (error.code === '23503') {
-                // Foreign key constraint violation when attempting to delete the source person.
-                // This occurs when a concurrent merge operation adds a distinct ID to the source person
-                // after we've already moved the distinct IDs we knew about, but before the DELETE executes.
-                // The retry mechanism will:
+            } else if (error.code === '23503' || error instanceof PersonTombstoneBlockedError) {
+                // A concurrent merge added a distinct ID to the source person after we've already
+                // moved the distinct IDs we knew about, but before the delete executed — surfaced
+                // as a foreign key violation by the hard delete, or as PersonTombstoneBlockedError
+                // by the tombstone's live-mapping guard. The retry mechanism will:
                 // 1. Refresh the source person data to see all distinct IDs (including newly added ones)
                 // 2. Move ALL distinct IDs to the target person
                 // 3. Successfully delete the now-empty source person
@@ -838,6 +998,28 @@ export class PersonMergeService {
                 throw error
             }
         }
+    }
+
+    // Override-counter increments are buffered and flushed only after the enclosing
+    // transaction commits: merges retry and roll back, and rolled-back rows must not
+    // inflate a metric used for override-inflow capacity planning.
+    private pendingOverrideCounts: { call: string; overrideWritten: boolean; count: number }[] = []
+
+    private recordOverrideCount(call: string, overrideWritten: boolean, count: number = 1): void {
+        if (count > 0) {
+            this.pendingOverrideCounts.push({ call, overrideWritten, count })
+        }
+    }
+
+    private discardOverrideCounts(): void {
+        this.pendingOverrideCounts = []
+    }
+
+    private flushOverrideCounts(): void {
+        for (const { call, overrideWritten, count } of this.pendingOverrideCounts) {
+            mergeDistinctIdOverrideCounter.labels({ call, overrideWritten: String(overrideWritten) }).inc(count)
+        }
+        this.pendingOverrideCounts = []
     }
 
     private async moveDistinctIdsBasedOnMode(
@@ -896,6 +1078,7 @@ export class PersonMergeService {
             } else {
                 allDistinctIdMessages.push(...distinctIdResult.messages)
                 hasProcessedAnyDistinctIds = true
+                this.recordOverrideCount('bothExistMove', true, distinctIdResult.distinctIdsMoved.length)
 
                 // Check if we moved fewer than the batch size, indicating we're done
                 hasMore = distinctIdResult.distinctIdsMoved.length >= batchSize
@@ -945,6 +1128,7 @@ export class PersonMergeService {
                 throw new PersonMergeLimitExceededError('person_merge_move_limit_hit')
             }
         }
+        this.recordOverrideCount('bothExistMove', true, movedCount)
 
         return allDistinctIdMessages
     }

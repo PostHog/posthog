@@ -22,6 +22,8 @@ from typing import Any, ClassVar, Protocol, cast
 import structlog
 from rest_framework import serializers
 
+from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
+
 logger = structlog.get_logger(__name__)
 
 # Operators the Rust feature-flag evaluation service supports (OperatorType in property_models.rs).
@@ -59,6 +61,7 @@ FEATURE_FLAG_SUPPORTED_OPERATORS: frozenset[str | None] = frozenset(
         "not_in",
         "flag_evaluates_to",
     }
+    | set(STRING_PREFIX_SUFFIX_OPERATORS)
 )
 
 FEATURE_FLAG_OPERATOR_ALIASES: dict[str, str] = {

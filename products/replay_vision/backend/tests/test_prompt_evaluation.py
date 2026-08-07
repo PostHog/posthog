@@ -14,7 +14,7 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
-from products.replay_vision.backend.models.replay_scanner import ScannerType
+from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
     ReplayScannerPromptSuggestion,
     SuggestionStatus,
@@ -23,8 +23,10 @@ from products.replay_vision.backend.prompt_evaluation import (
     EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT,
     EVALUATION_SESSION_CAP,
     EVALUATION_SESSION_DEFAULT,
+    build_running_evaluation,
     classify_outcome,
     evaluation_supported,
+    in_flight_evaluation_credits,
     is_preview_evaluation,
     primary_outcome,
     select_evaluation_observations,
@@ -88,7 +90,11 @@ class TestPromptEvaluation(_VisionAPITestCase):
         [
             ({"verdict": "Yes "}, "Verdict: yes"),
             ({"verdict": "no", "tags": ["a"]}, "Verdict: no"),
-            ({"tags": ["Churn ", "bug", "churn"]}, "Tags: bug, churn, churn"),
+            # Slug-normalized and deduped, so casing and spacing can't read as a changed outcome.
+            ({"tags": ["Churn ", "bug", "churn"]}, "Tags: bug, churn"),
+            # Freeform tags count too: a rewrite that only moves those must not evaluate as "no change".
+            ({"tags": ["bug"], "tags_freeform": ["Payment Issues"]}, "Tags: bug, payment_issues"),
+            ({"tags": [], "tags_freeform": ["checkout"]}, "Tags: checkout"),
             # Preview types: scorer shows the raw score, summarizer prefers the title then falls back to the summary.
             ({"score": 7}, "Score: 7"),
             ({"score": 3.5}, "Score: 3.5"),
@@ -430,6 +436,11 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
         self.assertEqual(client.start_workflow.await_args.args[1].session_limit, EVALUATION_SESSION_DEFAULT)
         # No edited config posted, so the run tests the stored suggestion.
         self.assertIsNone(client.start_workflow.await_args.args[1].config_override)
+        # Receipt ids are keyed on started_at, so the run must carry the stamp it was started with rather
+        # than re-reading a row a concurrent re-test can restamp underneath it.
+        suggestion.refresh_from_db()
+        assert suggestion.evaluation is not None
+        self.assertEqual(client.start_workflow.await_args.args[1].started_at, suggestion.evaluation["started_at"])
 
     def test_evaluate_passes_edited_config_to_workflow(self) -> None:
         self._create_rated()
@@ -574,6 +585,26 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
 
         self.assertEqual(resp.status_code, 402)
         client.start_workflow.assert_not_awaited()
+
+    def test_in_flight_reservation_prices_from_the_frozen_model(self) -> None:
+        # Receipts bill the model frozen at workflow start. Pricing the reservation from the scanner's
+        # current model instead lets an edit mid-run silently re-price committed spend.
+        expensive, cheap = ScannerModel.GEMINI_3_6_FLASH, ScannerModel.GEMINI_3_5_FLASH_LITE
+        scanner = self._create_scanner(name="frozen-model", model=expensive)
+        ReplayScannerPromptSuggestion.objects.create(
+            scanner=scanner,
+            team=self.team,
+            suggested_prompt="p",
+            status=SuggestionStatus.PENDING,
+            scanner_version=1,
+            evaluation=build_running_evaluation(total=3, labels_fingerprint="", model=expensive),
+        )
+        reserved = in_flight_evaluation_credits(self.team.organization_id)
+
+        scanner.model = cheap
+        scanner.save(update_fields=["model"])
+        self.assertEqual(in_flight_evaluation_credits(self.team.organization_id), reserved)
+        self.assertEqual(reserved, 3 * observation_credits_for_model(expensive))
 
     @parameterized.expand([("zero", 0), ("above_cap", EVALUATION_SESSION_CAP + 1)])
     def test_evaluate_rejects_out_of_range_session_limit(self, _name: str, limit: int) -> None:

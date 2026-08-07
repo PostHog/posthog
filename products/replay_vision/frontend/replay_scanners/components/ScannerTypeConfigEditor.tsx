@@ -84,7 +84,7 @@ function ScannerPromptField({
 
     return (
         <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
                 <label className="text-sm font-medium">{label}</label>
                 {openMax && (
                     <LemonButton
@@ -180,7 +180,7 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
             <LemonField
                 name="scanner_config.tags"
                 label={
-                    <span className="flex w-full items-center justify-between gap-2">
+                    <span className="flex w-full flex-wrap items-center justify-between gap-2">
                         Tag vocabulary
                         <LemonButton
                             size="xsmall"
@@ -229,7 +229,7 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
                     placeholder="e.g. This is a B2B analytics tool. Users usually come to build a dashboard — call out where they get stuck in that flow."
                 />
                 <LemonField name="scanner_config.length" label="Summary length">
-                    <LemonSegmentedButton options={SUMMARIZER_LENGTH_OPTIONS} />
+                    <LemonSegmentedButton className="max-w-full overflow-x-auto" options={SUMMARIZER_LENGTH_OPTIONS} />
                 </LemonField>
             </div>
         )

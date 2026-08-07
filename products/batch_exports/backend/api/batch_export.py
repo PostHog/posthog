@@ -50,6 +50,7 @@ from posthog.utils import relative_date_parse, str_to_bool
 from products.batch_exports.backend.api.destination_tests import get_destination_test
 from products.batch_exports.backend.models.batch_export import (
     BATCH_EXPORT_INTERVALS,
+    S3_CREATABLE_TYPES,
     S3_FAMILY_TYPES,
     TIMEZONES,
     BatchExport,
@@ -525,9 +526,8 @@ class AwsS3DestinationRequestSerializer(serializers.Serializer):
 
     type = serializers.ChoiceField(choices=["AwsS3"])
     integration_id = serializers.IntegerField(
-        required=False,
         help_text=(
-            "ID of an aws-s3-kind Integration providing AWS credentials. Preferred over inline credentials. "
+            "ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. "
             "Use the integrations-list MCP tool to find one."
         ),
     )
@@ -539,10 +539,9 @@ class S3CompatibleDestinationRequestSerializer(serializers.Serializer):
 
     type = serializers.ChoiceField(choices=["S3Compatible"])
     integration_id = serializers.IntegerField(
-        required=False,
         help_text=(
             "ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. "
-            "Preferred over inline credentials. Use the integrations-list MCP tool to find one."
+            "Required when creating a batch export. Use the integrations-list MCP tool to find one."
         ),
     )
     config = S3CompatibleDestinationConfigSerializer()
@@ -582,11 +581,10 @@ class BatchExportDestinationRequestField(serializers.JSONField):
     """JSONField annotated with a polymorphic OpenAPI request schema.
 
     Only integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3,
-    S3Compatible, Snowflake) are exposed in the schema. integration_id is required for Databricks,
-    AzureBlob and BigQuery, and optional for the S3 family and Snowflake (inline credentials remain
-    supported for the time being). Existing Postgres, S3 and Snowflake exports created before
-    integrations keep their inline credentials. Runtime validation remains
-    `BatchExportDestinationSerializer.validate_destination`.
+    S3Compatible, Snowflake) are exposed in the schema. integration_id is required for every one of
+    those except Snowflake, where inline credentials remain supported for the time being. Existing
+    Postgres and Snowflake exports created before integrations keep their inline credentials.
+    Runtime validation remains `BatchExportDestinationSerializer.validate_destination`.
     """
 
     pass
@@ -688,8 +686,8 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text=(
             "ID of a team-scoped Integration providing credentials. Required when creating Databricks, "
-            "AzureBlob, and BigQuery destinations; optional for AwsS3, S3Compatible and Snowflake (inline "
-            "credentials remain supported); unused for other types."
+            "AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake "
+            "(inline credentials remain supported); unused for other types."
         ),
     )
 
@@ -729,7 +727,9 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
 
         # Some credential/connection fields are optional on the dataclass (integration-backed exports
         # resolve them at run time), so they must be required here only when no Integration is linked.
-        # TODO: remove this code once integrations for S3 and Snowflake are enforced
+        # For the S3 family this is only possible when updating an export that predates integrations:
+        # creating one without an Integration is rejected in `validate_destination`.
+        # TODO: remove this code once inline credentials are gone for S3 and integrations are enforced for Snowflake
         conditionally_required: set[str] = set()
         if attrs.get("integration") is None:
             if export_type in S3_FAMILY_TYPES:
@@ -1239,6 +1239,12 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     "Cannot remove the integration from an S3 batch export that uses one. "
                     "Re-send its `integration` to keep it (or a different one to swap)."
                 )
+
+            # New S3 exports must use an Integration for credentials. Exports created before
+            # integrations existed keep their inline credentials, so only require it on create
+            # (`instance is None`); existing inline-credential exports stay valid when edited.
+            if integration is None and instance is None and destination_type in S3_CREATABLE_TYPES:
+                raise serializers.ValidationError(f"Integration is required for {destination_type} batch exports")
 
             # we already validate the required inputs in BatchExportDestinationSerializer::validate
             # so here we just ensure that the inputs are not empty

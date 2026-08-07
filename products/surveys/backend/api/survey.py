@@ -80,6 +80,7 @@ from products.surveys.backend.responses import (
     SurveyRates,
     SurveyStats,
     archived_responses_filter,
+    build_choice_translation_map,
     calculate_rates,
     fetch_per_question_stats,
     fetch_response_rows,
@@ -2874,13 +2875,13 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
 
         # Extract the question text and choices from the survey
         question_text = None
-        question_choices = None
+        question_dict = None
         if survey.questions and question_id:
             # Find the question with the matching ID
             for idx, question in enumerate(survey.questions):
                 if question.get("id", None) == question_id:
                     question_text = question.get("question")
-                    question_choices = question.get("choices")
+                    question_dict = question
                     # Backfill the index so the index-based response key fallback works.
                     # Without this, fetch_responses passes question_index=None into the
                     # getSurveyResponse() HogQL function, which requires an integer first
@@ -2891,17 +2892,24 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         elif survey.questions and question_index is not None:
             # Fallback to question index if question_id is not provided
             if 0 <= question_index < len(survey.questions):
-                question_text = survey.questions[question_index].get("question")
-                question_choices = survey.questions[question_index].get("choices")
+                question_dict = survey.questions[question_index]
+                question_text = question_dict.get("question")
 
         if question_text is None:
             raise exceptions.ValidationError("the text of the question is required")
+
+        # For choice questions, exclude predefined choices (base and translated) to only get
+        # open-ended "Other" responses — otherwise a predefined answer given in a non-base
+        # language leaks into the free-text set fed to the summarizer. Same translation-aware
+        # matching as per_question_stats' distribution.
+        exclude_values = None
+        if question_dict is not None:
+            exclude_values = list(build_choice_translation_map(question_dict).keys()) or None
 
         # Get archived response UUIDs to exclude
         archived_uuids = get_archived_response_uuids(survey_id, self.team.pk)
 
         # Fetch responses using the new module
-        # For choice questions, exclude predefined choices to only get open-ended "Other" responses
         responses = fetch_responses(
             survey_id=survey_id,
             question_index=question_index,
@@ -2909,7 +2917,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             start_date=(survey.start_date or survey.created_at).replace(hour=0, minute=0, second=0, microsecond=0),
             end_date=end_date,
             team=self.team,
-            exclude_values=question_choices,
+            exclude_values=exclude_values,
             exclude_uuids=archived_uuids,
         )
         response_count = len(responses)
@@ -3462,10 +3470,15 @@ def get_surveys_count(team: Team) -> int:
 
 
 def get_surveys_response(team: Team) -> dict[str, Any]:
+    # Every SDK discards surveys that aren't running before evaluating eligibility, so drafts and
+    # stopped surveys are payload every client downloads and throws away. The nullness check mirrors
+    # the SDKs' own `isSurveyRunning`; keeping it time-independent matters because this response is
+    # cached and only rebuilt when a survey is saved, so a comparison against `now` would go stale.
     surveys = SurveyAPISerializer(
         Survey.objects.db_manager(READ_DB_FOR_SURVEYS)
         .filter(team__project_id=team.project_id)
         .exclude(archived=True)
+        .filter(start_date__isnull=False, end_date__isnull=True)
         .select_related("linked_flag", "targeting_flag", "internal_targeting_flag")
         .prefetch_related("actions"),
         many=True,

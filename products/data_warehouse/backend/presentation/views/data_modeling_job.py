@@ -12,6 +12,11 @@ DUCKGRES_SHADOW_FLAG = "duckgres-data-modeling-shadow"
 
 
 class DataModelingJobSerializer(serializers.ModelSerializer):
+    updated_at = serializers.DateTimeField(
+        read_only=True,
+        help_text="When the job row last changed. For finished jobs this is when the run reached its terminal status.",
+    )
+
     class Meta:
         model = DataModelingJob
         fields = [
@@ -22,6 +27,7 @@ class DataModelingJobSerializer(serializers.ModelSerializer):
             "error",
             "created_at",
             "last_run_at",
+            "updated_at",
             "workflow_id",
             "workflow_run_id",
             "rows_expected",

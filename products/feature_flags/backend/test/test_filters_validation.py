@@ -1,3 +1,4 @@
+
 from typing import Any
 
 from django.test import SimpleTestCase
@@ -180,6 +181,31 @@ class TestFiltersValidation(SimpleTestCase):
                 "semver_non_string_value",
                 {"groups": [{"properties": [_person_prop(operator="semver_eq", value=123)]}]},
                 ["cross_field.semver_value_invalid"],
+            ),
+            (
+                "starts_with_string_value",
+                {"groups": [{"properties": [_person_prop(operator="starts_with", value="posthog")]}]},
+                [],
+            ),
+            (
+                "starts_with_numeric_value",
+                {"groups": [{"properties": [_person_prop(operator="starts_with", value=123)]}]},
+                ["cross_field.operator_requires_string_value"],
+            ),
+            (
+                "not_starts_with_string_value",
+                {"groups": [{"properties": [_person_prop(operator="not_starts_with", value="posthog")]}]},
+                [],
+            ),
+            (
+                "ends_with_string_value",
+                {"groups": [{"properties": [_person_prop(operator="ends_with", value=".com")]}]},
+                [],
+            ),
+            (
+                "not_ends_with_string_value",
+                {"groups": [{"properties": [_person_prop(operator="not_ends_with", value=".com")]}]},
+                [],
             ),
         ]
     )

@@ -7,6 +7,7 @@
 //! that a consistency violation becomes a page-shaped signal rather than
 //! a process exit code.
 
+use std::error::Error as _;
 use std::process;
 use std::time::Duration;
 
@@ -27,11 +28,16 @@ pub const LANE_BLAST: &str = "blast";
 pub const LANE_PROBER: &str = "prober";
 pub const LANE_VERIFY: &str = "verify";
 
-/// Metric label for a failed request: the gRPC status code the client
-/// wrapped in anyhow context, in the shared vocabulary every personhog
-/// service labels with.
+/// Metric label for a failed request. A status the server actually sent
+/// arrives as a grpc-status trailer and keeps its code — a live server's
+/// verdict. A status tonic synthesized from a dead connection (stream
+/// reset, GOAWAY, broken transport) carries the transport error as its
+/// `source`, and the code tonic picks for it is arbitrary — those become
+/// "transport", so a killed connection can never masquerade as a
+/// server-side cancel or timeout.
 pub fn status_reason(err: &anyhow::Error) -> &'static str {
     match err.downcast_ref::<tonic::Status>() {
+        Some(status) if status.source().is_some() => "transport",
         Some(status) => code_as_str(status.code()),
         None => NON_STATUS,
     }
@@ -57,6 +63,11 @@ pub fn record_write_ok(lane: &'static str, elapsed: Duration) {
 /// Record a write the stack refused or dropped. Latency is deliberately
 /// not recorded: a timeout's duration is the deadline, not the stack's
 /// service time, and mixing the two distorts the percentiles.
+///
+/// The reason is always the request's true outcome, shutdown or not: the
+/// bed's own teardown completes in-flight requests rather than aborting
+/// them, so anything failing during a roll is stack signal — exactly the
+/// "deploys must not fail traffic" promise the bed exists to check.
 pub fn record_write_failed(lane: &'static str, err: &anyhow::Error) {
     counter!(
         "personhog_traffic_writes_total",
@@ -143,7 +154,10 @@ pub fn record_violations(epoch: u64, violations: &[ConsistencyViolation]) {
 
 #[cfg(test)]
 mod tests {
+    use std::io::{Error as IoError, ErrorKind};
+
     use serde_json::{json, Value};
+    use tonic::Status;
 
     use super::*;
 
@@ -171,5 +185,25 @@ mod tests {
         for (key, kind) in cases {
             assert_eq!(violation_kind(&violation(key)), kind, "{key}");
         }
+    }
+
+    /// A status the server sent over the wire keeps its code; one tonic
+    /// synthesized from a broken connection (it carries the transport
+    /// error as its `source`) must report as "transport" — otherwise a
+    /// killed connection is indistinguishable from a server-side cancel
+    /// or timeout on the dashboards.
+    #[test]
+    fn status_reason_separates_wire_statuses_from_transport_failures() {
+        let wire = anyhow::Error::new(Status::cancelled("server said stop"))
+            .context("UpdatePersonProperties failed");
+        assert_eq!(status_reason(&wire), "cancelled");
+
+        let reset = IoError::new(ErrorKind::ConnectionReset, "peer reset");
+        let synthesized = anyhow::Error::new(Status::from_error(Box::new(reset)))
+            .context("UpdatePersonProperties failed");
+        assert_eq!(status_reason(&synthesized), "transport");
+
+        let not_a_status = anyhow::anyhow!("connect refused before any rpc");
+        assert_eq!(status_reason(&not_a_status), NON_STATUS);
     }
 }

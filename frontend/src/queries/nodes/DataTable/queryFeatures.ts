@@ -12,6 +12,7 @@ import {
     isSessionAttributionExplorerQuery,
     isSessionsQuery,
     isTracesQuery,
+    isWebBotsTableQuery,
     isWebExternalClicksQuery,
     isWebGoalsQuery,
     isWebOverviewQuery,
@@ -89,6 +90,12 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
             features.add(QueryFeature.resultIsArrayOfArrays)
             features.add(QueryFeature.showCount)
             features.add(QueryFeature.displayResponseError)
+
+            if (!query.source) {
+                // A source-less ActorsQuery is the persons list. When there's an insight
+                // source, that source query carries its own filterTestAccounts toggle.
+                features.add(QueryFeature.testAccountFilters)
+            }
         }
     }
 
@@ -107,6 +114,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
     if (
         isWebOverviewQuery(query) ||
         isWebExternalClicksQuery(query) ||
+        isWebBotsTableQuery(query) ||
         isWebStatsTableQuery(query) ||
         isWebGoalsQuery(query)
     ) {

@@ -72,3 +72,32 @@ export function getEffectiveMCPClientContext(
 ): MCPClientContext {
     return sessionContext ?? requestContext
 }
+
+/**
+ * Per-field live-first coalesce for the identity properties captured on every MCP
+ * analytics event. `clientInfo` only arrives on the `initialize` handshake (or, for
+ * stateless requests, `params._meta['io.modelcontextprotocol/clientInfo']`), so a
+ * `tools/call` in the middle of a session has no live client name — without a
+ * fallback, `$mcp_client_name` goes out empty on every non-initialize event.
+ *
+ * This must stay per-field rather than whole-object (unlike
+ * `getEffectiveMCPClientContext`, which is session-first and fine for that because
+ * it drives session-scoped tool behavior): a single server multiplexes concurrent
+ * requests from different clients, so a live value on this request always wins
+ * over a possibly-stale session-pinned one, and only a genuinely absent field falls
+ * back. Mirrors the `@posthog/mcp` SDK's own capture-side precedence
+ * (`packages/mcp/src/extensions/capture.ts`) and the read-path classifier's field
+ * order (`mcp_harness.py`: `$mcp_client_name` before `mcp_session_client_name`).
+ */
+export function getEffectiveMCPClientIdentity(
+    requestContext: MCPRequestContext,
+    sessionContext: MCPSessionContext | null
+): MCPClientContext {
+    return {
+        mcpClientName: requestContext.mcpClientName ?? sessionContext?.mcpClientName,
+        mcpClientVersion: requestContext.mcpClientVersion ?? sessionContext?.mcpClientVersion,
+        mcpProtocolVersion: requestContext.mcpProtocolVersion ?? sessionContext?.mcpProtocolVersion,
+        mcpConsumer: requestContext.mcpConsumer ?? sessionContext?.mcpConsumer,
+        mcpVendorClient: requestContext.mcpVendorClient ?? sessionContext?.mcpVendorClient,
+    }
+}
