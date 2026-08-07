@@ -430,7 +430,7 @@ export function createCdpCoreServices(
             backoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
             backoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
         },
-        redis,
+        // Valkey-only: push is pre-release, so it moved over whole rather than dual-writing.
         valkeyShadow.writer,
         messageAssetsService
     )

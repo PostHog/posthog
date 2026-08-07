@@ -17,7 +17,6 @@ const mismatchWarningLogged = new Set<string>()
  * back caches and metrics, the ones near the bottom decide whether an invocation runs.
  */
 export const MIRROR_FEATURES = [
-    'push-notification',
     'hog-flow-duplicate-observer',
     'hog-function-rate-limiter',
     'hog-masker',

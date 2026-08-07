@@ -6,7 +6,6 @@ import {
     CyclotronInvocationQueueParametersSendPushNotificationType,
     PushNotificationPayloadType,
 } from '~/cdp/schema/cyclotron'
-import { dualRead, dualWrite } from '~/cdp/utils/dual-store'
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -66,7 +65,7 @@ const pushNotificationRescheduledCounter = new Counter({
 })
 
 // Apple rate-limits new APNs provider tokens (returns 429 TooManyProviderTokenUpdates if refreshed more
-// than once every ~20 min per key) and accepts a token for up to 1 hour. Cache the signed JWT in Redis
+// than once every ~20 min per key) and accepts a token for up to 1 hour. Cache the signed JWT in Valkey
 // keyed by the auth key id so the whole fleet reuses one token per key rather than minting one per send.
 const APNS_JWT_CACHE_PREFIX = '@posthog/apns-provider-jwt/'
 const APNS_JWT_TTL_SECONDS = 45 * 60
@@ -163,8 +162,7 @@ export class PushNotificationService {
         private integrationManager: IntegrationManagerService,
         private encryptedFields: EncryptedFields,
         private fetchUtils: PushNotificationFetchUtils,
-        private redis: RedisV2,
-        private redisMirror: RedisV2,
+        private valkey: RedisV2,
         private messageAssetsService?: MessageAssetsService
     ) {}
 
@@ -563,12 +561,8 @@ export class PushNotificationService {
         const keyFingerprint = createHash('sha256').update(`${teamId}:${keyId}:${signingKey}`).digest('hex')
         const cacheKey = `${APNS_JWT_CACHE_PREFIX}${keyFingerprint}`
 
-        const read = (pool: RedisV2) =>
-            pool.useClient({ name: 'apns-jwt-read', failOpen: true }, (client) => client.get(cacheKey))
-        const cached = await dualRead(
-            'push-notification.apns-jwt-read',
-            () => read(this.redis),
-            () => read(this.redisMirror)
+        const cached = await this.valkey.useClient({ name: 'apns-jwt-read', failOpen: true }, (client) =>
+            client.get(cacheKey)
         )
         if (cached) {
             return cached
@@ -583,14 +577,8 @@ export class PushNotificationService {
         const signature = sign.sign({ key: signingKey, dsaEncoding: 'ieee-p1363' }, 'base64url')
         const jwt = `${signingInput}.${signature}`
 
-        const write = (pool: RedisV2) =>
-            pool.useClient({ name: 'apns-jwt-write', failOpen: true }, (client) =>
-                client.set(cacheKey, jwt, 'EX', APNS_JWT_TTL_SECONDS)
-            )
-        await dualWrite(
-            'push-notification.apns-jwt-write',
-            () => write(this.redis),
-            () => write(this.redisMirror)
+        await this.valkey.useClient({ name: 'apns-jwt-write', failOpen: true }, (client) =>
+            client.set(cacheKey, jwt, 'EX', APNS_JWT_TTL_SECONDS)
         )
         return jwt
     }

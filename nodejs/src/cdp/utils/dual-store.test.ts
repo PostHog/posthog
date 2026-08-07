@@ -22,9 +22,9 @@ describe('dual-store', () => {
         })
 
         it('reads only the named features from valkey', () => {
-            configureValkeyReads(' hog-masker , push-notification ')
+            configureValkeyReads(' hog-masker , hog-flow-duplicate-observer ')
             expect(readSourceFor('hog-masker.filterByMasking')).toBe('valkey')
-            expect(readSourceFor('push-notification.apns-jwt-read')).toBe('valkey')
+            expect(readSourceFor('hog-flow-duplicate-observer.observe')).toBe('valkey')
             expect(readSourceFor('hog-watcher.getEffectiveStates')).toBe('redis')
         })
     })
