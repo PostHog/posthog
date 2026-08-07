@@ -51,6 +51,28 @@ class TestClassifyTaskNeedsRepo:
 
     @parameterized.expand(
         [
+            # A Signals scout (PostHog product) is NOT a fast-path term, so
+            # "scout" no longer short-circuits to no-repo. A code-flavored scout
+            # ask must reach the LLM — none of these trip an explicit_code_pattern,
+            # so if the heuristic still caught "scout" they'd wrongly return False
+            # without ever calling the model.
+            ("scout_code_fix", "fix the scout code, the scout SDK has a bug"),
+            ("scout_found_then_fix", "the scout found a checkout crash, can you fix it"),
+        ]
+    )
+    def test_scout_code_request_reaches_llm(self, _name, text):
+        """Regression: scout mentions must not skip the repo gate via the heuristic."""
+        result = self._run_with_llm_content(text, '{"needs_repo": true}')
+        assert result is True
+
+    def test_scout_config_request_routes_no_repo_via_llm(self):
+        """A Signals-scout config ask reaches the LLM and classifies as no-repo."""
+        text = "set up a scout to keep an eye on our signups"
+        result = self._run_with_llm_content(text, '{"needs_repo": false}')
+        assert result is False
+
+    @parameterized.expand(
+        [
             # JSON booleans round-trip to Python bools as expected.
             ("json_bool_true", '{"needs_repo": true}', True),
             ("json_bool_false", '{"needs_repo": false}', False),

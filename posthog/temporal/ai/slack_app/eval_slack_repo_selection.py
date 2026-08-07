@@ -240,6 +240,28 @@ CASES: list[Case] = [
         expected_outcome="found",
     ),
     Case(
+        name="scout_config_not_repo",
+        description="A Signals scout (PostHog product) config ask — LLM should classify as no-repo.",
+        text_template="@PostHog set up a scout to keep an eye on our signups and ping me if they drop",
+        thread_messages=[
+            {"user": "tester", "text": "@PostHog set up a scout to keep an eye on our signups and ping me if they drop"}
+        ],
+        expected_stage="haiku",
+        expected_outcome="no_repo",
+        note="'scout' is not a heuristic fast-path term; the LLM routes it via the Signals-scout guidance.",
+    ),
+    Case(
+        name="scout_code_bug",
+        description="Code-flavored scout ask — must reach the agent, not short-circuit to no-repo.",
+        text_template="@PostHog the scout SDK has a bug, can you fix the scout code",
+        thread_messages=[
+            {"user": "tester", "text": "@PostHog the scout SDK has a bug, can you fix the scout code"}
+        ],
+        expected_stage="agent",
+        expected_outcome="found",
+        note="Regression guard: bare 'scout' must not skip the repo gate for genuine code asks.",
+    ),
+    Case(
         name="api_viewset",
         description="Explicit code pattern ('viewset') bypasses heuristic; agent picks the API repo.",
         text_template="@PostHog the /api/projects/ viewset crashes on large payloads, can you fix it",
