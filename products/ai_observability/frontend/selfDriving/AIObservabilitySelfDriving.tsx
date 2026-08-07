@@ -13,7 +13,7 @@ import {
     isAIObservabilityScout,
 } from './aiObservabilityScoutTemplates'
 
-const SCOUTS_DOCS_URL = 'https://posthog.com/docs/self-driving/scouts'
+const SCOUTS_DOCS_URL = 'https://posthog.com/docs/ai-observability/self-driving'
 
 const TEMPLATE_ICONS: Record<AIObservabilityScoutTemplate['key'], JSX.Element> = {
     'daily-digest': <IconCalendar />,

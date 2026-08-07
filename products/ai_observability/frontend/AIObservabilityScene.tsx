@@ -513,12 +513,12 @@ function AIObservabilitySceneContent(): JSX.Element {
     useShortcut({
         name: 'AIObservabilityTab4',
         keybind: [keyBinds.tab4],
-        intent: selfDrivingEnabled ? 'Go to Generations' : 'Go to Sessions',
+        intent: selfDrivingEnabled ? 'Go to Generations' : 'Go to Users',
         interaction: 'function',
         callback: () =>
             push(
                 combineUrl(
-                    selfDrivingEnabled ? urls.aiObservabilityGenerations() : urls.aiObservabilitySessions(),
+                    selfDrivingEnabled ? urls.aiObservabilityGenerations() : urls.aiObservabilityUsers(),
                     searchParams
                 ).url
             ),
@@ -527,12 +527,12 @@ function AIObservabilitySceneContent(): JSX.Element {
     useShortcut({
         name: 'AIObservabilityTab5',
         keybind: [keyBinds.tab5],
-        intent: selfDrivingEnabled ? 'Go to Sessions' : 'Go to Users',
+        intent: selfDrivingEnabled ? 'Go to Sessions' : 'Go to Errors',
         interaction: 'function',
         callback: () =>
             push(
                 combineUrl(
-                    selfDrivingEnabled ? urls.aiObservabilitySessions() : urls.aiObservabilityUsers(),
+                    selfDrivingEnabled ? urls.aiObservabilitySessions() : urls.aiObservabilityErrors(),
                     searchParams
                 ).url
             ),
