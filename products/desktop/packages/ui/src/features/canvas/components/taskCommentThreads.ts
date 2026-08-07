@@ -104,7 +104,7 @@ export function resourceCommentThreads(
         entries: [thread.root, ...visibleReplies].map(resourceEntry),
         resolved: thread.resolved,
         lastActivityAt:
-          thread.replies.at(-1)?.created_at ?? thread.root.created_at,
+          visibleReplies.at(-1)?.created_at ?? thread.root.created_at,
         origin: { kind: "resource", source, root: thread.root },
       },
     ];

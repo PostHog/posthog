@@ -82,6 +82,7 @@ describe("resourceCommentThreads", () => {
 
     expect(threads[0].resolved).toBe(true);
     expect(threads[0].entries).toHaveLength(1);
+    expect(threads[0].lastActivityAt).toBe("2024-01-01T00:00:00Z");
   });
 });
 
