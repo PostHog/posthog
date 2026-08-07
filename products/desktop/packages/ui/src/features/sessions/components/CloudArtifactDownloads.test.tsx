@@ -143,6 +143,45 @@ describe("CloudArtifactDownloads", () => {
     );
   });
 
+  it("disables every download while a shared request is in progress", async () => {
+    fetchedArtifacts.push({
+      id: "output-2",
+      name: "summary.txt",
+      type: "output",
+      size: 100,
+      storage_path: "tasks/run-1/summary.txt",
+    });
+    let finishPreviewRequest: (url: null) => void = () => undefined;
+    getCloudAttachmentPreviewUrl.mockReturnValue(
+      new Promise<null>((resolve) => {
+        finishPreviewRequest = resolve;
+      }),
+    );
+
+    try {
+      render(
+        <Theme>
+          <CloudArtifactDownloads taskId="task-1" task={task} />
+        </Theme>,
+      );
+
+      const downloadButtons = screen.getAllByRole("button", {
+        name: "Download",
+      });
+      fireEvent.click(downloadButtons[0]);
+
+      await waitFor(() =>
+        expect(downloadButtons[1]).toHaveAttribute("aria-disabled", "true"),
+      );
+      finishPreviewRequest(null);
+      await waitFor(() =>
+        expect(downloadButtons[1]).toHaveAttribute("aria-disabled", "false"),
+      );
+    } finally {
+      fetchedArtifacts.pop();
+    }
+  });
+
   it("opens an artifact preview in a new tab", () => {
     renderDownloads();
 

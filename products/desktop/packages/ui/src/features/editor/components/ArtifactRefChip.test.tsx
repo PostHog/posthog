@@ -10,7 +10,8 @@ const TASK_ID = "3f1c2b6a-1111-4222-8333-444455556666";
 const RUN_ID = "9a8b7c6d-5555-4666-8777-888899990000";
 const ARTIFACT_ID = "1a2b3c4d-2222-4333-8444-555566667777";
 const STORAGE_PATH = `posthog-tasks/artifacts/team_2/task_${TASK_ID}/run_${RUN_ID}/1a2b3c4d_report.md`;
-const LINK = `https://bucket.s3.amazonaws.com/${STORAGE_PATH}?X-Amz-Signature=abc`;
+const LEGACY_LINK = `https://bucket.s3.amazonaws.com/${STORAGE_PATH}?X-Amz-Signature=abc`;
+const STABLE_LINK = `https://app.posthog.com/api/projects/2/tasks/${TASK_ID}/runs/${RUN_ID}/artifacts/${ARTIFACT_ID}/download/`;
 
 const manifest = vi.hoisted(() => ({
   data: undefined as TaskRunArtifact[] | undefined,
@@ -66,8 +67,11 @@ describe.each(SURFACES)("artifact links in messages (%s)", (_name, Surface) => {
     ];
   });
 
-  it("opens the artifact in a tab instead of leaving the app", async () => {
-    renderMessage(`Here it is: [report.md](${LINK})`);
+  it.each([
+    ["legacy storage", LEGACY_LINK],
+    ["stable download", STABLE_LINK],
+  ])("opens a %s link in a tab instead of leaving the app", async (_kind, link) => {
+    renderMessage(`Here it is: [report.md](${link})`);
 
     await userEvent.click(
       await screen.findByRole("button", { name: "Open report.md" }),
@@ -82,7 +86,7 @@ describe.each(SURFACES)("artifact links in messages (%s)", (_name, Surface) => {
   });
 
   it("downloads from the divided half without opening a tab", async () => {
-    renderMessage(`Here it is: [report.md](${LINK})`);
+    renderMessage(`Here it is: [report.md](${LEGACY_LINK})`);
 
     await userEvent.click(
       await screen.findByRole("button", { name: "Download report.md" }),
@@ -100,7 +104,7 @@ describe.each(SURFACES)("artifact links in messages (%s)", (_name, Surface) => {
   it("holds an inert chip while the manifest is still loading", async () => {
     manifest.data = undefined;
     manifest.isLoading = true;
-    renderMessage(`Here it is: [report.md](${LINK})`);
+    renderMessage(`Here it is: [report.md](${LEGACY_LINK})`);
 
     expect(screen.queryByRole("link")).toBeNull();
     expect(
@@ -108,12 +112,25 @@ describe.each(SURFACES)("artifact links in messages (%s)", (_name, Surface) => {
     ).toBeDisabled();
   });
 
-  it("labels a bare autolinked url with the filename", async () => {
-    renderMessage(`Here it is: ${LINK}`);
+  it.each([
+    ["legacy storage", LEGACY_LINK],
+    ["stable download", STABLE_LINK],
+  ])("labels a bare %s url with the manifest filename", async (_kind, link) => {
+    renderMessage(`Here it is: ${link}`);
 
     const chip = await screen.findByRole("button", { name: "Open report.md" });
     expect(chip).toHaveTextContent("report.md");
-    expect(chip).not.toHaveTextContent("X-Amz-Signature");
+    expect(chip).not.toHaveTextContent("https://");
+  });
+
+  it("keeps a stable link when the artifact is no longer in the manifest", async () => {
+    manifest.data = [];
+    renderMessage(`Here it is: [report.md](${STABLE_LINK})`);
+
+    await waitFor(() => {
+      expect(screen.getByRole("link")).toHaveAttribute("href", STABLE_LINK);
+    });
+    expect(screen.queryByRole("button", { name: "Open report.md" })).toBeNull();
   });
 
   it.each([
@@ -139,10 +156,10 @@ describe.each(SURFACES)("artifact links in messages (%s)", (_name, Surface) => {
     ],
   ])("keeps the plain link when %s", async (_label, mutate, taskId) => {
     mutate();
-    renderMessage(`Here it is: [report.md](${LINK})`, taskId);
+    renderMessage(`Here it is: [report.md](${LEGACY_LINK})`, taskId);
 
     await waitFor(() => {
-      expect(screen.getByRole("link")).toHaveAttribute("href", LINK);
+      expect(screen.getByRole("link")).toHaveAttribute("href", LEGACY_LINK);
     });
     expect(screen.queryByRole("button", { name: "Open report.md" })).toBeNull();
   });

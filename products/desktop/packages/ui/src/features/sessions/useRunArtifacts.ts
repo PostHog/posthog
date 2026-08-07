@@ -18,7 +18,7 @@ import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 export function useRunArtifacts(
   taskId: string | undefined,
   runId: string | undefined,
-  options?: { enabled?: boolean },
+  options?: { enabled?: boolean; staleTime?: number },
 ): UseQueryResult<TaskRunArtifact[]> {
   const sessionService = useService<SessionService>(SESSION_SERVICE);
   const authIdentity = useAuthStateValue(getAuthIdentity);
@@ -32,6 +32,6 @@ export function useRunArtifacts(
       runId !== undefined &&
       (options?.enabled ?? true),
     retry: false,
-    staleTime: Infinity,
+    staleTime: options?.staleTime ?? Infinity,
   });
 }

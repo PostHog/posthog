@@ -226,7 +226,9 @@ function readDownloadUrl(artifact: TaskRunArtifact): string | undefined {
   return (artifact as { url?: string }).url;
 }
 
-function getArtifactReferenceUrl(downloadUrl: string | undefined): string | null {
+function getArtifactReferenceUrl(
+  downloadUrl: string | undefined,
+): string | null {
   if (!downloadUrl) return null;
 
   try {

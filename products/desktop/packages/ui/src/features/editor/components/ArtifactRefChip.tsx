@@ -8,18 +8,15 @@ import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import type { ArtifactLinkTarget } from "@posthog/ui/utils/artifactLinks";
 import { findArtifactForLink } from "@posthog/ui/utils/artifactLinks";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
-import { type ReactNode, useMemo } from "react";
+import type { ReactNode } from "react";
 
 /**
  * An artifact reference inside a message: a chip that opens the file in an
- * artifact tab, with a divided download half for saving it to disk. Replaces
- * the raw object-storage link the agent wrote, which would otherwise leave the
- * app for the OS browser and arrive as a download.
+ * artifact tab, with a divided download half for saving it to disk. Supports
+ * stable API links and storage URLs from older messages.
  *
- * Renders `fallback` — the plain link — whenever it cannot prove which artifact
- * the link means: a link from another task, an artifact since dismissed, an id
- * prefix matching more than one file. A link that still leaves the app beats a
- * chip that opens the wrong file.
+ * Renders `fallback` whenever it cannot prove which artifact the link means:
+ * another task, a dismissed artifact, or an ambiguous legacy id prefix.
  */
 export function ArtifactRefChip({
   target,
@@ -41,33 +38,40 @@ export function ArtifactRefChip({
 
   // isLoading rather than isPending: a query that is disabled (signed out) is
   // pending forever, and a chip that never resolves is worse than a link.
-  const { data: artifacts, isLoading } = useRunArtifacts(
-    target.taskId,
-    target.runId,
-    { enabled: belongsToSession },
-  );
-  const artifact = useMemo(
-    () => (artifacts ? findArtifactForLink(artifacts, target) : null),
-    [artifacts, target],
-  );
+  const {
+    data: artifacts,
+    isFetching,
+    isLoading,
+  } = useRunArtifacts(target.taskId, target.runId, {
+    enabled: belongsToSession,
+    staleTime: 0,
+  });
+  const artifact = artifacts ? findArtifactForLink(artifacts, target) : null;
 
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
-  const name = artifact?.name ?? target.fileName;
-  // An autolinked bare URL arrives with the URL itself as its text. Showing a
-  // signed storage URL as the chip's label helps nobody — use the filename.
+  const markdownLabel =
+    typeof children === "string" && children !== href ? children : undefined;
+  const fallbackName =
+    target.kind === "legacy-storage" ? target.fileName : markdownLabel;
+  const displayName = artifact?.name ?? fallbackName;
+  // A bare legacy URL includes the filename, while a stable URL gets its name
+  // from the manifest after the refresh completes.
   const label =
-    typeof children === "string" && children === href ? name : children;
+    typeof children === "string" && children === href
+      ? (displayName ?? children)
+      : children;
   const { download, downloadingId } = useArtifactDownload();
 
   if (!belongsToSession) return <>{fallback}</>;
   // Resolving: hold the chip's shape so the line doesn't reflow once the
   // manifest lands, but keep it inert until there is something to open.
-  if (isLoading) {
-    return <ArtifactChipShell label={label} name={name} disabled />;
+  if (isLoading || (isFetching && !artifact)) {
+    return <ArtifactChipShell label={label} name={displayName} disabled />;
   }
   const artifactId = artifact?.id;
   if (!artifactId) return <>{fallback}</>;
 
+  const name = artifact.name;
   const sizeLabel = formatFileSize(artifact.size);
 
   return (

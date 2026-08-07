@@ -6,7 +6,9 @@ import { describe, expect, it } from "vitest";
 
 const TASK_ID = "3f1c2b6a-1111-4222-8333-444455556666";
 const RUN_ID = "9a8b7c6d-5555-4666-8777-888899990000";
+const ARTIFACT_ID = "1a2b3c4d-2222-4333-8444-555566667777";
 const KEY = `posthog-tasks/artifacts/team_2/task_${TASK_ID}/run_${RUN_ID}/1a2b3c4d_report.md`;
+const STABLE_LINK = `https://app.posthog.com/api/projects/2/tasks/${TASK_ID}/runs/${RUN_ID}/artifacts/${ARTIFACT_ID}/download/`;
 
 describe("parseArtifactLink", () => {
   it.each([
@@ -23,10 +25,21 @@ describe("parseArtifactLink", () => {
       `https://bucket.s3.amazonaws.com/${KEY.replace("report.md", "report%20final.md")}`,
     ],
   ])("reads task, run, and artifact prefix from a %s", (_label, href) => {
-    const target = parseArtifactLink(href);
-    expect(target?.taskId).toBe(TASK_ID);
-    expect(target?.runId).toBe(RUN_ID);
-    expect(target?.artifactIdPrefix).toBe("1a2b3c4d");
+    expect(parseArtifactLink(href)).toMatchObject({
+      kind: "legacy-storage",
+      taskId: TASK_ID,
+      runId: RUN_ID,
+      artifactIdPrefix: "1a2b3c4d",
+    });
+  });
+
+  it("reads the full artifact id from a stable download url", () => {
+    expect(parseArtifactLink(STABLE_LINK)).toEqual({
+      kind: "stable",
+      taskId: TASK_ID,
+      runId: RUN_ID,
+      artifactId: ARTIFACT_ID,
+    });
   });
 
   it.each([
@@ -44,6 +57,14 @@ describe("parseArtifactLink", () => {
       "a non-http scheme",
       `posthog-code://artifacts/team_2/task_${TASK_ID}/run_${RUN_ID}/1a2b3c4d_report.md`,
     ],
+    [
+      "a stable route missing the artifact id",
+      `https://app.posthog.com/api/projects/2/tasks/${TASK_ID}/runs/${RUN_ID}/artifacts/download/`,
+    ],
+    [
+      "a different task API route",
+      `https://app.posthog.com/api/projects/2/tasks/${TASK_ID}/runs/${RUN_ID}/artifacts/${ARTIFACT_ID}/presign/`,
+    ],
     ["an unparseable href", "not a url"],
   ])("returns null for %s", (_label, href) => {
     expect(parseArtifactLink(href)).toBeNull();
@@ -52,7 +73,20 @@ describe("parseArtifactLink", () => {
 
 describe("findArtifactForLink", () => {
   const target = parseArtifactLink(`https://bucket.s3.amazonaws.com/${KEY}`);
-  if (!target) throw new Error("fixture link must parse");
+  if (target?.kind !== "legacy-storage") {
+    throw new Error("fixture link must parse as legacy storage");
+  }
+
+  it("matches a stable link by the full artifact id", () => {
+    const stableTarget = parseArtifactLink(STABLE_LINK);
+    if (!stableTarget) throw new Error("stable fixture link must parse");
+    const artifacts = [
+      { id: "1a2b3c4d-9999-4222-8333-444455556666" },
+      { id: ARTIFACT_ID },
+    ];
+
+    expect(findArtifactForLink(artifacts, stableTarget)).toBe(artifacts[1]);
+  });
 
   it("matches on the exact storage path", () => {
     const artifacts = [

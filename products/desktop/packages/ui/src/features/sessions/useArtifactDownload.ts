@@ -15,7 +15,7 @@ export interface ArtifactDownloadRef {
 
 export interface ArtifactDownload {
   download: (ref: ArtifactDownloadRef) => Promise<void>;
-  /** Artifact id currently being fetched, so a list can disable just that row. */
+  /** Artifact id currently being fetched. Shared lists must disable every download until it clears. */
   downloadingId: string | null;
 }
 
