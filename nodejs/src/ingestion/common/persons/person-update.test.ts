@@ -1,8 +1,14 @@
 import { personProfileIgnoredPropertiesCounter, personProfileUpdateOutcomeCounter } from '~/common/persons/metrics'
 import { FILTERED_PERSON_UPDATE_PROPERTIES } from '~/common/persons/person-property-utils'
 import { PluginEvent } from '~/plugin-scaffold'
+import { Properties } from '~/plugin-scaffold'
 
-import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
+import { applyEventPropertyUpdates, extractEventOps, foldOps, refineEventOps } from './person-update'
+
+// The scenarios below exercise the extract → refine pair end to end, the
+// same composition the Postgres store runs per event.
+const computeEventPropertyUpdates = (event: PluginEvent, personProperties: Properties, updateAllProperties = false) =>
+    refineEventOps(extractEventOps(event, updateAllProperties), personProperties, updateAllProperties)
 
 jest.mock('~/common/persons/metrics', () => ({
     personProfileUpdateOutcomeCounter: {
@@ -699,6 +705,50 @@ describe('person-update', () => {
             const [_, wasUpdated] = applyEventPropertyUpdates(propertyUpdates, person as any)
 
             expect(wasUpdated).toBe(false)
+        })
+    })
+
+    describe('foldOps', () => {
+        const eventOps = (properties: Record<string, unknown>, event = '$set') =>
+            extractEventOps({ event, properties } as any)
+
+        it('preserves sequential semantics per key across folded events', () => {
+            // set shadows a pending set_once; among set_onces the first
+            // wins; an unset clears both lanes; a set_once after an unset
+            // becomes an unconditional set.
+            let acc = eventOps({ $set_once: { plan: 'first', keep: 'kept' } })
+            acc = foldOps(acc, eventOps({ $set: { plan: 'shadowing' }, $set_once: { keep: 'second-loses' } }))
+            acc = foldOps(acc, eventOps({ $unset: ['gone', 'revived'] }))
+            acc = foldOps(acc, eventOps({ $set_once: { revived: 'promoted' } }))
+
+            expect(acc.set).toEqual({ plan: 'shadowing', revived: 'promoted' })
+            expect(acc.setOnce).toEqual({ keep: 'kept' })
+            expect(acc.unset).toEqual(['gone'])
+        })
+
+        it('a later set supersedes a pending unset for its key', () => {
+            const acc = foldOps(eventOps({ $unset: ['a'] }), eventOps({ $set: { a: 'back' } }))
+            expect(acc.set).toEqual({ a: 'back' })
+            expect(acc.unset).toEqual([])
+        })
+
+        it('identity ORs and last-seen max-merges, mirroring the leader', () => {
+            const first = eventOps({})
+            first.isIdentified = true
+            first.lastSeenAtMs = 7_200_000
+            const second = eventOps({})
+            second.lastSeenAtMs = 3_600_000
+
+            const acc = foldOps(first, second)
+            expect(acc.isIdentified).toBe(true)
+            expect(acc.lastSeenAtMs).toEqual(7_200_000)
+        })
+
+        it('denied events contribute nothing in either direction', () => {
+            const denied = eventOps({ $set: { a: '1' } }, '$exception')
+            const real = eventOps({ $set: { b: '2' } })
+            expect(foldOps(real, denied)).toEqual(real)
+            expect(foldOps(denied, real)).toEqual(real)
         })
     })
 })
