@@ -62,37 +62,3 @@ export const TwoEventsShareFewerActions: Story = {
 export const PushHasNoActions: Story = {
   args: { initial: gh({ events: ["push"] }) },
 };
-
-const slack = (config: object): LoopTriggerDraft[] => [
-  {
-    key: "t2",
-    type: "slack",
-    enabled: true,
-    config: {
-      slack_integration_id: 3,
-      channel_ids: ["C0123ABCDEF"],
-      allowed_posters: { mode: "org_members" },
-      ...config,
-    },
-  },
-];
-
-export const SlackKeywordTrigger: Story = {
-  args: { initial: slack({ filters: { keywords: ["incident", "sev1"] } }) },
-};
-
-// The allowlist is the only mode that can run on an alert an app posted, so it's the one
-// worth eyeballing: it grows an extra field the other two modes don't have.
-export const SlackTriggeredByAnAlertingApp: Story = {
-  args: {
-    initial: slack({
-      filters: { keywords: ["incident declared"] },
-      allowed_posters: {
-        mode: "slack_user_ids",
-        slack_user_ids: ["B0INCIDENTBOT"],
-      },
-    }),
-  },
-};
-
-export const SlackRunsOnEveryMessage: Story = { args: { initial: slack({}) } };

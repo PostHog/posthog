@@ -5,12 +5,10 @@ import {
   GithubLogo,
   Globe,
   Plus,
-  SlackLogo,
   Trash,
   Warning,
 } from "@phosphor-icons/react";
 import type { LoopSchemas } from "@posthog/api-client/loops";
-import { parseChannelIdFromTargetValue } from "@posthog/core/settings/slackNotificationTarget";
 import {
   Button,
   Chip,
@@ -35,9 +33,6 @@ import {
   ToggleGroupItem,
 } from "@posthog/quill";
 import { CopyButton } from "@posthog/ui/features/agent-applications/components/CopyButton";
-import { useIntegrationSelectors } from "@posthog/ui/features/integrations/store";
-import { useSlackConnect } from "@posthog/ui/features/integrations/useSlackConnect";
-import { SlackWorkspaceChannelPicker } from "@posthog/ui/features/settings/components/SlackWorkspaceChannelPicker";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
 import { TimezonePicker } from "@posthog/ui/primitives/TimezonePicker";
 import { TimezoneTimestamp } from "@posthog/ui/primitives/TimezoneTimestamp";
@@ -57,14 +52,10 @@ import { nextScheduleRun } from "../loopDisplay";
 import {
   defaultLoopTriggerOfType,
   githubTriggerActionOptions,
-  isSlackActorId,
-  isSlackChannelId,
   isTriggerDraftValid,
   type LoopTriggerDraft,
   withGithubTriggerEvents,
   withGithubTriggerFilters,
-  withSlackTriggerFilters,
-  withSlackTriggerPosterMode,
 } from "../loopFormTypes";
 import { LoopRepositoryPicker } from "./LoopRepositoryPicker";
 
@@ -88,13 +79,6 @@ const TRIGGER_TYPES: {
     subtitle: "Runs on repository activity",
     menuDescription: "When a repo gets a push, PR or issue activity",
     icon: GithubLogo,
-  },
-  {
-    type: "slack",
-    label: "Slack message",
-    subtitle: "Runs on messages in a channel",
-    menuDescription: "When someone posts in a channel PostHog is in",
-    icon: SlackLogo,
   },
   {
     type: "api",
@@ -122,35 +106,6 @@ function githubTriggerInvalidMessage(
     return "Pick a repository and at least one event to finish this trigger.";
   }
   return "Fill in a path and a value for each payload condition, or remove the empty rows.";
-}
-
-/** Names whichever half of the trigger is unfinished, so the disabled save button has a
- * reason. Channel IDs are checked separately because a pasted channel *name* looks filled
- * in but would never match anything Slack sends. */
-function slackTriggerInvalidMessage(
-  config: LoopSchemas.LoopSlackTriggerConfig,
-): string {
-  if (!config.slack_integration_id || config.channel_ids.length === 0) {
-    return "Pick a Slack workspace and at least one channel to finish this trigger.";
-  }
-  const badChannel = config.channel_ids.find((id) => !isSlackChannelId(id));
-  if (badChannel) {
-    return `'${badChannel}' isn't a Slack channel ID. Use the ID, like C0123ABCDEF, not the channel name.`;
-  }
-  const posters = config.allowed_posters;
-  if (
-    posters?.mode === "slack_user_ids" &&
-    (posters.slack_user_ids ?? []).length === 0
-  ) {
-    return "Add at least one Slack user, bot or app ID that's allowed to trigger this loop.";
-  }
-  const badActor = (posters?.slack_user_ids ?? []).find(
-    (id) => !isSlackActorId(id),
-  );
-  if (badActor) {
-    return `'${badActor}' isn't a Slack ID. Use a user ID (U…), bot ID (B…) or app ID (A…).`;
-  }
-  return "Fill in a path and a value for each message condition, or remove the empty rows.";
 }
 
 interface LoopTriggerEditorProps {
@@ -290,11 +245,7 @@ function TriggerCard({
       ? githubTriggerInvalidMessage(
           trigger.config as LoopSchemas.LoopGithubTriggerConfig,
         )
-      : trigger.type === "slack"
-        ? slackTriggerInvalidMessage(
-            trigger.config as LoopSchemas.LoopSlackTriggerConfig,
-          )
-        : "Set when this trigger fires.";
+      : "Set when this trigger fires.";
 
   return (
     <Flex
@@ -372,14 +323,6 @@ function TriggerCard({
         {trigger.type === "github" ? (
           <GithubTriggerFields
             config={trigger.config as LoopSchemas.LoopGithubTriggerConfig}
-            disabled={disabled}
-            onChange={(config) => onChange({ config })}
-          />
-        ) : null}
-
-        {trigger.type === "slack" ? (
-          <SlackTriggerFields
-            config={trigger.config as LoopSchemas.LoopSlackTriggerConfig}
             disabled={disabled}
             onChange={(config) => onChange({ config })}
           />
@@ -635,18 +578,14 @@ const GITHUB_EVENT_OPTIONS: {
 ];
 
 /** Each accepted value is a discrete chip, committed with Enter. A single delimited text field
- * cannot represent a value that contains the delimiter, and the fields we match on (a PR title,
- * a team name, a Slack message phrase) legitimately contain commas. */
-function ChipValues({
+ * cannot represent a value that contains the delimiter, and GitHub payload fields we can match
+ * on (a PR title, a team name) legitimately contain commas. */
+function PayloadConditionValues({
   values,
-  ariaLabel,
-  placeholder,
   disabled,
   onChange,
 }: {
   values: string[];
-  ariaLabel: string;
-  placeholder: string;
   disabled?: boolean;
   onChange: (values: string[]) => void;
 }) {
@@ -675,8 +614,8 @@ function ChipValues({
       <input
         value={draft}
         disabled={disabled}
-        placeholder={values.length === 0 ? placeholder : "Add value"}
-        aria-label={ariaLabel}
+        placeholder={values.length === 0 ? "team-security" : "Add value"}
+        aria-label="Condition value"
         className="min-w-[80px] flex-1 bg-transparent text-[13px] text-gray-12 outline-none placeholder:text-gray-9"
         onChange={(event) => setDraft(event.target.value)}
         onBlur={commit}
@@ -691,93 +630,6 @@ function ChipValues({
         }}
       />
     </div>
-  );
-}
-
-/** The `{path, equals}` condition rows shared by the github and slack triggers, which match
- * identically — a dot-path into the event body against a set of accepted values. */
-function PayloadConditionRows({
-  conditions,
-  pathPlaceholder,
-  valuePlaceholder,
-  disabled,
-  onChange,
-}: {
-  conditions: LoopSchemas.LoopGithubTriggerPayloadFilter[];
-  pathPlaceholder: string;
-  valuePlaceholder: string;
-  disabled?: boolean;
-  onChange: (conditions: LoopSchemas.LoopGithubTriggerPayloadFilter[]) => void;
-}) {
-  const updateCondition = (
-    index: number,
-    patch: Partial<LoopSchemas.LoopGithubTriggerPayloadFilter>,
-  ) => {
-    onChange(
-      conditions.map((condition, i) =>
-        i === index ? { ...condition, ...patch } : condition,
-      ),
-    );
-  };
-
-  return (
-    <>
-      {conditions.map((condition, index) => (
-        <div
-          // Keying on the path instead would remount the input on every keystroke.
-          // biome-ignore lint/suspicious/noArrayIndexKey: rows carry no id and cannot be reordered, and both inputs are controlled off the config, so the index is a correct identity
-          key={index}
-          className="flex items-center gap-2"
-        >
-          <Input
-            value={condition.path}
-            disabled={disabled}
-            placeholder={pathPlaceholder}
-            // The placeholder stops naming the field as soon as someone types into it.
-            aria-label="Condition path"
-            className="h-7 flex-1"
-            onChange={(event) =>
-              updateCondition(index, { path: event.target.value })
-            }
-          />
-          <span className="text-[12px] text-gray-10">is</span>
-          <ChipValues
-            values={
-              Array.isArray(condition.equals)
-                ? condition.equals
-                : [condition.equals].filter(Boolean)
-            }
-            ariaLabel="Condition value"
-            placeholder={valuePlaceholder}
-            disabled={disabled}
-            onChange={(equals) => updateCondition(index, { equals })}
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={disabled}
-            aria-label={
-              condition.path
-                ? `Remove condition ${condition.path}`
-                : "Remove condition"
-            }
-            onClick={() => onChange(conditions.filter((_, i) => i !== index))}
-          >
-            <Trash size={13} />
-          </Button>
-        </div>
-      ))}
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={disabled}
-        className="self-start"
-        onClick={() => onChange([...conditions, { path: "", equals: "" }])}
-      >
-        <Plus size={13} />
-        Add condition
-      </Button>
-    </>
   );
 }
 
@@ -817,7 +669,7 @@ function GithubTriggerFields({
     onChange(withGithubTriggerFilters(config, { payload: next }));
   };
 
-  const _updateCondition = (
+  const updateCondition = (
     index: number,
     patch: Partial<LoopSchemas.LoopGithubTriggerPayloadFilter>,
   ) => {
@@ -915,219 +767,65 @@ function GithubTriggerFields({
             Optional. Match any other field in the GitHub payload, like{" "}
             <code>requested_team.slug</code> for the team asked to review.
           </span>
-          <PayloadConditionRows
-            conditions={conditions}
-            pathPlaceholder="requested_team.slug"
-            valuePlaceholder="team-security"
-            disabled={disabled}
-            onChange={setConditions}
-          />
-        </div>
-      </SubField>
-    </Flex>
-  );
-}
-
-const SLACK_POSTER_OPTIONS: {
-  value: LoopSchemas.LoopSlackPosterModeEnum;
-  label: string;
-}[] = [
-  { value: "org_members", label: "Anyone on your team" },
-  { value: "loop_owner", label: "Only me" },
-  { value: "slack_user_ids", label: "Specific people or apps" },
-];
-
-const SLACK_POSTER_HINTS: Record<LoopSchemas.LoopSlackPosterModeEnum, string> =
-  {
-    org_members:
-      "The person who posts has to have access to this project. Messages from apps and bots never match.",
-    loop_owner:
-      "Only your own messages start a run. Messages from apps and bots never match.",
-    slack_user_ids:
-      "The only option that can run on an alert posted by an app. Add the app's bot ID, or a teammate's user ID.",
-  };
-
-function SlackTriggerFields({
-  config,
-  disabled,
-  onChange,
-}: {
-  config: LoopSchemas.LoopSlackTriggerConfig;
-  disabled?: boolean;
-  onChange: (config: LoopSchemas.LoopSlackTriggerConfig) => void;
-}) {
-  const { hasSlackIntegration, slackIntegrations } = useIntegrationSelectors();
-  const slackConnect = useSlackConnect();
-
-  const integrationId =
-    config.slack_integration_id || slackIntegrations[0]?.id || null;
-  const channelIds = config.channel_ids;
-  const posterMode = config.allowed_posters?.mode ?? "org_members";
-  const allowedIds = config.allowed_posters?.slack_user_ids ?? [];
-
-  if (!hasSlackIntegration) {
-    return (
-      <Flex direction="column" gap="2" align="start">
-        <Text className="text-[12.5px] text-gray-11 leading-relaxed">
-          Connect a Slack workspace to run this loop from a channel.
-        </Text>
-        <Button
-          variant="outline"
-          size="default"
-          disabled={disabled || slackConnect.isConnecting}
-          onClick={() => void slackConnect.connect()}
-        >
-          {slackConnect.isConnecting
-            ? "Waiting for Slack…"
-            : "Connect Slack workspace"}
-        </Button>
-      </Flex>
-    );
-  }
-
-  const addChannel = (target: string | null) => {
-    if (!target || !integrationId) return;
-    const channelId = parseChannelIdFromTargetValue(target);
-    if (!channelId || channelIds.includes(channelId)) return;
-    onChange({
-      ...config,
-      slack_integration_id: integrationId,
-      channel_ids: [...channelIds, channelId],
-    });
-  };
-
-  return (
-    <Flex direction="column" gap="3">
-      <SubField label="Channels">
-        <div className="flex flex-col gap-2">
-          <span className="text-[12px] text-gray-10">
-            PostHog has to be in the channel to see its messages. Invite it with{" "}
-            <code>/invite @PostHog</code>.
-          </span>
-          {channelIds.length > 0 ? (
-            <div className="flex flex-wrap items-center gap-1">
-              {channelIds.map((channelId) => (
-                <Chip key={channelId} size="sm" className="max-w-full">
-                  <span className="truncate">{channelId}</span>
-                  <ChipClose
-                    disabled={disabled}
-                    aria-label={`Remove ${channelId}`}
-                    onClick={() =>
-                      onChange({
-                        ...config,
-                        channel_ids: channelIds.filter(
-                          (id) => id !== channelId,
-                        ),
-                      })
-                    }
-                  />
-                </Chip>
-              ))}
+          {conditions.map((condition, index) => (
+            <div
+              // Keying on the path instead would remount the input on every keystroke.
+              // biome-ignore lint/suspicious/noArrayIndexKey: rows carry no id and cannot be reordered, and both inputs are controlled off the config, so the index is a correct identity
+              key={index}
+              className="flex items-center gap-2"
+            >
+              <Input
+                value={condition.path}
+                disabled={disabled}
+                placeholder="requested_team.slug"
+                // The placeholder stops naming the field as soon as someone types into it.
+                aria-label="Condition path"
+                className="h-7 flex-1"
+                onChange={(event) =>
+                  updateCondition(index, { path: event.target.value })
+                }
+              />
+              <span className="text-[12px] text-gray-10">is</span>
+              <PayloadConditionValues
+                values={
+                  Array.isArray(condition.equals)
+                    ? condition.equals
+                    : [condition.equals].filter(Boolean)
+                }
+                disabled={disabled}
+                onChange={(equals) => updateCondition(index, { equals })}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={disabled}
+                aria-label={
+                  condition.path
+                    ? `Remove condition ${condition.path}`
+                    : "Remove condition"
+                }
+                onClick={() =>
+                  setConditions(conditions.filter((_, i) => i !== index))
+                }
+              >
+                <Trash size={13} />
+              </Button>
             </div>
-          ) : null}
-          <SlackWorkspaceChannelPicker
-            // Remounts after each pick so the combobox returns to "Add a channel" rather
-            // than sitting on the one just added.
-            key={`${integrationId}-${channelIds.length}`}
-            integrations={slackIntegrations}
-            integrationId={integrationId}
-            channelValue={null}
-            channelAriaLabel="Add a channel"
-            offLabel="Add a channel"
+          ))}
+          <Button
+            variant="outline"
+            size="sm"
             disabled={disabled}
-            onIntegrationChange={(nextIntegrationId) =>
-              onChange({
-                ...config,
-                slack_integration_id: nextIntegrationId,
-                // Channel ids belong to one workspace, so they can't survive the switch.
-                channel_ids: [],
-              })
+            className="self-start"
+            onClick={() =>
+              setConditions([...conditions, { path: "", equals: "" }])
             }
-            onChannelChange={addChannel}
-          />
+          >
+            <Plus size={13} />
+            Add condition
+          </Button>
         </div>
       </SubField>
-
-      <SubField label="Keywords">
-        <div className="flex flex-col gap-2">
-          <span className="text-[12px] text-gray-10">
-            Optional. Runs when the message contains any one of these, ignoring
-            case. Leave empty to run on every message in the channel.
-          </span>
-          <ChipValues
-            values={config.filters?.keywords ?? []}
-            ariaLabel="Keyword"
-            placeholder="incident"
-            disabled={disabled}
-            onChange={(keywords) =>
-              onChange(withSlackTriggerFilters(config, { keywords }))
-            }
-          />
-        </div>
-      </SubField>
-
-      <SubField label="Who can trigger it">
-        <div className="flex flex-col gap-2">
-          <span className="text-[12px] text-gray-10">
-            The run uses your credentials, so this decides whose message can
-            spend them.
-          </span>
-          <SettingsOptionSelect
-            value={posterMode}
-            options={SLACK_POSTER_OPTIONS}
-            disabled={disabled}
-            size="lg"
-            ariaLabel="Who can trigger it"
-            onValueChange={(value) =>
-              onChange(
-                withSlackTriggerPosterMode(
-                  config,
-                  value as LoopSchemas.LoopSlackPosterModeEnum,
-                ),
-              )
-            }
-          />
-          <span className="text-[12px] text-gray-10">
-            {SLACK_POSTER_HINTS[posterMode]}
-          </span>
-          {posterMode === "slack_user_ids" ? (
-            <ChipValues
-              values={allowedIds}
-              ariaLabel="Slack ID"
-              placeholder="B0123ABCDEF"
-              disabled={disabled}
-              onChange={(slack_user_ids) =>
-                onChange({
-                  ...config,
-                  allowed_posters: { mode: posterMode, slack_user_ids },
-                })
-              }
-            />
-          ) : null}
-        </div>
-      </SubField>
-
-      <SubField label="Message conditions">
-        <div className="flex flex-col gap-2">
-          <span className="text-[12px] text-gray-10">
-            Optional. Match any other field on the Slack message, like{" "}
-            <code>subtype</code>.
-          </span>
-          <PayloadConditionRows
-            conditions={config.filters?.payload ?? []}
-            pathPlaceholder="subtype"
-            valuePlaceholder="file_share"
-            disabled={disabled}
-            onChange={(payload) =>
-              onChange(withSlackTriggerFilters(config, { payload }))
-            }
-          />
-        </div>
-      </SubField>
-
-      <Text className="text-[12px] text-gray-10">
-        The run replies in a thread on the message that started it.
-      </Text>
     </Flex>
   );
 }

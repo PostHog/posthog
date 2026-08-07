@@ -15,7 +15,6 @@ import {
   normalizeLoopFormValues,
   withAutoFix,
   withGithubTriggerEvents,
-  withSlackTriggerPosterMode,
 } from "./loopFormTypes";
 
 function scheduleTrigger(
@@ -585,120 +584,5 @@ describe("auto-fix behaviors", () => {
       max_fix_iterations: 5,
     });
     expect(withAutoFix(behaviors, false).watch_ci).toBe(false);
-  });
-});
-
-describe("slack triggers", () => {
-  function slackTrigger(
-    config: Partial<LoopSchemas.LoopSlackTriggerConfig> = {},
-  ): LoopTriggerDraft {
-    return {
-      key: "k3",
-      type: "slack",
-      enabled: true,
-      config: {
-        slack_integration_id: 5,
-        channel_ids: ["C0123ABCDEF"],
-        allowed_posters: { mode: "org_members" },
-        ...config,
-      },
-    };
-  }
-
-  it.each([
-    { name: "a complete trigger", config: {}, expected: true },
-    {
-      name: "no workspace picked",
-      config: { slack_integration_id: 0 },
-      expected: false,
-    },
-    {
-      name: "no channels picked",
-      config: { channel_ids: [] },
-      expected: false,
-    },
-    // Slack only sends ids on message events, so a channel name would save and never fire.
-    {
-      name: "a channel name rather than an id",
-      config: { channel_ids: ["#alerts"] },
-      expected: false,
-    },
-    {
-      name: "an allowlist mode with nobody on the list",
-      config: {
-        allowed_posters: {
-          mode: "slack_user_ids" as const,
-          slack_user_ids: [],
-        },
-      },
-      expected: false,
-    },
-    {
-      name: "a half-filled message condition",
-      config: { filters: { payload: [{ path: "subtype", equals: "" }] } },
-      expected: false,
-    },
-  ])("validity blocks save for $name", ({ config, expected }) => {
-    expect(isTriggerDraftValid(slackTrigger(config))).toBe(expected);
-  });
-
-  it("normalizes ids and keywords for the write payload", () => {
-    // Slack sends upper-case ids and the backend matches keywords against a lowercased
-    // message, so casing pasted into the form has to be normalized before it is saved.
-    const values: LoopFormValues = {
-      ...emptyLoopFormValues(),
-      name: "Incident triage",
-      instructions: "Triage it.",
-      triggers: [
-        slackTrigger({
-          channel_ids: ["c0123abcdef"],
-          filters: { keywords: [" Incident ", "SEV1"] },
-          allowed_posters: {
-            mode: "slack_user_ids",
-            slack_user_ids: ["b0incident"],
-          },
-        }),
-      ],
-    };
-
-    const config = formValuesToLoopWrite(values).triggers?.[0]
-      ?.config as LoopSchemas.LoopSlackTriggerConfig;
-
-    expect(config.channel_ids).toEqual(["C0123ABCDEF"]);
-    expect(config.filters?.keywords).toEqual(["incident", "sev1"]);
-    expect(config.allowed_posters?.slack_user_ids).toEqual(["B0INCIDENT"]);
-  });
-
-  it("drops an empty keyword list rather than saving it", () => {
-    // An empty `keywords` means "every message in the channel", so leaving `{keywords: []}`
-    // behind would be indistinguishable from a deliberate catch-all.
-    const values: LoopFormValues = {
-      ...emptyLoopFormValues(),
-      name: "Catch all",
-      instructions: "Do it.",
-      triggers: [slackTrigger({ filters: { keywords: ["  "] } })],
-    };
-
-    const config = formValuesToLoopWrite(values).triggers?.[0]
-      ?.config as LoopSchemas.LoopSlackTriggerConfig;
-
-    expect(config.filters).toEqual({});
-  });
-
-  it("withSlackTriggerPosterMode drops a stale allowlist when the mode stops using one", () => {
-    const config: LoopSchemas.LoopSlackTriggerConfig = {
-      slack_integration_id: 5,
-      channel_ids: ["C0123ABCDEF"],
-      allowed_posters: {
-        mode: "slack_user_ids",
-        slack_user_ids: ["B0INCIDENT"],
-      },
-    };
-
-    expect(
-      withSlackTriggerPosterMode(config, "org_members").allowed_posters,
-    ).toEqual({
-      mode: "org_members",
-    });
   });
 });

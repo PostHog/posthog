@@ -162,12 +162,6 @@ export function summarizeTrigger(trigger: TriggerLike): string {
     const config = trigger.config as LoopSchemas.LoopGithubTriggerConfig;
     return `GitHub (${config.repository || "a repo"})`;
   }
-  if (trigger.type === "slack") {
-    const config = trigger.config as LoopSchemas.LoopSlackTriggerConfig;
-    const keywords = config.filters?.keywords ?? [];
-    const scope = keywords.length > 0 ? keywords.join(", ") : "every message";
-    return `Slack (${scope})`;
-  }
   return "API";
 }
 
@@ -188,29 +182,5 @@ export function describeTrigger(trigger: TriggerLike): string {
         : "";
     return `GitHub · ${config.repository || "?"} · ${config.events.join(", ") || "no events"}${conditionSuffix}`;
   }
-  if (trigger.type === "slack") {
-    const config = trigger.config as LoopSchemas.LoopSlackTriggerConfig;
-    const channels = config.channel_ids.length
-      ? `${config.channel_ids.length} channel${config.channel_ids.length === 1 ? "" : "s"}`
-      : "no channels";
-    const keywords = config.filters?.keywords ?? [];
-    const match = keywords.length > 0 ? keywords.join(", ") : "every message";
-    return `Slack · ${channels} · ${match} · ${describeSlackPosters(config.allowed_posters)}`;
-  }
   return "API · authenticated POST";
-}
-
-const SLACK_POSTER_DESCRIPTIONS: Record<
-  LoopSchemas.LoopSlackPosterModeEnum,
-  string
-> = {
-  org_members: "anyone on your team",
-  loop_owner: "only you",
-  slack_user_ids: "specific people or apps",
-};
-
-function describeSlackPosters(
-  posters: LoopSchemas.LoopSlackAllowedPosters | undefined,
-): string {
-  return SLACK_POSTER_DESCRIPTIONS[posters?.mode ?? "org_members"];
 }
