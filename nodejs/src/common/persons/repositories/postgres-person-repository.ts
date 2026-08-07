@@ -685,11 +685,15 @@ export class PostgresPersonRepository
                     `WITH undone_distinct_ids AS (
                         UPDATE posthog_persondistinctid
                         SET is_deleted = true, version = COALESCE(version, 0) + 1
-                        WHERE id = ANY($1::bigint[])
+                        WHERE team_id = $2 AND id = ANY($1::bigint[]) AND is_deleted = false
                     )
                     UPDATE posthog_person
-                    SET is_deleted = true, version = COALESCE(version, 0) + 1
-                    WHERE team_id = $2 AND id = $3`,
+                    SET is_deleted = true,
+                        version = COALESCE(version, 0) + 1,
+                        properties = '{}'::jsonb,
+                        properties_last_updated_at = '{}'::jsonb,
+                        properties_last_operation = '{}'::jsonb
+                    WHERE team_id = $2 AND id = $3 AND is_deleted = false`,
                     [distinctIdRows.map((row) => row.id), teamId, person.id],
                     'undoInsertPerson'
                 )

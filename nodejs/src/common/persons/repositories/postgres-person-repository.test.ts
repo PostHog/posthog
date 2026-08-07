@@ -449,7 +449,7 @@ describe('PostgresPersonRepository', () => {
 
             const result = await repository.createPerson(
                 TIMESTAMP,
-                {},
+                { secret: 'value' },
                 {},
                 {},
                 team.id,
@@ -463,14 +463,14 @@ describe('PostgresPersonRepository', () => {
             expect(result).toMatchObject({ success: false, error: 'CreationConflict' })
             // The person row and the primary mapping it did attach are tombstoned, not
             // left live: a live person unreachable by its contested distinct id would
-            // block the key forever.
+            // block the key forever. Like every tombstone, the properties are scrubbed.
             const personRows = await postgres.query(
                 PostgresUse.PERSONS_WRITE,
-                'SELECT is_deleted FROM posthog_person WHERE team_id = $1 AND uuid = $2',
+                'SELECT is_deleted, properties FROM posthog_person WHERE team_id = $1 AND uuid = $2',
                 [team.id, uuid],
                 'fetchUndonePerson'
             )
-            expect(personRows.rows).toEqual([{ is_deleted: true }])
+            expect(personRows.rows).toEqual([{ is_deleted: true, properties: {} }])
             await expect(repository.fetchPerson(team.id, 'undo-primary-did')).resolves.toBeUndefined()
         })
 
