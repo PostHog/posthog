@@ -103,7 +103,10 @@ export const uploadArtifactTool = defineLocalTool({
       }
 
       const { name } = upload;
-      const linkText = downloadUrl ? ` Download URL: ${downloadUrl}` : "";
+      const referenceUrl = getArtifactReferenceUrl(downloadUrl);
+      const linkText = referenceUrl
+        ? ` Reference it as a markdown link: [${escapeMarkdownLinkLabel(name)}](<${referenceUrl}>)`
+        : "";
 
       return {
         content: [
@@ -221,6 +224,28 @@ async function uploadInline(
 // omit it.
 function readDownloadUrl(artifact: TaskRunArtifact): string | undefined {
   return (artifact as { url?: string }).url;
+}
+
+function getArtifactReferenceUrl(
+  downloadUrl: string | undefined,
+): string | null {
+  if (!downloadUrl) return null;
+
+  try {
+    const referenceUrl = new URL(downloadUrl);
+    // Legacy backends return bearer credentials in the query string; stable API URLs do not.
+    referenceUrl.search = "";
+    referenceUrl.hash = "";
+    referenceUrl.username = "";
+    referenceUrl.password = "";
+    return referenceUrl.toString();
+  } catch {
+    return null;
+  }
+}
+
+function escapeMarkdownLinkLabel(label: string): string {
+  return label.replace(/([\\[\]])/g, "\\$1");
 }
 
 function errorResult(message: string): LocalToolResult {
