@@ -48,16 +48,15 @@ export async function hasRecentAIEvents(): Promise<boolean> {
     return (response.results?.length ?? 0) > 0
 }
 
-let seenAiEventsTeamId: number | null = null
+let seenAiEvents = false
 let inFlightAiEventsCheck: Promise<boolean> | null = null
 
-async function runAiEventsCheck(teamId: number): Promise<boolean> {
+async function runAiEventsCheck(): Promise<boolean> {
     try {
-        const seen = await hasRecentAIEvents()
-        if (seen) {
-            seenAiEventsTeamId = teamId
+        if (await hasRecentAIEvents()) {
+            seenAiEvents = true
         }
-        return seen
+        return seenAiEvents
     } catch {
         // A transient API failure reads as "not seen yet"; the poll retries on its next tick.
         return false
@@ -67,13 +66,14 @@ async function runAiEventsCheck(teamId: number): Promise<boolean> {
 }
 
 /**
- * Shares one in-flight check and caches a hit per team, so the several install-step
- * components polling at once run at most one ClickHouse probe per tick.
+ * Shares one in-flight check and caches a hit, so the several install-step components polling
+ * at once run at most one ClickHouse probe per tick. The query runs against the current project,
+ * and switching projects reloads the page, so the cache is honest for a whole page load.
  */
-export function pollRecentAIEvents(teamId: number): Promise<boolean> {
-    if (seenAiEventsTeamId === teamId) {
+export function pollRecentAIEvents(): Promise<boolean> {
+    if (seenAiEvents) {
         return Promise.resolve(true)
     }
-    inFlightAiEventsCheck ??= runAiEventsCheck(teamId)
+    inFlightAiEventsCheck ??= runAiEventsCheck()
     return inFlightAiEventsCheck
 }

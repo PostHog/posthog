@@ -28,6 +28,12 @@ export interface WizardInstallOptionsProps {
      * so offering it there would queue a run that can never succeed.
      */
     offerCloudRun?: boolean
+    /**
+     * Treat a persisted cloud run as absent. A run queued on another step only executes the base
+     * integration program, so a dedicated-program step must keep showing its own command instead
+     * of the run's progress.
+     */
+    ignoreActiveCloudRun?: boolean
     /** Replaces the default framework badge row. */
     badges?: React.ReactNode
 }
@@ -44,11 +50,13 @@ export function WizardInstallOptions({
     onQueued,
     onModeSelected,
     offerCloudRun = true,
+    ignoreActiveCloudRun = false,
     badges: badgesOverride,
 }: WizardInstallOptionsProps): JSX.Element {
     const cloudRunEnabled = useFeatureFlag('ONBOARDING_WIZARD_CLOUD_RUN', 'test')
     const { isCloudOrDev } = useWizardCommand()
-    const { activeCloudRun } = useValues(activeCloudRunLogic)
+    const { activeCloudRun: persistedCloudRun } = useValues(activeCloudRunLogic)
+    const activeCloudRun = ignoreActiveCloudRun ? null : persistedCloudRun
     const { clearActiveCloudRun } = useActions(activeCloudRunLogic)
     const [mode, setMode] = useState<WizardInstallMode>('cloud')
 

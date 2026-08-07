@@ -34,7 +34,7 @@ export const useInstallationComplete = (teamPropertyToVerify: string): boolean =
             }
             if (isAiEventsCheck) {
                 if (currentTeam?.id) {
-                    void pollRecentAIEvents(currentTeam.id).then((seen) => seen && setAiEventsSeen(true))
+                    void pollRecentAIEvents().then((seen) => seen && setAiEventsSeen(true))
                 }
             } else {
                 loadCurrentTeam()
@@ -46,7 +46,7 @@ export const useInstallationComplete = (teamPropertyToVerify: string): boolean =
     // Immediate check so a returning user isn't stuck waiting for the first interval tick.
     useEffect(() => {
         if (isAiEventsCheck && !aiEventsSeen && currentTeam?.id) {
-            void pollRecentAIEvents(currentTeam.id).then((seen) => seen && setAiEventsSeen(true))
+            void pollRecentAIEvents().then((seen) => seen && setAiEventsSeen(true))
         }
     }, [isAiEventsCheck, aiEventsSeen, currentTeam?.id])
 

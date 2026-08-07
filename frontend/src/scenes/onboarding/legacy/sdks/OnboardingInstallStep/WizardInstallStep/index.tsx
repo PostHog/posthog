@@ -29,8 +29,10 @@ function LegacyInstallOptions({ wizardOverrides }: { wizardOverrides?: WizardOve
     return (
         <WizardInstallOptions
             onModeSelected={reportSelfDrivingOnboardingInstallModeSelected}
-            // The cloud runner only executes the base integration program, not dedicated subcommands.
+            // The cloud runner only executes the base integration program, not dedicated subcommands,
+            // so a dedicated-program step neither offers a run nor lets one queued elsewhere take over.
             offerCloudRun={!wizardOverrides}
+            ignoreActiveCloudRun={!!wizardOverrides}
             badges={wizardOverrides?.supports ? <WizardFrameworkBadges items={wizardOverrides.supports} /> : undefined}
             localBlock={
                 <WizardCommandBlock
@@ -63,7 +65,10 @@ export function WizardInstallStep(props: VariantProps): JSX.Element {
 function WizardInstallStepStatic(props: VariantProps): JSX.Element {
     // Deliberately not gated on the cloud-run flag: a persisted handle is proof the user started a
     // run while on the test arm, and a mid-experiment flag change must not strand an in-flight run.
-    const { activeCloudRun } = useValues(activeCloudRunLogic)
+    const { activeCloudRun: persistedCloudRun } = useValues(activeCloudRunLogic)
+    // A run queued on another step only executes the base program, so a dedicated-program step
+    // (wizardOverrides) ignores it: its command stays visible and Continue stays gated.
+    const activeCloudRun = props.wizardOverrides ? null : persistedCloudRun
     // A queued/running cloud run unblocks Continue just like a local takeover: the run keeps going
     // in the background (surfaced by the FAB) and installation events aren't required.
     const continueDisabledReason =
@@ -85,8 +90,10 @@ function WizardInstallStepStatic(props: VariantProps): JSX.Element {
 
 function WizardInstallStepWithSync(props: VariantProps): JSX.Element {
     const isLocalRunActive = useLocalWizardRunActive()
-    // See WizardInstallStepStatic: an existing handle renders regardless of the experiment arm.
-    const { activeCloudRun } = useValues(activeCloudRunLogic)
+    // See WizardInstallStepStatic: an existing handle renders regardless of the experiment arm,
+    // but a dedicated-program step ignores it (the run only executes the base program).
+    const { activeCloudRun: persistedCloudRun } = useValues(activeCloudRunLogic)
+    const activeCloudRun = props.wizardOverrides ? null : persistedCloudRun
     // Once the wizard is in flight (cloud or local), trust it — installation events aren't required
     // to unblock Continue.
     const continueDisabledReason =

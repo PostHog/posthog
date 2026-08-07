@@ -208,35 +208,25 @@ describe('aiEventsUtils', () => {
     })
 
     describe('pollRecentAIEvents', () => {
-        it('dedupes concurrent calls, caches a positive result, and re-checks after a team switch', async () => {
-            const listSpy = jest.spyOn(api.eventDefinitions, 'list').mockResolvedValue({
-                results: [{ id: '1', name: '$ai_generation', last_seen_at: dayjs().subtract(1, 'day').toISOString() }],
-                count: 1,
-            } as any)
-
-            const [first, second] = await Promise.all([pollRecentAIEvents(1), pollRecentAIEvents(1)])
-            expect(first).toBe(true)
-            expect(second).toBe(true)
-            expect(listSpy).toHaveBeenCalledTimes(1)
-
-            expect(await pollRecentAIEvents(1)).toBe(true)
-            expect(listSpy).toHaveBeenCalledTimes(1)
-
-            listSpy.mockResolvedValue({ results: [], count: 0 } as any)
-            jest.spyOn(api, 'query').mockResolvedValue({ results: [] } as any)
-            expect(await pollRecentAIEvents(2)).toBe(false)
-            expect(listSpy).toHaveBeenCalledTimes(2)
-        })
-
-        it('resolves false instead of rejecting when the check fails, and recovers on the next poll', async () => {
+        // One sequential test: the page-load cache is module state, so ordering within a single
+        // test is the only way to exercise failure, dedupe, and cache without cross-test coupling.
+        it('resolves false on failure, dedupes concurrent checks, then caches a hit for the page load', async () => {
             const listSpy = jest.spyOn(api.eventDefinitions, 'list').mockRejectedValueOnce(new Error('network down'))
-            await expect(pollRecentAIEvents(3)).resolves.toBe(false)
+            jest.spyOn(api, 'query').mockResolvedValue({ results: [] } as any)
+            await expect(pollRecentAIEvents()).resolves.toBe(false)
+            expect(listSpy).toHaveBeenCalledTimes(1)
 
             listSpy.mockResolvedValue({
                 results: [{ id: '1', name: '$ai_generation', last_seen_at: dayjs().subtract(1, 'day').toISOString() }],
                 count: 1,
             } as any)
-            await expect(pollRecentAIEvents(3)).resolves.toBe(true)
+            const [first, second] = await Promise.all([pollRecentAIEvents(), pollRecentAIEvents()])
+            expect(first).toBe(true)
+            expect(second).toBe(true)
+            expect(listSpy).toHaveBeenCalledTimes(2)
+
+            await expect(pollRecentAIEvents()).resolves.toBe(true)
+            expect(listSpy).toHaveBeenCalledTimes(2)
         })
     })
 })
