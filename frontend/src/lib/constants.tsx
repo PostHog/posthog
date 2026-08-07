@@ -421,6 +421,7 @@ export const FEATURE_FLAGS = {
     PAGE_REPORTS_AVERAGE_PAGE_VIEW: 'page-reports-average-page-view', // owner: @jordanm-posthog #team-web-analytics
     PAGE_REPORTS_RANKED_URL_SEARCH: 'page-reports-ranked-url-search', // owner: @jordanm-posthog #team-web-analytics
     PASSWORD_PROTECTED_SHARES: 'password-protected-shares', // owner: @aspicer
+    PEOPLE_IN_MAIN_NAV: 'people-in-main-nav', // owner: #team-customer-analytics, adds People plus a per-group-type item to the main side nav
     PHAI_PLAN_MODE: 'phai-plan-mode', // owner: #team-posthog-ai
     PHAI_SANDBOX_MODE: 'phai-sandbox-mode', // owner: #team-posthog-ai
     PHAI_TASKS: 'phai-tasks', // owner: #team-array

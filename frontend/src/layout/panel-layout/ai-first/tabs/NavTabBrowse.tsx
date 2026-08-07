@@ -53,6 +53,7 @@ import { ActivityTab } from '~/types'
 import { BrowserLikeMenuItems } from '../../ProjectTree/menus/BrowserLikeMenuItems'
 import { PanelIndicatorIcon, SectionTrigger } from '../Nav'
 import { editToolsLogic } from './editToolsLogic'
+import { navPeopleLogic } from './navPeopleLogic'
 import { navRecentsLogic } from './navRecentsLogic'
 
 const panelTriggerItems: {
@@ -179,6 +180,7 @@ export function NavTabBrowse(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
     const { recentItems, recentItemsLoading } = useValues(navRecentsLogic)
+    const { peopleNavItems } = useValues(navPeopleLogic)
     const { isSidebarSectionShown, isSidebarItemShown, uiCustomizationEnabled } = useValues(uiCustomizationLogic)
     const { enabledToolPaths } = useValues(customProductsLogic)
     // Flag-off path: the pre-customization edit mode and home modal.
@@ -262,6 +264,18 @@ export function NavTabBrowse(): JSX.Element {
                         data-attr="nav-item-activity"
                         onClick={() => posthog.capture('nav item clicked', { item: 'activity' })}
                     />
+
+                    {peopleNavItems.map((item) => (
+                        <NavLink
+                            key={item.key}
+                            to={item.to}
+                            label={item.label}
+                            icon={iconForType(item.iconType)}
+                            isCollapsed={isLayoutNavCollapsed}
+                            data-attr={`nav-item-${item.key}`}
+                            onClick={() => posthog.capture('nav item clicked', { item: item.key })}
+                        />
+                    ))}
 
                     <div className={cn('flex flex-col gap-px', isLayoutNavCollapsed && 'items-center')}>
                         {panelTriggerItems
