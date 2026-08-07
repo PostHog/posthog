@@ -12,7 +12,7 @@ import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
-import { AnyCohortCriteriaType, BehavioralEventType } from '~/types'
+import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
 
 import { CohortEdit } from './CohortEdit'
 
@@ -605,6 +605,56 @@ describe('cohortEditLogic', () => {
             // a LemonSelect would render the data-attr onto a <button>
             expect(typeContainer?.tagName).not.toBe('BUTTON')
             expect(populateFromContainer?.tagName).not.toBe('BUTTON')
+        })
+    })
+
+    describe('criteria with unmapped behavioral value', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        it('renders the editor instead of crashing when a criterion has a value with no ROWS entry', async () => {
+            // Stored criteria can carry a behavioral value with no ROWS entry, which the row builder
+            // still has to render. A throw here replaces the whole scene with the error boundary, so
+            // finding the cohort name is what proves the criteria row rendered.
+            const cohortId = 11
+
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        id: cohortId,
+                        name: 'Unmapped Criteria Cohort',
+                        is_static: false,
+                        filters: {
+                            properties: {
+                                id: '1',
+                                type: FilterLogicalOperator.Or,
+                                values: [
+                                    {
+                                        id: '2',
+                                        type: FilterLogicalOperator.Or,
+                                        values: [
+                                            {
+                                                type: BehavioralFilterKey.Behavioral,
+                                                value: 'legacy_unknown_value',
+                                                key: '$pageview',
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        },
+                        version: 1,
+                        pending_version: 1,
+                        is_calculating: false,
+                        last_calculation: '2024-01-01T00:00:00Z',
+                    },
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            expect(await screen.findByText('Unmapped Criteria Cohort')).toBeInTheDocument()
         })
     })
 })

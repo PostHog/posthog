@@ -12,6 +12,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions import capture_exception
 from posthog.settings.utils import get_from_env
+from posthog.temporal.common.errors import NonReportableError
 from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
@@ -32,7 +33,13 @@ def _is_transient_s3_connection_error(error: BaseException) -> bool:
     return isinstance(error, _TRANSIENT_S3_CONNECTION_EXCEPTIONS)
 
 
-class NonRetryableException(Exception):
+class NonRetryableException(NonReportableError):
+    """Raised only for errors already classified as a permanent customer/upstream condition
+    (bad credentials, denied permissions, a deleted remote) via a source's
+    ``get_non_retryable_errors`` or an equivalent shared-code check, never for a fresh,
+    unclassified failure. Subclassing ``NonReportableError`` keeps that already-known condition
+    out of error tracking instead of reporting it as a new bug on every occurrence."""
+
     @property
     def cause(self) -> Optional[BaseException]:
         """Cause of the exception.
@@ -132,7 +139,12 @@ async def prepare_s3_files_for_querying(
                     rf"(?:^|.+/){re.escape(normalized_table_name)}\_\_query\_(\d+)(?:_[0-9a-f]{{8}})?\/?$"
                 )
 
-                all_files = await s3._ls(s3_folder_for_job, detail=True)
+                try:
+                    all_files = await s3._ls(s3_folder_for_job, detail=True)
+                except FileNotFoundError:
+                    # First materialization for this table/model: the job folder has no
+                    # prior content in S3 yet, so there's nothing to clean up.
+                    all_files = []
                 all_file_values = all_files.values() if isinstance(all_files, dict) else all_files
                 directories = [f["Key"] for f in all_file_values if f["type"] == "directory"]
 

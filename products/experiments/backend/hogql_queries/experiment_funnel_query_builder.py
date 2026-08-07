@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional, cast
 
 from django.utils import timezone
@@ -19,6 +20,13 @@ from products.experiments.backend.hogql_queries.metric_source import MetricSourc
 
 if TYPE_CHECKING:
     from products.experiments.backend.hogql_queries.experiment_query_builder import ExperimentQueryBuilder
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class FunnelTemporalSetup:
+    first_exposures_cte: str
+    temporal_join: str
+    having_clause: str
 
 
 class FunnelQueryBuilder:
@@ -322,13 +330,11 @@ class FunnelQueryBuilder:
         is_unordered_funnel = self._b.metric.funnel_order_type == StepOrderValue.UNORDERED
 
         # CTE 2: entity_metrics - GROUP BY entity_id, no JOIN
-        first_exposures_cte_str, temporal_join, having_clause = self.build_funnel_optimized_temporal_setup(
-            is_unordered_funnel
-        )
+        temporal_setup = self.build_funnel_optimized_temporal_setup(is_unordered_funnel)
 
         ctes_sql = f"""
             {base_events_cte_str},
-            {first_exposures_cte_str}
+            {temporal_setup.first_exposures_cte}
             entity_metrics AS (
                 SELECT
                     base_events.entity_id AS entity_id,
@@ -336,8 +342,8 @@ class FunnelQueryBuilder:
                     {{funnel_aggregation}} AS value
                     -- covariate_value added programmatically below when CUPED is enabled
                 FROM base_events
-                {temporal_join}
-                GROUP BY base_events.entity_id{having_clause}
+                {temporal_setup.temporal_join}
+                GROUP BY base_events.entity_id{temporal_setup.having_clause}
             )
         """
 
@@ -420,10 +426,10 @@ class FunnelQueryBuilder:
 
         return query
 
-    def build_funnel_optimized_temporal_setup(self, is_unordered_funnel: bool) -> tuple[str, str, str]:
+    def build_funnel_optimized_temporal_setup(self, is_unordered_funnel: bool) -> FunnelTemporalSetup:
         """
-        Returns (first_exposures_cte_str, temporal_join, having_clause) for the
-        optimized funnel query.
+        Returns the FunnelTemporalSetup (first exposures CTE, temporal join,
+        having clause) for the optimized funnel query.
 
         Three call sites collapse into one place:
 
@@ -466,7 +472,11 @@ class FunnelQueryBuilder:
             having_clause = """
                 HAVING countIf(step_0 = 1) > 0"""
 
-        return first_exposures_cte_str, temporal_join, having_clause
+        return FunnelTemporalSetup(
+            first_exposures_cte=first_exposures_cte_str,
+            temporal_join=temporal_join,
+            having_clause=having_clause,
+        )
 
     def build_variant_expr_for_funnel(self) -> ast.Expr:
         """

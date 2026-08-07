@@ -76,6 +76,36 @@ def increment_ch_wait_timeout() -> None:
     ).add(1)
 
 
+def increment_recently_seen_lookup(result: str) -> None:
+    """Count recently-seen cache lookups by result."""
+    if not _in_temporal_context():
+        return
+    get_metric_meter({"result": result}).create_counter(
+        "signals_recently_seen_lookups_total",
+        "Recently-seen cache lookups by result",
+    ).add(1)
+
+
+def increment_ch_wait_query(mode: str, reason: str) -> None:
+    """Count ClickHouse confirmation queries by wait mode and reason."""
+    if not _in_temporal_context():
+        return
+    get_metric_meter({"mode": mode, "reason": reason}).create_counter(
+        "signals_ch_wait_queries_total",
+        "ClickHouse confirmation queries issued by signals waits",
+    ).add(1)
+
+
+def increment_ch_wait_completion(mode: str, result: str) -> None:
+    """Count wait completions by mode and completion path."""
+    if not _in_temporal_context():
+        return
+    get_metric_meter({"mode": mode, "result": result}).create_counter(
+        "signals_ch_wait_completions_total",
+        "Signals consistency waits by completion result",
+    ).add(1)
+
+
 def increment_research_run_collapsed() -> None:
     """Count a promotion that folded into an already-running research workflow instead of its own run.
 

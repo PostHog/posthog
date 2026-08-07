@@ -797,6 +797,79 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+export interface DataWarehouseExpressionApi {
+    readonly id: string
+    /**
+     * Whether this expression has been soft-deleted.
+     * @nullable
+     */
+    deleted?: boolean | null
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /**
+     * Name of the table the expression field is added to, for example events.
+     * @maxLength 400
+     */
+    table_name: string
+    /**
+     * Name of the virtual field the expression is exposed as. Letters, numbers, underscores and $ only, starting with a letter, underscore or $. Must not clash with an existing field on the table.
+     * @maxLength 400
+     * @pattern ^[A-Za-z_$][A-Za-z0-9_$]*$
+     */
+    field_name: string
+    /**
+     * HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email).
+     * @maxLength 10000
+     */
+    expression: string
+    /**
+     * ExternalDataSource id to scope the expression to that connection's direct-query database. Null applies it to the default warehouse database.
+     * @nullable
+     */
+    connection_id?: string | null
+}
+
+export interface PaginatedDataWarehouseExpressionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataWarehouseExpressionApi[]
+}
+
+export interface PatchedDataWarehouseExpressionApi {
+    readonly id?: string
+    /**
+     * Whether this expression has been soft-deleted.
+     * @nullable
+     */
+    deleted?: boolean | null
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    /**
+     * Name of the table the expression field is added to, for example events.
+     * @maxLength 400
+     */
+    table_name?: string
+    /**
+     * Name of the virtual field the expression is exposed as. Letters, numbers, underscores and $ only, starting with a letter, underscore or $. Must not clash with an existing field on the table.
+     * @maxLength 400
+     * @pattern ^[A-Za-z_$][A-Za-z0-9_$]*$
+     */
+    field_name?: string
+    /**
+     * HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email).
+     * @maxLength 10000
+     */
+    expression?: string
+    /**
+     * ExternalDataSource id to scope the expression to that connection's direct-query database. Null applies it to the default warehouse database.
+     * @nullable
+     */
+    connection_id?: string | null
+}
+
 export interface DataWarehouseModelPathApi {
     readonly id: string
     readonly path: readonly string[]
@@ -2647,6 +2720,7 @@ export interface CredentialApi {
  * * `WindsorAi` - WindsorAi
  * * `Wix` - Wix
  * * `Sevalla` - Sevalla
+ * * `Motion` - Motion
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3933,6 +4007,7 @@ export const ExternalDataSourceTypeEnumApi = {
     WindsorAi: 'WindsorAi',
     Wix: 'Wix',
     Sevalla: 'Sevalla',
+    Motion: 'Motion',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -4337,6 +4412,21 @@ export type WarehouseColumnStatisticsListParams = {
      * Only return statistics for this data warehouse table.
      */
     table_id?: string
+}
+
+export type WarehouseExpressionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
 }
 
 export type WarehouseModelPathsListParams = {

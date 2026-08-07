@@ -1,20 +1,24 @@
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from posthog.models.organization import Organization
+from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 
 from products.tasks.backend.logic.services.sandbox import SandboxConfig
+from products.tasks.backend.logic.services.sandbox_pricing import ComputeRateCard, ComputeRateCardConfigurationError
 from products.tasks.backend.logic.services.sandbox_usage import (
     close_sandbox_session,
+    get_billable_sandbox_compute_usage_by_team,
     get_task_sandbox_usage_by_team,
     open_sandbox_session,
     record_task_run_user_activity,
 )
-from products.tasks.backend.models import SandboxSession, Task, TaskClientProvenance, TaskRun
+from products.tasks.backend.models import Loop, SandboxSession, Task, TaskClientProvenance, TaskRun
 
 
 def _config(**overrides) -> SandboxConfig:
@@ -227,7 +231,7 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
     END = datetime(2026, 1, 3, tzinfo=UTC)
 
     def _session(self, **overrides) -> SandboxSession:
-        run = self._run()
+        run = overrides.pop("task_run", None) or self._run()
         defaults: dict = {
             "team": self.team,
             "task_run": run,
@@ -243,6 +247,173 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
         defaults.setdefault("sandbox_id", f"sb-{SandboxSession.objects.unscoped().count()}")
         defaults.setdefault("ttl_expires_at", defaults["created_at"] + timedelta(seconds=defaults["ttl_seconds"]))
         return SandboxSession.objects.unscoped().create(**defaults)
+
+    def _loop_session(
+        self, *, internal: bool, client_provenance: TaskClientProvenance | None = TaskClientProvenance.POSTHOG_DESKTOP
+    ) -> SandboxSession:
+        with team_scope(self.team.id):
+            loop = Loop.objects.create(
+                team=self.team,
+                name="loop",
+                instructions="run",
+                runtime_adapter="claude",
+                internal=internal,
+                client_provenance=client_provenance,
+            )
+        task = Task.objects.create(
+            team=self.team,
+            title="loop run",
+            description="",
+            origin_product=Task.OriginProduct.LOOP,
+            internal=True,
+            loop=loop,
+            client_provenance=client_provenance,
+        )
+        run = TaskRun.objects.create(task=task, team=self.team)
+        return self._session(
+            task_run=run,
+            origin_product=Task.OriginProduct.LOOP,
+            client_provenance=client_provenance,
+        )
+
+    def _rate(
+        self,
+        *,
+        version: str = "v1",
+        effective_at: datetime | None = None,
+        expires_at: datetime | None = None,
+        cpu_core_second_usd: Decimal = Decimal("0.001"),
+        memory_gib_second_usd: Decimal = Decimal("0.0001"),
+    ) -> ComputeRateCard:
+        return ComputeRateCard(
+            version=version,
+            effective_at=effective_at or self.BEGIN,
+            expires_at=expires_at,
+            cpu_core_second_usd=cpu_core_second_usd,
+            memory_gib_second_usd=memory_gib_second_usd,
+        )
+
+    def test_billable_compute_requires_trusted_desktop_user_created_snapshot(self):
+        self._session(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
+        for origin in (Task.OriginProduct.SLACK, Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.LOOP, None):
+            self._session(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP, origin_product=origin)
+        self._session(client_provenance=None)
+
+        usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(self._rate(),))
+
+        assert usage.cpu_millicore_seconds == [(self.team.id, 14_400_000)]
+        assert usage.memory_mib_seconds == [(self.team.id, 58_982_400)]
+        assert usage.credits == [(self.team.id, 2016)]
+
+    def test_billable_compute_includes_user_loops_and_excludes_internal_loops(self):
+        self._loop_session(internal=False)
+        self._loop_session(internal=True)
+        self._loop_session(internal=False, client_provenance=None)
+
+        usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(self._rate(),))
+
+        assert usage.cpu_millicore_seconds == [(self.team.id, 14_400_000)]
+        assert usage.credits == [(self.team.id, 2016)]
+
+    def test_billable_compute_uses_session_snapshot_after_task_changes(self):
+        session = self._session(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
+        Task.objects.filter(id=session.task_run.task_id).update(
+            origin_product=Task.OriginProduct.SLACK, client_provenance=None
+        )
+
+        usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(self._rate(),))
+
+        assert usage.credits == [(self.team.id, 2016)]
+
+    def test_exact_session_costs_aggregate_before_bankers_credit_rounding(self):
+        for sandbox_id in ("sb-fraction-a", "sb-fraction-b"):
+            self._session(
+                sandbox_id=sandbox_id,
+                client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
+                cpu_cores=1,
+                memory_gb=1,
+                ended_at=datetime(2026, 1, 2, 1, 0, 1, tzinfo=UTC),
+            )
+        rate = self._rate(cpu_core_second_usd=Decimal("0.0025"), memory_gib_second_usd=Decimal("0.0025"))
+
+        usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(rate,))
+
+        assert usage.credits == [(self.team.id, 1)]
+
+    def test_integer_resource_units_round_only_after_exact_aggregation(self):
+        for sandbox_id in ("sb-units-a", "sb-units-b"):
+            self._session(
+                sandbox_id=sandbox_id,
+                client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
+                cpu_request_cores=0.125,
+                memory_request_mb=384,
+                ended_at=self.BEGIN + timedelta(seconds=1),
+                user_attributed_at=self.BEGIN,
+            )
+
+        usage = get_billable_sandbox_compute_usage_by_team(
+            self.BEGIN, self.BEGIN + timedelta(microseconds=500_000), rate_cards=(self._rate(),)
+        )
+
+        assert usage.cpu_millicore_seconds == [(self.team.id, 125)]
+        assert usage.memory_mib_seconds == [(self.team.id, 384)]
+
+    def test_integer_resource_units_support_large_values(self):
+        self._session(
+            client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
+            cpu_request_cores=999.999,
+            memory_request_mb=1_048_576,
+        )
+
+        usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(self._rate(),))
+
+        assert usage.cpu_millicore_seconds == [(self.team.id, 3_599_996_400)]
+        assert usage.memory_mib_seconds == [(self.team.id, 3_774_873_600)]
+
+    def test_pre_effective_usage_reports_explicit_integer_zeros(self):
+        self._session(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
+
+        usage = get_billable_sandbox_compute_usage_by_team(
+            self.BEGIN, self.END, rate_cards=(self._rate(effective_at=self.BEGIN + timedelta(hours=3)),)
+        )
+
+        expected = [(self.team.id, 0)]
+        assert usage.credits == expected
+        assert usage.cpu_millicore_seconds == expected
+        assert usage.memory_mib_seconds == expected
+        assert all(type(value) is int for rows in usage.__dict__.values() for _, value in rows)
+
+    def test_compute_before_first_rate_is_free_and_rate_changes_are_applied(self):
+        self._session(
+            client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
+            cpu_cores=1,
+            memory_gb=1,
+            created_at=self.BEGIN,
+            user_attributed_at=self.BEGIN,
+            ended_at=self.BEGIN + timedelta(seconds=3),
+        )
+        boundary = self.BEGIN + timedelta(seconds=2)
+        rates = (
+            self._rate(effective_at=self.BEGIN + timedelta(seconds=1), expires_at=boundary),
+            self._rate(
+                version="v2",
+                effective_at=boundary,
+                cpu_core_second_usd=Decimal("0.002"),
+                memory_gib_second_usd=Decimal("0.0002"),
+            ),
+        )
+
+        usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=rates)
+
+        assert usage.cpu_millicore_seconds == [(self.team.id, 2000)]
+
+    def test_empty_rate_card_is_not_launched_but_invalid_configuration_fails(self):
+        self._session(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
+
+        assert get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=()).credits == []
+        invalid = self._rate(cpu_core_second_usd=Decimal("0"))
+        with self.assertRaises(ComputeRateCardConfigurationError):
+            get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(invalid,))
 
     def test_sums_attributed_window_with_resource_multipliers(self):
         # Attributed an hour after creation: only [01:30, 02:30) bills, not boot/pre-warm time.

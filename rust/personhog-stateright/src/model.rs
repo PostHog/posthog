@@ -73,6 +73,21 @@ pub enum Variant {
     EpochFenced,
 }
 
+/// How promptly a pod learns that its lease is gone.
+///
+/// The keepalive only finds out on its next round, so a revoked lease
+/// leaves the pod claiming a partition the coordinator can already have
+/// reassigned. Production closes that by watching its own registration;
+/// `Delayed` is what the window looks like without it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClaimDetection {
+    /// The registration watch: the claim drops with the registration.
+    Prompt,
+    /// Keepalive-only: the claim outlives the registration until a later
+    /// round notices, which the checker explores as a separate step.
+    Delayed,
+}
+
 /// Which side of the warm read acquires the broker fence, under
 /// `Variant::EpochFenced`. `warm_partition` ships `FenceFirst`;
 /// `ReadFirst` is the rejected ordering, kept checkable as the machine
@@ -97,6 +112,19 @@ pub struct HandoffModel {
     /// Fence-vs-read ordering of the decomposed warm; ignored under
     /// `Variant::Current`, whose warm is a single atomic step.
     pub warm_order: WarmOrder,
+    /// How promptly a pod notices its lease is gone; only meaningful
+    /// with `lease_gated_reads`, since nothing else consults the claim.
+    pub claim_detection: ClaimDetection,
+    /// Whether a pod consults its lease before serving a strong read
+    /// (production: the leader's `LEASE_GATED_AUTHORITY`). Without it a
+    /// pod that has lost its registration keeps answering out of a cache
+    /// the new owner is already changing.
+    pub lease_gated_reads: bool,
+    /// Whether a lapsed claim can come back without the session ending
+    /// (production: the keepalive confirming a renewal again). Turning it
+    /// off is what makes the black hole permanent, which is the only way
+    /// to show that stability actually notices one.
+    pub claim_recovers: bool,
     /// Total client writes the checker may inject.
     pub writes: u8,
     /// Total strong reads the checker may inject.
@@ -327,6 +355,23 @@ impl HandoffModel {
         if !pod.running {
             return false;
         }
+        // The read gate: a pod that no longer claims the partition
+        // refuses rather than serving from a cache it cannot vouch for.
+        // The claim is what production actually consults — a stamp the
+        // keepalive publishes — and it is not the same fact as holding
+        // the lease, which is the whole point of modeling it separately.
+        //
+        // Production refuses on a margin against the last confirmed
+        // renewal, which is a *later*-firing predicate than this one in
+        // the case where a lease is revoked between keepalive rounds:
+        // the stamp stays fresh for up to a heartbeat after the
+        // registration is gone. The model is therefore optimistic about
+        // that window, and the property holding here does not cover it —
+        // it is recorded as a residual in the coordination README rather
+        // than claimed as closed.
+        if self.lease_gated_reads && !pod.claims_authority {
+            return false;
+        }
         let Some(warm) = pod.warmed.get(&partition) else {
             return false;
         };
@@ -491,6 +536,7 @@ impl Model for HandoffModel {
                         fenced: BTreeSet::new(),
                         pending_warm: BTreeMap::new(),
                         zombie_writes_left: 0,
+                        claims_authority: true,
                     },
                 )
             })
@@ -578,6 +624,18 @@ impl Model for HandoffModel {
         }
         for pod in self.pod_ids() {
             actions.push(Action::SelfFence(pod));
+            if self.claim_detection == ClaimDetection::Delayed {
+                actions.push(Action::NoticeLeaseLoss(pod));
+            }
+            // Only meaningful when something consults the claim, and the
+            // state space is expensive enough that exploring it in
+            // configurations that ignore the claim would buy nothing.
+            if self.lease_gated_reads {
+                actions.push(Action::AuthorityLapse(pod));
+                if self.claim_recovers {
+                    actions.push(Action::AuthorityRenew(pod));
+                }
+            }
             if state.rejoins_left > 0 {
                 actions.push(Action::Join(pod));
             }
@@ -1101,6 +1159,8 @@ impl Model for HandoffModel {
                 pod.fenced.clear();
                 pod.pending_warm.clear();
                 pod.zombie_writes_left = 0;
+                // A new session is a new claim.
+                pod.claims_authority = true;
             }
             Action::CrashRestartWithinTtl(x) => {
                 let pod = &state.pods[&x];
@@ -1120,12 +1180,51 @@ impl Model for HandoffModel {
                 }
                 state.crashes_left -= 1;
                 let zombie_window = self.zombie_window;
+                let prompt = self.claim_detection == ClaimDetection::Prompt;
                 let pod = state.pods.get_mut(&x).unwrap();
                 pod.registered = false;
+                // With the registration watch the claim drops here;
+                // without it the pod keeps claiming until a later round
+                // notices, which `NoticeLeaseLoss` explores as its own
+                // step so every interleaving in between is checked.
+                if prompt {
+                    pod.claims_authority = false;
+                }
                 if pod.running {
                     pod.zombie_writes_left = zombie_window;
                 }
             }
+            // The gap the registration watch closes: between losing the
+            // lease and noticing, the pod still answers as the owner.
+            // The window production's clock actually creates: the stamp
+            // ages past the margin at two thirds of the TTL, but etcd
+            // holds the registration until the full TTL. For that third
+            // the pod refuses to serve while still looking alive to the
+            // coordinator — the black hole `converges_to_stable` has to
+            // be able to see, and which tying the claim to the
+            // registration made unrepresentable.
+            Action::AuthorityLapse(x) => {
+                let pod = &state.pods[&x];
+                if !pod.registered || !pod.claims_authority {
+                    return None;
+                }
+                state.pods.get_mut(&x).unwrap().claims_authority = false;
+            }
+            Action::AuthorityRenew(x) => {
+                let pod = &state.pods[&x];
+                if !pod.registered || pod.claims_authority {
+                    return None;
+                }
+                state.pods.get_mut(&x).unwrap().claims_authority = true;
+            }
+            Action::NoticeLeaseLoss(x) => {
+                let pod = &state.pods[&x];
+                if pod.registered || !pod.claims_authority {
+                    return None;
+                }
+                state.pods.get_mut(&x).unwrap().claims_authority = false;
+            }
+
             Action::SelfFence(x) => {
                 let pod = &state.pods[&x];
                 if pod.registered || !pod.running {
@@ -1137,6 +1236,7 @@ impl Model for HandoffModel {
                 pod.fenced.clear();
                 pod.pending_warm.clear();
                 pod.zombie_writes_left = 0;
+                pod.claims_authority = false;
             }
             Action::RouterLeaseExpire(r) => {
                 if state.crashes_left == 0 || !state.routers[&r].registered {
@@ -1290,6 +1390,11 @@ impl Model for HandoffModel {
                                     && pod.running
                                     && pod.registered
                                     && m.write_capable(s, target, p)
+                                    // A converged owner that refuses its
+                                    // own reads is a black hole the
+                                    // coordinator will not reassign,
+                                    // because it still looks alive.
+                                    && (!m.lease_gated_reads || pod.claims_authority)
                             })))
                     && m.router_ids().all(|r| {
                         let router = &s.routers[&r];

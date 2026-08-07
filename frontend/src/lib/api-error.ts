@@ -34,6 +34,25 @@ export class ApiError extends Error {
         this.attr = data?.attr || null
     }
 
+    static async fromResponse(response: Response, fallbackMessage?: string): Promise<ApiError> {
+        let data: unknown = null
+
+        try {
+            data = await response.json()
+        } catch (error) {
+            if ((error as { name?: string } | null)?.name === 'AbortError') {
+                throw error
+            }
+        }
+
+        const errorData = data && typeof data === 'object' ? (data as Record<string, unknown>) : null
+        const responseMessage = [errorData?.error, errorData?.detail, errorData?.message].find(
+            (value): value is string => typeof value === 'string'
+        )
+
+        return new ApiError(responseMessage || fallbackMessage, response.status, response.headers, data)
+    }
+
     /**
      * For when the API returned a 429 (Too Many Requests) error:
      * If the `Retry-After` header is present, return a human-friendly duration, e.g. "in 4 hours", otherwise just "later".

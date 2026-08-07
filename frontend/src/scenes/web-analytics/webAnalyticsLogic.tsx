@@ -3078,7 +3078,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (productTab === ProductTab.HEALTH) {
                 return urls.webAnalyticsHealth()
             } else if (productTab === ProductTab.LIVE) {
-                return '/web/live'
+                return urls.webAnalyticsLive()
             } else if (productTab === ProductTab.BOT_ANALYTICS) {
                 // Bot tab maintains its own filter state in `botAnalyticsLogic`, so we serialize
                 // those filters here instead of `rawWebAnalyticsFilters` (which only describes the

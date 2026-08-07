@@ -1255,7 +1255,8 @@ class TestAssistantEvents(TestCase):
             else UserAndIntegrationsResolution(failure_reason="user_not_found")
         )
         resolve = patch("products.slack_app.backend.api.resolve_user_for_workspace", return_value=resolution)
-        enabled_p = patch("products.slack_app.backend.api.is_slack_app_assistant_enabled", return_value=enabled)
+        # The route's kill-switch is the flag alone — missing scopes get a reply, not silence.
+        enabled_p = patch("products.slack_app.backend.api.is_slack_app_assistant_flag_enabled", return_value=enabled)
         usp = patch("products.slack_app.backend.api._us_should_handle_instead", return_value=False)
         slack = patch("products.slack_app.backend.api.SlackIntegration")
         return load, resolve, enabled_p, usp, slack

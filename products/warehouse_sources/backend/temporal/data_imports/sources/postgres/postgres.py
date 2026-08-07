@@ -2642,12 +2642,17 @@ def _get_table(
     # statement with QueryCanceled mid-discovery. Session, not LOCAL: the connection is autocommit,
     # so a LOCAL timeout has nothing to bind to and a scoping transaction's own `BEGIN` would itself
     # run under the short default. Best-effort: engines without statement_timeout (e.g. DuckDB)
-    # reject the SET, so clear any aborted transaction and fall back to the default.
+    # reject the SET, so clear any aborted transaction and fall back to the default. A genuine
+    # connection drop/limit (mirrors `_schemas_from_conn`) fails this statement too, and rolling
+    # that back raises a misleading "the connection is lost" that buries the real cause — re-raise
+    # instead so the discovery retry recovers on a fresh connection.
     try:
         cursor.execute(
             sql.SQL("SET statement_timeout = {timeout}").format(timeout=sql.Literal(METADATA_STATEMENT_TIMEOUT_MS))
         )
-    except psycopg.Error:
+    except psycopg.Error as e:
+        if _is_connection_dropped_error(e) or _is_connection_limit_error(e):
+            raise
         cursor.connection.rollback()
 
     is_mat_view_query = sql.SQL(

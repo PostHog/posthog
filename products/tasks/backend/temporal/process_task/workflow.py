@@ -57,6 +57,7 @@ from .activities.post_slack_update import PostSlackUpdateInput, post_slack_updat
 from .activities.provision_sandbox import (
     CheckoutBranchInSandboxInput,
     CloneRepositoryInSandboxInput,
+    CloneRepositoryInSandboxOutput,
     CreateSandboxForRepositoryInput,
     InjectFreshTokensOnResumeInput,
     InvalidateResumeSnapshotInput,
@@ -243,6 +244,14 @@ _PATCH_ID_FOLLOWUP_QUEUE = "tasks-follow-up-message-queue"
 # that delivery in the background so a later steer signal can reach the active
 # turn, while ordinary follow-ups remain queued behind it.
 _PATCH_ID_CONCURRENT_FOLLOWUP_STEERING = "tasks-concurrent-followup-steering"
+
+# Existing onboarding histories include the setup agent in boot_total_ms, so replay must
+# preserve that input while new histories subtract the setup agent's elapsed time.
+_PATCH_ID_EXCLUDE_WIZARD_FROM_BOOT_TOTAL = "tasks-exclude-wizard-from-boot-total"
+
+# Multi-repo histories before this patch release the agent only after every clone completes.
+# Preserve that command order on replay while new runs can release it after the primary clone.
+_PATCH_ID_AGENT_READY_AFTER_PRIMARY_CLONE = "tasks-agent-ready-after-primary-clone"
 
 # #60923 dropped the redundant slack post that ran immediately after sandbox
 # provisioning — between `_get_sandbox_for_repository` and the agent-start
@@ -1137,14 +1146,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # Run the PostHog setup wizard before the agent, when this is a cloud wizard run.
         # The wizard integrates PostHog and dirties the working tree; the agent then commits
         # those changes, opens the PR, and keeps it green (it never implements PostHog itself).
-        await self._run_wizard_if_configured(sandbox_output)
+        wizard_ms = await self._run_wizard_if_configured(sandbox_output)
 
         # Start agent-server for direct connection from PostHog Desktop
         if sandbox_output.agent_server_launched:
-            agent_server_output = await self._await_agent_server_ready(sandbox_output)
+            agent_server_output = await self._await_agent_server_ready(sandbox_output, boot_excluded_ms=wizard_ms)
         else:
             await self._emit_progress("agent", "in_progress", "Starting agent", "setup")
-            agent_server_output = await self._start_agent_server(sandbox_output)
+            agent_server_output = await self._start_agent_server(sandbox_output, boot_excluded_ms=wizard_ms)
         await self._emit_progress("agent", "completed", "Started agent", "setup")
 
         await self._track_workflow_event(
@@ -1355,24 +1364,31 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             launch_ms = launch_output.launch_ms if launch_output else None
 
         clone_ms: int | None = None
+        release_after_primary_clone = bool(
+            overlap and len(repositories_to_clone) > 1 and workflow.patched(_PATCH_ID_AGENT_READY_AFTER_PRIMARY_CLONE)
+        )
         if will_clone:
             await self._emit_progress("clone", "in_progress", "Cloning repository", "setup")
-            clone_outputs = await asyncio.gather(
-                *(
-                    workflow.execute_activity(
-                        clone_repository_in_sandbox,
-                        CloneRepositoryInSandboxInput(
-                            context=self.context,
-                            sandbox_id=created.sandbox_id,
-                            repository=repository,
-                            github_token=prepared.github_token,
-                            shallow_clone=prepared.shallow_clone,
-                        ),
-                        start_to_close_timeout=timedelta(minutes=5),
-                        retry_policy=RetryPolicy(maximum_attempts=3),
-                    )
-                    for repository in repositories_to_clone
+
+            async def clone_repository(repository: str) -> CloneRepositoryInSandboxOutput:
+                clone_output = await workflow.execute_activity(
+                    clone_repository_in_sandbox,
+                    CloneRepositoryInSandboxInput(
+                        context=self.context,
+                        sandbox_id=created.sandbox_id,
+                        repository=repository,
+                        github_token=prepared.github_token,
+                        shallow_clone=prepared.shallow_clone,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
                 )
+                if release_after_primary_clone and repository == repositories_to_clone[0]:
+                    await self._mark_repo_ready(created.sandbox_id)
+                return clone_output
+
+            clone_outputs = await asyncio.gather(
+                *(clone_repository(repository) for repository in repositories_to_clone)
             )
             clone_durations: list[int] = []
             for clone_output in clone_outputs:
@@ -1409,7 +1425,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             checkout_ms = getattr(checkout_output, "checkout_ms", None)
             await self._emit_progress("checkout", "completed", branch_label_done, "setup")
 
-        if overlap:
+        if overlap and not release_after_primary_clone:
             await self._mark_repo_ready(created.sandbox_id)
 
         return GetSandboxForRepositoryOutput(
@@ -1467,7 +1483,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         except Exception as e:
             workflow.logger.warning(f"Failed to read sandbox logs: {e}")
 
-    async def _run_wizard_if_configured(self, sandbox_output: GetSandboxForRepositoryOutput) -> None:
+    async def _run_wizard_if_configured(self, sandbox_output: GetSandboxForRepositoryOutput) -> int:
         """Run the setup wizard in the sandbox before the agent, for cloud wizard runs only.
 
         Fails the run on a non-zero wizard exit (maximum_attempts=1, and the wizard is non-idempotent
@@ -1476,9 +1492,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         repository = self.context.repository
         # `is not None` (not truthiness): an empty config dict still means "this is a wizard run".
         if self.context.wizard_config is None or not repository:
-            return
+            return 0
 
+        exclude_from_boot_total = workflow.patched(_PATCH_ID_EXCLUDE_WIZARD_FROM_BOOT_TOTAL)
         await self._emit_progress("wizard", "in_progress", "Running PostHog setup wizard", "setup")
+        started_at = workflow.now() if exclude_from_boot_total else None
         await workflow.execute_activity(
             run_wizard,
             RunWizardInput(
@@ -1491,7 +1509,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(minutes=50),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
+        wizard_ms = int((workflow.now() - started_at).total_seconds() * 1000) if started_at is not None else 0
         await self._emit_progress("wizard", "completed", "Ran PostHog setup wizard", "setup")
+        return wizard_ms
 
     @staticmethod
     def _workflow_start_at_iso() -> str | None:
@@ -1501,7 +1521,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         except Exception:
             return None
 
-    async def _start_agent_server(self, sandbox_output: GetSandboxForRepositoryOutput) -> StartAgentServerOutput:
+    async def _start_agent_server(
+        self, sandbox_output: GetSandboxForRepositoryOutput, *, boot_excluded_ms: int = 0
+    ) -> StartAgentServerOutput:
         return await workflow.execute_activity(
             start_agent_server,
             StartAgentServerInput(
@@ -1513,6 +1535,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 boot_path=sandbox_output.boot_path,
                 used_snapshot=sandbox_output.used_snapshot,
                 workflow_start_at=self._workflow_start_at_iso(),
+                boot_excluded_ms=boot_excluded_ms,
             ),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -1545,7 +1568,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-    async def _await_agent_server_ready(self, sandbox_output: GetSandboxForRepositoryOutput) -> StartAgentServerOutput:
+    async def _await_agent_server_ready(
+        self, sandbox_output: GetSandboxForRepositoryOutput, *, boot_excluded_ms: int = 0
+    ) -> StartAgentServerOutput:
         return await workflow.execute_activity(
             await_agent_server_ready,
             StartAgentServerInput(
@@ -1557,6 +1582,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 boot_path=sandbox_output.boot_path,
                 used_snapshot=sandbox_output.used_snapshot,
                 workflow_start_at=self._workflow_start_at_iso(),
+                boot_excluded_ms=boot_excluded_ms,
             ),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),

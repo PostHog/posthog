@@ -19,6 +19,7 @@ export const executeSqlHandler: ToolBase<typeof schema, string>['handler'] = asy
         query: params.query,
         truncate: params.truncate ?? true,
         ...(params.connectionId !== undefined && { connectionId: params.connectionId }),
+        ...(params.sendRawQuery !== undefined && { sendRawQuery: params.sendRawQuery }),
     })
 
     if (!result.success) {
