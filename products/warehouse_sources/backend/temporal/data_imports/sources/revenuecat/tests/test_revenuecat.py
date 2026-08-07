@@ -175,6 +175,18 @@ class TestValidateCredentials:
         assert expected_substring.lower() in error.lower()
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._session")
+    def test_403_names_read_access(self, mock_session):
+        # The credential check reads the projects list, so its 403 hint must name read access —
+        # the counterpart to the webhook callers' write hint.
+        mock_session.return_value.get.return_value = _http_error_response(403)
+
+        success, error = api_client.validate_credentials("sk_test", project_id=None)
+
+        assert success is False
+        assert error is not None
+        assert "read access" in error.lower()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._session")
     def test_returns_false_on_network_error(self, mock_session):
         mock_session.return_value.get.side_effect = requests.ConnectionError("dns fail")
 
@@ -497,8 +509,9 @@ class TestCreateWebhook:
         assert result.success is False
         assert result.error is not None
         assert "denied" in result.error.lower()
-        # Webhook creation needs write scope, so this shared 403 message must not tell the user to
-        # grant read access (unlike the credential-check path).
+        # Webhook creation needs write scope, so this 403 names write access — and must not tell the
+        # user to grant read access (unlike the credential-check path).
+        assert "write access to webhook" in result.error.lower()
         assert "read" not in result.error.lower()
 
 

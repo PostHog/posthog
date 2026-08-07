@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 
 import type { SourceConfig } from '~/queries/schema/schema-general'
@@ -1116,6 +1118,67 @@ describe('sourceWizardLogic', () => {
                 expect(createWebhook).toHaveBeenCalledTimes(2)
                 expect(createWebhook).toHaveBeenLastCalledWith('source-1')
                 expect(onComplete).toHaveBeenCalled()
+            } finally {
+                unmount()
+            }
+        })
+    })
+
+    // A fast second submit fires a second database_schema request; whichever lands first advances
+    // the wizard, and the other's outcome must be dropped so it can't toast over the winner.
+    describe('getDatabaseSchemas stale-response guard', () => {
+        const stripeSource = {
+            name: 'Stripe',
+            iconPath: '',
+            caption: null,
+            fields: [],
+        } as SourceConfig
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('drops a stale rejection so it cannot toast over a newer succeeding request', async () => {
+            const toastError = jest.spyOn(lemonToast, 'error')
+            const flushPromises = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+
+            let rejectStale: (reason?: any) => void = () => {}
+            let resolveLatest: (value: ExternalDataSourceSyncSchema[]) => void = () => {}
+            const stale = new Promise<ExternalDataSourceSyncSchema[]>((_, reject) => {
+                rejectStale = reject
+            })
+            const latest = new Promise<ExternalDataSourceSyncSchema[]>((resolve) => {
+                resolveLatest = resolve
+            })
+            // The rejected promise is awaited inside the listener, so it never surfaces as an
+            // unhandled rejection; attach a noop catch anyway to keep the test runner quiet.
+            stale.catch(() => {})
+            jest.spyOn(api.externalDataSources, 'database_schema')
+                .mockReturnValueOnce(stale)
+                .mockReturnValueOnce(latest)
+
+            const logic = sourceWizardLogic({ availableSources: { Stripe: stripeSource } })
+            const unmount = logic.mount()
+
+            try {
+                logic.actions.selectConnector(stripeSource)
+                logic.actions.setStep(2)
+
+                // Two rapid submits — the second supersedes the first.
+                logic.actions.getDatabaseSchemas()
+                logic.actions.getDatabaseSchemas()
+
+                // The newer request resolves first and advances the wizard to step 3.
+                resolveLatest([])
+                await flushPromises()
+                expect(logic.values.currentStep).toBe(3)
+
+                // The stale request then rejects — the guard must swallow it silently.
+                rejectStale(new Error('stale credential failure'))
+                await flushPromises()
+
+                expect(toastError).not.toHaveBeenCalled()
+                expect(logic.values.currentStep).toBe(3)
             } finally {
                 unmount()
             }

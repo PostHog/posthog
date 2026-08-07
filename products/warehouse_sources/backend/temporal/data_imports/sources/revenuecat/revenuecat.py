@@ -179,6 +179,14 @@ def _project_not_found_error(entered_project_id: str, accessible_ids: list[str])
     )
 
 
+# Passed as the 403 hint by the webhook create/delete/read calls, which need write scope on the key.
+# The credential check passes its own read-scoped hint instead.
+WEBHOOK_FORBIDDEN_HINT = (
+    "The v2 secret API key is missing write access to webhook integrations. Give it write "
+    "permission for webhooks, then reconnect."
+)
+
+
 def _format_http_error(error: requests.HTTPError, forbidden_hint: str | None = None) -> str:
     response = error.response
     status_code = response.status_code if response is not None else None
@@ -188,9 +196,10 @@ def _format_http_error(error: requests.HTTPError, forbidden_hint: str | None = N
             "from Project settings > API keys and check that it has not been revoked."
         )
     if status_code == 403:
-        # This formatter also serves webhook create/delete, which need write scope, so the default
-        # stays scope-neutral. Read-only callers pass a read-specific hint.
-        detail = forbidden_hint or "Make sure the v2 secret API key has the permissions this request needs."
+        # Callers pass a scope-specific hint (read for the credential check, write for the webhook
+        # calls). The default names a scope too, so its first clause stands on its own if a narrow
+        # toast truncates the sentence.
+        detail = forbidden_hint or "The v2 secret API key is missing a permission this request needs."
         return f"RevenueCat denied the request (403). {detail}"
     if status_code == 404:
         return "RevenueCat could not find the project (404). Double-check the project id."
@@ -470,7 +479,7 @@ def create_webhook(
         response.raise_for_status()
     except requests.HTTPError as e:
         logger.warning("Failed to register RevenueCat webhook integration", error=str(e))
-        return WebhookCreationResult(success=False, error=_format_http_error(e))
+        return WebhookCreationResult(success=False, error=_format_http_error(e, forbidden_hint=WEBHOOK_FORBIDDEN_HINT))
     except requests.RequestException as e:
         logger.warning("Could not reach RevenueCat to register webhook", error=str(e))
         return WebhookCreationResult(success=False, error=f"Could not reach RevenueCat: {e}")
@@ -528,7 +537,7 @@ def delete_webhook(api_key: str, project_id: str, webhook_url: str) -> WebhookDe
         integrations = _list_webhook_integrations(api_key, project_id)
     except requests.HTTPError as e:
         logger.warning("Failed to list RevenueCat webhook integrations", error=str(e))
-        return WebhookDeletionResult(success=False, error=_format_http_error(e))
+        return WebhookDeletionResult(success=False, error=_format_http_error(e, forbidden_hint=WEBHOOK_FORBIDDEN_HINT))
     except requests.RequestException as e:
         logger.warning("Could not reach RevenueCat to list webhooks", error=str(e))
         return WebhookDeletionResult(success=False, error=f"Could not reach RevenueCat: {e}")
@@ -553,7 +562,7 @@ def delete_webhook(api_key: str, project_id: str, webhook_url: str) -> WebhookDe
         response.raise_for_status()
     except requests.HTTPError as e:
         logger.warning("Failed to delete RevenueCat webhook integration", error=str(e))
-        return WebhookDeletionResult(success=False, error=_format_http_error(e))
+        return WebhookDeletionResult(success=False, error=_format_http_error(e, forbidden_hint=WEBHOOK_FORBIDDEN_HINT))
     except requests.RequestException as e:
         logger.warning("Could not reach RevenueCat to delete webhook", error=str(e))
         return WebhookDeletionResult(success=False, error=f"Could not reach RevenueCat: {e}")
@@ -566,7 +575,7 @@ def get_external_webhook_info(api_key: str, project_id: str, webhook_url: str) -
     try:
         integrations = _list_webhook_integrations(api_key, project_id)
     except requests.HTTPError as e:
-        return ExternalWebhookInfo(exists=False, error=_format_http_error(e))
+        return ExternalWebhookInfo(exists=False, error=_format_http_error(e, forbidden_hint=WEBHOOK_FORBIDDEN_HINT))
     except requests.RequestException as e:
         return ExternalWebhookInfo(exists=False, error=f"Could not reach RevenueCat: {e}")
 

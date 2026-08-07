@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, isBreakpoint, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -2477,6 +2477,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             {
                 onNext: () => false,
                 setIsLoading: (_, { isLoading }) => isLoading,
+                // onSubmit flips loading on before the form validates; clear it if validation
+                // rejects so a failed step-2 submit doesn't leave the Next button spinning.
+                submitSourceConnectionDetailsFailure: () => false,
             },
         ],
         sourceId: [
@@ -3067,6 +3070,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             if (step === 2 && values.selectedConnector?.name) {
+                // Flip loading synchronously here, not a round trip later inside the form submit —
+                // otherwise the Next button stays clickable long enough to fire a second submit.
+                actions.setIsLoading(true)
                 actions.submitSourceConnectionDetails()
             } else if (step === 2 && values.isManualLinkFormVisible) {
                 selfManagedSourceLogic.actions.submitTable()
@@ -3437,7 +3443,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         submitSourceConnectionDetailsSuccess: () => {
             actions.getDatabaseSchemas()
         },
-        getDatabaseSchemas: async () => {
+        getDatabaseSchemas: async (_, breakpoint) => {
             if (!values.selectedConnector) {
                 return
             }
@@ -3449,6 +3455,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     values.selectedConnector.name,
                     getDatabaseSchemaPayload(values.source)
                 )
+
+                // Drop this response if a newer getDatabaseSchemas started while it was in flight.
+                // Without this, a second submit's request can resolve first and advance the wizard,
+                // then this earlier request lands and toasts an error on top of the success.
+                breakpoint()
 
                 // Backend `cdc_available` only reflects the team flag — clear it when the
                 // user didn't toggle CDC on for this source in step 1.
@@ -3577,6 +3588,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setDatabaseSchemas(schemas)
                 actions.onNext()
             } catch (e: any) {
+                // Drop this outcome silently if a newer getDatabaseSchemas superseded it — both when
+                // this request was itself breakpointed on success above, and when it failed after a
+                // newer request started. Otherwise a stale rejection toasts an error over the newer
+                // request that already advanced the wizard.
+                if (isBreakpoint(e)) {
+                    throw e
+                }
+                breakpoint()
+
                 const apiMessage = e.data?.message ?? e.detail
                 const errorMessage = resolveConnectErrorMessage(e)
                 lemonToast.error(errorMessage)
