@@ -65,6 +65,15 @@ def _summarize_trend_kind(
     if coverage is None or not _has_trimmable_series(results, coverage.excluded):
         return _summarize_trends(results, value_fmt, None)
 
+    # Logged here, not in _coverage: a total-value display gets coverage but no trim, and this is
+    # the number you would query to ask whether trimming still works. Over-trimming is otherwise
+    # only visible as a wrong digest.
+    LOGGER.info(
+        "subscription_summary.coverage",
+        excluded=coverage.excluded,
+        total_buckets=coverage.total,
+        unit=coverage.unit,
+    )
     # Prepended rather than appended so truncation cannot drop it.
     return f"{coverage.note()}\n{_summarize_trends(results, value_fmt, coverage)}"
 
@@ -87,6 +96,9 @@ def _truncate(text: str, total: int, *, noun: str) -> str:
             break
         kept.append(line)
         used += len(line) + 1
+    if not kept:
+        # One line wider than the whole budget. Some of it beats a notice and nothing.
+        kept = [text.split("\n", 1)[0][:budget]]
     shown = sum(1 for line in kept if line.startswith("- "))
     return f"{_sample_notice(shown, total, noun=noun)}\n" + "\n".join(kept)
 
@@ -222,14 +234,14 @@ def _period_and_unit(results: list[Any], starts: list[datetime] | None) -> tuple
     """
     interval = _query_interval(results)
     named = PERIOD_MAP.get(interval) if interval else None
-    gap = _uniform_gap(starts)
-    if isinstance(named, timedelta) and gap and gap > named and gap % named == timedelta(0):
-        # Truthfully unnameable: this is N of the named unit, not one of them.
-        return gap, "interval"
-    if named is not None:
+    if named is not None and starts:
+        multiple = _uniform_multiple(starts, named)
+        if multiple > 1:
+            # Truthfully unnameable: this is N of the named unit, not one of them.
+            return named * multiple, "interval"
         return named, interval or "interval"
     if starts and len(starts) >= 2:
-        width = gap or starts[-1] - starts[-2]
+        width = starts[-1] - starts[-2]
         for name, spec in INTERVAL_SPECS.items():
             if spec.period == width:
                 return spec.period, name
@@ -237,12 +249,33 @@ def _period_and_unit(results: list[Any], starts: list[datetime] | None) -> tuple
     return None, "interval"
 
 
-def _uniform_gap(starts: list[datetime] | None) -> timedelta | None:
-    """The spacing between buckets, or None when it varies — a varying gap means the axis has holes."""
-    if not starts or len(starts) < 2:
-        return None
-    gaps = {later - earlier for earlier, later in zip(starts, starts[1:])}
-    return gaps.pop() if len(gaps) == 1 else None
+def _uniform_multiple(starts: list[datetime], period: Period) -> int:
+    """How many of `period` separate every consecutive pair, or 1 when that varies.
+
+    Comparing multiples rather than durations is what makes this work either way: consecutive
+    calendar months are not the same number of days, and a `daysOfWeek` hole is a gap of a
+    different multiple rather than a wider bucket.
+    """
+    if len(starts) < 2:
+        return 1
+    multiples = {_period_multiple(a, period, b - a) for a, b in zip(starts, starts[1:])}
+    return multiples.pop() if len(multiples) == 1 else 1
+
+
+def _period_multiple(anchor: datetime, period: Period, gap: timedelta) -> int:
+    """How many of `period` fit `gap`, anchored to a real bucket start.
+
+    A relativedelta has no length until it is applied to a date, so an "every 2 months" trend
+    cannot be measured by arithmetic on the gap alone.
+    """
+    end = anchor
+    for count in range(1, 13):
+        end = end + period
+        if end - anchor == gap:
+            return count
+        if end - anchor > gap:
+            break
+    return 1
 
 
 def _query_interval(results: list[Any]) -> str | None:

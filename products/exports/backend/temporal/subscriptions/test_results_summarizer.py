@@ -222,6 +222,14 @@ class TestBuildResultsSummaryTruncation:
         assert "of 50 series" in summary
 
 
+class TestBuildResultsSummaryWideRows:
+    def test_a_row_wider_than_the_budget_still_carries_data(self):
+        results = [{f"col{j}": "v" * 180 for j in range(15)} for _ in range(5)]
+        summary = build_results_summary("HogQLQuery", results)
+        assert len(summary) <= MAX_SUMMARY_LENGTH
+        assert [line for line in summary.splitlines() if line.startswith("- ")]
+
+
 class TestBuildResultsSummaryColumns:
     """Column labels from the HogQL result payload are used to label list-shaped rows."""
 
@@ -514,24 +522,27 @@ class TestBuildResultsSummaryIncompleteTrailingBuckets:
         assert "Excluding 1 day at the end of the range" in summary
         assert "latest=14" in summary
 
-    # `intervalCount` never reaches the payload, so an "every 2 days" bucket claims to be one day
-    # wide and its unfinished trailing bucket reads complete.
-    def test_multi_unit_buckets_are_measured_from_their_spacing(self):
+    # `intervalCount` never reaches the payload, so a multi-unit bucket claims to be one unit wide
+    # and its unfinished trailing bucket reads as complete. Calendar gaps are never equal in days,
+    # so the width has to be compared in multiples of the interval rather than in durations.
+    @pytest.mark.parametrize(
+        "interval,days,query_ran_at,expect_excluded",
+        [
+            ("day", ["2026-08-01", "2026-08-03", "2026-08-05", "2026-08-07"], "2026-08-08T12:00:00+00:00", True),
+            ("day", ["2026-08-01", "2026-08-03", "2026-08-05", "2026-08-07"], "2026-08-09T00:00:00+00:00", False),
+            ("month", ["2026-01-01", "2026-03-01", "2026-05-01"], "2026-06-01T00:00:00+00:00", True),
+            ("month", ["2026-01-01", "2026-03-01", "2026-05-01"], "2026-07-01T00:00:00+00:00", False),
+        ],
+    )
+    def test_multi_unit_buckets_are_measured_in_multiples_of_the_interval(
+        self, interval, days, query_ran_at, expect_excluded
+    ):
         results = [
-            {
-                "label": "Signups",
-                "days": ["2026-08-01", "2026-08-03", "2026-08-05", "2026-08-07"],
-                "data": [100, 100, 100, 40],
-                "filter": self.DAILY_FILTER,
-            }
+            {"label": "S", "days": days, "data": [100] * (len(days) - 1) + [40], "filter": {"interval": interval}}
         ]
-        summary = build_results_summary(
-            "TrendsQuery", results, query_ran_at="2026-08-08T12:00:00+00:00", timezone="UTC"
-        )
-        # Two days per bucket is not one "day", so the unit stays generic rather than lying.
-        assert summary.startswith("(Excluding 1 interval at the end of the range")
-        assert "latest=100" in summary
-        assert "in_progress=40" in summary
+        summary = build_results_summary("TrendsQuery", results, query_ran_at=query_ran_at, timezone="UTC")
+        # Two of a unit is not one of them, so the note stays generic rather than lying.
+        assert summary.startswith("(Excluding 1 interval") is expect_excluded
 
     @pytest.mark.parametrize("figure", [{"aggregated_value": 99}, {"count": 42}])
     def test_total_value_series_get_no_exclusion_note(self, figure):
