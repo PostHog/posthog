@@ -295,8 +295,6 @@ rules:
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
                               |SourceBatch
-                              |SourceBatchDuckgresApply
-                              |SourceDuckgresGroupLease
                               |SourceGroupLease
                               |StreamlitApp
                               |Subscription
@@ -637,8 +635,6 @@ rules:
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
                         |SourceBatch
-                        |SourceBatchDuckgresApply
-                        |SourceDuckgresGroupLease
                         |SourceGroupLease
                         |StreamlitApp
                         |Subscription

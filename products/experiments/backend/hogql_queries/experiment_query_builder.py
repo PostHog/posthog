@@ -703,8 +703,20 @@ class ExperimentQueryBuilder:
                 return self._funnel_query_builder().get_funnel_metric_events_query_for_precomputation()
             case ExperimentMeanMetric():
                 return self._mean_query_builder().get_mean_metric_events_query_for_precomputation()
+            case ExperimentRetentionMetric():
+                return self._retention_query_builder().get_retention_metric_events_query_for_precomputation()
             case _:
                 raise NotImplementedError(f"Metric-events precomputation is not supported for {type(self.metric)}")
+
+    def get_metric_events_window_extension_seconds(self) -> int:
+        """
+        How far past the experiment end date the metric-events precompute scan must
+        extend. The conversion window for funnel/mean metrics; retention adds the
+        retention window on top (completions can land that much after a start event).
+        """
+        if isinstance(self.metric, ExperimentRetentionMetric):
+            return self._retention_query_builder().get_metric_events_window_extension_seconds()
+        return self._get_conversion_window_seconds()
 
     def get_funnel_metric_events_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
         """Funnel-specific write query; prefer get_metric_events_query_for_precomputation()."""
