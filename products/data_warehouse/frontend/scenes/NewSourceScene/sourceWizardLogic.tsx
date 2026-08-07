@@ -3476,17 +3476,30 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     // row per repo. Mirrors ensureRequiredTableSyncing in signalSourcesLogic.
                     const matchesRequiredTable = (tableName: string, requiredTable: string): boolean =>
                         tableName === requiredTable || tableName.endsWith(`.${requiredTable}`)
+                    // The payload below forces should_sync on, so a permission-errored row would
+                    // queue a guaranteed-403 sync. Treat it as unavailable instead.
+                    const requiredSchemas = schemas.filter(
+                        (schema) =>
+                            !schema.permission_error &&
+                            values.requiredTables!.some((table: string) => matchesRequiredTable(schema.table, table))
+                    )
                     const missingTables = values.requiredTables.filter(
-                        (table: string) => !schemas.some((schema) => matchesRequiredTable(schema.table, table))
+                        (table: string) => !requiredSchemas.some((schema) => matchesRequiredTable(schema.table, table))
                     )
                     if (missingTables.length > 0) {
-                        lemonToast.error(`Required tables not found in source: ${missingTables.join(', ')}`)
+                        const permissionError = schemas.find(
+                            (schema) =>
+                                schema.permission_error &&
+                                missingTables.some((table: string) => matchesRequiredTable(schema.table, table))
+                        )?.permission_error
+                        lemonToast.error(
+                            permissionError
+                                ? `Source credentials cannot read the tables this needs (${missingTables.join(', ')}): ${permissionError}. Grant the missing scope in your source provider and reconnect.`
+                                : `Required tables not found in source: ${missingTables.join(', ')}`
+                        )
                         actions.setIsLoading(false)
                         return
                     }
-                    const requiredSchemas = schemas.filter((schema) =>
-                        values.requiredTables!.some((table: string) => matchesRequiredTable(schema.table, table))
-                    )
 
                     actions.updateSource({
                         payload: {
