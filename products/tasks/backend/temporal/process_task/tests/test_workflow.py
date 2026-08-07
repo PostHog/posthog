@@ -6,6 +6,7 @@ import asyncio
 import dataclasses
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, Mock
@@ -1348,7 +1349,7 @@ class TestProcessTaskWorkflowUnit:
         activity_calls: list[object] = []
         inject_call_args: dict = {}
 
-        async def fake_execute_activity(activity_fn, *args, **kwargs):
+        async def fake_execute_activity(activity_fn: Any, *args: Any, **kwargs: Any) -> Any:
             activity_calls.append(activity_fn)
             if activity_fn is prepare_sandbox_for_repository:
                 return prepared
@@ -1442,7 +1443,7 @@ class TestProcessTaskWorkflowUnit:
         )
         cloned: list[str] = []
 
-        async def fake_execute_activity(activity_fn, *args, **kwargs):
+        async def fake_execute_activity(activity_fn: Any, *args: Any, **kwargs: Any) -> Any:
             if activity_fn is prepare_sandbox_for_repository:
                 return prepared
             if activity_fn is create_sandbox_for_repository:
@@ -1455,6 +1456,7 @@ class TestProcessTaskWorkflowUnit:
             raise AssertionError(f"Unexpected activity call: {activity_fn}")
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda _: True)
 
         result = await workflow._get_sandbox_for_repository()
 
@@ -1490,7 +1492,7 @@ class TestProcessTaskWorkflowUnit:
         secondary_clone_started = asyncio.Event()
         release_secondary_clone = asyncio.Event()
 
-        async def fake_execute_activity(activity_fn, *args, **kwargs):
+        async def fake_execute_activity(activity_fn: Any, *args: Any, **kwargs: Any) -> Any:
             if activity_fn is prepare_sandbox_for_repository:
                 return prepared
             if activity_fn is create_sandbox_for_repository:
@@ -1514,11 +1516,64 @@ class TestProcessTaskWorkflowUnit:
             raise AssertionError(f"Unexpected activity call: {activity_fn}")
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda _: True)
 
         result = await workflow._get_sandbox_for_repository()
 
         assert result.agent_server_launched is True
         assert release_secondary_clone.is_set()
+
+    async def test_overlap_preserves_legacy_repo_ready_order_on_replay(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(
+            github_integration_id=123,
+            state={"repositories": ["posthog/posthog", "posthog/code"]},
+        )
+        workflow._context.overlap_clone_boot_enabled = True
+        prepared = PrepareSandboxForRepositoryOutput(
+            sandbox_name="sandbox-name",
+            repository="posthog/posthog",
+            github_token="ghs_token",
+            branch=None,
+            environment_variables={},
+            snapshot_id=None,
+            snapshot_external_id=None,
+            used_snapshot=False,
+            should_create_snapshot=True,
+            shallow_clone=True,
+            image_source="base_image",
+            image_source_label="published sandbox base image",
+        )
+        created = CreateSandboxForRepositoryOutput(
+            sandbox_id="sandbox-123",
+            sandbox_url="https://sandbox.example",
+            connect_token="connect-token",
+        )
+        calls: list[str] = []
+
+        async def fake_execute_activity(activity_fn: Any, *args: Any, **kwargs: Any) -> Any:
+            if activity_fn is prepare_sandbox_for_repository:
+                return prepared
+            if activity_fn is create_sandbox_for_repository:
+                return created
+            if activity_fn is launch_agent_server:
+                return StartAgentServerOutput(sandbox_url=created.sandbox_url)
+            if activity_fn is clone_repository_in_sandbox:
+                calls.append(f"clone:{args[0].repository}")
+                return None
+            if activity_fn is mark_repo_ready:
+                calls.append("ready")
+                return None
+            if activity_fn is emit_progress_activity:
+                return None
+            raise AssertionError(f"Unexpected activity call: {activity_fn}")
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda _: False)
+
+        await workflow._get_sandbox_for_repository()
+
+        assert calls == ["clone:posthog/posthog", "clone:posthog/code", "ready"]
 
     @pytest.mark.parametrize(
         "custom_image_name, expected_image_source, expected_image_source_label",

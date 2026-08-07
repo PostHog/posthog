@@ -57,6 +57,7 @@ from .activities.post_slack_update import PostSlackUpdateInput, post_slack_updat
 from .activities.provision_sandbox import (
     CheckoutBranchInSandboxInput,
     CloneRepositoryInSandboxInput,
+    CloneRepositoryInSandboxOutput,
     CreateSandboxForRepositoryInput,
     InjectFreshTokensOnResumeInput,
     InvalidateResumeSnapshotInput,
@@ -247,6 +248,10 @@ _PATCH_ID_CONCURRENT_FOLLOWUP_STEERING = "tasks-concurrent-followup-steering"
 # Existing onboarding histories include the setup agent in boot_total_ms, so replay must
 # preserve that input while new histories subtract the setup agent's elapsed time.
 _PATCH_ID_EXCLUDE_WIZARD_FROM_BOOT_TOTAL = "tasks-exclude-wizard-from-boot-total"
+
+# Multi-repo histories before this patch release the agent only after every clone completes.
+# Preserve that command order on replay while new runs can release it after the primary clone.
+_PATCH_ID_AGENT_READY_AFTER_PRIMARY_CLONE = "tasks-agent-ready-after-primary-clone"
 
 # #60923 dropped the redundant slack post that ran immediately after sandbox
 # provisioning — between `_get_sandbox_for_repository` and the agent-start
@@ -1359,12 +1364,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             launch_ms = launch_output.launch_ms if launch_output else None
 
         clone_ms: int | None = None
-        repo_ready_marked = False
+        release_after_primary_clone = bool(
+            overlap and len(repositories_to_clone) > 1 and workflow.patched(_PATCH_ID_AGENT_READY_AFTER_PRIMARY_CLONE)
+        )
         if will_clone:
             await self._emit_progress("clone", "in_progress", "Cloning repository", "setup")
 
-            async def clone_repository(repository: str):
-                nonlocal repo_ready_marked
+            async def clone_repository(repository: str) -> CloneRepositoryInSandboxOutput:
                 clone_output = await workflow.execute_activity(
                     clone_repository_in_sandbox,
                     CloneRepositoryInSandboxInput(
@@ -1377,9 +1383,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     start_to_close_timeout=timedelta(minutes=5),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
-                if overlap and len(repositories_to_clone) > 1 and repository == repositories_to_clone[0]:
+                if release_after_primary_clone and repository == repositories_to_clone[0]:
                     await self._mark_repo_ready(created.sandbox_id)
-                    repo_ready_marked = True
                 return clone_output
 
             clone_outputs = await asyncio.gather(
@@ -1420,7 +1425,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             checkout_ms = getattr(checkout_output, "checkout_ms", None)
             await self._emit_progress("checkout", "completed", branch_label_done, "setup")
 
-        if overlap and not repo_ready_marked:
+        if overlap and not release_after_primary_clone:
             await self._mark_repo_ready(created.sandbox_id)
 
         return GetSandboxForRepositoryOutput(
