@@ -13,7 +13,8 @@
     },
     "devDependencies": {
         "@types/query-selector-shadow-dom": "catalog:",
-        "kea-test-utils": "catalog:"
+        "kea-test-utils": "catalog:",
+        "msw": "^2.14.6"
     },
     "peerDependencies": {
         "@posthog/brand": "catalog:",

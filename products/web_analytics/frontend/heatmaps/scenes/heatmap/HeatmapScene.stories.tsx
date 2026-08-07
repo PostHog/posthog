@@ -2,10 +2,11 @@ import { Meta, StoryObj, type Decorator } from '@storybook/react'
 import { delay, HttpResponse } from 'msw'
 
 import { App } from 'scenes/App'
-import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+
+import { heatmapsBrowserLogic } from '../../components/heatmapsBrowserLogic'
 
 // heatmapsBrowserLogic is unkeyed and singleton, so building it here (before the scene renders)
 // seeds loadBannerTimeoutMs on the shared props object. The scene's own build later only
