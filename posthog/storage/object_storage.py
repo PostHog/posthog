@@ -424,17 +424,33 @@ def is_usable_endpoint(endpoint: str | None) -> bool:
     return bool(parsed.scheme and parsed.netloc)
 
 
+def _s3_config(**overrides: Any) -> Config:
+    """
+    Shared client config for every reader and writer that routes through this module.
+
+    Object storage answers with 5xx under transient load, and boto3's default `legacy` retry mode
+    applies no jitter, so a fleet of pods retries a degraded backend in lockstep and amplifies the
+    outage. `standard` mode retries 500/502/503/504 with jittered exponential backoff instead.
+    Three total attempts costs at most a couple of seconds of backoff, which is the ceiling worth
+    paying on the read paths that serve HTTP requests directly. `total_max_attempts` counts
+    attempts as written, whereas boto3 reads `max_attempts` as the number of retries on top of the
+    first attempt.
+    """
+    return Config(
+        signature_version="s3v4",
+        connect_timeout=1,
+        retries={"mode": "standard", "total_max_attempts": 3},
+        **overrides,
+    )
+
+
 def object_storage_client() -> ObjectStorageClient:
     global _client
 
     if not settings.OBJECT_STORAGE_ENABLED:
         _client = UnavailableStorage()
     elif isinstance(_client, UnavailableStorage):
-        s3_config = Config(
-            signature_version="s3v4",
-            connect_timeout=1,
-            retries={"max_attempts": 1},
-        )
+        s3_config = _s3_config()
         aws_client = client(
             "s3",
             endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
@@ -584,12 +600,7 @@ def _get_accelerated_presigned_client() -> Optional[Any]:
     if _accelerated_presigned_client is None and settings.OBJECT_STORAGE_TRANSFER_ACCELERATION:
         with _accelerated_client_lock:
             if _accelerated_presigned_client is None:
-                s3_config = Config(
-                    signature_version="s3v4",
-                    connect_timeout=1,
-                    retries={"max_attempts": 1},
-                    s3={"use_accelerate_endpoint": True},
-                )
+                s3_config = _s3_config(s3={"use_accelerate_endpoint": True})
                 _accelerated_presigned_client = client(
                     "s3",
                     aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,

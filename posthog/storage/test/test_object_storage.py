@@ -256,6 +256,21 @@ class TestObjectStorageClientFactory(SimpleTestCase):
     def test_is_usable_endpoint(self, _name: str, endpoint: str | None, expected: bool) -> None:
         assert is_usable_endpoint(endpoint) is expected
 
+    def test_client_retries_transient_storage_failures(self) -> None:
+        with self.settings(
+            OBJECT_STORAGE_ENABLED=True,
+            OBJECT_STORAGE_ENDPOINT="http://objectstorage:19000",
+            OBJECT_STORAGE_PUBLIC_ENDPOINT="http://objectstorage:19000",
+        ):
+            storage = object_storage_client()
+
+        assert isinstance(storage, ObjectStorage)
+        # Asserted on the client boto3 actually built, because boto3 normalizes the retry dict it is
+        # handed: a `max_attempts` of N silently becomes N + 1 total attempts.
+        retries = storage.aws_client.meta.config.retries
+        assert retries["mode"] == "standard"
+        assert retries["total_max_attempts"] == 3
+
     @patch("posthog.storage.object_storage.capture_exception")
     @patch("posthog.storage.object_storage.client")
     def test_bad_public_endpoint_does_not_crash_read_path(self, patched_client, patched_capture) -> None:
