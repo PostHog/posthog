@@ -975,6 +975,25 @@ describe("AgentService", () => {
       );
     });
   });
+
+  describe("system prompt scheduling", () => {
+    it("scopes cron and loop tools to the current run", () => {
+      const prompt = (
+        service as unknown as {
+          buildSystemPrompt: (
+            credentials: { apiHost: string; projectId: number },
+            taskId: string,
+          ) => { append: string };
+        }
+      ).buildSystemPrompt(
+        { apiHost: "https://app.posthog.com", projectId: 1 },
+        "task-1",
+      ).append;
+
+      expect(prompt).toContain("Cron and loop tools live only in this run");
+      expect(prompt).toContain("set it up as a Signals scout instead");
+    });
+  });
 });
 
 describe("buildAutoApproveOutcome", () => {

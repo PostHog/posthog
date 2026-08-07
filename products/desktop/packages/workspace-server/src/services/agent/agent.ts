@@ -662,7 +662,11 @@ Optimize for the fewest shell round trips.
 - Batch related commands into one Bash invocation using \`&&\` (e.g. \`npm run typecheck && npm run lint && npm test\`).
 - Emit all independent tool calls in the same response.
 - Read multiple files at once.
-- Never rerun a command solely to reproduce output you already have.`;
+- Never rerun a command solely to reproduce output you already have.
+
+## Scheduling
+Cron and loop tools live only in this run. Use them to finish the job in front of you, such as polling CI until a pull request goes green. Never use them for a standing commitment.
+If the user asks for something ongoing ("every hour until I say stop", "keep an eye on X"), set it up as a Signals scout instead, which outlives this run. The \`working-with-scouts\` skill covers how. If you cannot set up what they asked for, say so plainly rather than approximating it with a job that dies with this session.`;
 
     if (channelMode) {
       prompt += `
