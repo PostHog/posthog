@@ -1,4 +1,5 @@
 import uuid
+import errno
 import socket
 import asyncio
 import datetime as dt
@@ -474,6 +475,20 @@ async def _handle_import_error(
     if isinstance(error, OperationalError | InterfaceError):
         await logger.awarning(error_msg)
         await logger.adebug("Transient app-DB error - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
+
+    # A raw OSError with errno EMFILE/ENFILE ("Too many open files") means the worker process hit
+    # its file-descriptor limit while establishing a new connection. psycopg3's connect path builds
+    # a `selectors.DefaultSelector()` directly (psycopg/waiting.py's `wait_conn`), so descriptor
+    # exhaustion there surfaces as a bare OSError rather than being wrapped into psycopg's/Django's
+    # OperationalError the way other connection failures are — including when the connection being
+    # opened is to our own app DB, the case the comment above `ExternalDataSchema.objects...get()`
+    # in postgres/source.py assumes always arrives as OperationalError. A burst of concurrent syncs
+    # on one worker exhausting descriptors is a transient capacity blip, not a customer/source
+    # config problem, so classify it the same way.
+    if isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE):
+        await logger.awarning(error_msg)
+        await logger.adebug("Transient file-descriptor exhaustion - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error
 
     # Cross-source non-retryable errors (missing primary key on an incremental table, bad SSH tunnel

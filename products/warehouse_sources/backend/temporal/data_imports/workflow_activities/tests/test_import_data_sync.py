@@ -1,4 +1,5 @@
 import uuid
+import errno
 import contextlib
 from datetime import datetime
 from typing import Any, cast
@@ -372,6 +373,62 @@ async def test_app_db_connection_error_reraised_as_non_reportable(_name: str, er
     assert exc_info.value.__cause__ is error
     logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()
+
+
+@parameterized.expand(
+    [
+        ("emfile", errno.EMFILE),
+        ("enfile", errno.ENFILE),
+    ]
+)
+@pytest.mark.asyncio
+async def test_file_descriptor_exhaustion_reraised_as_non_reportable(_name: str, error_errno: int):
+    # psycopg3 builds a `selectors.DefaultSelector()` directly on its connect path, so hitting the
+    # worker's file-descriptor limit while opening a new connection (including one to our own app
+    # DB, e.g. postgres/source.py's schema lookup) surfaces as a bare OSError rather than a
+    # Django OperationalError. It's a transient capacity blip, so it must be re-raised as
+    # NonReportableError rather than the bare exception, which the activity interceptor would
+    # still capture.
+    error = OSError(error_errno, "Too many open files")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(NonReportableError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value.__cause__ is error
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_unrelated_oserror_is_reraised_for_activity_retry():
+    # An OSError with an unrelated errno (e.g. disk full) is not the same transient
+    # file-descriptor-exhaustion condition above, so it must still fall through to the generic
+    # capture-and-reraise path rather than being swallowed as non-reportable.
+    error = OSError(errno.ENOSPC, "No space left on device")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(OSError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value is error
+    logger.aexception.assert_awaited_once()
 
 
 @pytest.mark.asyncio
