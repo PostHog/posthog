@@ -444,6 +444,9 @@ tools:
     tasks-runs-artifacts-create:
         operation: tasks_runs_artifacts_create
         enabled: false
+    tasks-runs-artifacts-dismiss-create:
+        operation: tasks_runs_artifacts_dismiss_create
+        enabled: false
     tasks-runs-artifacts-download-create:
         operation: tasks_runs_artifacts_download_create
         enabled: false
