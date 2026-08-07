@@ -8,6 +8,7 @@ from posthog.schema import ReleaseStatus, SourceFieldOauthConfig
 
 from posthog.models.integration import Integration
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleanalytics import (
     GoogleAnalyticsSourceConfig,
 )
@@ -37,8 +38,8 @@ def test_get_source_config_fields():
     field_names = {field.name for field in cfg.fields}
     assert field_names == {"google_analytics_integration_id", "property_id"}
     assert cfg.label == "Google Analytics"
-    assert cfg.featureFlag == "dwh-google-analytics"
-    assert cfg.releaseStatus == ReleaseStatus.BETA
+    assert cfg.featureFlag is None
+    assert cfg.releaseStatus == ReleaseStatus.GA
     assert not cfg.unreleasedSource
 
 
@@ -262,6 +263,17 @@ def test_non_retryable_errors_cover_auth_failures():
     assert "401 Client Error" in errors
     assert "403 Client Error" in errors
     assert "ACCESS_TOKEN_SCOPE_INSUFFICIENT" in errors
+    assert "invalid_grant" in errors
+
+
+def test_non_retryable_errors_matches_revoked_refresh_token():
+    # `_run_report` refreshes credentials via `session.post()` before any HTTP status is
+    # available, so a revoked/expired refresh token surfaces as a bare `RefreshError` whose
+    # `str()` is the raw (message, response_dict) tuple repr, e.g.:
+    # ('invalid_grant: Bad Request', {'error': 'invalid_grant', 'error_description': 'Bad Request'})
+    observed_error = str(RefreshError("invalid_grant: Bad Request", {"error": "invalid_grant"}))
+    non_retryable_errors = GoogleAnalyticsSource().get_non_retryable_errors()
+    assert error_message_matches(observed_error, non_retryable_errors)
 
 
 def test_retryable_errors_cover_exhausted_quota_retries():

@@ -1,4 +1,5 @@
 import { useActions } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconBook, IconGear } from '@posthog/icons'
 
@@ -27,6 +28,10 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
         pinProjectId: config.wizard?.pinProjectId,
     })
     const { skipEmptyState } = useActions(productSetupStatusLogic({ productKey: config.productKey }))
+
+    const captureClick = (action: string): void => {
+        posthog.capture(`product empty state ${action}`, { product_key: config.productKey, mode })
+    }
 
     // Mode-specific text overrides the base; missing fields fall back to it.
     const text: ProductEmptyStateText = { ...config.text['needs-setup'], ...config.text[mode] }
@@ -65,18 +70,33 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
                 {text.hint ? <div className="text-xs text-tertiary mt-2">{text.hint}</div> : null}
 
                 {showWizard ? (
-                    <TerminalCard command={wizardCommand} copyLabel={`${config.productName} wizard command`} />
+                    <TerminalCard
+                        command={wizardCommand}
+                        copyLabel={`${config.productName} wizard command`}
+                        onCopy={() => captureClick('wizard command copied')}
+                    />
                 ) : config.primaryAction ? (
                     <LemonButton
                         type="primary"
                         to={config.primaryAction.to}
-                        onClick={config.primaryAction.onClick}
+                        onClick={() => {
+                            captureClick('primary action clicked')
+                            config.primaryAction?.onClick?.()
+                        }}
                         className="self-start"
+                        data-attr="product-empty-state-primary-action"
                     >
                         {config.primaryAction.label}
                     </LemonButton>
                 ) : manualUrl ? (
-                    <LemonButton type="primary" to={manualUrl} targetBlank className="self-start">
+                    <LemonButton
+                        type="primary"
+                        to={manualUrl}
+                        targetBlank
+                        className="self-start"
+                        onClick={() => captureClick('manual setup clicked')}
+                        data-attr="product-empty-state-manual-setup"
+                    >
                         Set up {config.productName}
                     </LemonButton>
                 ) : null}
@@ -85,16 +105,36 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
 
                 <div className="flex items-center gap-4">
                     {showWizard && manualUrl ? (
-                        <LemonButton type="secondary" icon={<IconGear />} to={manualUrl} targetBlank>
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconGear />}
+                            to={manualUrl}
+                            targetBlank
+                            onClick={() => captureClick('manual setup clicked')}
+                            data-attr="product-empty-state-manual-setup"
+                        >
                             Configure manually
                         </LemonButton>
                     ) : null}
                     {config.docsUrl ? (
-                        <LemonButton size="xsmall" type="tertiary" icon={<IconBook />} to={config.docsUrl} targetBlank>
+                        <LemonButton
+                            size="xsmall"
+                            type="tertiary"
+                            icon={<IconBook />}
+                            to={config.docsUrl}
+                            targetBlank
+                            onClick={() => captureClick('docs clicked')}
+                            data-attr="product-empty-state-docs"
+                        >
                             Read the docs
                         </LemonButton>
                     ) : null}
-                    <LemonButton size="xsmall" type="tertiary" onClick={skipEmptyState}>
+                    <LemonButton
+                        size="xsmall"
+                        type="tertiary"
+                        onClick={skipEmptyState}
+                        data-attr="product-empty-state-skip"
+                    >
                         Skip for now
                     </LemonButton>
                 </div>

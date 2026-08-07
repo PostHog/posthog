@@ -777,6 +777,75 @@ class TestCohortUtils(BaseTest):
 
         self.assertIn("Could not find a person_id, actor_id, id, or distinct_id column", str(cm.exception))
 
+    @parameterized.expand(
+        [
+            # Unbounded query: positional GROUP BY must be inlined (bounded ORDER BY is exercised below).
+            (
+                "unbounded_group_by",
+                "SELECT count(), person_id FROM events GROUP BY 2",
+                "group by 2",
+                "group by",
+            ),
+            # Bounded query keeps its ORDER BY, so a positional ORDER BY must be inlined too.
+            (
+                "bounded_order_by",
+                "SELECT person_id, count() AS cnt FROM events GROUP BY 1 ORDER BY 2 DESC LIMIT 100",
+                "order by 2",
+                "order by count()",
+            ),
+            # LIMIT BY is also positional and marks the query bounded, so its ordinal must be inlined too.
+            (
+                "bounded_limit_by",
+                "SELECT person_id, event FROM events ORDER BY person_id LIMIT 1 BY 2",
+                "by 2",
+                "by events.event",
+            ),
+        ]
+    )
+    def test_print_cohort_hogql_query_resolves_positional_references(
+        self, _name, query, dangling_ordinal, resolved_clause
+    ):
+        # A positional GROUP BY/ORDER BY ordinal (e.g. `GROUP BY 2`) references the Nth SELECT
+        # expression. Collapsing the SELECT to the single actor column leaves any ordinal past the
+        # first pointing out of bounds, so ClickHouse rejects the query and the cohort never fills.
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Positional Cohort",
+            query={"kind": "HogQLQuery", "query": query},
+        )
+
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+
+        sql = print_cohort_hogql_query(cohort, context, team=self.team).lower()
+
+        self.assertIn("as actor_id", sql)
+        # The ordinal must be inlined to the real expression, not left dangling past the collapsed SELECT.
+        self.assertNotIn(dangling_ordinal, sql)
+        # Dropping the clause outright would also remove the ordinal, but it would change who lands in
+        # the cohort, so the clause itself has to survive.
+        self.assertIn(resolved_clause, sql)
+
+    def test_print_cohort_hogql_query_leaves_positional_references_on_wildcard_select(self):
+        # `*` is a single node in the SELECT list until the resolver fans it out into one node per
+        # column, and ClickHouse numbers positional arguments against that expanded list. Guessing
+        # which expression ordinal 2 means here would quietly build a different cohort, so the
+        # ordinals stay untouched and the query keeps failing the way it does without any inlining.
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Wildcard Positional Cohort",
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT *, count() AS cnt FROM events GROUP BY 1 ORDER BY 2 DESC LIMIT 100",
+            },
+        )
+
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+
+        sql = print_cohort_hogql_query(cohort, context, team=self.team).lower()
+
+        self.assertIn("group by 1", sql)
+        self.assertIn("order by 2", sql)
+
 
 class TestGetNestedCohortIds(BaseTest):
     def test_no_cohort_references(self):

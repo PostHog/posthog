@@ -196,3 +196,18 @@ export function pipClass(status: InstallationStepStatus): string {
             return 'bg-border'
     }
 }
+
+export function localModeLabel(startedByLabel?: string | null): string {
+    return startedByLabel ? `On ${startedByLabel}'s machine` : 'On your machine'
+}
+
+/** The teammate's name, or null for the viewer's own run (matched on email) or an unknown initiator. */
+export function resolveStartedByLabel(
+    startedBy: InstallationProgress['startedBy'],
+    currentUserEmail: string | undefined
+): string | null {
+    if (!startedBy || startedBy.email === currentUserEmail) {
+        return null
+    }
+    return startedBy.name
+}

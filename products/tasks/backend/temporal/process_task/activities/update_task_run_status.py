@@ -5,6 +5,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.utils import asyncify
 
@@ -85,8 +86,14 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
                 task_run.completed_at = timezone.now()
             task_run.save(update_fields=["status", "error_message", "completed_at", "updated_at"])
     except TaskRun.DoesNotExist:
-        activity.logger.warning(f"TaskRun {input.run_id} not found for status update")
-        return
+        # The row was hard-deleted mid-run (team/org deletion cascades bypass the model
+        # delete() guards). Nothing can ever terminalize this run again, so fail the
+        # workflow instead of letting it run on believing the status was written.
+        raise ApplicationError(
+            f"TaskRun {input.run_id} no longer exists; its rows were deleted while the workflow was running",
+            non_retryable=True,
+            type="TaskRunDeletedError",
+        )
 
     # Side effects run after commit, outside the row lock (repo convention: no side effects in atomic).
     task_run.publish_stream_state_event()

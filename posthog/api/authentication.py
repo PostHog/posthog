@@ -20,6 +20,7 @@ from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import ValidationError
 from django.core.signing import BadSignature
 from django.db import transaction
+from django.db.models import F, Q
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
@@ -31,6 +32,7 @@ from axes.exceptions import AxesBackendPermissionDenied
 from axes.handlers.proxy import AxesProxyHandler
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session, restore_original_login
 from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -53,6 +55,7 @@ from posthog.event_usage import report_user_logged_in, report_user_password_rese
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.helpers.two_factor_session import (
     CODE_MAX_ATTEMPTS,
     LOGIN_CODE_VERIFICATION_COUNTER,
@@ -62,6 +65,7 @@ from posthog.helpers.two_factor_session import (
     set_two_factor_verified_in_session,
 )
 from posthog.helpers.user_devices import has_valid_known_device_cookie
+from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
 from posthog.models import OrganizationDomain, User
 from posthog.models.activity_logging import signal_handlers  # noqa: F401
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -69,6 +73,7 @@ from posthog.passkey import generate_passkey_authentication_options, verify_pass
 from posthog.rate_limit import (
     CodeBasedVerificationResendThrottle,
     CodeBasedVerificationThrottle,
+    LoginPrecheckThrottle,
     TwoFactorThrottle,
     UserPasswordResetThrottle,
 )
@@ -329,6 +334,13 @@ class LoginSerializer(serializers.Serializer):
                 code="not_verified",
             )
 
+        # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
+        if not resolve_login_organization(user):
+            raise serializers.ValidationError(
+                VERIFIED_DOMAIN_REQUIRED_ERROR,
+                code="verified_domain_required",
+            )
+
         clear_two_factor_session_flags(request)
 
         if self._check_if_2fa_required(user):
@@ -389,8 +401,8 @@ class LoginPrecheckSerializer(serializers.Serializer):
     email = serializers.EmailField()
 
     def to_representation(
-        self, instance: dict[str, str | list[WebauthnCredentialPrecheck]]
-    ) -> dict[str, str | list[WebauthnCredentialPrecheck]]:
+        self, instance: dict[str, str | bool | list[str] | list[WebauthnCredentialPrecheck]]
+    ) -> dict[str, str | bool | list[str] | list[WebauthnCredentialPrecheck]]:
         return instance
 
     def create(self, validated_data: dict[str, str]) -> Any:
@@ -411,10 +423,48 @@ class LoginPrecheckSerializer(serializers.Serializer):
             for cred in credentials
         ]
 
+        saml_available = OrganizationDomain.objects.get_is_saml_available_for_email(email)
+
         return {
             "sso_enforcement": OrganizationDomain.objects.get_sso_enforcement_for_email_address(email),
-            "saml_available": OrganizationDomain.objects.get_is_saml_available_for_email(email),
+            "saml_available": saml_available,
             "webauthn_credentials": webauthn_credentials,
+            **self._available_local_methods(email, saml_available=saml_available),
+        }
+
+    @staticmethod
+    def _available_local_methods(email: str, *, saml_available: bool) -> dict[str, Any]:
+        """
+        Report whether this account can log in with a password, and which of its linked social
+        identities are actually usable on this instance, so the login form can stop offering a
+        password box (or a dead SSO button) to an account that cannot use it.
+
+        An email with no active user looks identical to a user who does have a password — a typo
+        must never be a dead end, and it keeps the account-existence signal limited to accounts
+        that are genuinely passwordless.
+        """
+        # Same lookup login itself uses (`UserManager.get_by_natural_key`), so precheck can never
+        # describe a different account than the one a password would authenticate: exact case first,
+        # then case-insensitive, and deterministic (last logged in) if case variations coexist.
+        user = EmailLookupHandler.get_user_by_email(email)
+        if user is None:
+            return {"password_login_available": True, "social_providers": []}
+
+        # Mirrors `UserSerializer.get_has_password`: `has_usable_password()` is True for an empty
+        # password, so the `bool(...)` half of the check is load-bearing.
+        password_login_available = bool(user.password) and user.has_usable_password()
+
+        usable_providers = {
+            provider for provider, available in get_instance_available_sso_providers().items() if available
+        }
+        if saml_available:
+            # SAML is domain-configured rather than instance-configured, so it isn't covered above.
+            usable_providers.add("saml")
+        linked_providers = set(user.social_auth.values_list("provider", flat=True))
+
+        return {
+            "password_login_available": password_login_available,
+            "social_providers": sorted(linked_providers & usable_providers),
         }
 
 
@@ -574,6 +624,25 @@ class DevLoginSerializer(serializers.Serializer):
         return user
 
 
+class DevLoginUserSerializer(serializers.Serializer):
+    email = serializers.EmailField(read_only=True, help_text="Email to log in as.")
+    first_name = serializers.CharField(read_only=True, help_text="First name, shown next to the email.")
+    is_staff = serializers.BooleanField(read_only=True, help_text="Whether the user is a staff (instance admin) user.")
+    # Shadows Field.label, which the metaclass moves aside into _declared_fields at runtime.
+    label = serializers.CharField(  # type: ignore[assignment]
+        read_only=True, allow_null=True, help_text="Label for accounts seeded by setup_dev, e.g. the default test user."
+    )
+    last_login = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When this account was last logged in as, or null if never."
+    )
+
+
+class DevLoginUserListSerializer(serializers.Serializer):
+    users = DevLoginUserSerializer(
+        many=True, read_only=True, help_text="Every active user, seeded accounts first, then most recently used."
+    )
+
+
 class DevLoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     """
     Dev-only convenience endpoint. Lists active users and lets the login UI
@@ -585,11 +654,20 @@ class DevLoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     serializer_class = DevLoginSerializer
     permission_classes = (permissions.AllowAny,)
 
+    @extend_schema(responses={200: DevLoginUserListSerializer})
     def list(self, request: Request) -> Response:
         if not is_dev_login_allowed():
             raise Http404()
 
-        users = list(User.objects.filter(is_active=True).order_by("email").values("email", "is_staff")[:50])
+        # Seeded accounts first so the default test user stays on top. After that recency beats
+        # alphabetical: on instances with hundreds of test accounts, the handful you actually
+        # switch between float up on their own. Email breaks ties to keep the order stable.
+        users = list(
+            User.objects.filter(is_active=True)
+            .annotate(is_seeded=Q(email__in=DEV_LOGIN_KNOWN_EMAIL_LABELS))
+            .order_by("-is_seeded", F("last_login").desc(nulls_last=True), "email")
+            .values("email", "first_name", "is_staff", "last_login")
+        )
         for entry in users:
             entry["label"] = DEV_LOGIN_KNOWN_EMAIL_LABELS.get(entry["email"])
 
@@ -1038,6 +1116,7 @@ class LoginPrecheckViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     queryset = User.objects.none()
     serializer_class = LoginPrecheckSerializer
     permission_classes = (permissions.AllowAny,)
+    throttle_classes = [] if settings.E2E_TESTING else [LoginPrecheckThrottle]
 
 
 class PasswordResetSerializer(serializers.Serializer):

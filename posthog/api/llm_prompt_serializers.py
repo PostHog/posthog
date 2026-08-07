@@ -6,14 +6,10 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
+from posthog.llm_prompt import normalize_prompt_to_string
 
 from products.ai_observability.backend.activity_logging import prompt_activity_item_id
-from products.ai_observability.backend.models.llm_prompt import (
-    LLMPrompt,
-    LLMPromptLabel,
-    get_prompt_outline,
-    normalize_prompt_to_string,
-)
+from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel, get_prompt_outline
 
 
 class LLMPromptOutlineEntrySerializer(serializers.Serializer):
@@ -55,7 +51,7 @@ def validate_prompt_config_value(value: Any) -> Any:
         return None
     if not isinstance(value, dict):
         raise serializers.ValidationError(
-            'Config must be a JSON object, e.g. {"model": "gpt-4o", "temperature": 0}.',
+            'Config must be a JSON object, e.g. {"model": "your-model-name", "temperature": 0}.',
             code="invalid_config",
         )
     return validate_prompt_payload_size(value, field_label="Config")

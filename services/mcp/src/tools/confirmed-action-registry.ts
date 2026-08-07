@@ -11,11 +11,12 @@
  * installed once, read by many.
  */
 
-import type { NonceLedger, SignedStateCodec } from '@/lib/signed-state'
+import type { NonceLedger, PayloadStash, SignedStateCodec } from '@/lib/signed-state'
 
 export interface ConfirmedActionRuntime {
     codec: SignedStateCodec
     ledger: NonceLedger
+    stash: PayloadStash
 }
 
 let installed: ConfirmedActionRuntime | undefined

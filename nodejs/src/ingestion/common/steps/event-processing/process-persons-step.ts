@@ -45,6 +45,8 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
         partitionCount: options.PERSON_MERGE_EVENTS_PARTITION_COUNT,
         isTeamEnabled: buildIntegerMatcher(options.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST, true),
     }
+    const isMergeAlwaysV1Team = buildIntegerMatcher(options.PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST, true)
+    const isPersonlessWritesDisabledTeam = buildIntegerMatcher(options.PERSONLESS_WRITES_DISABLED_TEAMS, true)
 
     return async function processPersonsStep(
         input: TInput
@@ -70,6 +72,10 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
             options.PERSON_PROPERTIES_UPDATE_ALL,
             shouldUpdateLastSeenAt,
             mergeEventsConfig,
+            {
+                mergeAlwaysV1: isMergeAlwaysV1Team(team.id),
+                writesDisabled: isPersonlessWritesDisabledTeam(team.id),
+            },
             input.mergeFold.type === 'planned' ? input.mergeFold.plan : undefined
         )
 

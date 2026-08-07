@@ -95,6 +95,7 @@ class SupabaseSource(PostgresSource):
         return SourceConfig(
             name=SchemaExternalDataSourceType.SUPABASE,
             category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["sql", "postgresql", "postgres"],
             featured=True,
             iconPath="/static/services/supabase.png",
             caption="Enter your Supabase credentials to automatically pull your data into the PostHog Data warehouse",
