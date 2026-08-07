@@ -879,6 +879,10 @@ class TestPollBackoff:
             assert consumer._poll_retry_delay() == 8.0
             consumer._consecutive_poll_failures = 20  # far past the cap
             assert consumer._poll_retry_delay() == 30.0  # POLL_BACKOFF_MAX_SECONDS
+            # A prolonged outage grows the count without bound; 2 ** (failures - 1) used
+            # to overflow float here and crash the consumer instead of returning the cap.
+            consumer._consecutive_poll_failures = 5000
+            assert consumer._poll_retry_delay() == 30.0
 
     def test_jitter_is_added_within_one_interval(self):
         consumer = _make_consumer(poll_interval_seconds=2.0)

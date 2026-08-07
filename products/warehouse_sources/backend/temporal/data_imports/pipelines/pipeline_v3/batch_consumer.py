@@ -44,6 +44,13 @@ SHUTDOWN_DRAIN_TIMEOUT_SECONDS = 30.0
 # whole fleet hammer a degraded queue DB in lockstep.
 POLL_BACKOFF_MAX_SECONDS = 30.0
 
+# Ceiling on the backoff exponent. A prolonged queue-DB outage drives the failure
+# count into the thousands, and 2 ** (failures - 1) then overflows float when
+# multiplied by the interval, before min() can clamp to POLL_BACKOFF_MAX_SECONDS.
+# 2 ** 32 already dwarfs the cap for any real poll interval, so doubling past here
+# only risks the overflow without changing the (already saturated) result.
+POLL_BACKOFF_MAX_DOUBLINGS = 32
+
 # Per-poll fetch cap multiplier: fetch at most (free slots x this) batches so a poll
 # never leases far more groups than it can dispatch. Runs average ~2 batches per
 # group (batch 0 + final), so x3 gives headroom for multi-batch runs without
@@ -1077,7 +1084,8 @@ class BatchConsumer:
         gets exponentially less pressure and the fleet's retries desynchronize."""
         base = self._config.poll_interval_seconds
         failures = max(self._consecutive_poll_failures, 1)
-        backoff = min(base * 2 ** (failures - 1), POLL_BACKOFF_MAX_SECONDS)
+        exponent = min(failures - 1, POLL_BACKOFF_MAX_DOUBLINGS)
+        backoff = min(base * 2**exponent, POLL_BACKOFF_MAX_SECONDS)
         return backoff + random.uniform(0, base)
 
     def _report_health(self) -> None:
