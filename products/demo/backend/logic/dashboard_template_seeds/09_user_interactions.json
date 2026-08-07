@@ -201,7 +201,9 @@
                                 {
                                     "key": "$event_type",
                                     "type": "event",
-                                    "value": ["submit"],
+                                    "value": [
+                                        "submit"
+                                    ],
                                     "operator": "exact"
                                 }
                             ]
@@ -216,7 +218,9 @@
                                 {
                                     "key": "$event_type",
                                     "type": "event",
-                                    "value": ["change"],
+                                    "value": [
+                                        "change"
+                                    ],
                                     "operator": "exact"
                                 }
                             ]
@@ -386,9 +390,12 @@
                 "kind": "DataVisualizationNode",
                 "source": {
                     "kind": "HogQLQuery",
-                    "query": "-- Every link click, with downloads and contact links called out.\n-- Autocapture records the href, so none of this needs its own tracking code.\nSELECT\n    multiIf(\n        match(elements_chain_href, '^(mailto|tel):'), 'Contact',\n        match(elements_chain_href, '\\\\.(pdf|csv|zip|xlsx?|docx?|pptx?|dmg|exe|pkg)($|\\\\?)'), 'Download',\n        'Link') AS link_type,\n    elements_chain_href AS destination,\n    count() AS clicks,\n    uniq(person_id) AS people\nFROM events\nWHERE event = '$autocapture'\n    AND timestamp >= now() - INTERVAL 30 DAY\n    AND elements_chain_href != ''\nGROUP BY link_type, destination\nORDER BY clicks DESC\nLIMIT 30",
+                    "query": "-- The date range and any filter-bar properties come from the dashboard via {filters}.\n-- Every link click, with downloads and contact links called out.\n-- Autocapture records the href, so none of this needs its own tracking code.\nSELECT\n    multiIf(\n        match(elements_chain_href, '^(mailto|tel):'), 'Contact',\n        match(elements_chain_href, '\\\\.(pdf|csv|zip|xlsx?|docx?|pptx?|dmg|exe|pkg)($|\\\\?)'), 'Download',\n        'Link') AS link_type,\n    elements_chain_href AS destination,\n    count() AS clicks,\n    uniq(person_id) AS people\nFROM events\nWHERE event = '$autocapture'\n    AND {filters}\n    AND elements_chain_href != ''\nGROUP BY link_type, destination\nORDER BY clicks DESC\nLIMIT 30",
                     "filters": {
-                        "dateRange": null,
+                        "dateRange": {
+                            "date_from": "-30d",
+                            "date_to": null
+                        },
                         "properties": null,
                         "filterTestAccounts": null
                     },
@@ -427,9 +434,12 @@
                 "kind": "DataVisualizationNode",
                 "source": {
                     "kind": "HogQLQuery",
-                    "query": "-- One row per thing people click, with both failure modes side by side.\n-- Element type walks to the first useful ancestor tag, so an icon click counts\n-- against the control around it rather than against the svg.\nSELECT\n    properties.$pathname AS page,\n    if(length(elements_chain_elements) > 0, toString(elements_chain_elements[1]), 'other') AS element_type,\n    nullIf(properties.$el_text, '') AS element_text,\n    countIf(event = '$dead_click') AS dead_clicks,\n    countIf(event = '$rageclick') AS rage_clicks,\n    countIf(event = '$autocapture') AS working_clicks,\n    uniq(person_id) AS people\nFROM events\nWHERE event IN ('$dead_click', '$rageclick', '$autocapture')\n    AND timestamp >= now() - INTERVAL 7 DAY\nGROUP BY page, element_type, element_text\nHAVING dead_clicks + rage_clicks > 20\nORDER BY dead_clicks + rage_clicks DESC\nLIMIT 30",
+                    "query": "-- The date range and any filter-bar properties come from the dashboard via {filters},\n-- so this table matches the trend tiles instead of using its own fixed window.\n-- One row per thing people click, with both failure modes side by side.\n-- Element type walks to the first useful ancestor tag, so an icon click counts\n-- against the control around it rather than against the svg.\nSELECT\n    properties.$pathname AS page,\n    if(length(elements_chain_elements) > 0, toString(elements_chain_elements[1]), 'other') AS element_type,\n    nullIf(properties.$el_text, '') AS element_text,\n    countIf(event = '$dead_click') AS dead_clicks,\n    countIf(event = '$rageclick') AS rage_clicks,\n    countIf(event = '$autocapture') AS working_clicks,\n    uniq(person_id) AS people\nFROM events\nWHERE event IN ('$dead_click', '$rageclick', '$autocapture')\n    AND {filters}\nGROUP BY page, element_type, element_text\nHAVING dead_clicks + rage_clicks > 0\nORDER BY dead_clicks + rage_clicks DESC\nLIMIT 30",
                     "filters": {
-                        "dateRange": null,
+                        "dateRange": {
+                            "date_from": "-30d",
+                            "date_to": null
+                        },
                         "properties": null,
                         "filterTestAccounts": null
                     },
@@ -685,7 +695,9 @@
                                 {
                                     "key": "$event_type",
                                     "type": "event",
-                                    "value": ["change"],
+                                    "value": [
+                                        "change"
+                                    ],
                                     "operator": "exact"
                                 }
                             ]
@@ -700,7 +712,9 @@
                                 {
                                     "key": "$event_type",
                                     "type": "event",
-                                    "value": ["submit"],
+                                    "value": [
+                                        "submit"
+                                    ],
                                     "operator": "exact"
                                 }
                             ]
@@ -747,7 +761,9 @@
                 "kind": "InsightVizNode",
                 "source": {
                     "kind": "TrendsQuery",
-                    "series": ["{KEY_ELEMENT}"],
+                    "series": [
+                        "{KEY_ELEMENT}"
+                    ],
                     "interval": "week",
                     "dateRange": {
                         "date_from": "-90d",
