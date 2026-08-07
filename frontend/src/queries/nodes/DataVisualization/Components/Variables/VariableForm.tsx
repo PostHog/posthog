@@ -36,10 +36,12 @@ export const VariableSpecificFields = ({
     variable,
     updateVariable,
     onSave,
+    defaultValuesQueryConnectionId,
 }: {
     variable: Variable
     updateVariable: (variable: Variable) => void
     onSave: () => void
+    defaultValuesQueryConnectionId?: string | null
 }): JSX.Element => {
     switch (variable.type) {
         case 'String':
@@ -49,7 +51,14 @@ export const VariableSpecificFields = ({
         case 'Boolean':
             return renderField(BooleanField, variable, updateVariable, onSave, 'Default value')
         case 'List':
-            return <ListVariableFields variable={variable} updateVariable={updateVariable} onSave={onSave} />
+            return (
+                <ListVariableFields
+                    variable={variable}
+                    updateVariable={updateVariable}
+                    onSave={onSave}
+                    defaultValuesQueryConnectionId={defaultValuesQueryConnectionId}
+                />
+            )
         case 'Date':
             return renderField(DateField, variable, updateVariable, onSave, 'Default value')
     }
@@ -61,9 +70,16 @@ export interface VariableFormProps {
     onSave: () => void
     modalType: 'new' | 'existing'
     onTypeChange: (variableType: VariableType) => void
+    defaultValuesQueryConnectionId?: string | null
 }
 
-export const VariableForm = ({ variable, updateVariable, onSave, onTypeChange }: VariableFormProps): JSX.Element => {
+export const VariableForm = ({
+    variable,
+    updateVariable,
+    onSave,
+    onTypeChange,
+    defaultValuesQueryConnectionId,
+}: VariableFormProps): JSX.Element => {
     const codeNameFallback = getCodeName(variable.name)
     const referenceCodeName = variable.code_name || codeNameFallback
     const nameLabel = (
@@ -110,7 +126,12 @@ export const VariableForm = ({ variable, updateVariable, onSave, onTypeChange }:
                     options={VARIABLE_TYPE_OPTIONS}
                 />
             </LemonField.Pure>
-            <VariableSpecificFields variable={variable} updateVariable={updateVariable} onSave={onSave} />
+            <VariableSpecificFields
+                variable={variable}
+                updateVariable={updateVariable}
+                onSave={onSave}
+                defaultValuesQueryConnectionId={defaultValuesQueryConnectionId}
+            />
         </div>
     )
 }

@@ -15,6 +15,7 @@ Column | Type | Description
 `values` | jsonb | Available values (List type only)
 `is_multi` | boolean | Whether a List variable accepts multiple selected values
 `values_query` | text | HogQL query whose first result column supplies List options
+`values_query_connection_id` | text | External data source connection `values_query` runs against (null for PostHog)
 
 ### Types
 
@@ -41,7 +42,7 @@ WHERE ({variables.browser} IS NULL OR properties.$browser = {variables.browser})
 WHERE event IN {variables.event_names}
 ```
 
-List options can be entered manually or loaded from a HogQL query. For query-backed options, the first result column becomes the option list. Add a `LIMIT` to keep the list manageable.
+List options can be entered manually or loaded from a HogQL query. For query-backed options, the first result column becomes the option values, and an optional second column supplies their display labels. Queries without a `LIMIT` return at most 100 rows, and the UI keeps at most 1000 options. The query can run against an external data source connection via `values_query_connection_id`.
 
 Relative Date defaults resolve each time a query runs. For example, `-7d` means seven days before the current time.
 

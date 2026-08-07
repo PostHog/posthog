@@ -19,6 +19,7 @@ class InsightVariable(UUIDTModel, RootTeamMixin, CreatedMetaFields, UpdatedMetaF
     values = models.JSONField(null=True, blank=True)
     is_multi = models.BooleanField(default=False, db_default=False)
     values_query = models.TextField(null=True, blank=True)
+    values_query_connection_id = models.TextField(null=True, blank=True)
 
     __repr__ = sane_repr("id")
 

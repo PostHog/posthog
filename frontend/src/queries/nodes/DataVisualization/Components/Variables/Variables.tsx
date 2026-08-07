@@ -203,7 +203,9 @@ export const VariableInput = ({
                     <ListVariableSelect
                         variable={variable}
                         logicKey={`variable-input-${variable.id}`}
-                        selectedValues={Array.isArray(localInputValue) ? localInputValue : [localInputValue]}
+                        selectedValues={(Array.isArray(localInputValue) ? localInputValue : [localInputValue]).filter(
+                            (value) => value !== ''
+                        )}
                         onChange={setLocalInputValue}
                     />
                 )}

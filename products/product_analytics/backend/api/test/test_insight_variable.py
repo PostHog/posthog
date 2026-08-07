@@ -71,6 +71,7 @@ class TestInsightVariable(APIBaseTest):
                 "default_value": ["pageview", "signup"],
                 "is_multi": True,
                 "values_query": "SELECT DISTINCT event FROM events LIMIT 100",
+                "values_query_connection_id": "connection-uuid",
             },
             content_type="application/json",
         )
@@ -79,11 +80,52 @@ class TestInsightVariable(APIBaseTest):
         assert response.json()["default_value"] == ["pageview", "signup"]
         assert response.json()["is_multi"] is True
         assert response.json()["values_query"] == "SELECT DISTINCT event FROM events LIMIT 100"
+        assert response.json()["values_query_connection_id"] == "connection-uuid"
 
         variable = InsightVariable.objects.get(team_id=self.team.pk)
         assert variable.default_value == ["pageview", "signup"]
         assert variable.is_multi is True
         assert variable.values_query == "SELECT DISTINCT event FROM events LIMIT 100"
+        assert variable.values_query_connection_id == "connection-uuid"
+
+    def test_blank_values_query_is_stored_as_null(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/insight_variables/",
+            data={
+                "name": "Event name",
+                "type": "List",
+                "values": ["pageview"],
+                "values_query": "   ",
+                "values_query_connection_id": "connection-uuid",
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 201
+        assert response.json()["values_query"] is None
+        assert response.json()["values_query_connection_id"] is None
+
+    def test_switching_to_static_options_clears_the_connection(self):
+        variable = InsightVariable.objects.create(
+            team=self.team,
+            name="Event name",
+            type="List",
+            code_name="event_name",
+            values=[],
+            values_query="SELECT event FROM events",
+            values_query_connection_id="connection-uuid",
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/insight_variables/{variable.id}/",
+            data={"values_query": None},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        variable.refresh_from_db()
+        assert variable.values_query is None
+        assert variable.values_query_connection_id is None
 
     def test_enabling_multiselect_normalizes_existing_default(self):
         variable = InsightVariable.objects.create(

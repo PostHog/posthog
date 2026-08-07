@@ -61,6 +61,8 @@ describe('VariableFields', () => {
         ['a rolling offset', '-30d', true, { amount: 30, unit: 'd' }, '30 days ago'],
         ['the current time', '-0h', true, { amount: 0, unit: 'h' }, 'Now'],
         ['a fixed date', '2026-08-06', false, null, '2026-08-06'],
+        ['a unit only the backend resolves', '-1q', false, null, '-1q'],
+        ['a period boundary only the backend resolves', 'mStart', false, null, 'mStart'],
     ])('relative date helpers: %s', (_name, value, isRelative, parsed, formatted) => {
         expect(isRelativeDateValue(value)).toBe(isRelative)
         expect(parseRelativeDateValue(value)).toEqual(parsed)

@@ -50,6 +50,7 @@ export const variableToFormValues = (variable: Variable): Partial<Variable> =>
             values: getListVariableValues(variable as ListVariable),
             is_multi: Boolean(variable.is_multi),
             values_query: variable.values_query ?? null,
+            values_query_connection_id: variable.values_query_connection_id ?? null,
         }),
     }) as Partial<Variable>
 
@@ -322,13 +323,15 @@ export const sqlVariableEditSceneLogic = kea<sqlVariableEditSceneLogicType>([
                     : ((variable as any).values ?? null)
                 const isMultiForm = isList ? Boolean(variableForm.is_multi) : false
                 const valuesQueryForm = isList ? (variableForm.values_query ?? null) : null
+                const valuesQueryConnectionForm = isList ? (variableForm.values_query_connection_id ?? null) : null
                 return (
                     (variableForm.name ?? '') !== (variable.name ?? '') ||
                     variableType !== variable.type ||
                     JSON.stringify(defaultValueForm) !== JSON.stringify(defaultValueSaved) ||
                     JSON.stringify(valuesForm) !== JSON.stringify(valuesSaved) ||
                     isMultiForm !== Boolean(variable.is_multi) ||
-                    valuesQueryForm !== (variable.values_query ?? null)
+                    valuesQueryForm !== (variable.values_query ?? null) ||
+                    valuesQueryConnectionForm !== (variable.values_query_connection_id ?? null)
                 )
             },
         ],

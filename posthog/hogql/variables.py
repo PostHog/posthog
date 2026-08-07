@@ -60,10 +60,14 @@ class ReplaceVariables(CloningVisitor):
             )
 
             variable_definition = matching_insight_variable[0]
-            if variable_definition.type == InsightVariable.Type.LIST and isinstance(value, list):
-                if variable_definition.is_multi:
-                    return ast.Array(exprs=[ast.Constant(value=item) for item in value])
-                value = value[0] if value else None
+            if variable_definition.type == InsightVariable.Type.LIST:
+                if variable_definition.is_multi and value is not None:
+                    # Saved insights keep the scalar value from before a variable was
+                    # toggled to multi — wrap it so {variables.x} is always an array.
+                    items = value if isinstance(value, list) else [value]
+                    return ast.Array(exprs=[ast.Constant(value=item) for item in items])
+                if not variable_definition.is_multi and isinstance(value, list):
+                    value = value[0] if value else None
 
             if (
                 variable_definition.type == InsightVariable.Type.DATE

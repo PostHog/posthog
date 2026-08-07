@@ -8,12 +8,14 @@ import { VariableType } from '../../types'
 import { variableDataLogic } from './variableDataLogic'
 import { VariableForm } from './VariableForm'
 import { variableModalLogic } from './variableModalLogic'
+import { variablesLogic } from './variablesLogic'
 
 export const NewVariableModal = (): JSX.Element => {
     const { closeModal, updateVariable, save, openNewVariableModal, changeTypeExistingVariable } =
         useActions(variableModalLogic)
     const { isModalOpen, variable, modalType, insightsUsingVariable, insightsLoading, isSaving } =
         useValues(variableModalLogic)
+    const { query } = useValues(variablesLogic)
     const { deleteVariable } = useActions(variableDataLogic)
     const title = modalType === 'new' ? `New ${variable.type} variable` : `Editing ${variable.name}`
 
@@ -75,6 +77,7 @@ export const NewVariableModal = (): JSX.Element => {
                 onSave={save}
                 modalType={modalType}
                 onTypeChange={handleTypeChange}
+                defaultValuesQueryConnectionId={query?.source?.connectionId ?? null}
             />
 
             {modalType === 'existing' && (

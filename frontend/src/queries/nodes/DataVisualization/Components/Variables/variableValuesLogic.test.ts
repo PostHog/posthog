@@ -29,16 +29,41 @@ describe('variableValuesLogic', () => {
                 [null, 1],
                 [{ unsupported: true }, 1],
             ])
-        ).toEqual(['pageview', 'signup', '42'])
+        ).toEqual([
+            { value: 'pageview', label: '10' },
+            { value: 'signup', label: '5' },
+            { value: '42', label: '1' },
+        ])
+    })
+
+    it('falls back to the value as label when the second column is not scalar', () => {
+        expect(queryResultsToVariableOptions([['pageview'], ['signup', { unsupported: true }]])).toEqual([
+            { value: 'pageview', label: 'pageview' },
+            { value: 'signup', label: 'signup' },
+        ])
     })
 
     it('runs the configured HogQL query to load options', async () => {
         jest.mocked(performQuery).mockResolvedValue({ results: [['pageview'], ['signup']] })
 
-        await expect(loadListVariableOptions(queryVariable)).resolves.toEqual(['pageview', 'signup'])
+        await expect(loadListVariableOptions(queryVariable)).resolves.toEqual([
+            { value: 'pageview', label: 'pageview' },
+            { value: 'signup', label: 'signup' },
+        ])
         expect(performQuery).toHaveBeenCalledWith({
             kind: 'HogQLQuery',
             query: queryVariable.values_query,
+        })
+    })
+
+    it('runs the query against the configured connection', async () => {
+        jest.mocked(performQuery).mockResolvedValue({ results: [['pageview']] })
+
+        await loadListVariableOptions({ ...queryVariable, values_query_connection_id: 'connection-uuid' })
+        expect(performQuery).toHaveBeenCalledWith({
+            kind: 'HogQLQuery',
+            query: queryVariable.values_query,
+            connectionId: 'connection-uuid',
         })
     })
 })

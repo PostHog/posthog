@@ -1752,6 +1752,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.results, [(["pageview", "signup"],)])
 
+        # A scalar value saved before the variable was toggled to multi still substitutes as an array
+        variables["event_names"].value = "pageview"
+        response = execute_hogql_query("SELECT {variables.event_names}", team=self.team, variables=variables)
+
+        self.assertEqual(response.results, [(["pageview"],)])
+
     @freeze_time("2026-08-06 12:00:00")
     def test_relative_date_variable_is_resolved_when_the_query_runs(self):
         insight_variable = InsightVariable.objects.create(

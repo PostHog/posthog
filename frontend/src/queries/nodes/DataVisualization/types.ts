@@ -84,6 +84,7 @@ interface VariableBase {
     isNull?: boolean
     is_multi?: boolean
     values_query?: string | null
+    values_query_connection_id?: string | null
 }
 
 export interface StringVariable extends VariableBase {

@@ -7,11 +7,17 @@ import {
     LemonSegmentedButton,
     LemonSelect,
     LemonSwitch,
-    LemonTextArea,
 } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import {
+    POSTHOG_WAREHOUSE,
+    connectionSelectorLogic,
+    getConnectionOptionLabel,
+} from 'scenes/data-warehouse/editor/connectionSelectorLogic'
 
 import {
     BooleanVariable,
@@ -31,7 +37,7 @@ import {
     isRelativeDateValue,
     parseRelativeDateValue,
 } from './variableUtils'
-import { variableValuesLogic } from './variableValuesLogic'
+import { getStaticVariableOptions, getValuesQueryKey, variableValuesLogic } from './variableValuesLogic'
 
 export { coerceListVariableValue, getListVariableValues } from './variableUtils'
 
@@ -134,11 +140,10 @@ export const ListVariableSelect = ({
 }: ListVariableSelectProps): JSX.Element => {
     const logic = variableValuesLogic({ key: logicKey, variable, loadOnMount })
     const { loadVariableOptions } = useActions(logic)
-    const { requestedValuesQuery, variableOptions, variableOptionsError, variableOptionsLoading } = useValues(logic)
-    const valuesQuery = variable.values_query?.trim() ?? null
-    const isCurrentQuery = requestedValuesQuery === valuesQuery
+    const { requestedValuesQueryKey, variableOptions, variableOptionsError, variableOptionsLoading } = useValues(logic)
+    const isCurrentQuery = requestedValuesQueryKey === getValuesQueryKey(variable)
     const options =
-        variable.values_query == null ? getListVariableValues(variable) : isCurrentQuery ? variableOptions : []
+        variable.values_query == null ? getStaticVariableOptions(variable) : isCurrentQuery ? variableOptions : []
     const currentError = isCurrentQuery ? variableOptionsError : null
 
     return (
@@ -146,7 +151,7 @@ export const ListVariableSelect = ({
             className="w-full"
             mode={variable.is_multi ? 'multiple' : 'single'}
             value={selectedValues}
-            options={options.map((value) => ({ key: value, label: value }))}
+            options={options.map((option) => ({ key: option.value, label: option.label }))}
             onChange={(values) => onChange(variable.is_multi ? values : (values[0] ?? ''))}
             placeholder={variableOptionsLoading ? 'Loading options...' : 'Select a value'}
             emptyStateComponent={currentError ? "Couldn't load options. Check the query, then try again." : undefined}
@@ -157,20 +162,29 @@ export const ListVariableSelect = ({
             displayMode={variable.is_multi ? 'count' : 'snacks'}
             bulkActions={variable.is_multi ? 'select-and-clear-all' : undefined}
             action={
-                variable.values_query?.trim()
+                !variable.is_multi && selectedValues.length > 0
                     ? {
-                          children: 'Reload options',
-                          onClick: () => loadVariableOptions(variable),
-                          loading: variableOptionsLoading,
+                          children: 'Clear selection',
+                          onClick: () => onChange(''),
                       }
-                    : undefined
+                    : variable.values_query?.trim()
+                      ? {
+                            children: 'Reload options',
+                            onClick: () => loadVariableOptions(variable),
+                            loading: variableOptionsLoading,
+                        }
+                      : undefined
             }
             fullWidth
         />
     )
 }
 
-export const ListVariableFields = ({ variable, updateVariable }: DirectFieldProps<ListVariable>): JSX.Element => {
+export const ListVariableFields = ({
+    variable,
+    updateVariable,
+    defaultValuesQueryConnectionId,
+}: DirectFieldProps<ListVariable> & { defaultValuesQueryConnectionId?: string | null }): JSX.Element => {
     const isQueryBacked = variable.values_query != null
     const logic = variableValuesLogic({
         key: `variable-form-${variable.id || 'new'}`,
@@ -178,12 +192,17 @@ export const ListVariableFields = ({ variable, updateVariable }: DirectFieldProp
         loadOnMount: isQueryBacked && Boolean(variable.values_query?.trim()),
     })
     const { loadVariableOptions } = useActions(logic)
-    const { requestedValuesQuery, variableOptions, variableOptionsError, variableOptionsLoading } = useValues(logic)
-    const valuesQuery = variable.values_query?.trim() ?? null
-    const isCurrentQuery = requestedValuesQuery === valuesQuery
-    const availableValues = isQueryBacked ? (isCurrentQuery ? variableOptions : []) : getListVariableValues(variable)
+    const { requestedValuesQueryKey, variableOptions, variableOptionsError, variableOptionsLoading } = useValues(logic)
+    const { connectionOptions } = useValues(connectionSelectorLogic())
+    const { maybeLoadConnectionOptions } = useActions(connectionSelectorLogic())
+    useOnMountEffect(() => maybeLoadConnectionOptions())
+    const isCurrentQuery = requestedValuesQueryKey === getValuesQueryKey(variable)
+    const loadedOptions = isQueryBacked && isCurrentQuery ? variableOptions : []
+    const availableOptions = isQueryBacked ? loadedOptions : getStaticVariableOptions(variable)
     const currentError = isCurrentQuery ? variableOptionsError : null
     const defaultValues = getListVariableSelectedValues({ ...variable, value: undefined })
+    const showConnectionSelector = (connectionOptions?.length ?? 0) > 0 || Boolean(variable.values_query_connection_id)
+    const hasCustomLabels = loadedOptions.some((option) => option.label !== option.value)
 
     return (
         <>
@@ -191,7 +210,16 @@ export const ListVariableFields = ({ variable, updateVariable }: DirectFieldProp
                 <LemonSegmentedButton
                     className="w-full"
                     value={isQueryBacked ? 'query' : 'static'}
-                    onChange={(source) => updateVariable({ ...variable, values_query: source === 'query' ? '' : null })}
+                    onChange={(source) =>
+                        updateVariable({
+                            ...variable,
+                            values_query: source === 'query' ? '' : null,
+                            values_query_connection_id:
+                                source === 'query'
+                                    ? (variable.values_query_connection_id ?? defaultValuesQueryConnectionId ?? null)
+                                    : null,
+                        })
+                    }
                     options={[
                         { value: 'static', label: 'Static options' },
                         { value: 'query', label: 'HogQL query' },
@@ -199,36 +227,85 @@ export const ListVariableFields = ({ variable, updateVariable }: DirectFieldProp
                 />
             </LemonField.Pure>
             {isQueryBacked ? (
-                <LemonField.Pure label="Options query" className="gap-1">
-                    <LemonTextArea
-                        className="font-mono"
-                        value={variable.values_query ?? ''}
-                        onChange={(value) => updateVariable({ ...variable, values_query: value })}
-                        placeholder={'SELECT DISTINCT event\nFROM events\nLIMIT 100'}
-                        minRows={4}
-                    />
-                    <div className="flex items-center justify-between gap-2 text-xs text-secondary">
-                        <span>The first result column becomes the available options.</span>
-                        <LemonButton
-                            type="secondary"
-                            size="xsmall"
-                            onClick={() => loadVariableOptions(variable)}
-                            loading={variableOptionsLoading}
-                            disabledReason={!variable.values_query?.trim() ? 'Enter a query first' : undefined}
-                        >
-                            Preview options
-                        </LemonButton>
-                    </div>
-                    {currentError ? (
-                        <span className="text-danger text-xs">
-                            Couldn't load options. Check the query, then try again.
-                        </span>
-                    ) : variableOptions.length > 0 ? (
-                        <span className="text-success text-xs">
-                            Loaded {variableOptions.length} option{variableOptions.length === 1 ? '' : 's'}
-                        </span>
-                    ) : null}
-                </LemonField.Pure>
+                <>
+                    {showConnectionSelector && (
+                        <LemonField.Pure label="Connection" className="gap-1">
+                            <LemonSelect
+                                value={variable.values_query_connection_id ?? POSTHOG_WAREHOUSE}
+                                onChange={(value) =>
+                                    updateVariable({
+                                        ...variable,
+                                        values_query_connection_id: value === POSTHOG_WAREHOUSE ? null : value,
+                                    })
+                                }
+                                options={[
+                                    { value: POSTHOG_WAREHOUSE, label: 'PostHog (ClickHouse)' },
+                                    ...(connectionOptions ?? []).map((source) => ({
+                                        value: source.id,
+                                        label: getConnectionOptionLabel(source),
+                                    })),
+                                ]}
+                                fullWidth
+                            />
+                        </LemonField.Pure>
+                    )}
+                    <LemonField.Pure
+                        label="Options query"
+                        className="gap-1"
+                        info="The first column supplies the option values. An optional second column supplies their display labels. Queries without a LIMIT return up to 100 rows. Options load when the variable is shown, and results are cached for a few minutes."
+                    >
+                        <CodeEditorResizeable
+                            language="hogQL"
+                            value={variable.values_query ?? ''}
+                            onChange={(value) => updateVariable({ ...variable, values_query: value ?? '' })}
+                            minHeight="6rem"
+                            maxHeight="40vh"
+                        />
+                        <div className="flex items-center justify-end gap-2">
+                            {currentError ? (
+                                <span className="text-danger text-xs">
+                                    Couldn't load options. Check the query, then try again.
+                                </span>
+                            ) : loadedOptions.length > 0 ? (
+                                <span className="text-success text-xs">
+                                    Loaded {loadedOptions.length} option{loadedOptions.length === 1 ? '' : 's'}
+                                </span>
+                            ) : null}
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                onClick={() => loadVariableOptions(variable)}
+                                loading={variableOptionsLoading}
+                                disabledReason={!variable.values_query?.trim() ? 'Enter a query first' : undefined}
+                            >
+                                Preview options
+                            </LemonButton>
+                        </div>
+                        {!currentError && loadedOptions.length > 0 ? (
+                            <ul className="border rounded max-h-40 overflow-y-auto m-0 p-0 list-none">
+                                {hasCustomLabels && (
+                                    <li className="flex gap-2 px-2 py-1 text-xs font-medium text-secondary border-b sticky top-0 bg-bg-light">
+                                        <span className="flex-1 min-w-0">Value</span>
+                                        <span className="flex-1 min-w-0">Label</span>
+                                    </li>
+                                )}
+                                {loadedOptions.map((option) => (
+                                    <li
+                                        key={option.value}
+                                        className="flex gap-2 px-2 py-1 text-xs border-b last:border-b-0"
+                                    >
+                                        <span className="flex-1 min-w-0 truncate">{option.value}</span>
+                                        {hasCustomLabels && (
+                                            <span className="flex-1 min-w-0 text-secondary truncate">
+                                                {option.label}
+                                            </span>
+                                        )}
+                                    </li>
+                                ))}
+                            </ul>
+                        ) : null}
+                    </LemonField.Pure>
+                </>
             ) : (
                 <LemonField.Pure label="Options" className="gap-1">
                     <ListValuesField variable={variable} updateVariable={updateVariable} onSave={() => {}} />
@@ -248,7 +325,7 @@ export const ListVariableFields = ({ variable, updateVariable }: DirectFieldProp
                     className="w-full"
                     mode={variable.is_multi ? 'multiple' : 'single'}
                     value={defaultValues}
-                    options={availableValues.map((value) => ({ key: value, label: value }))}
+                    options={availableOptions.map((option) => ({ key: option.value, label: option.label }))}
                     onChange={(values) =>
                         updateVariable({
                             ...variable,
@@ -333,47 +410,4 @@ export const DateField = ({ variable, updateVariable }: DirectFieldProps<DateVar
             )}
         </div>
     )
-}
-
-// Helper to narrow variable types based on the type property
-function withTypedVariable<T extends Variable>(
-    variable: Variable,
-    updateVariable: (variable: Variable) => void
-): { variable: T; updateVariable: (variable: T) => void } {
-    return {
-        variable: variable as T,
-        updateVariable: updateVariable as (variable: T) => void,
-    }
-}
-
-export const renderDefaultValueFields = (
-    variableType: VariableType,
-    variable: Variable,
-    updateVariable: (variable: Variable) => void,
-    onSave: () => void
-): JSX.Element => {
-    switch (variableType) {
-        case 'String': {
-            const props = withTypedVariable<StringVariable>(variable, updateVariable)
-            return <StringField {...props} onSave={onSave} />
-        }
-        case 'Number': {
-            const props = withTypedVariable<NumberVariable>(variable, updateVariable)
-            return <NumberField {...props} onSave={onSave} />
-        }
-        case 'Boolean': {
-            const props = withTypedVariable<BooleanVariable>(variable, updateVariable)
-            return <BooleanField {...props} onSave={onSave} />
-        }
-        case 'List': {
-            const props = withTypedVariable<ListVariable>(variable, updateVariable)
-            return <ListVariableFields {...props} onSave={onSave} />
-        }
-        case 'Date': {
-            const props = withTypedVariable<DateVariable>(variable, updateVariable)
-            return <DateField {...props} onSave={onSave} />
-        }
-        default:
-            throw new Error(`Unsupported variable type: ${variableType}`)
-    }
 }

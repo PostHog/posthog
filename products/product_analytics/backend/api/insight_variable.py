@@ -58,6 +58,7 @@ class InsightVariableSerializer(serializers.ModelSerializer):
             "values",
             "is_multi",
             "values_query",
+            "values_query_connection_id",
         ]
 
         read_only_fields = ["id", "code_name", "created_by", "created_at"]
@@ -74,7 +75,10 @@ class InsightVariableSerializer(serializers.ModelSerializer):
             "values": {"help_text": "Allowed values for List variables. Null for other variable types."},
             "is_multi": {"help_text": "Whether a List variable accepts multiple selected values."},
             "values_query": {
-                "help_text": "HogQL query whose first result column supplies the allowed values for a List variable."
+                "help_text": "HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels."
+            },
+            "values_query_connection_id": {
+                "help_text": "ID of the external data source connection values_query runs against. Null runs it against PostHog."
             },
         }
 
@@ -89,6 +93,14 @@ class InsightVariableSerializer(serializers.ModelSerializer):
             if "values" in attrs:
                 values = attrs["values"]
                 attrs["values"] = self._coerce_list_values(values) if isinstance(values, list) else []
+            # A blank query means "not query-backed" — store null so the UI falls back to static options.
+            if isinstance(attrs.get("values_query"), str) and not attrs["values_query"].strip():
+                attrs["values_query"] = None
+            effective_values_query = (
+                attrs["values_query"] if "values_query" in attrs else getattr(self.instance, "values_query", None)
+            )
+            if effective_values_query is None:
+                attrs["values_query_connection_id"] = None
             if "default_value" in attrs:
                 default_value = attrs["default_value"]
                 if is_multi:
@@ -105,6 +117,7 @@ class InsightVariableSerializer(serializers.ModelSerializer):
         else:
             attrs["is_multi"] = False
             attrs["values_query"] = None
+            attrs["values_query_connection_id"] = None
 
         return attrs
 

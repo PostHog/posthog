@@ -53,7 +53,13 @@ export const InsightVariablesCreateBody = /* @__PURE__ */ zod.object({
     values_query: zod
         .string()
         .nullish()
-        .describe('HogQL query whose first result column supplies the allowed values for a List variable.'),
+        .describe(
+            'HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.'
+        ),
+    values_query_connection_id: zod
+        .string()
+        .nullish()
+        .describe('ID of the external data source connection values_query runs against. Null runs it against PostHog.'),
 })
 
 export const insightVariablesUpdateBodyNameMax = 400
@@ -74,7 +80,13 @@ export const InsightVariablesUpdateBody = /* @__PURE__ */ zod.object({
     values_query: zod
         .string()
         .nullish()
-        .describe('HogQL query whose first result column supplies the allowed values for a List variable.'),
+        .describe(
+            'HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.'
+        ),
+    values_query_connection_id: zod
+        .string()
+        .nullish()
+        .describe('ID of the external data source connection values_query runs against. Null runs it against PostHog.'),
 })
 
 export const insightVariablesPartialUpdateBodyNameMax = 400
@@ -100,7 +112,13 @@ export const InsightVariablesPartialUpdateBody = /* @__PURE__ */ zod.object({
     values_query: zod
         .string()
         .nullish()
-        .describe('HogQL query whose first result column supplies the allowed values for a List variable.'),
+        .describe(
+            'HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.'
+        ),
+    values_query_connection_id: zod
+        .string()
+        .nullish()
+        .describe('ID of the external data source connection values_query runs against. Null runs it against PostHog.'),
 })
 
 /**
