@@ -1358,6 +1358,10 @@ export type ConversationsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Case-insensitive substring match against the conversation title.
+     */
+    search?: string
 }
 
 export type ConversationsTicketsListParams = {
