@@ -69,6 +69,7 @@ export interface onboardingLogicValues {
     currentStepProductKey: ProductKey | null
     flow: OnboardingStepDescriptor[]
     flowIndex: number
+    flowRelevantTeam: TeamPublicType | TeamType | null
     hasNextStep: boolean
     hasPreviousStep: boolean
     isCompleting: boolean
@@ -188,6 +189,7 @@ export interface onboardingLogicMeta {
             billingProduct: BillingProductV2Type | null,
             stepId: string
         ) => boolean
+        flowRelevantTeam: (currentTeam: TeamPublicType | TeamType | null) => TeamPublicType | TeamType | null
         flow: (
             productKey: ProductKey | null,
             secondaryProductKeys: ProductKey[],
@@ -428,16 +430,46 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 return !billingProduct?.subscribed || subscribedDuringOnboarding || onPlansStep
             },
         ],
+        // A reference-stable view of `currentTeam` for the `flow` selector. Advancing a step
+        // fires several team PATCHes within a few hundred milliseconds (`app_urls` from the
+        // authorized-domains list, `onboarding_tasks` from the setup-task tick), and each one
+        // changes the team's object identity. Depending on the whole team made `flow` rebuild
+        // on every such write mid-navigation — swapping the live step for a spinner and
+        // rewriting the URL, which is what new signups saw as flicker between steps. The step
+        // providers only read these fields off `ctx.currentTeam` to seed their config defaults
+        // (see `products/*/frontend/onboarding/steps.tsx`), so hold the previous team reference
+        // steady until one of them actually changes. Keep this list in sync with those reads.
+        flowRelevantTeam: [
+            (s) => [s.currentTeam],
+            ((): ((team: TeamPublicType | TeamType | null) => TeamPublicType | TeamType | null) => {
+                let lastSignature: string | undefined
+                let lastTeam: TeamPublicType | TeamType | null = null
+                return (team) => {
+                    const hasSessionReplayIntent = Boolean(
+                        team?.product_intents?.some((intent) => intent.product_type === ProductKey.SESSION_REPLAY)
+                    )
+                    const signature = JSON.stringify([
+                        team === null,
+                        team?.autocapture_opt_out ?? null,
+                        team?.autocapture_web_vitals_opt_in ?? null,
+                        team?.heatmaps_opt_in ?? null,
+                        team?.session_recording_opt_in ?? null,
+                        hasSessionReplayIntent,
+                    ])
+                    if (lastSignature !== undefined && signature === lastSignature) {
+                        return lastTeam
+                    }
+                    lastSignature = signature
+                    lastTeam = team
+                    return team
+                }
+            })(),
+        ],
         flow: [
-            // Note: depend on `currentTeam` directly (rather than projecting a slim shape)
-            // because providers read varied fields and a kea-style shallow projection still
-            // re-fires on object identity. The cost is small: descriptor allocation is
-            // microseconds and React's reconciler keeps the rendered subtree stable as
-            // long as `currentFlowStep.id` is unchanged.
             (s) => [
                 s.productKey,
                 s.secondaryProductKeys,
-                s.currentTeam,
+                s.flowRelevantTeam,
                 s.billing,
                 s.billingProduct,
                 s.shouldShowBillingStep,

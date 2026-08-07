@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -7,6 +7,7 @@ import { SetupTaskId } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -371,6 +372,44 @@ describe('onboardingLogic — flow composition', () => {
             await new Promise((resolve) => setTimeout(resolve, 0))
             expect(logic.values.stepId).toBe('')
             expect(logic.values.currentFlowStep?.id).toBe('install:web_analytics')
+        })
+    })
+
+    describe('flow stability across unrelated team saves', () => {
+        // Advancing a step fires several team PATCHes in quick succession (`app_urls` from the
+        // authorized-domains list, `onboarding_tasks` from the setup-task tick), each changing
+        // the team's object identity. A flow rebuild mid-navigation swapped the live step for a
+        // spinner and rewrote the URL — the flicker new signups saw. Only fields the step
+        // providers seed their config from should rebuild the flow.
+        it('keeps the same flow and step when a team save touches no flow-relevant field', () => {
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM } as any)
+            logic.actions.setProductKey(ProductKey.WEB_ANALYTICS)
+            logic.actions.setStepId('authorized_domains:web_analytics')
+            const flowBefore = logic.values.flow
+            const stepBefore = logic.values.currentFlowStep
+
+            // A save that only changes `app_urls` — exactly what adding an authorized domain does.
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                app_urls: ['https://example.com'],
+            } as any)
+
+            expect(logic.values.flow).toBe(flowBefore)
+            expect(logic.values.currentFlowStep).toBe(stepBefore)
+            expect(logic.values.currentFlowStep).not.toBeNull()
+        })
+
+        it('rebuilds the flow when a team save changes a field the providers seed from', () => {
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM } as any)
+            logic.actions.setProductKey(ProductKey.WEB_ANALYTICS)
+            const flowBefore = logic.values.flow
+
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                heatmaps_opt_in: !MOCK_DEFAULT_TEAM.heatmaps_opt_in,
+            } as any)
+
+            expect(logic.values.flow).not.toBe(flowBefore)
         })
     })
 
