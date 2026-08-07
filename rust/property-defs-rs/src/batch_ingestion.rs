@@ -532,6 +532,11 @@ async fn write_event_properties_batch(
                                 "Dropped {removed} event property rows referencing missing {column}={value}"
                             );
                             if batch.is_empty() {
+                                metrics::counter!(
+                                    V2_EVENT_PROPS_BATCH_ATTEMPT,
+                                    &[("result", "emptied_fk")]
+                                )
+                                .increment(1);
                                 total_time.fin();
                                 return Ok(());
                             }
@@ -590,7 +595,6 @@ async fn write_property_definitions_batch(
     mut batch: PropertyDefinitionsBatch,
     pool: &PgPool,
 ) -> Result<(), sqlx::Error> {
-    let total_time = common_metrics::timing_guard(V2_PROP_DEFS_BATCH_WRITE_TIME, &[]);
     let mut tries: u64 = 1;
     let mut fk_strips: u64 = 0;
 
@@ -601,9 +605,14 @@ async fn write_property_definitions_batch(
     #[allow(clippy::len_zero)]
     if batch.len() == 0 {
         batch.uncache_dropped(&cache);
-        total_time.fin();
+        metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "noop")]).increment(1);
         return Ok(());
     }
+
+    // Started only once there are rows to write. Opening it above the early return would record a
+    // near-zero sample for a batch that issues no SQL at all, which drags down a histogram whose
+    // whole purpose is characterizing Postgres write latency.
+    let total_time = common_metrics::timing_guard(V2_PROP_DEFS_BATCH_WRITE_TIME, &[]);
 
     loop {
         // what if we just ditch properties without a property_type set? why update on conflict at all?
@@ -686,6 +695,11 @@ async fn write_property_definitions_batch(
                             // entries remain, and here we mean "no writable rows left".
                             #[allow(clippy::len_zero)]
                             if batch.len() == 0 {
+                                metrics::counter!(
+                                    V2_PROP_DEFS_BATCH_ATTEMPT,
+                                    &[("result", "emptied_fk")]
+                                )
+                                .increment(1);
                                 total_time.fin();
                                 batch.uncache_dropped(&cache);
                                 return Ok(());
@@ -822,6 +836,11 @@ async fn write_event_definitions_batch(
                                 "Dropped {removed} event definition rows referencing missing {column}={value}"
                             );
                             if batch.is_empty() {
+                                metrics::counter!(
+                                    V2_EVENT_DEFS_BATCH_ATTEMPT,
+                                    &[("result", "emptied_fk")]
+                                )
+                                .increment(1);
                                 total_time.fin();
                                 return Ok(());
                             }

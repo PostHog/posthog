@@ -18,8 +18,8 @@
 use common_metrics::Matcher;
 
 use crate::metrics_consts::{
-    BATCH_ACQUIRE_TIME, V2_EVENT_DEFS_BATCH_WRITE_TIME, V2_EVENT_PROPS_BATCH_WRITE_TIME,
-    V2_PROP_DEFS_BATCH_WRITE_TIME,
+    BATCH_ACQUIRE_TIME, UPDATES_PER_EVENT, V2_EVENT_DEFS_BATCH_WRITE_TIME,
+    V2_EVENT_PROPS_BATCH_WRITE_TIME, V2_PROP_DEFS_BATCH_WRITE_TIME,
 };
 
 // Batch-acquire spans "the channel already had a full batch waiting" to "we sat here until
@@ -39,11 +39,23 @@ const BATCH_WRITE_BUCKETS_MS: &[f64] = &[
     1.0, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1_000.0, 2_000.0, 5_000.0, 10_000.0, 30_000.0,
 ];
 
+// Updates per event is a count, not a duration, so the millisecond ladder does not fit it at all:
+// its 10 to 50 gap sits exactly where the mass lives, and typical events yield single digits.
+// This ladder resolves the common range and still reaches update_count_skip_threshold (10000 by
+// default), above which the event is skipped entirely.
+const UPDATES_PER_EVENT_BUCKETS: &[f64] = &[
+    1.0, 2.0, 3.0, 5.0, 8.0, 13.0, 21.0, 34.0, 55.0, 100.0, 250.0, 1_000.0, 10_000.0,
+];
+
 pub fn bucket_overrides() -> Vec<(Matcher, &'static [f64])> {
     vec![
         (
             Matcher::Full(BATCH_ACQUIRE_TIME.to_string()),
             BATCH_ACQUIRE_BUCKETS_MS,
+        ),
+        (
+            Matcher::Full(UPDATES_PER_EVENT.to_string()),
+            UPDATES_PER_EVENT_BUCKETS,
         ),
         (
             Matcher::Full(V2_EVENT_DEFS_BATCH_WRITE_TIME.to_string()),
