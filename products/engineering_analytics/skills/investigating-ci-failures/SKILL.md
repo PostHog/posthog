@@ -86,6 +86,11 @@ different problems sharing a test.
 
 ## Flaky → corroborate, don't guess
 
+**Read the sibling attempts before you say "flaky".** One run cannot separate a flake from a
+deterministic failure, and `ci_job_history` already carries every attempt's `conclusion` for the
+branch. If every run on a branch is red, there is no flake to find, and offering a re-run wastes a
+run: a retry changes none of the inputs.
+
 Sporadic shape alone is suggestive, not proof. The `engineering-analytics-flaky-tests` MCP tool reads per-test CI spans
 (rerun-pass signal — a test that failed then passed on retry in the same job) and is the stronger
 signal where it has coverage. Counts only, never rates: passing runs below the emitter's duration
@@ -104,6 +109,12 @@ threshold aren't recorded, so there is no honest denominator.
   but the test-level answer is silence, not "fine". Setup, docker, and runner failures are only
   visible as job conclusions (query 7), which is also the one surface here that yields an honest
   rate, since it records greens.
+- **Check `runs-on` before blaming a cache.** Jobs on `depot-*` runners resolve `actions/cache`
+  against Depot Cache, which the GitHub Actions cache API cannot see, so an empty result there is
+  not evidence of eviction. Read the job's own `Cache not found for input keys:` line for the keys
+  actually requested. Both steps stay green either way: `actions/cache/restore` succeeds on a miss,
+  and a failed `actions/cache/save` is only a warning, so a green producer job may have stored
+  nothing.
 - **Freshness differs per source.** Logs stream in near-real-time; the warehouse jobs/runs tables
   arrive via webhook sync and can lag. During a live incident, start from `ci_failures` and check
   the warehouse's `max(created_at)` before trusting a boundary (query 5). A boundary computed
