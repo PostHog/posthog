@@ -438,6 +438,12 @@ function ExistingIssueSelect({
             setLoading(false)
             return
         }
+        // Typing a new query invalidates the current pick - submitting while results refresh
+        // must not link the previously selected issue (references cannot be deleted).
+        if (selectedKey !== null) {
+            setSelectedKey(null)
+            onChange?.(null)
+        }
         debounceRef.current = setTimeout(() => {
             setLoading(true)
             errorTrackingExternalReferencesSearchIssuesRetrieve(String(teamLogic.values.currentTeamId), {
