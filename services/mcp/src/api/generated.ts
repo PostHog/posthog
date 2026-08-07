@@ -50026,12 +50026,9 @@ export namespace Schemas {
        *
        * * `agent` - agent
        * * `user` - user */
-      uploaded_by?: UploadedByEnum | null;
-      /**
-         * User id for an interactive user upload. Absent for agent uploads and legacy entries.
-         * @nullable
-         */
-      uploaded_by_user_id?: number | null;
+      uploaded_by?: UploadedByEnum;
+      /** User id for an interactive user upload. Absent for agent uploads and legacy entries. */
+      uploaded_by_user_id?: number;
       /** Timestamp when a user dismissed the artifact. Absent while the artifact is shown. */
       dismissed_at?: string;
       /** Stable download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file; it redirects to a fresh presigned URL on each request and is not persisted on the manifest. */

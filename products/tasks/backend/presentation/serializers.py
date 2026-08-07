@@ -283,12 +283,10 @@ class TaskRunArtifactResponseSerializer(serializers.Serializer):
     uploaded_by = serializers.ChoiceField(
         choices=["agent", "user"],
         required=False,
-        allow_null=True,
         help_text="Whether the artifact version was uploaded by the task agent or an interactive user.",
     )
     uploaded_by_user_id = serializers.IntegerField(
         required=False,
-        allow_null=True,
         help_text="User id for an interactive user upload. Absent for agent uploads and legacy entries.",
     )
     dismissed_at = serializers.CharField(
@@ -303,13 +301,6 @@ class TaskRunArtifactResponseSerializer(serializers.Serializer):
             "and is not persisted on the manifest."
         ),
     )
-
-    def to_representation(self, instance: dict[str, Any]) -> dict[str, Any]:
-        data = super().to_representation(instance)
-        for field_name in ("uploaded_by", "uploaded_by_user_id"):
-            if field_name not in instance:
-                data.pop(field_name, None)
-        return data
 
 
 class TaskRunDetailSerializer(DataclassSerializer):

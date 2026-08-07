@@ -31,7 +31,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
 from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
 from posthog.storage import object_storage
-from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV
 from posthog.utils import absolute_uri
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -4693,10 +4693,17 @@ _OTHER_PR_URL = "https://github.com/posthog/posthog-js/pull/2"
 
 
 class TestTaskRunAPI(BaseTaskAPITest):
-    def _sandbox_oauth_client(self, task_id: uuid.UUID) -> APIClient:
+    def _sandbox_oauth_client(
+        self,
+        task_id: uuid.UUID,
+        *,
+        client_id: str = ARRAY_APP_CLIENT_ID_DEV,
+        bound: bool = True,
+        internal_scope: bool = False,
+    ) -> APIClient:
         application = OAuthApplication.objects.create(
-            name="Task sandbox agent",
-            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            name="Task artifact uploader",
+            client_id=client_id,
             client_type=OAuthApplication.CLIENT_PUBLIC,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             algorithm="RS256",
@@ -4709,9 +4716,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
             application=application,
             token=f"pha_task_agent_{uuid.uuid4().hex}",
             expires=django_timezone.now() + timedelta(hours=1),
-            scope="task:read task:write",
+            scope=f"task:read task:write{' internal_run:read' if internal_scope else ''}",
             scoped_teams=[self.team.id],
-            sandbox_task_id=task_id,
+            sandbox_task_id=task_id if bound else None,
         )
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
@@ -6641,16 +6648,40 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(artifact["uploaded_by"], "user")
         self.assertEqual(artifact["uploaded_by_user_id"], self.user.id)
 
+    @parameterized.expand(
+        [
+            ("bound_code_sandbox", ARRAY_APP_CLIENT_ID_DEV, True, False, "agent"),
+            ("legacy_code_sandbox", ARRAY_APP_CLIENT_ID_DEV, False, True, "agent"),
+            ("posthog_ai_sandbox", POSTHOG_AI_APP_CLIENT_ID_DEV, True, False, "agent"),
+            ("interactive_code_oauth", ARRAY_APP_CLIENT_ID_DEV, False, False, "user"),
+            ("third_party_oauth", "artifact-client", False, False, "user"),
+        ]
+    )
     @patch("posthog.storage.object_storage.head_object")
     @patch("posthog.storage.object_storage.tag")
-    def test_finalize_artifact_uploads_attributes_sandbox_oauth_to_agent(self, mock_tag, mock_head_object):
+    def test_finalize_artifact_uploads_attributes_oauth_from_server_provenance(
+        self,
+        _name: str,
+        client_id: str,
+        bound: bool,
+        internal_scope: bool,
+        expected_uploader: str,
+        mock_tag,
+        mock_head_object,
+    ) -> None:
         mock_head_object.return_value = {"ContentLength": 4096, "ContentType": "text/markdown"}
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         artifact_id = uuid.uuid4().hex
         storage_path = f"{run.get_artifact_s3_prefix()}/{artifact_id[:8]}_report.md"
+        client = self._sandbox_oauth_client(
+            task.id,
+            client_id=client_id,
+            bound=bound,
+            internal_scope=internal_scope,
+        )
 
-        response = self._sandbox_oauth_client(task.id).post(
+        response = client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/finalize_upload/",
             {
                 "artifacts": [
@@ -6672,8 +6703,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
         mock_tag.assert_called_once()
         run.refresh_from_db()
         artifact = run.artifacts[0]
-        self.assertEqual(artifact["uploaded_by"], "agent")
-        self.assertNotIn("uploaded_by_user_id", artifact)
+        self.assertEqual(artifact["uploaded_by"], expected_uploader)
+        if expected_uploader == "agent":
+            self.assertNotIn("uploaded_by_user_id", artifact)
+        else:
+            self.assertEqual(artifact["uploaded_by_user_id"], self.user.id)
 
     def test_retrieve_run_accepts_legacy_artifacts_without_upload_attribution(self):
         task = self.create_task()

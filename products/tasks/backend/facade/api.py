@@ -2798,6 +2798,8 @@ def finalize_task_run_artifact_uploads(
 ) -> tuple[list[dict] | None, str | None]:
     """Verify directly-uploaded S3 objects and attach them to the run manifest.
 
+    ``uploaded_by`` is server-derived and authoritative. ``source`` remains a client-declared organizational hint.
+
     Returns ``(finalized_entries, error)``: ``(None, None)`` when the run isn't found,
     ``(None, error_message)`` on a validation failure, else ``(finalized_entries, None)``.
     """
