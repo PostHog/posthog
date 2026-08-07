@@ -374,14 +374,20 @@ message FoldPersonDocumentRequest {
   // fills only still-absent keys.
   bytes event_set = 4;
   bytes event_set_once = 5;
-  // The merge saga's op id. Re-applying a fold on unchanged target state
-  // changes no content and only bumps the version; the id exists for
-  // fence tolerance and observability, not dedup. The accepted
-  // at-least-once residual applies: the target is never fenced, so a
-  // re-driven fold recomputes over writes that landed in between and can
-  // clobber them where they overlap the event's $set or a snapshot's
-  // keys — the same residual every re-appliable leader merge carries
-  // today, closed later by operation identity in the write path.
+  // The merge saga's op id, verified against the lifecycle database:
+  // the fold is refused unless this op holds the person as its live
+  // ('marked') merge target, closing late re-drives from a settled or
+  // superseded op. The check is read-time only — a fold already past it
+  // when the op settles can still land — so it narrows the late-fold
+  // residual rather than eliminating it. Re-applying a fold on
+  // unchanged target state changes no content and only bumps the
+  // version; the id is not a dedup key. The accepted at-least-once
+  // residual applies while the op lives: the target is never fenced, so
+  // a re-driven fold recomputes over writes that landed in between and
+  // can clobber them where they overlap the event's $set or a
+  // snapshot's keys — the same residual every re-appliable leader merge
+  // carries today, closed later by operation identity in the write
+  // path.
   string op_id = 6;
 }
 
@@ -389,5 +395,10 @@ message FoldPersonDocumentResponse {
   // The folded document exactly as produced to the changelog:
   // target-wins properties, created_at = min(target, sources),
   // is_identified = true, version = max(target, max sealed) + 1.
+  // One exception: when the target's stored properties violate the size
+  // constraint beyond remediation (protected keys alone exceed the
+  // ceiling), no applyable document exists — the fold produces nothing
+  // and returns the person unchanged, skipping its property and scalar
+  // effects for this person.
   Person person = 1;
 }
