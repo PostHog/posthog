@@ -601,7 +601,6 @@ services:
             AI_BLOB_S3_REGION: us-east-1
             AI_BLOB_S3_ACCESS_KEY_ID: object_storage_root_user
             AI_BLOB_S3_SECRET_ACCESS_KEY: object_storage_root_password
-            # Fresh teams created by the test harnesses never have id 1, so match every team.
             AI_BLOB_OFFLOAD_TEAMS: '*'
 
     ingestion-sessionreplay:

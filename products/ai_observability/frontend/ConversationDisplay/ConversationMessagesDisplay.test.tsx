@@ -437,9 +437,6 @@ describe('ImageMessageDisplay', () => {
         expect(image).toHaveAttribute('data-attr', 'ai-message-image')
     })
 
-    // Recorded $ai_input for multimodal messages is OpenAI array content, which renders
-    // through renderContentItem's isOpenAIImageURLMessage branch (a raw <img>), not through
-    // ImageMessageDisplay above — a separate code path with its own data-attr to guard.
     it('tags the OpenAI image_url content branch with the same data-attr', () => {
         const message: CompatMessage = {
             role: 'user',

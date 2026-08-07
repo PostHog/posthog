@@ -189,11 +189,7 @@ class PostHogTestClient:
         return []
 
     def capture_ai_event(self, api_key: str, event: str, distinct_id: str, properties: dict[str, Any]) -> None:
-        """Send an AI event on the SDK's dedicated AI lane (POSTs JSON to /i/v0/ai/batch/).
-
-        _enable_multimodal_capture is required: without it the SDK sanitizer replaces base64
-        images with a placeholder, and it is also what selects the AI lane.
-        """
+        """Send an AI event on the SDK's dedicated AI lane (POSTs JSON to /i/v0/ai/batch/)."""
         client = Posthog(
             api_key,
             host=self.base_url,
@@ -209,9 +205,8 @@ class PostHogTestClient:
     def read_ai_events_input(self, trace_id: str) -> Optional[str]:
         """Read the `input` column of `posthog.ai_events` over the ClickHouse HTTP interface.
 
-        A HogQL query against `posthog.ai_events` raises UntaggedQueryError on a local DEBUG
-        server, so this bypasses the query API and talks to ClickHouse directly — the only
-        table that carries the offloaded blob pointer (the `events` copy has it stripped).
+        The query API can't serve this table, because HogQL against `posthog.ai_events` raises
+        UntaggedQueryError on a local DEBUG server.
         """
         query = f"SELECT input FROM posthog.ai_events WHERE trace_id = '{trace_id}' LIMIT 1 FORMAT TabSeparatedRaw"
         clickhouse_url = get_service_url("clickhouse")
@@ -224,8 +219,8 @@ class PostHogTestClient:
     def read_ai_blob(self, team_id: str, hash: str) -> bytes:
         """Read an offloaded AI blob straight from object storage.
 
-        The ai_blob HTTP endpoint is session-only and rejects personal API keys, so this
-        reads the object the ingestion consumer wrote, at the key layout blob-store.ts uses.
+        The ai_blob HTTP endpoint is session-only and rejects the personal API key this
+        harness authenticates with.
         """
         import boto3
 

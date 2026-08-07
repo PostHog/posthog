@@ -133,9 +133,6 @@ services:
         extends:
             file: docker-compose.base.yml
             service: capture
-        # A hardcoded :master tag would run master's binary even on a PR that changes the Rust
-        # capture code, so tests covering the capture hop could pass against the wrong build.
-        # CI resolves this to the PR's own image when one was published.
         image: ghcr.io/posthog/posthog/capture:${POSTHOG_CAPTURE_TAG:-master}
         restart: on-failure
         ports:
@@ -158,7 +155,6 @@ services:
         extends:
             file: docker-compose.base.yml
             service: capture-ai
-        # Same binary as `capture`, so it needs the same tag resolution — see the comment there.
         image: ghcr.io/posthog/posthog/capture:${POSTHOG_CAPTURE_TAG:-master}
         restart: on-failure
         ports:
@@ -261,7 +257,6 @@ services:
             CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-posthog}
             # CDP Redis defaults to 127.0.0.1 — must point to the Docker service
             CDP_REDIS_HOST: redis7
-            # The ai pipeline hard-requires PersonHog — point at the local gRPC router
             PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
         depends_on:
@@ -272,11 +267,8 @@ services:
             db:
                 condition: service_healthy
             objectstorage:
-                # Wait for the bucket-bootstrap sentinel, not just the process: the AI blob
-                # store's startup self-test exits the process if the ai-blobs bucket is
-                # missing, and SeaweedFS creates that bucket asynchronously after startup.
-                # service_started would race the bootstrap loop (see the objectstorage
-                # healthcheck rationale above).
+                # SeaweedFS creates the ai-blobs bucket asynchronously, and this service exits
+                # at startup if the bucket is missing, so wait for the bootstrap sentinel.
                 condition: service_healthy
             personhog-router:
                 condition: service_started

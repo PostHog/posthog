@@ -691,14 +691,9 @@ jobs:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-            # Must precede the first compose launch below: `capture` starts there, and an
-            # unset POSTHOG_CAPTURE_TAG would pin it to :master before the tag is resolved.
             - name: Resolve Rust capture container image tag
               id: capture-image
               run: |
-                  # rust-docker-build.yml tags images as pr-<number> for PRs (type=ref,event=pr).
-                  # Without this the capture services run :master, so a PR changing the Rust
-                  # capture code would be tested against a binary that predates it.
                   if [ -n "${{ github.event.pull_request.number }}" ]; then
                     TAG="pr-${{ github.event.pull_request.number }}"
                   else
@@ -708,7 +703,6 @@ jobs:
                     echo "capture image found: ${TAG}"
                     echo "POSTHOG_CAPTURE_TAG=${TAG}" >> "$GITHUB_ENV"
                   else
-                    # Expected when a PR doesn't touch rust/: no image is built for it.
                     echo "capture image not found for ${TAG}, using master"
                     echo "POSTHOG_CAPTURE_TAG=master" >> "$GITHUB_ENV"
                   fi

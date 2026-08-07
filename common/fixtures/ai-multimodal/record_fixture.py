@@ -1,21 +1,7 @@
-r"""Regenerates the shared multimodal AI fixture from a real provider call.
+"""Regenerates the shared multimodal AI fixture from a real provider call.
 
-Run this by hand when the SDK's event shape changes. It makes a genuine OpenAI
-request with a real screenshot so the recorded payload matches what production
-emits; CI only ever replays the recorded result.
-
-Run from the repo root:
-
-    OPENAI_API_KEY="$(op read 'op://General/sbadkrbtbdgev4mjm4xtuirfoy/credential' --account posthog.1password.com)" \
-    OPENAI_BASE_URL="https://api.openai.com/v1" \
-      ./common/ingestion/acceptance_tests/.venv/bin/python common/fixtures/ai-multimodal/record_fixture.py
-
-Both parts are load-bearing: the interpreter must be the acceptance venv's, because that is where
-the `openai` package this script drives is installed, and `OPENAI_BASE_URL` must be forced to the
-real API or a local proxy may intercept the call and reject it with a misleading
-`403 Model 'gpt-4o-mini' not allowed`. See the README beside this file for the full details.
-
-The event is intercepted via the SDK's `before_send` hook and never sent anywhere.
+Run by hand when the SDK's event shape changes. See README.md beside this file for the
+interpreter and environment it needs.
 """
 
 import os
@@ -41,9 +27,6 @@ def main() -> None:
         captured.update(event)
         return None
 
-    # _enable_multimodal_capture is required twice over: without it the SDK's
-    # sanitizer replaces the base64 with "[base64 image redacted]", and it is
-    # also what routes the event onto the AI lane.
     ph = Posthog(
         "phc_recording_only",
         host="http://localhost:8010",
