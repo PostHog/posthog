@@ -5471,6 +5471,7 @@ export const INTEGRATION_KINDS = [
     'linear',
     'github',
     'gitlab',
+    'helpscout',
     'meta-ads',
     'clickup',
     'reddit-ads',
