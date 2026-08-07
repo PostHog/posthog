@@ -26,14 +26,14 @@ export function initializePrometheusLabels(
 }
 
 export interface SetupExpressAppOptions {
+    // Path prefixes exempt from the shared-secret middleware. Used by servers that own auth on those
+    // paths themselves, such as recording-api verifying a team-scoped JWT across the whole prefix.
+    internalApiAuthExcludedPathPrefixes?: string[]
     internalApiSecret?: string
     // Comma-separated previous secrets still accepted for verification during rotation.
     internalApiSecretFallbacks?: string
     // JSON body size limit, e.g. '20mb'. Overridable in tests.
     jsonBodyLimit?: string
-    // Path prefixes exempt from the shared-secret middleware. Used by servers that own auth on
-    // those routes themselves (e.g. recording-api verifies a team-scoped JWT per route instead).
-    internalApiAuthExcludedPathPrefixes?: string[]
 }
 
 export function setupCommonRoutes(
