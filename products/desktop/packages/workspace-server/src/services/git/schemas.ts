@@ -357,6 +357,7 @@ export const getLocalBranchChangedFilesInput = z.object({
 export const prReviewCommentUserSchema = z.object({
   login: z.string(),
   avatar_url: z.string(),
+  isBot: z.boolean().optional(),
 });
 
 export const prReviewCommentSchema = z.object({

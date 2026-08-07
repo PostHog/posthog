@@ -49,3 +49,5 @@ export const STAGED_UPDATES_FLAG = "posthog-desktop-staged-updates";
  * surfaces (see docs/ANNOUNCEMENTS.md).
  */
 export const ANNOUNCEMENTS_FLAG = "posthog-desktop-announcements";
+/** Gates anchored comments across task, artifact, and Activity surfaces. */
+export const COMMENTS_FLAG = "posthog-code-comments";
