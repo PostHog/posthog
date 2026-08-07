@@ -338,9 +338,9 @@ def _group_keys_via_persons(team: Team, emails: list[str], group_type_index: int
 
     email_to_group_key: dict[str, str] = {}
     for distinct_id, group_key in response.results or []:
-        email = distinct_id_to_email.get(distinct_id)
-        if email and group_key and email not in email_to_group_key:
-            email_to_group_key[email] = group_key
+        matched_email = distinct_id_to_email.get(distinct_id)
+        if matched_email and group_key and matched_email not in email_to_group_key:
+            email_to_group_key[matched_email] = group_key
     return email_to_group_key
 
 
