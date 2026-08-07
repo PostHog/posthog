@@ -264,7 +264,7 @@ async fn pod_crash_reassigns_partitions(
 
     // Use a short lease for pod0 so crash is detected quickly
     let pod0_cancel = CancellationToken::new();
-    let _pod0 = start_pod_with_lease_ttl(Arc::clone(&store), "writer-0", 2, pod0_cancel.clone());
+    let _pod0 = start_pod_with_lease_ttl(Arc::clone(&store), "writer-0", 5, pod0_cancel.clone());
     let _pod1 = start_pod(Arc::clone(&store), "writer-1", cancel.clone());
 
     // Wait for balanced assignment across both pods
@@ -647,9 +647,9 @@ async fn scale_down_to_one_pod(
 
     // Start 3 pods with short leases so crash detection is fast
     let pod0_cancel = CancellationToken::new();
-    let _pod0 = start_pod_with_lease_ttl(Arc::clone(&store), "writer-0", 2, pod0_cancel.clone());
+    let _pod0 = start_pod_with_lease_ttl(Arc::clone(&store), "writer-0", 5, pod0_cancel.clone());
     let pod1_cancel = CancellationToken::new();
-    let _pod1 = start_pod_with_lease_ttl(Arc::clone(&store), "writer-1", 2, pod1_cancel.clone());
+    let _pod1 = start_pod_with_lease_ttl(Arc::clone(&store), "writer-1", 5, pod1_cancel.clone());
     let _pod2 = start_pod(Arc::clone(&store), "writer-2", cancel.clone());
 
     // Wait for balanced assignment across all 3 pods
@@ -824,7 +824,7 @@ async fn rolling_update(
         _old_pods.push(start_pod_with_lease_ttl(
             Arc::clone(&store),
             &format!("old-{i}"),
-            2,
+            5,
             old_cancel.clone(),
         ));
     }
@@ -1372,17 +1372,17 @@ async fn old_owner_retains_partition_through_warming() {
     cancel.cancel();
 }
 
-/// When the routing table sees a handoff `Delete` event (because
-/// cleanup_stale_handoffs deleted a stuck handoff), the router must drain
-/// its stash back to the current routing-table owner. This proves the
-/// `EventType::Delete` branch of `watch_handoffs_loop` works.
+/// A handoff toward a dead new owner is cancelled by the coordinator's
+/// own replacement path: the planner reaffirms the partition to its live
+/// current owner, and the router resolves the stash through its ordinary
+/// Complete handling — draining home.
 ///
 /// Verified by manually injecting and deleting a handoff via the store —
 /// avoids the flakiness of relying on a blocking pod's lease to expire,
 /// which is brittle because the pod's cancellation can't preempt a stuck
 /// `warm_partition`.
 #[tokio::test]
-async fn handoff_delete_drains_stash_to_current_owner() {
+async fn a_dead_new_owner_handoff_is_reaffirmed_to_the_current_owner() {
     use personhog_coordination::types::{HandoffPhase, HandoffState};
 
     let store = test_store("delete-drains-stash").await;
@@ -1452,14 +1452,16 @@ async fn handoff_delete_drains_stash_to_current_owner() {
         .filter(|e| matches!(e, common::CutoverEvent::StashDrained { .. }))
         .count();
 
-    // Now delete the handoff to simulate cleanup_stale_handoffs firing.
-    store.delete_handoff(0).await.unwrap();
+    // No deletion is injected: the coordinator's own reconcile tick
+    // detects the dead new owner, wakes the planner, and the planner
+    // cancels the handoff by replacement — a reaffirm Complete toward
+    // the live current owner, since the placement needs no move.
 
     // Wait for the drain *count* to grow past `drains_before`. An
     // event-existence check would race the bootstrap drains: those
     // already record `StashDrained{partition: 0, target: writer-0}`,
     // so any "does an event matching this exist" predicate would
-    // return true immediately without waiting for the Delete-driven
+    // return true immediately without waiting for the reaffirm-driven
     // drain to fire.
     let check_router = Arc::clone(&router.events);
     wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
@@ -1817,7 +1819,7 @@ async fn late_joining_router_during_warming_begins_stash() {
 /// (routers ack the freeze), and Draining treats an absent old owner as
 /// vacuously drained. The handoff advances Freezing → Draining → Warming
 /// → Complete on the live new owner and is cleaned up by completion, not
-/// by `cleanup_stale_handoffs`.
+/// by cancellation.
 #[tokio::test]
 async fn dead_old_owner_in_freezing_advances_to_completion() {
     use personhog_coordination::types::{HandoffPhase, HandoffState};
@@ -1937,7 +1939,7 @@ async fn late_joining_router_during_freezing_acks_and_stashes() {
 /// the post-freeze state — the router has already begun stashing and the
 /// freeze quorum has been collected.
 #[tokio::test]
-async fn handoff_delete_during_warming_drains_to_current_owner() {
+async fn a_dead_new_owner_handoff_in_warming_is_reaffirmed() {
     use personhog_coordination::types::{HandoffPhase, HandoffState};
 
     let store = test_store("delete-during-warming").await;
@@ -2007,10 +2009,10 @@ async fn handoff_delete_during_warming_drains_to_current_owner() {
         .filter(|e| matches!(e, common::CutoverEvent::StashDrained { .. }))
         .count();
 
-    // Delete the Warming handoff. The Delete branch must drain the stash
-    // back to the current routing-table owner (writer-0), independent of
-    // the phase the handoff was in when deleted.
-    store.delete_handoff(0).await.unwrap();
+    // No deletion is injected: the coordinator detects the dead new
+    // owner and cancels by replacement — a reaffirm Complete toward the
+    // current owner (writer-0), independent of the phase the doomed
+    // handoff was in.
 
     let check_router = Arc::clone(&router.events);
     wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
@@ -2085,6 +2087,7 @@ async fn reconcile_advances_warming_with_pre_staged_warmed_ack() {
             pod_name: "writer-1".to_string(),
             partition: 6,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: String::new(),
         })
         .await
@@ -2204,6 +2207,7 @@ async fn draining_old_owner_blocks_phase_advance() {
             pod_name: "writer-draining".to_string(),
             partition: 7,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: String::new(),
         })
         .await
@@ -2224,9 +2228,9 @@ async fn draining_old_owner_blocks_phase_advance() {
     cancel.cancel();
 }
 
-/// `cleanup_stale_handoffs` judges only the new owner; the old owner's
-/// state — Draining, or even fully deregistered — must never cause a
-/// handoff deletion. A `Draining` old owner mid-handoff is the most
+/// The dead-new-owner cancellation trigger judges only the new owner; the
+/// old owner's state — Draining, or even fully deregistered — must never
+/// cancel a handoff. A `Draining` old owner mid-handoff is the most
 /// failure-prone shape: it still owes the protocol a `DrainedAck`, and
 /// deleting its handoff record would strand the drain. Regression test
 /// for cleanup wrongly keying off old-owner liveness.
@@ -2268,7 +2272,7 @@ async fn draining_old_owner_does_not_trigger_cleanup() {
     store.put_handoff(&handoff).await.unwrap();
 
     // Start the coordinator and a real pod. The new pod registering
-    // triggers a pod-change event and runs `cleanup_stale_handoffs`,
+    // triggers a pod-change event and runs the dead-new-owner cancellation,
     // which must leave the handoff alone: the new owner is live, and the
     // old owner's state is not cleanup's concern.
     let strategy: Arc<dyn AssignmentStrategy> = Arc::new(StickyBalancedStrategy);
@@ -2410,7 +2414,7 @@ async fn freezing_blocks_until_routers_ack_before_draining() {
 
     store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
 
-    // Register both owner pods: the new owner so `cleanup_stale_handoffs`
+    // Register both owner pods: the new owner so the dead-new-owner cancellation
     // doesn't delete the injected handoff, the old owner so the scenario
     // matches a live in-flight handoff. They don't run real handlers — we
     // just need their etcd registrations to exist.
@@ -2482,6 +2486,7 @@ async fn freezing_blocks_until_routers_ack_before_draining() {
             router_name: "slow-router".to_string(),
             partition: 1,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: String::new(),
         })
         .await
@@ -2526,7 +2531,7 @@ async fn initial_assignment_skips_draining_phase() {
 
     store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
 
-    // Register the new_owner pod so `cleanup_stale_handoffs` doesn't
+    // Register the new_owner pod so the dead-new-owner cancellation doesn't
     // delete the injected handoff for missing-target reasons.
     let lease = store.grant_lease(60).await.unwrap();
     let new_pod = RegisteredPod {
@@ -2730,6 +2735,7 @@ async fn reconcile_advances_draining_with_pre_staged_drained_ack() {
             pod_name: "writer-old".to_string(),
             partition: 5,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: String::new(),
         })
         .await
@@ -2831,7 +2837,7 @@ async fn late_joining_router_during_draining_begins_stash_no_ack() {
 /// `watch_handoffs_loop` is phase-agnostic, so this exercises the same
 /// code path; the test confirms the recovery is uniform across phases.
 #[tokio::test]
-async fn handoff_delete_during_draining_drains_to_current_owner() {
+async fn a_dead_new_owner_handoff_in_draining_is_reaffirmed() {
     use personhog_coordination::types::{HandoffPhase, HandoffState};
 
     let store = test_store("delete-during-draining").await;
@@ -2899,10 +2905,10 @@ async fn handoff_delete_during_draining_drains_to_current_owner() {
         .filter(|e| matches!(e, common::CutoverEvent::StashDrained { .. }))
         .count();
 
-    // Delete the Draining handoff. The Delete branch must drain the
-    // stash back to the current routing-table owner (writer-0),
-    // independent of the phase the handoff was in when deleted.
-    store.delete_handoff(0).await.unwrap();
+    // No deletion is injected: the coordinator detects the dead new
+    // owner and cancels by replacement — a reaffirm Complete toward the
+    // current owner (writer-0), independent of the phase the doomed
+    // handoff was in.
 
     // Wait for the drain *count* to grow past `drains_before`.
     // Bootstrap drains for partition 0 already exist (each initial
@@ -3380,4 +3386,27 @@ async fn rebalance_never_writes_assignment_records() {
             );
         }
     }
+}
+
+/// The store stamps `acked_at_ms` at put time so span metrics can measure
+/// ack-to-advance lag; writers all pass zero and must get a real stamp back.
+#[tokio::test]
+async fn store_stamps_ack_millis_on_put() {
+    let store = test_store("ack-ms-stamp").await;
+    store
+        .put_freeze_ack(&personhog_coordination::types::RouterFreezeAck {
+            router_name: "router-0".to_string(),
+            partition: 3,
+            acked_at: 1_700_000_000,
+            acked_at_ms: 0,
+            handoff_id: "h-1".to_string(),
+        })
+        .await
+        .expect("put freeze ack");
+    let acks = store.list_freeze_acks(3).await.expect("list freeze acks");
+    assert_eq!(acks.len(), 1);
+    assert!(
+        acks[0].acked_at_ms > 0,
+        "store must stamp the millisecond clock on ack writes"
+    );
 }

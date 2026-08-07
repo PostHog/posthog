@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 
 TaskWorkflowStartOutcome = Literal["attempted", "blocked", "failed", "started"]
 CustomImageBuildOutcome = Literal["started", "succeeded", "failed", "scan_rejected"]
+DevStackImageBakeOutcome = Literal["succeeded", "bake_failed", "failed", "dispatch_failed"]
 # Outcome of an SSE task-run stream connection when it closes.
 #   completed         — stream reached its completion sentinel
 #   stream_error      — Redis/stream error sentinel ended the connection
@@ -103,6 +104,12 @@ CUSTOM_IMAGE_BUILD_TOTAL = Counter(
     "posthog_tasks_custom_image_build_total",
     "Custom sandbox image build lifecycle events",
     labelnames=["outcome"],
+)
+
+DEV_STACK_IMAGE_BAKE_TOTAL = Counter(
+    "posthog_tasks_dev_stack_image_bake_total",
+    "Prebaked dev-stack VM image bake lifecycle events",
+    labelnames=["outcome", "region", "trigger"],
 )
 
 
@@ -283,6 +290,19 @@ def observe_custom_image_build(outcome: CustomImageBuildOutcome) -> None:
         CUSTOM_IMAGE_BUILD_TOTAL.labels(outcome=outcome).inc()
     except Exception:
         logger.exception("custom_image_build_metric_failed", outcome=outcome)
+
+
+def observe_dev_stack_image_bake(outcome: DevStackImageBakeOutcome, *, trigger: str) -> None:
+    try:
+        from posthog.utils import get_instance_region  # noqa: PLC0415
+
+        DEV_STACK_IMAGE_BAKE_TOTAL.labels(
+            outcome=outcome,
+            region=get_instance_region() or "unknown",
+            trigger=trigger,
+        ).inc()
+    except Exception:
+        logger.exception("dev_stack_image_bake_metric_failed", outcome=outcome, trigger=trigger)
 
 
 def origin_product_label(task_run: "TaskRun | None") -> str:

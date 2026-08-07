@@ -4,6 +4,8 @@ Reads a configured view via HogQL, matches each row to an account by external_id
 selected column as that account's custom property value (through set_custom_property_value).
 `run_custom_property_sync` is the entrypoint the Celery task calls: it runs the sync and persists
 the outcome (success/failure, auto-disable) onto the sources.
+A sync can be scoped to a single account via ``external_id`` — used by the external create path to
+populate a new account synchronously.
 """
 
 import dataclasses
@@ -50,7 +52,9 @@ class SyncResult:
     source_errors: dict[str, str] = dataclasses.field(default_factory=dict)
 
 
-def sync_custom_property_values(*, team_id: int, saved_query_id: str | UUID) -> SyncResult:
+def sync_custom_property_values(
+    *, team_id: int, saved_query_id: str | UUID, external_id: str | None = None
+) -> SyncResult:
     sources = list(
         CustomPropertySource.objects.for_team(team_id)
         .filter(saved_query_id=saved_query_id, is_enabled=True)
@@ -82,7 +86,7 @@ def sync_custom_property_values(*, team_id: int, saved_query_id: str | UUID) -> 
 
     ordered = sorted(selected_columns)
     column_index = {column: position for position, column in enumerate(ordered)}
-    account_ids_by_external_id = _get_account_ids_by_external_id(team_id)
+    account_ids_by_external_id = _get_account_ids_by_external_id(team_id, external_id=external_id)
     external_ids = sorted(account_ids_by_external_id)
     team = Team.objects.get(id=team_id)
     rows_by_key_column = {
@@ -114,8 +118,10 @@ def sync_custom_property_values(*, team_id: int, saved_query_id: str | UUID) -> 
     return result
 
 
-def _get_account_ids_by_external_id(team_id: int) -> dict[str, UUID]:
+def _get_account_ids_by_external_id(team_id: int, external_id: str | None = None) -> dict[str, UUID]:
     accounts = Account.objects.for_team(team_id).exclude(external_id=None).exclude(external_id="")
+    if external_id is not None:
+        accounts = accounts.filter(external_id=external_id)
     return {
         external_id: account_id for external_id, account_id in accounts.values_list("external_id", "id") if external_id
     }
@@ -243,3 +249,30 @@ def run_custom_property_sync(*, team_id: int, saved_query_id: str | UUID) -> Syn
         source_errors=len(result.source_errors),
     )
     return result
+
+
+def sync_custom_properties_for_account(*, team_id: int, external_id: str) -> None:
+    """Best-effort synchronous population of warehouse-backed custom properties for one account.
+
+    Runs on the external create path so a workflow that creates an account can read the values
+    in its next step. Only materialized views are read — an unmaterialized view would run its raw
+    query inside the request. No sync outcome is recorded: failure streaks, auto-disable and
+    last_synced_at belong to the scheduled full sync.
+    """
+    # enrichment must never break account creation — the outer try also covers source discovery,
+    # which the queryset's laziness would otherwise let escape
+    try:
+        saved_query_ids = (
+            CustomPropertySource.objects.for_team(team_id)
+            .filter(is_enabled=True, source_column__isnull=False, saved_query__table__isnull=False)
+            .exclude(saved_query__deleted=True)
+            .values_list("saved_query_id", flat=True)
+            .distinct()
+        )
+        for saved_query_id in saved_query_ids:
+            try:
+                sync_custom_property_values(team_id=team_id, saved_query_id=saved_query_id, external_id=external_id)
+            except Exception as e:
+                capture_exception(e)
+    except Exception as e:
+        capture_exception(e)

@@ -18,6 +18,32 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+# Every action type the worker can execute. Must stay in sync with the `actionHandlers` registry in
+# nodejs/src/cdp/services/hogflows/hogflow-executor.service.ts (and the schemas mirroring it in
+# nodejs/src/cdp/schema/hogflow.ts and products/workflows/frontend/Workflows/hogflows/steps/types.ts).
+# A type absent here has no handler, so the run dies on reaching it with "Action type 'x' not
+# supported" - and unless that step sets on_error: continue, everything downstream never happens.
+# Ordered longest-lived first so the generated API/MCP enum reads in a sensible order.
+SUPPORTED_ACTION_TYPES: Final[list[str]] = [
+    "trigger",
+    "function",
+    "function_email",
+    "function_sms",
+    "function_push",
+    "delay",
+    "wait_until_condition",
+    "wait_until_time_window",
+    "conditional_branch",
+    "random_cohort_branch",
+    "exit",
+]
+
+# The trigger's own kinds, which live in the workflow's `trigger` field rather than on an action.
+# Callers confuse the two (a stored workflow had an action of type "webhook", which is a trigger
+# kind), so the rejection message can say which mistake was made. Mirrors HogFlowTriggerSchema in
+# nodejs/src/cdp/schema/hogflow.ts.
+TRIGGER_TYPES: Final[frozenset[str]] = frozenset({"event", "schedule", "manual", "batch", "tracking_pixel", "webhook"})
+
 # Billable action types that are subject to rate limiting and quota tracking
 # These action types incur costs and are counted against customer quotas
 BILLABLE_ACTION_TYPES: Final[set[str]] = {

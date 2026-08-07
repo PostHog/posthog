@@ -8,11 +8,15 @@ from unittest.mock import MagicMock, patch
 from django.utils import timezone
 
 import httpx
+from parameterized import parameterized
 
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool
 from products.mcp_store.backend.tools import (
+    CALL_TIMEOUT,
     HANDSHAKE_TIMEOUT,
+    ToolCallError,
     ToolsFetchError,
+    call_upstream_tool,
     fetch_upstream_tools,
     sync_installation_tools,
 )
@@ -228,6 +232,112 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
             fetch_upstream_tools(installation)
 
 
+class TestCallUpstreamTool(ClickhouseTestMixin, APIBaseTest):
+    def _installation(self) -> MCPServerInstallation:
+        return MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            url=f"https://mcp-{uuid.uuid4().hex[:8]}.example.com/mcp",
+            display_name="Test",
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "sk-test"},
+        )
+
+    @patch("products.mcp_store.backend.tools.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.tools.httpx.Client")
+    def test_call_carries_the_session_from_initialize(self, mock_client_cls, _allow):
+        # Most servers reject tools/call without the Mcp-Session-Id they handed out on
+        # initialize, so losing the session header would break every real call while
+        # still passing a test that only inspects the JSON body.
+        installation = self._installation()
+        call_body = json.dumps({"jsonrpc": "2.0", "id": 3, "result": {"content": [{"type": "text", "text": "ok"}]}})
+        client = _install_handshake_mock(mock_client_cls, tools_list_response=_build_response(body=call_body))
+
+        result = call_upstream_tool(installation, "create_issue", {"title": "Bug"})
+
+        assert result["content"] == [{"type": "text", "text": "ok"}]
+        call_post = client.post.call_args_list[2]
+        assert call_post.kwargs["headers"]["Mcp-Session-Id"] == "sess-1"
+        assert json.loads(call_post.kwargs["content"]) == {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {"name": "create_issue", "arguments": {"title": "Bug"}},
+        }
+        # A real tool call does upstream work, so it must not inherit the tight
+        # discovery timeout.
+        assert mock_client_cls.call_args.kwargs["timeout"] == CALL_TIMEOUT
+
+    @parameterized.expand(
+        [
+            (
+                "plain_json",
+                json.dumps({"jsonrpc": "2.0", "id": 3, "result": {"content": [{"type": "text", "text": "ok"}]}}),
+                "application/json",
+            ),
+            (
+                "sse_framed",
+                'event: message\ndata: {"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"ok"}]}}\n\n',
+                "text/event-stream",
+            ),
+        ]
+    )
+    @patch("products.mcp_store.backend.tools.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.tools.httpx.Client")
+    def test_call_parses_both_response_framings(self, _name, body, content_type, mock_client_cls, _allow):
+        installation = self._installation()
+        _install_handshake_mock(
+            mock_client_cls, tools_list_response=_build_response(body=body, content_type=content_type)
+        )
+
+        assert call_upstream_tool(installation, "create_issue", {})["content"] == [{"type": "text", "text": "ok"}]
+
+    @patch("products.mcp_store.backend.tools.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.tools.httpx.Client")
+    def test_call_returns_tool_reported_errors_instead_of_raising(self, mock_client_cls, _allow):
+        # `isError` is the tool telling the model it failed (bad arguments, not found).
+        # Raising here would hide the reason the agent needs in order to retry.
+        installation = self._installation()
+        body = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "result": {"content": [{"type": "text", "text": "title is required"}], "isError": True},
+            }
+        )
+        _install_handshake_mock(mock_client_cls, tools_list_response=_build_response(body=body))
+
+        result = call_upstream_tool(installation, "create_issue", {})
+
+        assert result["isError"] is True
+        assert result["content"] == [{"type": "text", "text": "title is required"}]
+
+    @parameterized.expand(
+        [
+            (
+                "jsonrpc_error",
+                json.dumps({"jsonrpc": "2.0", "id": 3, "error": {"code": -32602, "message": "bad params"}}),
+                "returned error",
+            ),
+            ("missing_result", json.dumps({"jsonrpc": "2.0", "id": 3}), "missing 'result'"),
+        ]
+    )
+    @patch("products.mcp_store.backend.tools.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.tools.httpx.Client")
+    def test_call_raises_on_protocol_failures(self, _name, body, expected_message, mock_client_cls, _allow):
+        installation = self._installation()
+        _install_handshake_mock(mock_client_cls, tools_list_response=_build_response(body=body))
+
+        with pytest.raises(ToolCallError, match=expected_message):
+            call_upstream_tool(installation, "create_issue", {})
+
+    @patch("products.mcp_store.backend.tools.is_url_allowed", return_value=(False, "Private IP"))
+    def test_call_refuses_a_blocked_url(self, _allow):
+        installation = self._installation()
+        with pytest.raises(ToolCallError, match="URL not allowed"):
+            call_upstream_tool(installation, "create_issue", {})
+
+
 class TestSyncInstallationTools(ClickhouseTestMixin, APIBaseTest):
     def _installation(self) -> MCPServerInstallation:
         return MCPServerInstallation.objects.create(
@@ -249,6 +359,17 @@ class TestSyncInstallationTools(ClickhouseTestMixin, APIBaseTest):
         assert tool.approval_state == "needs_approval"
         assert tool.description == "Search something"
         assert tool.removed_at is None
+
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools")
+    def test_sync_persists_upstream_annotations(self, mock_fetch):
+        installation = self._installation()
+        mock_fetch.return_value = [{"name": "search", "annotations": {"destructiveHint": True}}]
+        sync_installation_tools(installation)
+        assert installation.tools.get(tool_name="search").annotations == {"destructiveHint": True}
+
+        mock_fetch.return_value = [{"name": "search", "annotations": {"destructiveHint": False}}]
+        sync_installation_tools(installation)
+        assert installation.tools.get(tool_name="search").annotations == {"destructiveHint": False}
 
     @patch("products.mcp_store.backend.tools.fetch_upstream_tools")
     def test_disappeared_tool_marked_removed_state_preserved(self, mock_fetch):

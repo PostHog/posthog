@@ -9,7 +9,6 @@ from urllib.parse import urlparse, urlunparse
 
 from django.apps import apps
 from django.conf import settings
-from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 
 from posthog.schema import (
@@ -51,6 +50,7 @@ from posthog.constants import PAGEVIEW_EVENT
 from posthog.exceptions_capture import capture_exception
 from posthog.models.event.util import create_event
 from posthog.models.oauth import OAuthApplication
+from posthog.models.oauth_provisioning import ProvisioningConfig
 from posthog.scopes import UNPRIVILEGED_SCOPES
 from posthog.storage import object_storage
 
@@ -1804,29 +1804,38 @@ class HedgeboxMatrix(Matrix):
         if not (settings.OIDC_RSA_PRIVATE_KEY and settings.DEBUG and not is_cloud()):
             return
 
-        try:
-            OAuthApplication.objects.create(
-                name="Demo OAuth Application",
-                client_id="DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ",
-                client_secret="GQItUP4GqE6t5kjcWIRfWO9c0GXPCY8QDV4eszH4PnxXwCVxIMVSil4Agit7yay249jasnzHEkkVqHnFMxI1YTXSrh8Bj1sl1IDfNi1S95sv208NOc0eoUBP3TdA7vf0",
-                redirect_uris="http://localhost:3000/callback http://localhost:8237/callback http://localhost:8239/callback",
-                user=user,
-                organization=team.organization,
-                client_type=OAuthApplication.CLIENT_PUBLIC,
-                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                algorithm="RS256",
-                is_first_party=True,
+        OAuthApplication.objects.update_or_create(
+            client_id="DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ",
+            defaults={
+                "name": "Demo OAuth Application",
+                "client_secret": "GQItUP4GqE6t5kjcWIRfWO9c0GXPCY8QDV4eszH4PnxXwCVxIMVSil4Agit7yay249jasnzHEkkVqHnFMxI1YTXSrh8Bj1sl1IDfNi1S95sv208NOc0eoUBP3TdA7vf0",
+                "redirect_uris": "http://localhost:3000/callback http://localhost:8237/callback http://localhost:8239/callback",
+                "user": user,
+                "organization": team.organization,
+                "client_type": OAuthApplication.CLIENT_PUBLIC,
+                "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                "algorithm": "RS256",
+                "is_first_party": True,
                 # An empty ceiling resolves to UNPRIVILEGED_SCOPES at /authorize, which
                 # excludes the privileged/hidden scopes the onboarding wizard requests
                 # (llm_gateway:read, wizard_session:*) — so it failed with invalid_scope.
                 # Reproduce the broad default and add those so the wizard works locally.
-                scopes=sorted(
+                "scopes": sorted(
                     UNPRIVILEGED_SCOPES
                     | {"llm_gateway:read", "llm_gateway:write", "wizard_session:read", "wizard_session:write"}
                 ),
-            )
-        except (IntegrityError, ValidationError):
-            pass
+                # The wizard can also provision an account rather than logging into one, which
+                # every provisioning endpoint gates on. Every capability defaults to False, so
+                # without these account creation fails at authentication with "no provisioning
+                # client is registered" and the flow can't be exercised locally at all.
+                "is_provisioning_partner": True,
+                "_provisioning_config": ProvisioningConfig(
+                    active=True,
+                    can_create_accounts=True,
+                    can_provision_resources=True,
+                ).model_dump(mode="json"),
+            },
+        )
 
     def _set_up_error_tracking_demo_data(self, team: "Team") -> None:
         issue_specs: list[ErrorTrackingDemoIssueSpec] = [

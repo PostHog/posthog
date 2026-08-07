@@ -17,11 +17,16 @@ import type {
     AccountRelationshipDefinitionsListParams,
     AccountRelationshipWriteApi,
     AccountsListParams,
+    AccountsMeetingsListParams,
     AccountsNotebooksListParams,
     AccountsRelationshipsListParams,
+    AccountsSummariesListParams,
     AnnouncementApi,
     AnnouncementChannelApi,
     AnnouncementsListParams,
+    CalendarSyncStatusApi,
+    CalendarSyncTriggerApi,
+    CalendarSyncTriggerResponseApi,
     CustomPropertyDefinitionApi,
     CustomPropertyDefinitionsListParams,
     CustomPropertyDefinitionsValuesRetrieveParams,
@@ -44,6 +49,7 @@ import type {
     ExternalAccountListPageApi,
     GroupUsageMetricApi,
     GroupsTypesMetricsListParams,
+    PaginatedAccountChannelSummaryListApi,
     PaginatedAccountListApi,
     PaginatedAccountNoteListApi,
     PaginatedAccountNotebookListApi,
@@ -55,6 +61,7 @@ import type {
     PaginatedCustomerJourneyListApi,
     PaginatedCustomerProfileConfigListApi,
     PaginatedGroupUsageMetricListApi,
+    PaginatedMeetingListApi,
     PatchedAccountApi,
     PatchedAccountRelationshipDefinitionApi,
     PatchedCustomPropertyDefinitionApi,
@@ -63,6 +70,7 @@ import type {
     PatchedCustomerProfileConfigApi,
     PatchedEventStreamApi,
     PatchedGroupUsageMetricApi,
+    SupportTicketApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -543,6 +551,77 @@ export const accountsDestroy = async (projectId: string, id: string, options?: R
     })
 }
 
+export const getAccountsMeetingsListUrl = (projectId: string, id: string, params?: AccountsMeetingsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/accounts/${id}/meetings/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/${id}/meetings/`
+}
+
+export const accountsMeetingsList = async (
+    projectId: string,
+    id: string,
+    params?: AccountsMeetingsListParams,
+    options?: RequestInit
+): Promise<PaginatedMeetingListApi> => {
+    return apiMutator<PaginatedMeetingListApi>(getAccountsMeetingsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountsSummariesListUrl = (projectId: string, id: string, params?: AccountsSummariesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/accounts/${id}/summaries/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/${id}/summaries/`
+}
+
+export const accountsSummariesList = async (
+    projectId: string,
+    id: string,
+    params?: AccountsSummariesListParams,
+    options?: RequestInit
+): Promise<PaginatedAccountChannelSummaryListApi> => {
+    return apiMutator<PaginatedAccountChannelSummaryListApi>(getAccountsSummariesListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountsSupportTicketsListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/accounts/${id}/support_tickets/`
+}
+
+export const accountsSupportTicketsList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SupportTicketApi[]> => {
+    return apiMutator<SupportTicketApi[]>(getAccountsSupportTicketsListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getAnnouncementsListUrl = (projectId: string, params?: AnnouncementsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -616,6 +695,42 @@ export const announcementsChannelsList = async (
     return apiMutator<AnnouncementChannelApi[]>(getAnnouncementsChannelsListUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getCalendarSyncListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/calendar_sync/`
+}
+
+/**
+ * Calendar-sync controls for Customer analytics settings. Sync runs on an hourly
+ * Temporal schedule; this surface only offers the manual "sync now" escape hatch.
+ */
+export const calendarSyncList = async (projectId: string, options?: RequestInit): Promise<CalendarSyncStatusApi[]> => {
+    return apiMutator<CalendarSyncStatusApi[]>(getCalendarSyncListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCalendarSyncSyncNowCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/calendar_sync/sync_now/`
+}
+
+/**
+ * Start a sync run for one connected Google Calendar immediately, outside the hourly schedule.
+ * @summary Sync a connected calendar now
+ */
+export const calendarSyncSyncNowCreate = async (
+    projectId: string,
+    calendarSyncTriggerApi: CalendarSyncTriggerApi,
+    options?: RequestInit
+): Promise<CalendarSyncTriggerResponseApi> => {
+    return apiMutator<CalendarSyncTriggerResponseApi>(getCalendarSyncSyncNowCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(calendarSyncTriggerApi),
     })
 }
 

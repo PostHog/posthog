@@ -869,13 +869,19 @@ continued line
                         '<Embed src="https://example.com" />',
                         '',
                         'Tail paragraph',
+                        // A second blank line marks a block that was added as a node of its own,
+                        // so it gets its own card instead of joining the paragraph above it
+                        '',
+                        '',
+                        'Separated paragraph',
                     ].join('\n')
                 ),
             })
         )
 
         const groups = Array.from(container.querySelectorAll('.MarkdownNotebook__text-group'))
-        expect(groups).toHaveLength(2)
+        expect(groups).toHaveLength(3)
+        expect(groups[2].textContent).toContain('Separated paragraph')
         expect(groups[0].querySelectorAll('.MarkdownNotebook__text-block')).toHaveLength(4)
         expect(groups[0].querySelectorAll('.MarkdownNotebook__list-block')).toHaveLength(2)
         expect(groups[0].querySelector('.MarkdownNotebook__list-block ul')).toBeInstanceOf(HTMLUListElement)
@@ -887,6 +893,60 @@ continued line
         expect(groups[0].textContent).toContain('Section heading')
         expect(groups[1].textContent).toContain('Tail paragraph')
         expect(container.querySelector('.MarkdownNotebook__text-group .MarkdownNotebook__component-shell')).toBeNull()
+    })
+
+    it('adds a block from the insert boundary as a node of its own', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('Intro paragraph'), onChange })
+        )
+
+        const addBlockButtons = container.querySelectorAll<HTMLButtonElement>('[aria-label="Add block"]')
+        fireEvent.click(addBlockButtons[addBlockButtons.length - 1])
+
+        const textCommand = Array.from(container.querySelectorAll('.MarkdownNotebook__insert-item')).find(
+            (button) => button.textContent === 'Text'
+        )
+        fireEvent.click(textCommand as HTMLButtonElement)
+
+        const insertedTextBlock = getBodyTextBlock(container, 1)
+        insertedTextBlock.textContent = 'Second block'
+        fireEvent.input(insertedTextBlock)
+
+        expect(container.querySelectorAll('.MarkdownNotebook__text-group')).toHaveLength(2)
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\n\nSecond block`
+        )
+    })
+
+    it('rejoins the block below an inserted one once the insert is undone', () => {
+        // Opening the boundary pushes the block below onto its own card so the inserted node
+        // does not absorb it. That card boundary is invisible to the node fingerprint, so undo
+        // used to leave it standing: the block below stayed in a card of its own, with the
+        // extra blank line saved into the markdown.
+        const markdown = withNotebookTitle('Intro paragraph\n\nTail paragraph')
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: markdown, onChange }))
+
+        fireEvent.click(container.querySelector('[aria-label="Add block"][data-boundary-index="2"]') as HTMLElement)
+        const textCommand = Array.from(container.querySelectorAll('.MarkdownNotebook__insert-item')).find(
+            (button) => button.textContent === 'Text'
+        )
+        fireEvent.click(textCommand as HTMLButtonElement)
+
+        const insertedTextBlock = getBodyTextBlock(container, 1)
+        insertedTextBlock.textContent = 'Inserted block'
+        fireEvent.input(insertedTextBlock)
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\n\nInserted block\n\n\nTail paragraph`
+        )
+
+        for (let undoCount = 0; undoCount < 4; undoCount++) {
+            fireUndoShortcut(getEditableTextBlocks(container)[0])
+        }
+
+        expect(onChange).toHaveBeenLastCalledWith(markdown)
+        expect(container.querySelectorAll('.MarkdownNotebook__text-group')).toHaveLength(1)
     })
 
     it('serializes hidden component panel props as bare JSX props', () => {
@@ -2803,7 +2863,7 @@ Intro paragraph
         fireEvent.click(addAfterButton)
 
         expect(container.querySelector('.MarkdownNotebook__row--insert-menu-open')).toBeInstanceOf(HTMLElement)
-        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\n `)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\n\n `)
         const textBlocks = getEditableTextBlocks(container)
         const slashTextBlock = textBlocks[2]
         expect(document.activeElement).toEqual(slashTextBlock)
@@ -2835,20 +2895,20 @@ Intro paragraph
 
         activeSlashTextBlock.textContent = 'zzzz'
         fireEvent.input(activeSlashTextBlock)
-        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\nzzzz`)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\n\nzzzz`)
 
         expect(container.querySelector('.MarkdownNotebook__empty-menu')?.textContent).toEqual('No components found')
 
         fireEvent.keyDown(activeSlashTextBlock, { key: 'Enter' })
         activeSlashTextBlock = getEditableTextBlocks(container)[2]
         expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeInstanceOf(HTMLElement)
-        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\n `)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\n\n `)
         expect(document.activeElement).toEqual(activeSlashTextBlock)
         expect(activeSlashTextBlock.textContent).toEqual('')
 
         activeSlashTextBlock.textContent = 'tr'
         fireEvent.input(activeSlashTextBlock)
-        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\ntr`)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\n\ntr`)
 
         expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeInstanceOf(HTMLElement)
 
@@ -2864,7 +2924,7 @@ Intro paragraph
         fireEvent.click(trendButton as HTMLButtonElement)
 
         expect(onChange).toHaveBeenLastCalledWith(
-            expect.stringContaining(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\n<Query hideFilters`)
+            expect.stringContaining(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\n\n<Query hideFilters`)
         )
         expect(container.querySelector('.MarkdownNotebook__component-edit')).toBeNull()
         expect(container.querySelector('.MarkdownNotebook__component-preview')).toBeInstanceOf(HTMLElement)
@@ -2957,7 +3017,7 @@ Intro paragraph
         rerender(createElement(MarkdownNotebook, { value: nextValue, onChange }))
 
         const textBlocks = Array.from(container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)) as HTMLElement[]
-        expect(nextValue).toEqual(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\n `)
+        expect(nextValue).toEqual(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\n\n `)
         expect(textBlocks).toHaveLength(3)
         expect(textBlocks[2].textContent).toEqual('')
     })
@@ -3249,7 +3309,7 @@ Second paragraph`)
         fireEvent.click(boundaryButton as HTMLButtonElement)
 
         expect(onChange).toHaveBeenLastCalledWith(
-            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nFirst paragraph\n\n \n\nSecond paragraph`
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nFirst paragraph\n\n\n \n\n\nSecond paragraph`
         )
         const closeButton = container.querySelector('.MarkdownNotebook__line-insert-menu-button[aria-expanded="true"]')
         expect(closeButton).toBeInstanceOf(HTMLButtonElement)
@@ -3299,7 +3359,7 @@ Second paragraph`),
 
         expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeInstanceOf(HTMLElement)
         expect(onChange).toHaveBeenLastCalledWith(
-            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nFirst paragraph\n\n \n\nSecond paragraph`
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nFirst paragraph\n\n\n \n\n\nSecond paragraph`
         )
     })
 
@@ -3318,7 +3378,7 @@ ${queryMarkdown}`)
         fireEvent.click(boundaryButton as HTMLButtonElement)
 
         expect(onChange).toHaveBeenLastCalledWith(
-            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\n \n\n${queryMarkdown}`
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\n\n \n\n${queryMarkdown}`
         )
         const closeButton = container.querySelector('.MarkdownNotebook__line-insert-menu-button[aria-expanded="true"]')
         expect(closeButton).toBeInstanceOf(HTMLButtonElement)
@@ -4260,7 +4320,7 @@ aXbc
         fireEvent.mouseDown(addBeforeGap as HTMLElement, { button: 0 })
 
         expect(onChange).toHaveBeenLastCalledWith(
-            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n${queryMarkdown}\n\n \n\nIntro paragraph`
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n${queryMarkdown}\n\n\n \n\n\nIntro paragraph`
         )
         expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeInstanceOf(HTMLElement)
         expect(container.querySelector('.MarkdownNotebook__insert-category h5')?.textContent).toEqual('Common')
@@ -4277,7 +4337,7 @@ aXbc
         expect(trendButton).toBeInstanceOf(HTMLButtonElement)
         fireEvent.click(trendButton as HTMLButtonElement)
 
-        expect(onChange).toHaveBeenLastCalledWith(expect.stringContaining(`/>\n\nIntro paragraph`))
+        expect(onChange).toHaveBeenLastCalledWith(expect.stringContaining(`/>\n\n\nIntro paragraph`))
     })
 
     it('floats and closes the formatting toolbar based on the active text selection', () => {
@@ -5186,6 +5246,44 @@ Tail paragraph`),
         expect(window.getSelection()?.toString()).not.toContain(TEST_NOTEBOOK_TITLE)
         expect(window.getSelection()?.toString()).not.toContain('Intro paragraph')
         expect(window.getSelection()?.toString()).not.toContain('Tail paragraph')
+    })
+
+    it('leaves Cmd+A alone inside a component code editor', () => {
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Embed',
+                label: 'Embed',
+                category: 'Media',
+                // Stands in for the Monaco editor of an SQLV2 or PythonV2 cell. With EditContext on,
+                // Monaco takes focus on a plain div rather than a hidden textarea, so the notebook can
+                // only tell it apart by the `monaco-editor` container.
+                ViewComponent: () =>
+                    createElement(
+                        'div',
+                        { className: 'monaco-editor' },
+                        createElement('div', { className: 'native-edit-context', tabIndex: 0 })
+                    ),
+            },
+        ])
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`Before component
+
+<Embed />
+
+After component`),
+                registry,
+            })
+        )
+        const component = container.querySelector('.MarkdownNotebook__component-shell') as HTMLElement
+        const editorInputHost = container.querySelector('.native-edit-context') as HTMLElement
+        window.getSelection()?.removeAllRanges()
+
+        editorInputHost.focus()
+        fireSelectAllShortcut(editorInputHost)
+
+        expect(window.getSelection()?.toString()).toEqual('')
+        expect(component.classList.contains('MarkdownNotebook__component-shell--selected')).toBe(false)
     })
 
     it('selects text and components with Cmd+A from a focused component', () => {
@@ -8723,7 +8821,7 @@ Second paragraph`),
 
         const textBlocks = getEditableTextBlocks(container)
         expect(onChange).toHaveBeenLastCalledWith(
-            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nFirst paragraph\n\nSecond paragraph\n\n `
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nFirst paragraph\n\nSecond paragraph\n\n\n `
         )
         expect(textBlocks).toHaveLength(4)
         expect(document.activeElement).toEqual(textBlocks[3])
@@ -8884,6 +8982,7 @@ After component`,
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: markdown, onChange }))
         const shell = container.querySelector('.MarkdownNotebook__component-shell')
+        const actionsContainer = container.querySelector('.MarkdownNotebook__component-actions') as HTMLElement
         const modeButtons = Array.from(
             container.querySelectorAll('.MarkdownNotebook__component-mode-actions button')
         ) as HTMLButtonElement[]
@@ -8898,6 +8997,9 @@ After component`,
         expect(modeButtons[1].getAttribute('aria-label')).toEqual('Hide results')
         expect(toolbarLeftChildren[0].classList.contains('MarkdownNotebook__component-title')).toBe(true)
         expect(toolbarLeftChildren[1].classList.contains('MarkdownNotebook__component-mode-actions')).toBe(true)
+        // Edit mode folds via the eye/title; the collapse button is canvas-only
+        expect(container.querySelector('button[aria-label="Collapse"]')).toBeNull()
+        expect(actionsContainer.contains(deleteButton)).toBe(true)
         expect(deleteButton).toBeInstanceOf(HTMLButtonElement)
         const stackedPanels = Array.from(shell?.querySelectorAll('.MarkdownNotebook__component-panel') ?? [])
         expect(stackedPanels).toHaveLength(2)
@@ -9001,6 +9103,48 @@ After component`,
         expect(onChange).toHaveBeenLastCalledWith(
             `# \n\n<Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />`
         )
+    })
+
+    it('toggles canvas filters locally without persisting hide props to the document', () => {
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Probe',
+                label: 'Probe',
+                category: 'Test',
+                viewModeFilters: true,
+                ViewComponent: () => createElement('div', { 'data-testid': 'probe-results' }, 'Results'),
+                EditComponent: () => createElement('div', { 'data-testid': 'probe-filters' }, 'Filters'),
+            },
+        ])
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: '<Probe />',
+                mode: 'view',
+                allowViewModeFilters: true,
+                registry,
+                onChange,
+            })
+        )
+
+        // Canvas default: results visible, filters closed behind the gear.
+        expect(container.querySelector('[data-testid="probe-results"]')).toBeInstanceOf(HTMLElement)
+        expect(container.querySelector('[data-testid="probe-filters"]')).toBeNull()
+
+        const filtersButton = container.querySelector('button[aria-label="Show filters"]') as HTMLButtonElement
+        expect(filtersButton).toBeInstanceOf(HTMLButtonElement)
+
+        fireEvent.click(filtersButton)
+
+        expect(container.querySelector('[data-testid="probe-filters"]')).toBeInstanceOf(HTMLElement)
+        // Opening is encoded as the absence of hide* props: persisting from a canvas would
+        // round-trip the panel straight back to the closed fallback. It must stay local.
+        expect(onChange).not.toHaveBeenCalled()
+
+        fireEvent.click(container.querySelector('button[aria-label="Hide filters"]') as HTMLButtonElement)
+
+        expect(container.querySelector('[data-testid="probe-filters"]')).toBeNull()
+        expect(onChange).not.toHaveBeenCalled()
     })
 
     it('hides component mode actions when requested by the component definition', () => {

@@ -1,7 +1,5 @@
 import {
     KAFKA_APP_METRICS_2,
-    KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
-    KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
     KAFKA_EVENTS_JSON,
     KAFKA_HOG_INVOCATION_RESULTS,
     KAFKA_LOG_ENTRIES,
@@ -14,11 +12,9 @@ import { ClickhouseConfig, getDefaultClickhouseConfig } from '../common/clickhou
 import {
     CdpProducerName,
     WAREHOUSE_PRODUCER,
-    WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from './outputs/producers'
-import { DEFAULT_THRESHOLDS } from './services/email-reputation/classifier'
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './types'
 
 // CdpConfig intersects ClickhouseConfig so any consumer reading
@@ -70,16 +66,15 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_REDIS_READER_HOST: string
     CDP_REDIS_READER_PORT: number
 
-    // Shadow Valkey pool for dual-write/read load testing. When CDP_VALKEY_DUAL_ENABLED
-    // is true and CDP_VALKEY_HOST is set, every Redis call also runs against this pool;
-    // shadow results are discarded, errors/timeouts logged + counted but never affect
-    // the primary code path.
+    // Shadow Valkey pool for dual-write/read. CDP_VALKEY_HOST is required: every CDP
+    // Redis call also runs against this pool, and a process without it is misconfigured
+    // rather than degraded. Shadow results are discarded, and errors/timeouts are logged
+    // and counted but never affect the primary code path.
     CDP_VALKEY_HOST: string
     CDP_VALKEY_PORT: number
     CDP_VALKEY_PASSWORD: string
     CDP_VALKEY_READER_HOST: string
     CDP_VALKEY_READER_PORT: number
-    CDP_VALKEY_DUAL_ENABLED: boolean
     // AWS ElastiCache Valkey Serverless requires TLS; toggle off only for local non-TLS test setups.
     CDP_VALKEY_TLS: boolean
 
@@ -114,10 +109,6 @@ export type CdpConfig = ClickhouseConfig & {
     // How many rerun wrapper jobs the worker dequeues per cyclotron-v2 poll.
     // Kept small by default — each job runs a full ClickHouse query per page.
     CDP_RERUN_WORKER_BATCH_SIZE: number
-    CDP_PREFILTERED_EVENTS_TOPIC: string
-    CDP_PREFILTERED_EVENTS_PRODUCER: CdpProducerName
-    CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC: string
-    CDP_PRECALCULATED_PERSON_PROPERTIES_PRODUCER: CdpProducerName
     CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC: string
     CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER: CdpProducerName
 
@@ -140,6 +131,11 @@ export type CdpConfig = ClickhouseConfig & {
     // Comma-separated allowlist of SNS Topic ARNs the SES webhook accepts events from. Empty string
     // means no restriction (dev/test); production should set this to the workflow SES topic ARN(s).
     SES_ALLOWED_SNS_TOPIC_ARNS: string
+    // When true, sends carry TenantName (team-<team_id>) so SES attributes reputation per team
+    // and its Standard reputation policy can pause a single tenant instead of the shared account.
+    // Off by default: a send naming a tenant whose identity association is missing fails, so this
+    // flips on only after tenant coverage is verified (migrate_ses_tenants --dry-run comes back empty).
+    EMAIL_SES_TENANT_ATTRIBUTION_ENABLED: boolean
 
     // Consecutive soft bounces before an address is auto-suppressed. Tunable without a deploy.
     EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: number
@@ -184,18 +180,6 @@ export type CdpConfig = ClickhouseConfig & {
     CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: number
 
     // Email reputation evaluator (daily Temporal-scheduled bounce/complaint snapshots for workflows email)
-    EMAIL_REPUTATION_EVALUATION_HOUR_UTC: number
-    EMAIL_REPUTATION_TARGET_VOLUME: number
-    EMAIL_REPUTATION_VOLUME_MULTIPLIER: number
-    EMAIL_REPUTATION_MIN_WINDOW_HOURS: number
-    EMAIL_REPUTATION_LOOKBACK_DAYS: number
-    EMAIL_REPUTATION_MIN_SENDS: number
-    EMAIL_REPUTATION_BOUNCE_WARNING_RATE: number
-    EMAIL_REPUTATION_BOUNCE_CRITICAL_RATE: number
-    EMAIL_REPUTATION_COMPLAINT_WARNING_RATE: number
-    EMAIL_REPUTATION_COMPLAINT_CRITICAL_RATE: number
-    EMAIL_REPUTATION_BATCH_SIZE: number
-    EMAIL_REPUTATION_BATCH_DELAY_SECONDS: number
 }
 
 export function getDefaultCdpConfig(): CdpConfig {
@@ -245,12 +229,13 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_REDIS_READER_HOST: '',
         CDP_REDIS_READER_PORT: 6379,
 
-        CDP_VALKEY_HOST: '',
-        CDP_VALKEY_PORT: 6379,
+        // Points at the `valkey-cluster` compose service, which publishes on 6390 to stay
+        // clear of the 6379 the primary CDP Redis already uses.
+        CDP_VALKEY_HOST: isTestEnv() || isDevEnv() ? '127.0.0.1' : '',
+        CDP_VALKEY_PORT: isTestEnv() || isDevEnv() ? 6390 : 6379,
         CDP_VALKEY_PASSWORD: '',
         CDP_VALKEY_READER_HOST: '',
         CDP_VALKEY_READER_PORT: 6379,
-        CDP_VALKEY_DUAL_ENABLED: false,
         CDP_VALKEY_TLS: false,
 
         SES_RATE_LIMITER_VALKEY_HOST: '',
@@ -290,10 +275,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Small by default — rerun jobs are heavy (a full ClickHouse query per
         // page), so a replica drains one wrapper job at a time unless tuned up.
         CDP_RERUN_WORKER_BATCH_SIZE: 1,
-        CDP_PREFILTERED_EVENTS_TOPIC: KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
-        CDP_PREFILTERED_EVENTS_PRODUCER: WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
-        CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC: KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
-        CDP_PRECALCULATED_PERSON_PROPERTIES_PRODUCER: WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
         CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC: KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
         CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER: WAREHOUSE_PRODUCER,
 
@@ -318,6 +299,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_TRACKED_CONFIGURATION_SET: 'posthog-messaging',
         SES_UNTRACKED_CONFIGURATION_SET: '',
         SES_ALLOWED_SNS_TOPIC_ARNS: '',
+        EMAIL_SES_TENANT_ATTRIBUTION_ENABLED: false,
         EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: 5,
 
         // Destination migration diffing
@@ -353,24 +335,5 @@ export function getDefaultCdpConfig(): CdpConfig {
         CYCLOTRON_NODE_RESCHEDULE_CHUNK_SIZE: 5000,
         CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL: 20,
         CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: 100,
-
-        // Thresholds sit ahead of AWS SES's review lines (5% bounce / 0.1% complaint at ~0.5%
-        // escalation). Rates are computed SES-style over a window spanning at least
-        // MIN_WINDOW_HOURS and at least the target's representative volume of sends —
-        // max(TARGET_VOLUME, VOLUME_MULTIPLIER × its biggest sending day) — whichever reaches
-        // further back (capped at LOOKBACK_DAYS). Calculation only for now — enforcement
-        // ships separately.
-        EMAIL_REPUTATION_EVALUATION_HOUR_UTC: 6,
-        EMAIL_REPUTATION_TARGET_VOLUME: 1000,
-        EMAIL_REPUTATION_VOLUME_MULTIPLIER: 3,
-        EMAIL_REPUTATION_MIN_WINDOW_HOURS: 24,
-        EMAIL_REPUTATION_LOOKBACK_DAYS: 30,
-        EMAIL_REPUTATION_MIN_SENDS: DEFAULT_THRESHOLDS.minSends,
-        EMAIL_REPUTATION_BOUNCE_WARNING_RATE: DEFAULT_THRESHOLDS.bounceWarning,
-        EMAIL_REPUTATION_BOUNCE_CRITICAL_RATE: DEFAULT_THRESHOLDS.bounceCritical,
-        EMAIL_REPUTATION_COMPLAINT_WARNING_RATE: DEFAULT_THRESHOLDS.complaintWarning,
-        EMAIL_REPUTATION_COMPLAINT_CRITICAL_RATE: DEFAULT_THRESHOLDS.complaintCritical,
-        EMAIL_REPUTATION_BATCH_SIZE: 50,
-        EMAIL_REPUTATION_BATCH_DELAY_SECONDS: 30,
     }
 }
