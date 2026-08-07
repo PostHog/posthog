@@ -42,6 +42,20 @@ export function publishedCanvasBuild(
   );
 }
 
+export function historicalCanvasBuild(
+  lifecycle: CanvasBuildLifecycle,
+  versionId: string,
+): CanvasBuildRecord | null {
+  return (
+    lifecycle.builds.find(
+      (build) =>
+        build.sourceVersionId === versionId &&
+        build.buildStatus === "ready" &&
+        !!build.artifactUrl,
+    ) ?? null
+  );
+}
+
 export const canvasBuildLifecycleSchema = z.object({
   /** The live (last successful, still-eligible) build, null until one completes. */
   publishedBuildId: z.string().nullable(),
