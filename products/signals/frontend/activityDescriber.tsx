@@ -5,6 +5,8 @@ import {
     describeUserAction,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
+import { PRIORITY_THRESHOLD_SEGMENT_LABELS, SignalReportPriority } from './inbox/types'
+
 const scoutName = (logItem: ActivityLogItem): string =>
     logItem?.detail?.name || (logItem?.detail?.context as any)?.skill_name || 'scout'
 
@@ -49,6 +51,11 @@ const channelLabel = (value: unknown): string => {
     return name || 'a channel'
 }
 
+// Show the label the threshold control uses ("All", "P1+"), not the stored enum value, so the entry
+// names the option the user picked.
+const thresholdLabel = (value: unknown): string =>
+    PRIORITY_THRESHOLD_SEGMENT_LABELS[value as SignalReportPriority] ?? String(value)
+
 export function signalTeamConfigActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.activity === 'updated') {
         const changes = logItem.detail?.changes ?? []
@@ -73,17 +80,22 @@ export function signalTeamConfigActivityDescriber(logItem: ActivityLogItem, asNo
             if (change.field === 'default_autostart_priority') {
                 return describeUserAction(
                     logItem,
-                    `changed the PR generation threshold from ${change.before} to ${change.after}`
+                    `changed the PR generation threshold from ${thresholdLabel(change.before)} to ${thresholdLabel(
+                        change.after
+                    )}`
                 )
             }
 
             if (change.field === 'default_slack_notification_channel') {
-                return describeUserAction(
-                    logItem,
-                    change.after
-                        ? `set the default Slack channel for inbox notifications to ${channelLabel(change.after)}`
-                        : 'cleared the default Slack channel for inbox notifications'
-                )
+                // The channel name is customer-owned, so it goes in the masked slot rather than the
+                // action sentence.
+                return change.after
+                    ? describeUserAction(
+                          logItem,
+                          'set the default Slack channel for inbox notifications to',
+                          channelLabel(change.after)
+                      )
+                    : describeUserAction(logItem, 'cleared the default Slack channel for inbox notifications')
             }
 
             if (change.field === 'autostart_base_branches') {

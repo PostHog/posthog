@@ -174,6 +174,9 @@ const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plu
         singular: 'Project secret API key',
         plural: 'Project secret API keys',
     },
+    // The feature is called "Inbox settings" everywhere a user sees it, and there's only ever one
+    // set of them per team, so the plural reads the same.
+    [ActivityScope.SIGNAL_TEAM_CONFIG]: { singular: 'Inbox settings', plural: 'Inbox settings' },
     [ActivityScope.TICKET]: { singular: 'Support ticket', plural: 'Support tickets' },
 }
 
@@ -204,12 +207,21 @@ export function humanizeActivity(activity: string): string {
  * `userNameForLogItem` can fall back to an email address, so the name always needs `ph-no-capture`.
  * Describers that live in product packages can't do that themselves: those packages don't depend on
  * react, so they can't build JSX and can only return a plain string.
+ *
+ * `maskedSuffix` is appended after the action and masked too — use it for any customer-owned value
+ * the sentence ends with, such as a Slack channel name.
  */
-export function describeUserAction(logItem: ActivityLogItem, action: string): HumanizedChange {
+export function describeUserAction(logItem: ActivityLogItem, action: string, maskedSuffix?: string): HumanizedChange {
     return {
         description: (
             <>
                 <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> {action}
+                {maskedSuffix ? (
+                    <>
+                        {' '}
+                        <span className="ph-no-capture">{maskedSuffix}</span>
+                    </>
+                ) : null}
             </>
         ),
     }

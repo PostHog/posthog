@@ -22,20 +22,12 @@ import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombo
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
-import { PRIORITY_THRESHOLD_OPTIONS, SignalReportPriority } from '../../types'
+import { PRIORITY_THRESHOLD_OPTIONS, PRIORITY_THRESHOLD_SEGMENT_LABELS } from '../../types'
 
-/** Compact segmented-control label per priority. P4 (the lowest bar) reads as "All". */
-const THRESHOLD_SEGMENT_LABELS: Record<SignalReportPriority, string> = {
-    P0: 'P0',
-    P1: 'P1+',
-    P2: 'P2+',
-    P3: 'P3+',
-    P4: 'All',
-}
 /** Segments derived from the shared priority list, so the value set and order stay single-sourced. */
 const THRESHOLD_SEGMENTS = PRIORITY_THRESHOLD_OPTIONS.map(({ value }) => ({
     value,
-    label: THRESHOLD_SEGMENT_LABELS[value],
+    label: PRIORITY_THRESHOLD_SEGMENT_LABELS[value],
 }))
 
 function BaseBranchOverrideRows(): JSX.Element | null {

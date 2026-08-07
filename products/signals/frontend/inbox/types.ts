@@ -50,6 +50,15 @@ export const PRIORITY_THRESHOLD_OPTIONS: { value: SignalReportPriority; label: s
     { value: 'P4', label: 'P4 and above' },
 ]
 
+/** Compact segmented-control label per priority. P4 (the lowest bar) reads as "All". */
+export const PRIORITY_THRESHOLD_SEGMENT_LABELS: Record<SignalReportPriority, string> = {
+    P0: 'P0',
+    P1: 'P1+',
+    P2: 'P2+',
+    P3: 'P3+',
+    P4: 'All',
+}
+
 /** Actionability judgment outcome. Mirrors desktop `SignalReportActionability`. */
 export type SignalReportActionability = 'immediately_actionable' | 'requires_human_input' | 'not_actionable'
 

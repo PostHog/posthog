@@ -30,14 +30,27 @@ const renderDescription = (changes: ActivityChange[]): { text: string; container
 }
 
 describe('signalTeamConfigActivityDescriber', () => {
-    it('names both ends of a threshold change, which is the point of logging it', () => {
+    // The stored values are P4/P1, but the control labels them All/P1+, so the entry has to name the
+    // option the user actually picked.
+    it('names both ends of a threshold change with the labels the control shows', () => {
         const { text } = renderDescription([change('default_autostart_priority', 'P4', 'P1')])
-        expect(text).toBe('Ada changed the PR generation threshold from P4 to P1')
+        expect(text).toBe('Ada changed the PR generation threshold from All to P1+')
     })
 
     it('masks the actor so a name or email cannot reach autocapture or session replay', () => {
         const { container } = renderDescription([change('default_autostart_priority', 'P4', 'P1')])
         expect(container.querySelector('.ph-no-capture')?.textContent).toBe('Ada')
+    })
+
+    it('masks the Slack channel name, which belongs to the customer', () => {
+        const { text, container } = renderDescription([
+            change('default_slack_notification_channel', null, 'C123|#customer-escalation'),
+        ])
+        expect(text).toBe('Ada set the default Slack channel for inbox notifications to #customer-escalation')
+        expect([...container.querySelectorAll('.ph-no-capture')].map((el) => el.textContent)).toEqual([
+            'Ada',
+            '#customer-escalation',
+        ])
     })
 
     // The null rows are the ones worth guarding: a team that never set the switch had PR generation

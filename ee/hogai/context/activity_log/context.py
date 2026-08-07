@@ -34,6 +34,7 @@ SCOPE_DISPLAY_NAMES: dict[str, str] = {
     "HogFunction": "Data pipeline",
     "PersonalAPIKey": "Personal API key",
     "LLMTrace": "LLM trace",
+    "SignalTeamConfig": "Inbox settings",
     "Ticket": "Support ticket",
 }
 

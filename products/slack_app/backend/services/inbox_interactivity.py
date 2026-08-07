@@ -101,7 +101,8 @@ def handle_inbox_create(payload: dict) -> HttpResponse:
         return HttpResponse(status=200)
 
     # The channel write inside ensure_inbox_channel is activity-logged; attribute it to the clicker
-    # so it doesn't read as system activity (None user makes the context a no-op).
+    # so it doesn't read as system activity (None user makes the context a no-op). The resolved user
+    # is handed to mark_channel_joined below, which would otherwise resolve it a second time.
     acting_user = onboarding.resolve_onboarding_user_object(integration, slack_user_id)
     with ActingUserContext(acting_user):
         channel = inbox_channel.ensure_inbox_channel(integration)
@@ -114,7 +115,12 @@ def handle_inbox_create(payload: dict) -> HttpResponse:
     message_ts = payload.get("message", {}).get("ts")
     if dm_channel and message_ts:
         onboarding.mark_channel_joined(
-            integration, slack_user_id, dm_channel, message_ts, payload.get("message", {}).get("blocks", [])
+            integration,
+            slack_user_id,
+            dm_channel,
+            message_ts,
+            payload.get("message", {}).get("blocks", []),
+            user_id=acting_user.id if acting_user else None,
         )
     return HttpResponse(status=200)
 
@@ -128,7 +134,8 @@ def handle_inbox_join(payload: dict) -> HttpResponse:
         return HttpResponse(status=200)
 
     # The channel write inside ensure_inbox_channel is activity-logged; attribute it to the clicker
-    # so it doesn't read as system activity (None user makes the context a no-op).
+    # so it doesn't read as system activity (None user makes the context a no-op). The resolved user
+    # is handed to mark_channel_joined below, which would otherwise resolve it a second time.
     acting_user = onboarding.resolve_onboarding_user_object(integration, slack_user_id)
     with ActingUserContext(acting_user):
         channel = inbox_channel.ensure_inbox_channel(integration)
@@ -143,7 +150,12 @@ def handle_inbox_join(payload: dict) -> HttpResponse:
         message_ts = payload.get("message", {}).get("ts")
         if dm_channel and message_ts:
             onboarding.mark_channel_joined(
-                integration, slack_user_id, dm_channel, message_ts, payload.get("message", {}).get("blocks", [])
+                integration,
+                slack_user_id,
+                dm_channel,
+                message_ts,
+                payload.get("message", {}).get("blocks", []),
+                user_id=acting_user.id if acting_user else None,
             )
     else:
         _replace_message_via_response_url(response_url, f"I couldn't add you. {_reconnect_hint()}")

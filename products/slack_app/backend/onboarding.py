@@ -425,9 +425,15 @@ def _chat_update_blocks(integration: Integration, channel: str, message_ts: str,
 
 
 def mark_channel_joined(
-    integration: Integration, slack_user_id: str, channel: str, message_ts: str, original_blocks: list[dict]
+    integration: Integration,
+    slack_user_id: str,
+    channel: str,
+    message_ts: str,
+    original_blocks: list[dict],
+    user_id: int | None = None,
 ) -> None:
-    """After create/join: flip just the channel block to a '✅' line in place, then record completion."""
+    """After create/join: flip just the channel block to a '✅' line in place, then record completion.
+    Pass ``user_id`` when the caller already resolved it, to skip the repeat lookup."""
     swapped = _replace_actions_with_context(
         original_blocks,
         {INBOX_CREATE_ACTION_ID, INBOX_JOIN_ACTION_ID},
@@ -437,7 +443,7 @@ def mark_channel_joined(
     capture_slack_event(
         integration, EVENT_STEP_COMPLETED, slack_user_id=slack_user_id, step=str(OnboardingStep.CHANNEL)
     )
-    _maybe_complete(integration, slack_user_id)
+    _maybe_complete(integration, slack_user_id, user_id)
 
 
 def apply_sources_selection(integration: Integration, slack_user_id: str, selected_keys: list[str]) -> list[str]:
