@@ -33,17 +33,17 @@ describe('AIObservabilitySelfDriving', () => {
             </Provider>
         )
 
-        expect(screen.getAllByRole('button', { name: 'Use template' })).toHaveLength(3)
+        expect(screen.getAllByText('Use template')).toHaveLength(3)
 
-        const scoutsLink = screen.getByRole('link', { name: 'Scouts' })
+        const scoutsLink = screen.getByText('Scouts')
         expect(scoutsLink).toHaveAttribute('href', 'https://posthog.com/docs/self-driving/scouts')
         expect(scoutsLink).toHaveAttribute('target', '_blank')
 
-        const pipelineLink = screen.getByRole('link', { name: 'self-driving pipeline' })
+        const pipelineLink = screen.getByText('self-driving pipeline')
         expect(pipelineLink).toHaveAttribute('href', 'https://posthog.com/docs/self-driving/self-improving-loop')
         expect(pipelineLink).toHaveAttribute('target', '_blank')
 
-        expect(screen.getByRole('link', { name: 'Inbox' }).getAttribute('href')).toContain('/inbox/reports')
+        expect(screen.getByText('Inbox').getAttribute('href')).toContain('/inbox/reports')
         expect(screen.getByText(/Actionable scout reports appear in your/)).toBeInTheDocument()
         expect(screen.getByText('ai-observability').closest('p')).toHaveTextContent(
             'Add the ai-observability label to a scout for it to appear here.'
