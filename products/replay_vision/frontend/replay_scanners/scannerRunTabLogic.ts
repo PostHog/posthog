@@ -50,8 +50,10 @@ export interface scannerRunTabLogicValues {
     observationBySession: Record<string, RowObservation>
     pendingId: string | null
     refreshingObservations: boolean
+    resolvedSelection: {
+        sessionIds: string[]
+    } | null
     resolvingSelection: boolean
-    resolvedSelection: { sessionIds: string[] } | null
     shouldPoll: boolean
     visibleSessionIds: string[]
 }
@@ -83,6 +85,21 @@ export interface scannerRunTabLogicActions {
     loadObservationsSuccess: (bySession: Record<string, RowObservation>) => {
         bySession: Record<string, RowObservation>
     }
+    selectAllMatching: (query: RecordingsQuery) => {
+        query: RecordingsQuery
+    }
+    selectAllMatchingFailure: () => {
+        value: true
+    }
+    selectAllMatchingSuccess: (
+        sessionIds: string[],
+        capped: boolean,
+        totalMatched: number
+    ) => {
+        capped: boolean
+        sessionIds: string[]
+        totalMatched: number
+    }
     setPendingId: (sessionId: string) => {
         sessionId: string
     }
@@ -94,21 +111,6 @@ export interface scannerRunTabLogicActions {
     }
     startScan: (sessionId: string) => {
         sessionId: string
-    }
-    selectAllMatching: (query: RecordingsQuery) => {
-        query: RecordingsQuery
-    }
-    selectAllMatchingSuccess: (
-        sessionIds: string[],
-        capped: boolean,
-        totalMatched: number
-    ) => {
-        sessionIds: string[]
-        capped: boolean
-        totalMatched: number
-    }
-    selectAllMatchingFailure: () => {
-        value: true
     }
 }
 
