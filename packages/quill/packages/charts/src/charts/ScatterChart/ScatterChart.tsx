@@ -24,6 +24,8 @@ type NumericScale = ScaleLinear<number, number> | ScaleLogarithmic<number, numbe
 const DEFAULT_POINT_RADIUS = 4
 const AXIS_FONT_SIZE = 11
 const X_TICK_LABEL_GAP = 6
+// Minimum horizontal gap between adjacent x-tick labels; dense log-scale ticks otherwise overlap.
+const X_TICK_MIN_GAP = 8
 const X_TITLE_GAP = 6
 // Reserve enough bottom room for the canvas-drawn x-axis ticks (and title when present),
 // since `hideXAxis` tells the base chart not to leave space for x labels of its own.
@@ -261,11 +263,20 @@ function ScatterChartInner<Meta = unknown>({
             ctx.font = `${AXIS_FONT_SIZE}px -apple-system, system-ui, sans-serif`
             ctx.textAlign = 'center'
             ctx.textBaseline = 'top'
+            // Ticks come back ascending; drop any label that would collide with the previous one.
+            let lastLabelRight = -Infinity
             for (const tick of xTicks) {
                 const x = xScale(tick)
-                if (isFinite(x)) {
-                    ctx.fillText(xTickFormatter(tick), x, plotBottom + X_TICK_LABEL_GAP)
+                if (!isFinite(x)) {
+                    continue
                 }
+                const label = xTickFormatter(tick)
+                const halfWidth = ctx.measureText(label).width / 2
+                if (x - halfWidth < lastLabelRight + X_TICK_MIN_GAP) {
+                    continue
+                }
+                ctx.fillText(label, x, plotBottom + X_TICK_LABEL_GAP)
+                lastLabelRight = x + halfWidth
             }
             if (xAxisLabel) {
                 ctx.fillText(xAxisLabel, plotLeft + plotWidth / 2, plotBottom + X_AXIS_MARGIN + X_TITLE_GAP)
