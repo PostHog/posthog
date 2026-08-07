@@ -10,7 +10,7 @@ Provides separate tasks for verifying and fixing each HyperCache-backed cache
 """
 
 import time
-from typing import Literal
+from typing import Literal, get_args
 
 from django.conf import settings
 from django.core.cache import cache as django_cache
@@ -18,9 +18,11 @@ from django.core.cache import cache as django_cache
 import structlog
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
+from prometheus_client import Counter
 
 from posthog.exceptions_capture import capture_exception
-from posthog.storage.hypercache_verifier import TeamBatchFetchError, _run_verification_for_cache
+from posthog.storage.hypercache_manager import HyperCacheManagementConfig
+from posthog.storage.hypercache_verifier import TeamBatchFetchError, VerifyTeamFn, _run_verification_for_cache
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
 from products.feature_flags.backend.local_evaluation import (
@@ -44,6 +46,29 @@ FLAG_DEFINITIONS_LOCK_TIMEOUT_SECONDS = 30 * 60  # 30 minutes
 
 FLAG_DEFINITIONS_CACHE_TYPE = "flag_definitions"
 
+# reason="soft_time_limit" is expected wind-down (the run used up its time budget) and
+# is recorded for observability only; "db_unreachable" and "error" drive the
+# FlagsCacheVerificationRepeatedGiveUps alert in PostHog/charts.
+IncompleteRunReason = Literal["db_unreachable", "error", "soft_time_limit"]
+
+# Verification runs that wound down before completing their sweep, by reason.
+HYPERCACHE_VERIFICATION_INCOMPLETE_RUNS_COUNTER = Counter(
+    "posthog_hypercache_verification_incomplete_runs_total",
+    "Hypercache verification runs that wound down before completing the sweep",
+    labelnames=["cache_type", "reason"],
+)
+
+# Pre-create every label pair so zero-valued series exist from worker boot: increase()
+# never misses a series' first increment, and alert expressions can be validated
+# against live series before any incident occurs.
+for _cache_type in (*get_args(CacheType), FLAG_DEFINITIONS_CACHE_TYPE):
+    for _reason in get_args(IncompleteRunReason):
+        HYPERCACHE_VERIFICATION_INCOMPLETE_RUNS_COUNTER.labels(cache_type=_cache_type, reason=_reason)
+
+
+def _record_incomplete_run(cache_type: str, reason: IncompleteRunReason) -> None:
+    HYPERCACHE_VERIFICATION_INCOMPLETE_RUNS_COUNTER.labels(cache_type=cache_type, reason=reason).inc()
+
 
 def _log_batch_fetch_exhausted(cache_type: str, start_time: float, error: TeamBatchFetchError) -> None:
     # Not a code failure: Postgres stayed unreachable across retries, so the run
@@ -66,6 +91,39 @@ def _log_soft_time_limit_exceeded(cache_type: str, start_time: float) -> None:
     )
 
 
+def _execute_verification_run(
+    config: HyperCacheManagementConfig,
+    verify_team_fn: VerifyTeamFn,
+    cache_type: str,
+    chunk_size: int,
+) -> None:
+    """Run one verification sweep, classifying early wind-downs vs real failures."""
+    start_time = time.time()
+
+    try:
+        _run_verification_for_cache(
+            config=config,
+            verify_team_fn=verify_team_fn,
+            cache_type=cache_type,
+            chunk_size=chunk_size,
+        )
+    except SoftTimeLimitExceeded:
+        _record_incomplete_run(cache_type, "soft_time_limit")
+        _log_soft_time_limit_exceeded(cache_type, start_time)
+        return
+    except TeamBatchFetchError as e:
+        _record_incomplete_run(cache_type, "db_unreachable")
+        _log_batch_fetch_exhausted(cache_type, start_time, e)
+        return
+    except Exception as e:
+        _record_incomplete_run(cache_type, "error")
+        logger.exception("Failed cache verification", cache_type=cache_type, error=str(e))
+        capture_exception(e)
+        raise
+
+    logger.info("Completed cache verification", cache_type=cache_type, duration_seconds=time.time() - start_time)
+
+
 def _run_flag_definitions_verification() -> None:
     """
     Run verification for the flag definitions cache.
@@ -85,28 +143,12 @@ def _run_flag_definitions_verification() -> None:
 
     try:
         logger.info("Starting cache verification", cache_type=FLAG_DEFINITIONS_CACHE_TYPE)
-        start_time = time.time()
-
-        try:
-            _run_verification_for_cache(
-                config=FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
-                verify_team_fn=verify_team_flag_definitions,
-                cache_type=FLAG_DEFINITIONS_CACHE_TYPE,
-                chunk_size=settings.FLAGS_CACHE_VERIFICATION_CHUNK_SIZE,
-            )
-        except SoftTimeLimitExceeded:
-            _log_soft_time_limit_exceeded(FLAG_DEFINITIONS_CACHE_TYPE, start_time)
-            return
-        except TeamBatchFetchError as e:
-            _log_batch_fetch_exhausted(FLAG_DEFINITIONS_CACHE_TYPE, start_time, e)
-            return
-        except Exception as e:
-            logger.exception("Failed cache verification", cache_type=FLAG_DEFINITIONS_CACHE_TYPE, error=str(e))
-            capture_exception(e)
-            raise
-
-        duration = time.time() - start_time
-        logger.info("Completed cache verification", cache_type=FLAG_DEFINITIONS_CACHE_TYPE, duration_seconds=duration)
+        _execute_verification_run(
+            config=FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
+            verify_team_fn=verify_team_flag_definitions,
+            cache_type=FLAG_DEFINITIONS_CACHE_TYPE,
+            chunk_size=settings.FLAGS_CACHE_VERIFICATION_CHUNK_SIZE,
+        )
     finally:
         django_cache.delete(lock_key)
 
@@ -148,25 +190,7 @@ def _run_cache_verification(cache_type: CacheType, chunk_size: int) -> None:
                 verify_team_metadata as verify_fn,
             )
 
-        start_time = time.time()
-
-        try:
-            _run_verification_for_cache(
-                config=config, verify_team_fn=verify_fn, cache_type=cache_type, chunk_size=chunk_size
-            )
-        except SoftTimeLimitExceeded:
-            _log_soft_time_limit_exceeded(cache_type, start_time)
-            return
-        except TeamBatchFetchError as e:
-            _log_batch_fetch_exhausted(cache_type, start_time, e)
-            return
-        except Exception as e:
-            logger.exception("Failed cache verification", cache_type=cache_type, error=str(e))
-            capture_exception(e)
-            raise
-
-        duration = time.time() - start_time
-        logger.info("Completed cache verification", cache_type=cache_type, duration_seconds=duration)
+        _execute_verification_run(config=config, verify_team_fn=verify_fn, cache_type=cache_type, chunk_size=chunk_size)
     finally:
         django_cache.delete(lock_key)
 
@@ -189,7 +213,8 @@ def verify_and_fix_flags_cache_task(self: PushGatewayTask) -> None:
 
     Expected duration: ~8-10 minutes with 250-team batch size.
 
-    Metrics: posthog_hypercache_verify_fixes_total{cache_type="flags", issue_type="..."}
+    Metrics: posthog_hypercache_verify_fixes_total{cache_type="flags", issue_type="..."},
+    posthog_hypercache_verification_incomplete_runs_total{cache_type="flags", reason="..."}
     """
     _run_cache_verification("flags", settings.FLAGS_CACHE_VERIFICATION_CHUNK_SIZE)
 
@@ -212,7 +237,8 @@ def verify_and_fix_team_metadata_cache_task(self: PushGatewayTask) -> None:
 
     Expected duration: ~3-5 minutes with 1000-team batch size.
 
-    Metrics: posthog_hypercache_verify_fixes_total{cache_type="team_metadata", issue_type="..."}
+    Metrics: posthog_hypercache_verify_fixes_total{cache_type="team_metadata", issue_type="..."},
+    posthog_hypercache_verification_incomplete_runs_total{cache_type="team_metadata", reason="..."}
     """
     _run_cache_verification("team_metadata", settings.TEAM_METADATA_CACHE_VERIFICATION_CHUNK_SIZE)
 
@@ -234,6 +260,7 @@ def verify_and_fix_flag_definitions_cache_task(self: PushGatewayTask) -> None:
 
     Uses a distributed lock to skip execution if a previous run is still in progress.
 
-    Metrics: posthog_hypercache_verify_fixes_total{cache_type="flag_definitions", issue_type="..."}
+    Metrics: posthog_hypercache_verify_fixes_total{cache_type="flag_definitions", issue_type="..."},
+    posthog_hypercache_verification_incomplete_runs_total{cache_type="flag_definitions", reason="..."}
     """
     _run_flag_definitions_verification()
