@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { type DependencyList, useCallback, useMemo } from 'react'
+import { type DependencyList, useCallback, useEffect, useMemo, useState } from 'react'
 
 import type { ChartTheme, DateRangeZoomData } from '@posthog/quill-charts'
 
@@ -29,12 +29,43 @@ function chartThemeDefaults(isDarkModeOn: boolean): Partial<ChartTheme> {
     }
 }
 
-/** Theme for app quill charts. `buildTheme()` reads CSS variables from the DOM, so the memo keys on
- *  `isDarkModeOn` to re-read them when the app theme flips. Pass a stable (memoized or module-level)
- *  `overrides` object — a fresh object every render defeats the memo. */
+/** `buildTheme()` reads CSS variables, so it can't be keyed on `isDarkModeOn`: `useThemedHtml` applies
+ *  the theme by writing `document.body[theme]` from an effect, which runs after the render that
+ *  flipped the value. Reading at render time therefore returns the outgoing theme's variables, and
+ *  nothing recomputes them until the next reload — leaving axis labels in the previous mode's text
+ *  color. Watching the attribute is independent of that ordering. */
+function useCssVarTheme(): ChartTheme {
+    const [theme, setTheme] = useState<ChartTheme>(buildTheme)
+
+    useEffect(() => {
+        let applied = document.body.getAttribute('theme')
+        const reread = (): void => {
+            const next = document.body.getAttribute('theme')
+            if (next !== applied) {
+                applied = next
+                setTheme(buildTheme())
+            }
+        }
+        // The attribute may already have been written between the first render and here.
+        reread()
+
+        const observer = new MutationObserver(reread)
+        observer.observe(document.body, { attributeFilter: ['theme'] })
+        return () => observer.disconnect()
+    }, [])
+
+    return theme
+}
+
+/** Theme for app quill charts. Pass a stable (memoized or module-level) `overrides` object — a fresh
+ *  object every render defeats the memo. */
 export function useChartTheme(overrides?: Partial<ChartTheme>): ChartTheme {
     const { isDarkModeOn } = useValues(themeLogic)
-    return useMemo(() => buildTheme({ ...chartThemeDefaults(isDarkModeOn), ...overrides }), [isDarkModeOn, overrides])
+    const cssVarTheme = useCssVarTheme()
+    return useMemo(
+        () => ({ ...cssVarTheme, ...chartThemeDefaults(isDarkModeOn), ...overrides }),
+        [cssVarTheme, isDarkModeOn, overrides]
+    )
 }
 
 /** The single rollout gate for chart drag-to-zoom, applied inside `useDateRangeZoom` so every
