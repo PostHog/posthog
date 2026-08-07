@@ -825,7 +825,7 @@ export interface PaginatedExperimentBasicListApi {
 }
 
 /**
- * The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.
+ * The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.
  * @nullable
  */
 export type ExperimentWriteApiOriginalExperiment = { [key: string]: unknown } | null
@@ -1491,12 +1491,12 @@ export interface ExperimentWriteApi {
     /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
     update_feature_flag_params?: boolean
     /**
-     * Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: a stale update that only touches the metric collections is merged per metric uuid when `original_experiment` is also sent; anything else fails with HTTP 409. Omit to skip the check.
+     * Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: a stale update merges concurrent changes where safe — metric collections per metric uuid, other fields per field — using the base values sent in `original_experiment`, and fails with HTTP 409 only when the same metric or field changed on both sides (or no base value was sent for a changed field). Omit to skip the check.
      * @nullable
      */
     version?: number | null
     /**
-     * The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.
+     * The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.
      * @nullable
      */
     original_experiment?: ExperimentWriteApiOriginalExperiment
@@ -1516,7 +1516,7 @@ export interface ExperimentWriteApi {
 }
 
 /**
- * The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.
+ * The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.
  * @nullable
  */
 export type ExperimentApiOriginalExperiment = { [key: string]: unknown } | null
@@ -1628,12 +1628,12 @@ export interface ExperimentApi {
     /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
     update_feature_flag_params?: boolean
     /**
-     * Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: a stale update that only touches the metric collections is merged per metric uuid when `original_experiment` is also sent; anything else fails with HTTP 409. Omit to skip the check.
+     * Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: a stale update merges concurrent changes where safe — metric collections per metric uuid, other fields per field — using the base values sent in `original_experiment`, and fails with HTTP 409 only when the same metric or field changed on both sides (or no base value was sent for a changed field). Omit to skip the check.
      * @nullable
      */
     version?: number | null
     /**
-     * The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.
+     * The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.
      * @nullable
      */
     original_experiment?: ExperimentApiOriginalExperiment
@@ -1653,7 +1653,7 @@ export interface ExperimentApi {
 }
 
 /**
- * The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.
+ * The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.
  * @nullable
  */
 export type PatchedExperimentWriteApiOriginalExperiment = { [key: string]: unknown } | null
@@ -1761,12 +1761,12 @@ export interface PatchedExperimentWriteApi {
     /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
     update_feature_flag_params?: boolean
     /**
-     * Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: a stale update that only touches the metric collections is merged per metric uuid when `original_experiment` is also sent; anything else fails with HTTP 409. Omit to skip the check.
+     * Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: a stale update merges concurrent changes where safe — metric collections per metric uuid, other fields per field — using the base values sent in `original_experiment`, and fails with HTTP 409 only when the same metric or field changed on both sides (or no base value was sent for a changed field). Omit to skip the check.
      * @nullable
      */
     version?: number | null
     /**
-     * The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.
+     * The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.
      * @nullable
      */
     original_experiment?: PatchedExperimentWriteApiOriginalExperiment
@@ -1884,15 +1884,18 @@ export interface EndExperimentApi {
     /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
     open_cleanup_pr?: boolean
     /**
-     * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used.
+     * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository, the team's default cleanup repository, or the team's only connected repository is used.
      * @maxLength 255
      * @nullable
      */
     repository?: string | null
+    /** When true, also save `repository` as this environment's default cleanup repository, used for experiments that have no repository of their own. Only acts when open_cleanup_pr is true and `repository` is provided and belongs to the team's GitHub installation. Requires project admin access (403 otherwise). */
+    set_repository_as_team_default?: boolean
 }
 
 /**
  * * `explicit` - explicit
+ * * `team_default` - team_default
  * * `single_repo` - single_repo
  * * `ambiguous` - ambiguous
  * * `no_integration` - no_integration
@@ -1902,6 +1905,7 @@ export type ExperimentFlagCleanupTargetSourceEnumApi =
 
 export const ExperimentFlagCleanupTargetSourceEnumApi = {
     Explicit: 'explicit',
+    TeamDefault: 'team_default',
     SingleRepo: 'single_repo',
     Ambiguous: 'ambiguous',
     NoIntegration: 'no_integration',
@@ -1913,9 +1917,10 @@ export interface ExperimentFlagCleanupTargetApi {
      * @nullable
      */
     repository: string | null
-    /** How the repository was determined: `explicit` (saved on the experiment), `single_repo` (the team's only connected repository), `ambiguous` (several connected repositories and none saved — pass one via repository on end/ship_variant), or `no_integration` (no GitHub integration or no connected repositories, so no cleanup PR can be opened).
+    /** How the repository was determined: `explicit` (saved on the experiment), `team_default` (the environment's default cleanup repository), `single_repo` (the team's only connected repository), `ambiguous` (several connected repositories and none saved — pass one via repository on end/ship_variant), or `no_integration` (no GitHub integration or no connected repositories, so no cleanup PR can be opened).
      *
      * * `explicit` - explicit
+     * * `team_default` - team_default
      * * `single_repo` - single_repo
      * * `ambiguous` - ambiguous
      * * `no_integration` - no_integration */
@@ -2264,11 +2269,13 @@ export interface ShipVariantApi {
     /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
     open_cleanup_pr?: boolean
     /**
-     * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used.
+     * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository, the team's default cleanup repository, or the team's only connected repository is used.
      * @maxLength 255
      * @nullable
      */
     repository?: string | null
+    /** When true, also save `repository` as this environment's default cleanup repository, used for experiments that have no repository of their own. Only acts when open_cleanup_pr is true and `repository` is provided and belongs to the team's GitHub installation. Requires project admin access (403 otherwise). */
+    set_repository_as_team_default?: boolean
     /** The key of the variant to ship. */
     variant_key: string
     /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */

@@ -67,6 +67,11 @@ _ACCOUNT_PROPERTIES_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
+        "email_domains": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Email domains owned by this account's company, used to match inbound touchpoints to the account.",
+        },
         "stripe_customer_id": {"type": "string", "nullable": True},
         "hubspot_deal_id": {"type": "string", "nullable": True},
         "billing_id": {"type": "string", "nullable": True},
@@ -161,8 +166,9 @@ class AccountSerializer(DataclassSerializer):
         help_text=(
             "Typed account properties: external system identifiers (stripe_customer_id, "
             "hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, "
-            "usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys "
-            "are rejected. User assignments live on account relationships, not here."
+            "usage_dashboard_link, metabase_link) and email_domains (the company's email "
+            "domains, used to match inbound touchpoints). Defaults to an empty object. Unknown "
+            "keys are rejected. User assignments live on account relationships, not here."
         ),
     )
     tags = serializers.ListField(
@@ -401,7 +407,11 @@ class CustomPropertySyncRunSerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True)
     trigger = serializers.CharField(
         read_only=True,
-        help_text="What started the run: 'scheduled' (rode a warehouse sync), 'manual', or 'backfill'.",
+        help_text=(
+            "What started the run: 'scheduled' (rode a warehouse sync), 'sync' (a warehouse sync "
+            "started from the UI), 'manual' (a backfill started from the UI), or 'backfill' (the "
+            "automatic backfill run when a mapping is created or re-enabled)."
+        ),
     )
     status = serializers.CharField(read_only=True, help_text="Run status: 'running', 'completed', or 'failed'.")
     started_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When the run began.")

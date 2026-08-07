@@ -64,17 +64,17 @@ const STEP_HEADERS: Record<
     { hedgehog: JSX.Element; title: string; subtitle: string }
 > = {
     configure: {
-        hedgehog: <HedgehogMagnifyingGlass className="h-24 w-auto shrink-0" />,
+        hedgehog: <HedgehogMagnifyingGlass className="h-16 sm:h-24 w-auto shrink-0" />,
         title: 'Configure your scanner',
         subtitle: 'What it looks for and how it analyzes recordings.',
     },
     triggers: {
-        hedgehog: <HedgehogConstruction2 className="h-24 w-auto shrink-0" />,
+        hedgehog: <HedgehogConstruction2 className="h-16 sm:h-24 w-auto shrink-0" />,
         title: 'Set up scan conditions',
         subtitle: 'Pick which recordings to scan, and how often.',
     },
     self_driving: {
-        hedgehog: <HedgehogImTheDriver className="h-24 w-auto shrink-0" />,
+        hedgehog: <HedgehogImTheDriver className="h-16 sm:h-24 w-auto shrink-0" />,
         title: 'Self-driving',
         subtitle: 'Close the loop: from findings to shipped fixes.',
     },
@@ -182,7 +182,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                             enableFormOnSubmit
                             className="max-w-4xl w-full mx-auto"
                         >
-                            <div className="bg-bg-light border rounded-lg shadow-sm p-6 flex flex-col gap-6 [&_.Field--error_.input-like]:!border-danger">
+                            <div className="bg-bg-light border rounded-lg shadow-sm p-4 sm:p-6 flex flex-col gap-6 [&_.Field--error_.input-like]:!border-danger">
                                 <div className="flex items-center gap-3">
                                     {STEP_HEADERS[step].hedgehog}
                                     <div>
@@ -297,7 +297,7 @@ function ConfigureStep(): JSX.Element {
 
             <div className="flex flex-col gap-1 items-start">
                 <LemonField name="model" label="Model" className="items-start">
-                    <LemonSelect value={scanner.model} options={MODEL_OPTIONS} />
+                    <LemonSelect className="max-w-full" value={scanner.model} options={MODEL_OPTIONS} />
                 </LemonField>
                 <div className="text-xs text-muted">
                     Newer models tend to produce higher-quality observations, but cost more per observation.
@@ -356,7 +356,8 @@ function EditorFooter({
     onAdvance: () => void
     onSave: () => void
 }): JSX.Element {
-    const { scanner, durationValidationError } = useValues(replayScannerLogic({ id: scannerId }))
+    const { scanner, durationValidationError, hasUnsavedChanges } = useValues(replayScannerLogic({ id: scannerId }))
+    const { discardScannerDraft } = useActions(replayScannerLogic({ id: scannerId }))
     const stepIndex = visibleSteps.indexOf(step)
     const prevStep = stepIndex > 0 ? visibleSteps[stepIndex - 1] : null
     const nextStep = stepIndex < visibleSteps.length - 1 ? visibleSteps[stepIndex + 1] : null
@@ -367,13 +368,33 @@ function EditorFooter({
     const durationError = ownsDurationFilter ? durationValidationError : null
     const saveDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level) ?? durationError
 
+    const cancel = (): void => {
+        // Resetting first leaves nothing unsaved, so the leave guard can't prompt on top of this.
+        discardScannerDraft()
+        router.actions.push(isNew ? urls.replayVision() : urls.replayVision(scannerId))
+    }
+    const handleCancel = (): void => {
+        if (!hasUnsavedChanges) {
+            cancel()
+            return
+        }
+        LemonDialog.open({
+            title: isNew ? 'Discard this scanner?' : 'Discard your changes?',
+            description: isNew
+                ? "The scanner you've been setting up won't be saved."
+                : "The changes you made won't be saved.",
+            primaryButton: { children: 'Discard', status: 'danger', onClick: cancel },
+            secondaryButton: { children: 'Keep editing' },
+        })
+    }
+
     return (
         <div className="flex flex-col gap-2">
             {/* On self-driving the duration field isn't on screen, so a tooltip alone isn't enough. */}
             {step === 'self_driving' && durationError ? (
                 <div className="text-danger text-sm">{durationError}</div>
             ) : null}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
                 {/* First form step of a new scanner goes back to the template picker; a mid-flow step goes to the
                 previous visible step; editing's first step (configure, no template) has no back. */}
                 {isNew && step === 'configure' ? (
@@ -389,30 +410,38 @@ function EditorFooter({
                         Back
                     </LemonButton>
                 ) : null}
-                {nextStep ? (
+                <div className="flex flex-wrap items-center gap-2 ml-auto">
                     <LemonButton
-                        type="primary"
-                        loading={isSubmitting}
-                        disabledReason={saveDisabledReason}
-                        onClick={onAdvance}
-                        className="ml-auto"
-                        data-attr="vision-editor-next"
+                        type="tertiary"
+                        onClick={handleCancel}
+                        disabledReason={isSubmitting ? 'Saving…' : undefined}
+                        data-attr="vision-editor-cancel"
                     >
-                        Next: {STEP_LABELS[nextStep]}
+                        Cancel
                     </LemonButton>
-                ) : (
-                    <LemonButton
-                        type="primary"
-                        loading={isSubmitting}
-                        disabledReason={saveDisabledReason}
-                        onClick={onSave}
-                        className="ml-auto"
-                        data-attr="vision-editor-save"
-                        data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
-                    >
-                        {isNew ? 'Create scanner' : 'Save changes'}
-                    </LemonButton>
-                )}
+                    {nextStep ? (
+                        <LemonButton
+                            type="primary"
+                            loading={isSubmitting}
+                            disabledReason={saveDisabledReason}
+                            onClick={onAdvance}
+                            data-attr="vision-editor-next"
+                        >
+                            Next: {STEP_LABELS[nextStep]}
+                        </LemonButton>
+                    ) : (
+                        <LemonButton
+                            type="primary"
+                            loading={isSubmitting}
+                            disabledReason={saveDisabledReason}
+                            onClick={onSave}
+                            data-attr="vision-editor-save"
+                            data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
+                        >
+                            {isNew ? 'Create scanner' : 'Save changes'}
+                        </LemonButton>
+                    )}
+                </div>
             </div>
         </div>
     )

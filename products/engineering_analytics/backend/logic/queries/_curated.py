@@ -240,6 +240,12 @@ class CuratedGitHubSource:
         (CI triggers), ``rerun_cycles`` the runs that were a 2nd+ attempt. Fork-PR runs have no
         association (``pr_number = 0``) and are excluded.
 
+        Merge-queue gate runs are excluded too, even though the runs builder credits them to the PR
+        they were landing. This rollup measures what the *author* did to the PR, and a gate branch's
+        head SHA is a rebase the queue made — counting it would report a push nobody made, once per
+        merge attempt. Cost and CI-health surfaces keep the gate run; they measure spend and outcomes,
+        not authoring activity.
+
         Keyed on ``(repo_owner, repo_name, pr_number)``, not ``pr_number`` alone: PR numbers
         restart per repository, so the PR-list join is qualified by repo to stay correct — as
         repo-safe as the head-SHA join in ``ci_rollup_cte``. A resolved source is a single repo
@@ -256,7 +262,7 @@ class CuratedGitHubSource:
                     count(DISTINCT head_sha) AS pushes,
                     countIf(run_attempt > 1) AS rerun_cycles
                 FROM runs AS r
-                WHERE pr_number > 0
+                WHERE pr_number > 0 AND NOT is_merge_queue
                 GROUP BY repo_owner, repo_name, pr_number
             )
         """

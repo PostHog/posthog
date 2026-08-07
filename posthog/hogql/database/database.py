@@ -7,9 +7,10 @@ import threading
 import dataclasses
 import pickletools
 from collections import defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from functools import cache
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -88,7 +89,10 @@ from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.hog_invocation_results import HogInvocationResultsTable
-from posthog.hogql.database.schema.information_schema import disable_data_catalog
+from posthog.hogql.database.schema.information_schema import (
+    direct_connection_information_schema_node,
+    disable_data_catalog,
+)
 from posthog.hogql.database.schema.log_entries import (
     BatchExportLogEntriesTable,
     LogEntriesTable,
@@ -379,7 +383,16 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
         "generate_series": TableNode(name="generate_series", table=GenerateSeriesTable()),
     }
 
-    if include_posthog_tables:
+    if not include_posthog_tables:
+        # This is a direct-connection catalog: no PostHog tables, only the connection's own. It still
+        # needs to be discoverable — otherwise the only way to learn a connection's table names is to
+        # already know them. The rows are computed from this Database object, so they describe the
+        # connection, not the team's ClickHouse catalog. `_prepare_direct_query` explains why such a
+        # query still runs on ClickHouse rather than being sent to the remote engine.
+        children["system"] = TableNode(
+            name="system", children={"information_schema": direct_connection_information_schema_node()}
+        )
+    else:
         root_tables = clone_root_tables()
         children = {
             **root_tables,
@@ -451,20 +464,58 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
 
 
 @cache
-def _system_table_access_scopes() -> tuple[tuple[str, APIScopeObject], ...]:
-    """(table name, access scope) for the access-controlled Postgres system tables.
+def _system_table_access_scopes() -> Mapping[str, APIScopeObject]:
+    """Table name -> access scope for the access-controlled Postgres system tables.
 
     Cached for the process lifetime — this result directly gates table visibility in access-control
     decisions, so every entry here MUST remain process-static. Do NOT make a system table's
     access_scope dynamic (per-team, per-flag, or env-driven at call time): this cache would silently
     serve stale scopes and bypass the restriction. Today SystemTables().children is a static
     class-level dict of module-level PostgresTable constants, which satisfies that invariant.
+    Returned read-only so a caller can't mutate the shared cached mapping.
     """
-    return tuple(
-        (name, table_node.table.access_scope)
-        for name, table_node in SystemTables().children.items()
-        if isinstance(table_node.table, PostgresTable) and table_node.table.access_scope is not None
+    return MappingProxyType(
+        {
+            name: table_node.table.access_scope
+            for name, table_node in SystemTables().children.items()
+            if isinstance(table_node.table, PostgresTable) and table_node.table.access_scope is not None
+        }
     )
+
+
+@cache
+def _system_table_required_features() -> Mapping[str, str]:
+    """Table name -> required AvailableFeature for system tables behind a billing entitlement.
+
+    Same process-static invariant as _system_table_access_scopes: the entitlement a table *requires*
+    is a static property of the table. What varies per organization is whether that entitlement is
+    *available*, which is resolved uncached in _unentitled_system_tables. Returned read-only so a
+    caller can't mutate the shared cached mapping.
+    """
+    return MappingProxyType(
+        {
+            name: table_node.table.required_feature_on_cloud
+            for name, table_node in SystemTables().children.items()
+            if isinstance(table_node.table, PostgresTable) and table_node.table.required_feature_on_cloud is not None
+        }
+    )
+
+
+def _unentitled_system_tables(team: Team) -> set[str]:
+    """System tables the team's organization is not entitled to, hidden from the schema.
+
+    Entitlement is organization-wide, so unlike RBAC this applies to every principal including
+    organization admins. Cloud-only, mirroring PremiumFeaturePermission's `premium_feature_on_cloud`.
+    """
+    # Lazy imports keep the Django ORM off this module's import path.
+    from posthog.cloud_utils import is_cloud  # noqa: PLC0415
+
+    required_features = _system_table_required_features()
+    if not required_features or not is_cloud():
+        return set()
+
+    organization = team.organization
+    return {name for name, feature in required_features.items() if not organization.is_feature_available(feature)}
 
 
 def _compute_system_table_access_decision(
@@ -483,20 +534,25 @@ def _compute_system_table_access_decision(
     from posthog.shared_link_user import SharedLinkUser  # noqa: PLC0415
 
     scoped_tables = _system_table_access_scopes()
+    # Applies to every principal below, admins included - an entitlement the organization does not
+    # have cannot be granted by a role.
+    unentitled = _unentitled_system_tables(team)
 
     # Anonymous or synthetic principal: keep only access-controlled tables its scopes cover (none for shared link / team token).
     if user is None or isinstance(user, SyntheticUser | SharedLinkUser):
         readable_scopes = user.readable_system_table_access_scopes() if user is not None else set()
-        return None, {name for name, access_scope in scoped_tables if access_scope not in readable_scopes}
+        return None, unentitled | {
+            name for name, access_scope in scoped_tables.items() if access_scope not in readable_scopes
+        }
 
     user_access_control = user_access_control or UserAccessControl(user=user, team=team)
 
     org_membership = user_access_control._organization_membership
     if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
-        return user_access_control, set()
+        return user_access_control, unentitled
 
-    denied: set[str] = set()
-    for name, access_scope in scoped_tables:
+    denied: set[str] = set(unentitled)
+    for name, access_scope in scoped_tables.items():
         access_level = user_access_control.access_level_for_resource(access_scope)
         if access_level and access_level != NO_ACCESS_LEVEL:
             continue  # User has access, keep it
@@ -753,7 +809,11 @@ class Database(BaseModel):
 
     def apply_schema_scope(self) -> None:
         if self._is_direct_query():
-            self.prune_to_table_names(set(self._warehouse_table_names))
+            # The connection's own information_schema survives the prune: it describes the connection
+            # rather than reading from it, and it is how a caller discovers these table names at all.
+            system_node = self.tables.children.get("system")
+            catalog_table_names = set(system_node.resolve_visible_table_names()) if system_node is not None else set()
+            self.prune_to_table_names(set(self._warehouse_table_names) | catalog_table_names)
             return
 
         allowed_table_names = set(self.tables.resolve_all_table_names())
@@ -1572,7 +1632,7 @@ class Database(BaseModel):
                         resolver=PERSONS,
                     )
 
-                _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database)
+                _add_error_tracking_fields(database)
 
         with timings.measure("session_table", emit_span=True):
             if not database._is_direct_query() and (
@@ -2169,11 +2229,7 @@ def _error_tracking_event_exprs() -> dict[str, ast.Expr]:
     # the parser's min-cacheable length, so they would otherwise re-parse on every build.
     return {
         "event_issue_id": parse_expr("toUUID(properties.$exception_issue_id)"),
-        # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.fingerprint`` is not Nullable
-        "issue_id": parse_expr(
-            "if(not(empty(exception_issue_override.issue_id)), exception_issue_override.issue_id, event_issue_id)",
-            start=None,
-        ),
+        "issue_id": parse_expr("fingerprint_issue_state.issue_id", start=None),
         "issue_id_v2": parse_expr("fingerprint_issue_state.issue_id", start=None),
         "issue_name": parse_expr("fingerprint_issue_state.issue_name", start=None),
         "issue_description": parse_expr("fingerprint_issue_state.issue_description", start=None),
@@ -2184,7 +2240,7 @@ def _error_tracking_event_exprs() -> dict[str, ast.Expr]:
     }
 
 
-def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: Database) -> None:
+def _add_error_tracking_fields(database: Database) -> None:
     exprs = copy.deepcopy(_error_tracking_event_exprs())
     table = database.get_table("events")
     # convert event_issue_id to UUID to match type of `issue_id` on the overrides table

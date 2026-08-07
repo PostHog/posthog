@@ -19,6 +19,7 @@ from posthog.settings import EE_AVAILABLE
 
 if TYPE_CHECKING:
     from posthog.models.file_system.file_system import FileSystem
+    from posthog.user_permissions import UserPermissions
 
     from ee.models import AccessControl
 
@@ -595,8 +596,13 @@ class UserAccessControl:
             # Early return to prevent an unnecessary lookup
             return []
 
-        role_memberships = cast(Any, self._user).role_memberships.select_related("role").all()
-        return [membership.role.id for membership in role_memberships]
+        # Scoped to this organization: an AccessControl row can name a role belonging to a
+        # different organization, and such a row must not grant or deny anything here.
+        return list(
+            cast(Any, self._user)
+            .role_memberships.filter(role__organization_id=self._organization_id)
+            .values_list("role_id", flat=True)
+        )
 
     @cached_property
     def _cached_access_controls(self) -> list[_AccessControl]:
@@ -665,7 +671,13 @@ class UserAccessControl:
                 **filters, organization_member=None, role=None
             )
             | Q(  # Access controls applying to this user
-                **filters, organization_member__user=self._user, role=None
+                # Scoped to this organization for the same reason as `_user_role_ids`: a row can name
+                # a membership the user holds in a *different* organization, and such a row must not
+                # grant or deny anything here.
+                **filters,
+                organization_member__user=self._user,
+                organization_member__organization_id=self._organization_id,
+                role=None,
             )
             | Q(  # Access controls applying to this user's roles
                 **filters, organization_member=None, role__in=self._user_role_ids
@@ -1650,3 +1662,21 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
                 )
 
         return attrs
+
+
+def visible_teams_for_user(
+    organization: Organization,
+    user_access_control: Optional["UserAccessControl"],
+    user_permissions: "UserPermissions",
+) -> QuerySet[Team]:
+    """Teams in `organization` the user can see.
+
+    Both access control systems apply, and filtering on only one of them leaks projects the
+    other hides. Callers that need visible teams should use this rather than reimplementing it.
+    """
+    teams = (
+        user_access_control.filter_queryset_by_access_level(organization.teams.all(), include_all_if_admin=True)
+        if user_access_control
+        else organization.teams.none()
+    )
+    return teams.filter(id__in=user_permissions.team_ids_visible_for_user)

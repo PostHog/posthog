@@ -433,6 +433,9 @@ const experimentEnd = (): ToolBase<typeof ExperimentEndSchema, WithPostHogUrl<Sc
             if (params.repository !== undefined) {
                 body['repository'] = params.repository
             }
+            if (params.set_repository_as_team_default !== undefined) {
+                body['set_repository_as_team_default'] = params.set_repository_as_team_default
+            }
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/end/`,
@@ -1006,6 +1009,9 @@ const experimentShipVariant = (): ToolBase<typeof ExperimentShipVariantSchema, W
             }
             if (params.repository !== undefined) {
                 body['repository'] = params.repository
+            }
+            if (params.set_repository_as_team_default !== undefined) {
+                body['set_repository_as_team_default'] = params.set_repository_as_team_default
             }
             if (params.variant_key !== undefined) {
                 body['variant_key'] = params.variant_key

@@ -126,26 +126,19 @@ export function ExperimentView(): JSX.Element {
         return <LegacyExperimentView />
     }
 
+    // Ordered as: results (Metrics), configuration (Settings, Code, Variants),
+    // feature tabs (Recordings, User feedback), audit trail (History)
     const tabs: LemonTab<string>[] = [
-        {
-            key: 'settings',
-            label: 'Settings',
-            content: <SettingsTab />,
-        },
         {
             key: 'metrics',
             label: 'Metrics',
             content: <MetricsTab />,
         },
-        ...(featureFlags[FEATURE_FLAGS.EXPERIMENT_RECORDINGS_TAB]
-            ? [
-                  {
-                      key: 'recordings',
-                      label: 'Recordings',
-                      content: <ExperimentReplayTab experiment={experiment} />,
-                  },
-              ]
-            : []),
+        {
+            key: 'settings',
+            label: 'Settings',
+            content: <SettingsTab />,
+        },
         ...(!isExperimentDraft
             ? [
                   {
@@ -160,11 +153,15 @@ export function ExperimentView(): JSX.Element {
             label: 'Variants',
             content: <VariantsTab />,
         },
-        {
-            key: 'history',
-            label: 'History',
-            content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
-        },
+        ...(featureFlags[FEATURE_FLAGS.EXPERIMENT_RECORDINGS_TAB]
+            ? [
+                  {
+                      key: 'recordings',
+                      label: 'Recordings',
+                      content: <ExperimentReplayTab experiment={experiment} />,
+                  },
+              ]
+            : []),
         ...(experiment.feature_flag
             ? [
                   {
@@ -174,6 +171,11 @@ export function ExperimentView(): JSX.Element {
                   },
               ]
             : []),
+        {
+            key: 'history',
+            label: 'History',
+            content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
+        },
     ]
 
     return (

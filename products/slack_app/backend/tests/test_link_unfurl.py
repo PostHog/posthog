@@ -74,6 +74,14 @@ class TestInsightResourceLabel:
         )
         assert _insight_resource_label(insight) == "Trends insight"
 
+    def test_insight_viz_journeys(self) -> None:
+        # Guards the user-facing name: without the map entry this would leak "PathsV2 insight".
+        insight = Insight(
+            team_id=1,
+            query={"kind": "InsightVizNode", "source": {"kind": "PathsV2Query"}},
+        )
+        assert _insight_resource_label(insight) == "Journeys insight"
+
     def test_data_viz_sql(self):
         insight = Insight(
             team_id=1,

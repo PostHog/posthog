@@ -391,7 +391,11 @@ async def _process_parallel_batch(
 
         if result.assign_result.promoted:
             promoted_reports[result.assign_result.report_id] = (
-                SignalReportSummaryWorkflowInputs(team_id=signal.team_id, report_id=result.assign_result.report_id),
+                SignalReportSummaryWorkflowInputs(
+                    team_id=signal.team_id,
+                    report_id=result.assign_result.report_id,
+                    debounce_seconds=result.assign_result.research_debounce_seconds,
+                ),
                 result.assign_result.run_count,
             )
 

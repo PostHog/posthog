@@ -216,6 +216,21 @@ class TestSentryTransport:
 
     @parameterized.expand(
         [
+            ("issue_events",),
+            ("project_events",),
+        ]
+    )
+    def test_events_endpoints_default_to_date_received(self, endpoint) -> None:
+        # Both endpoints fetch full event bodies (child_params full=true), which carry a
+        # `dateReceived` timestamp rather than the `dateCreated` field the lightweight
+        # issue/event list serializers use. Defaulting to `dateCreated` here made every
+        # incremental sync of these tables fail with IncrementalFieldMissingFromDataError.
+        config = SENTRY_ENDPOINTS[endpoint]
+        assert config.default_incremental_field == "dateReceived"
+        assert [incremental_field["field"] for incremental_field in config.incremental_fields] == ["dateReceived"]
+
+    @parameterized.expand(
+        [
             ("projects", "/organizations/acme/projects/"),
             ("teams", "/organizations/acme/teams/"),
             ("members", "/organizations/acme/members/"),
@@ -530,6 +545,31 @@ class TestSentrySourceValidation:
         config = mock_rest_api_resources.call_args.args[0]
         child_resource = next(r for r in config["resources"] if r["name"] == endpoint)
         assert child_resource["endpoint"]["params"]["full"] == "true"
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
+    )
+    def test_issue_hashes_tolerates_child_not_found(self, mock_rest_api_resources) -> None:
+        # An issue can be deleted/merged between the `issues` listing and this per-issue hashes
+        # fetch, which 404s. That single-issue 404 must not fail the whole schema (see
+        # SentrySource.get_non_retryable_errors' generic "404 Client Error" mapping).
+        mock_rest_api_resources.return_value = [
+            _FakeDltResource("issues", [{"id": "100"}]),
+            _FakeDltResource("issue_hashes", []),
+        ]
+
+        sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_hashes",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        config = mock_rest_api_resources.call_args.args[0]
+        child_resource = next(r for r in config["resources"] if r["name"] == "issue_hashes")
+        assert child_resource["endpoint"]["response_actions"] == [{"status_code": 404, "action": "ignore"}]
 
     # ----- Issue fan-out: custom iterator (issue_tag_values) -----
 
