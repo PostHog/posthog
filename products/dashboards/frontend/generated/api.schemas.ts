@@ -2328,35 +2328,17 @@ export const ResultCustomizationByApi = {
     Position: 'position',
 } as const
 
-export type DataColorTokenApi = (typeof DataColorTokenApi)[keyof typeof DataColorTokenApi]
-
-export const DataColorTokenApi = {
-    Preset1: 'preset-1',
-    Preset2: 'preset-2',
-    Preset3: 'preset-3',
-    Preset4: 'preset-4',
-    Preset5: 'preset-5',
-    Preset6: 'preset-6',
-    Preset7: 'preset-7',
-    Preset8: 'preset-8',
-    Preset9: 'preset-9',
-    Preset10: 'preset-10',
-    Preset11: 'preset-11',
-    Preset12: 'preset-12',
-    Preset13: 'preset-13',
-    Preset14: 'preset-14',
-    Preset15: 'preset-15',
-} as const
-
 export interface ResultCustomizationByValueApi {
     assignmentBy?: 'value'
-    color?: DataColorTokenApi | null
+    /** A data color token, e.g. `preset-1`. The default theme has 15 colors, but custom themes can define arbitrarily many, so this is any `preset-<n>` rather than a fixed set. The `@pattern` keeps the generated backend schema in sync, otherwise it rejects tokens past `preset-15`. */
+    color?: string | null
     hidden?: boolean | null
 }
 
 export interface ResultCustomizationByPositionApi {
     assignmentBy?: 'position'
-    color?: DataColorTokenApi | null
+    /** A data color token, e.g. `preset-1`. The default theme has 15 colors, but custom themes can define arbitrarily many, so this is any `preset-<n>` rather than a fixed set. The `@pattern` keeps the generated backend schema in sync, otherwise it rejects tokens past `preset-15`. */
+    color?: string | null
     hidden?: boolean | null
 }
 
