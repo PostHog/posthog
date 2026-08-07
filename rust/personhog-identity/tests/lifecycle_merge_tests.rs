@@ -1,238 +1,40 @@
 //! End-to-end tests of the merge saga driver: the engine drives a
-//! [`MergeDriver`] against real Postgres, with the leader surface faked
-//! behind [`LifecycleLeader`]. The fake seals from the live person row —
-//! exactly what the real leader's cache holds in a quiet system — and
-//! records every call so tests can assert the fence/release protocol,
-//! including the load-bearing ordering: a committed release must observe
-//! the source's mark still live.
+//! [`MergeDriver`] against real Postgres, with the leader surface
+//! simulated behind [`LifecycleLeader`] by [`SimLeader`] (see
+//! `common/sim_leader.rs`), which enforces the leader's admission rules —
+//! fenced writes reject, a committed release needs a live mark, duplicate
+//! releases absorb — so protocol violations fail tests instead of merely
+//! being recorded. The walkthrough tests step the saga one transition at
+//! a time via `Engine::step_once` and assert, at every state, what other
+//! actors in the system can and cannot see.
 
 mod common;
 
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
-use async_trait::async_trait;
 use chrono::Utc;
+use common::sim_leader::{LeaderCall, Rpc, SimLeader, FENCED_METADATA_KEY};
 use common::TestContext;
 use serde_json::json;
 use sqlx::postgres::PgPool;
-use tonic::Status;
+use tonic::{Code, Status};
 use uuid::Uuid;
 
-use personhog_identity::leader::LifecycleLeader;
-use personhog_identity::lifecycle::engine::{Engine, SagaError, STEP_ABORTED, STEP_COMPLETED};
+use personhog_identity::lifecycle::engine::{
+    Engine, OpRow, SagaError, STEP_ABORTED, STEP_COMPLETED,
+};
 use personhog_identity::lifecycle::merge::{
     MergeDriver, MergeOutcome, MergeRequest, MergeSourceEntry, OUTCOME_MERGED,
     OUTCOME_NOOP_SAME_PERSON, OUTCOME_SKIPPED_ALREADY_IDENTIFIED, OUTCOME_SKIPPED_CONFLICT,
     OUTCOME_SKIPPED_MOVE_LIMIT,
 };
-use personhog_proto::personhog::types::v1::{
-    FencePersonRequest, FencePersonResponse, FoldPersonDocumentRequest, FoldPersonDocumentResponse,
-    LifecycleOpType, Person, ReleaseFenceRequest, ReleaseFenceResponse, ReleaseOutcome,
-};
-
-#[derive(Debug, Clone, PartialEq)]
-enum LeaderCall {
-    Fence {
-        person_id: i64,
-        op_type: LifecycleOpType,
-    },
-    Fold {
-        target_person_id: i64,
-        snapshot_versions: Vec<i64>,
-    },
-    ReleaseCommitted {
-        person_id: i64,
-        sealed_version: i64,
-        /// The source's `lifecycle_op_person.status` observed at release
-        /// time — the real leader refuses to produce a death document
-        /// unless this is a live mark, so the saga must release before it
-        /// settles the row.
-        mark_status_at_release: Option<String>,
-    },
-    ReleaseAborted {
-        person_id: i64,
-    },
-}
-
-/// A leader whose "cache" is the live Postgres row: seals return the row's
-/// current state, folds compute the real fold semantics, releases record
-/// what the mark table said at the moment of the call.
-struct FakeLeader {
-    pool: PgPool,
-    calls: Mutex<Vec<LeaderCall>>,
-    fail_next_fence: AtomicBool,
-    fail_next_fold: AtomicBool,
-    /// Sealed `is_identified` overrides per person: the leader's state can
-    /// be ahead of Postgres, which is exactly what the seal-time re-check
-    /// exists for.
-    sealed_identified: Mutex<HashMap<i64, bool>>,
-}
-
-impl FakeLeader {
-    fn new(pool: PgPool) -> Self {
-        Self {
-            pool,
-            calls: Mutex::new(Vec::new()),
-            fail_next_fence: AtomicBool::new(false),
-            fail_next_fold: AtomicBool::new(false),
-            sealed_identified: Mutex::new(HashMap::new()),
-        }
-    }
-
-    fn calls(&self) -> Vec<LeaderCall> {
-        self.calls.lock().unwrap().clone()
-    }
-
-    async fn live_person(&self, team_id: i64, person_id: i64) -> Option<Person> {
-        let row: Option<(Uuid, i64, chrono::DateTime<Utc>, bool, serde_json::Value)> =
-            sqlx::query_as(
-                r#"
-                SELECT uuid, COALESCE(version, 0), created_at, is_identified, properties
-                FROM posthog_person
-                WHERE team_id = $1 AND id = $2 AND is_deleted = false
-                "#,
-            )
-            .bind(team_id as i32)
-            .bind(person_id)
-            .fetch_optional(&self.pool)
-            .await
-            .expect("person lookup");
-        row.map(
-            |(uuid, version, created_at, is_identified, properties)| Person {
-                id: person_id,
-                uuid: uuid.to_string(),
-                team_id,
-                properties: serde_json::to_vec(&properties).unwrap(),
-                created_at: created_at.timestamp(),
-                version,
-                is_identified,
-                ..Default::default()
-            },
-        )
-    }
-}
-
-#[async_trait]
-impl LifecycleLeader for FakeLeader {
-    async fn fence_person(
-        &self,
-        request: FencePersonRequest,
-    ) -> Result<FencePersonResponse, Status> {
-        if self.fail_next_fence.swap(false, Ordering::SeqCst) {
-            return Err(Status::unavailable("injected fence failure"));
-        }
-        let Some(mut person) = self.live_person(request.team_id, request.person_id).await else {
-            return Err(Status::not_found("person is destroyed"));
-        };
-        if let Some(identified) = self
-            .sealed_identified
-            .lock()
-            .unwrap()
-            .get(&request.person_id)
-        {
-            person.is_identified = *identified;
-        }
-        self.calls.lock().unwrap().push(LeaderCall::Fence {
-            person_id: request.person_id,
-            op_type: request.op_type(),
-        });
-        Ok(FencePersonResponse {
-            sealed: Some(person),
-        })
-    }
-
-    async fn release_fence(
-        &self,
-        request: ReleaseFenceRequest,
-    ) -> Result<ReleaseFenceResponse, Status> {
-        let call = match request.outcome() {
-            ReleaseOutcome::Committed => {
-                let mark_status_at_release: Option<String> = sqlx::query_scalar(
-                    r#"
-                    SELECT status FROM lifecycle_op_person
-                    WHERE op_id = $1::uuid AND person_id = $2 AND status IN ('marked', 'sealed')
-                    "#,
-                )
-                .bind(&request.op_id)
-                .bind(request.person_id)
-                .fetch_optional(&self.pool)
-                .await
-                .expect("mark lookup");
-                LeaderCall::ReleaseCommitted {
-                    person_id: request.person_id,
-                    sealed_version: request.sealed_version.expect("committed carries the seal"),
-                    mark_status_at_release,
-                }
-            }
-            _ => LeaderCall::ReleaseAborted {
-                person_id: request.person_id,
-            },
-        };
-        self.calls.lock().unwrap().push(call);
-        Ok(ReleaseFenceResponse {})
-    }
-
-    async fn fold_person_document(
-        &self,
-        request: FoldPersonDocumentRequest,
-    ) -> Result<FoldPersonDocumentResponse, Status> {
-        if self.fail_next_fold.swap(false, Ordering::SeqCst) {
-            return Err(Status::unavailable("injected fold failure"));
-        }
-        let Some(target) = self.live_person(request.team_id, request.person_id).await else {
-            return Err(Status::not_found("person is destroyed"));
-        };
-        let mut folded: serde_json::Map<String, serde_json::Value> =
-            serde_json::from_slice(&target.properties).unwrap();
-        let mut created_at = target.created_at;
-        let mut max_sealed = 0;
-        let mut snapshot_versions = Vec::new();
-        for snapshot in &request.sealed_snapshots {
-            let properties: serde_json::Map<String, serde_json::Value> =
-                serde_json::from_slice(&snapshot.properties).unwrap();
-            for (key, value) in properties {
-                folded.entry(key).or_insert(value);
-            }
-            created_at = created_at.min(snapshot.created_at);
-            max_sealed = max_sealed.max(snapshot.version);
-            snapshot_versions.push(snapshot.version);
-        }
-        if !request.event_set.is_empty() {
-            let event_set: serde_json::Map<String, serde_json::Value> =
-                serde_json::from_slice(&request.event_set).unwrap();
-            for (key, value) in event_set {
-                folded.insert(key, value);
-            }
-        }
-        if !request.event_set_once.is_empty() {
-            let event_set_once: serde_json::Map<String, serde_json::Value> =
-                serde_json::from_slice(&request.event_set_once).unwrap();
-            for (key, value) in event_set_once {
-                folded.entry(key).or_insert(value);
-            }
-        }
-        self.calls.lock().unwrap().push(LeaderCall::Fold {
-            target_person_id: request.person_id,
-            snapshot_versions,
-        });
-        Ok(FoldPersonDocumentResponse {
-            person: Some(Person {
-                properties: serde_json::to_vec(&folded).unwrap(),
-                created_at,
-                version: target.version.max(max_sealed) + 1,
-                is_identified: true,
-                ..target
-            }),
-        })
-    }
-}
+use personhog_proto::personhog::types::v1::LifecycleOpType;
 
 struct MergeHarness {
     ctx: TestContext,
     engine: Engine,
-    leader: Arc<FakeLeader>,
+    leader: Arc<SimLeader>,
     driver: MergeDriver,
 }
 
@@ -240,7 +42,7 @@ impl MergeHarness {
     async fn new() -> Self {
         let ctx = TestContext::new().await;
         let engine = ctx.engine();
-        let leader = Arc::new(FakeLeader::new(ctx.pool.clone()));
+        let leader = Arc::new(SimLeader::new(ctx.pool.clone()));
         let driver = MergeDriver::new(leader.clone());
         Self {
             ctx,
@@ -261,6 +63,21 @@ impl MergeHarness {
             .execute(&self.driver, op_id, self.ctx.team_id, &frozen)
             .await?;
         Ok(serde_json::from_value(row.outcome.expect("terminal outcome")).unwrap())
+    }
+
+    /// Create (or attach to) the op without driving it — the walkthrough
+    /// entry point, paired with [`step`].
+    async fn create(&self, op_id: Uuid, request: &MergeRequest) -> OpRow {
+        let frozen = serde_json::to_value(request).unwrap();
+        self.engine
+            .create_or_attach(&self.driver, op_id, self.ctx.team_id, &frozen)
+            .await
+            .expect("create or attach op")
+    }
+
+    /// Run exactly one saga step and return the reloaded row.
+    async fn step(&self, op_id: Uuid) -> Result<OpRow, SagaError> {
+        self.engine.step_once(&self.driver, op_id).await
     }
 
     /// Adds another distinct id mapping to an existing person.
@@ -366,6 +183,47 @@ impl MergeHarness {
         .fetch_one(&self.ctx.pool)
         .await
         .expect("op person row exists")
+    }
+
+    /// The `sealed` payload of an op's per-person row (the fence snapshot
+    /// for sources, the folded survivor for the target).
+    async fn op_person_sealed(&self, op_id: Uuid, person_id: i64) -> Option<serde_json::Value> {
+        sqlx::query_scalar(
+            "SELECT sealed FROM lifecycle_op_person WHERE op_id = $1 AND person_id = $2",
+        )
+        .bind(op_id)
+        .bind(person_id)
+        .fetch_one(&self.ctx.pool)
+        .await
+        .expect("op person row exists")
+    }
+
+    /// The `moved` payload of an op's per-person row (the repointed
+    /// mappings for sources, the claim record for the target).
+    async fn op_person_moved(&self, op_id: Uuid, person_id: i64) -> Option<serde_json::Value> {
+        sqlx::query_scalar(
+            "SELECT moved FROM lifecycle_op_person WHERE op_id = $1 AND person_id = $2",
+        )
+        .bind(op_id)
+        .bind(person_id)
+        .fetch_one(&self.ctx.pool)
+        .await
+        .expect("op person row exists")
+    }
+
+    fn assert_write_fenced(&self, err: Status, op_id: Uuid) {
+        assert_eq!(err.code(), Code::FailedPrecondition);
+        assert!(
+            err.message().contains("PERSON_MERGING"),
+            "expected the typed merge rejection, got: {}",
+            err.message()
+        );
+        assert_eq!(
+            err.metadata().get(FENCED_METADATA_KEY).unwrap(),
+            "merge",
+            "the x-person-fenced metadata carries the op type"
+        );
+        assert!(err.message().contains(&op_id.to_string()));
     }
 }
 
@@ -488,7 +346,7 @@ async fn a_merge_folds_repoints_tombstones_and_records_the_outcome() {
 
     // The leader protocol ran in order, and the committed release saw the
     // source's mark still live — the invariant the leader's death-document
-    // verification depends on.
+    // verification depends on (the sim also enforces it).
     assert_eq!(
         h.leader.calls(),
         vec![
@@ -511,6 +369,423 @@ async fn a_merge_folds_repoints_tombstones_and_records_the_outcome() {
     // Marks settled: the target's cleared, the source's deleted.
     assert_eq!(h.op_person_status(op_id, target).await, "cleared");
     assert_eq!(h.op_person_status(op_id, source).await, "deleted");
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// The state-machine walkthrough: one `step_once` per transition, with
+/// the full invariant set asserted in every state — what is persisted,
+/// which fences and marks are held, and what other actors (ordinary
+/// writes, rival lifecycle ops) are allowed to do.
+#[tokio::test]
+async fn a_walkthrough_asserts_every_state_and_shields_it_from_other_actors() {
+    let h = MergeHarness::new().await;
+    let team = h.ctx.team_id;
+    let target = h.ctx.insert_person_with_distinct_id("walk-target").await;
+    let source = h.ctx.insert_person_with_distinct_id("walk-source").await;
+    h.add_distinct_id(source, "walk-source-alias").await;
+    h.set_person(target, r#"{"a": "target"}"#, 3, false).await;
+    h.set_person(source, r#"{"a": "source", "b": "source"}"#, 7, false)
+        .await;
+
+    let op_id = Uuid::now_v7();
+    let request = merge_request("walk-target", &["walk-source"]);
+
+    // State: started. Nothing claimed, nothing fenced, everyone writable.
+    let row = h.create(op_id, &request).await;
+    assert_eq!(row.step, "started");
+    assert!(row.completed_at.is_none());
+    assert!(h.leader.fence_for(source).is_none());
+    h.leader
+        .admit_write(team, source)
+        .await
+        .expect("source writable before the claim");
+
+    // started → claimed: marks exist, but fences do not yet — the claim's
+    // shield is the mark index, which blocks rival lifecycle ops.
+    let row = h.step(op_id).await.expect("claim step");
+    assert_eq!(row.step, "claimed");
+    assert_eq!(h.op_person_status(op_id, target).await, "marked");
+    assert_eq!(h.op_person_status(op_id, source).await, "marked");
+    assert!(
+        h.leader.fence_for(source).is_none(),
+        "fences are installed at seal, not claim"
+    );
+    h.leader
+        .admit_write(team, source)
+        .await
+        .expect("ordinary writes still flow between claim and seal");
+    let rival = h
+        .execute(
+            Uuid::now_v7(),
+            &merge_request("walk-source", &["walk-target"]),
+        )
+        .await
+        .expect("rival op reaches a terminal step");
+    assert!(
+        rival.aborted,
+        "the mark shields claimed persons from rival ops"
+    );
+    let (step, completed) = op_row_state(&h.ctx.pool, op_id).await;
+    assert_eq!(step, "claimed", "the rival left our op untouched");
+    assert!(!completed);
+    assert_eq!(h.op_person_status(op_id, source).await, "marked");
+
+    // claimed → sources_sealed: the fence goes up, the snapshot freezes,
+    // and other actors' writes to the source start bouncing with the
+    // typed rejection. The target is never fenced.
+    let row = h.step(op_id).await.expect("seal step");
+    assert_eq!(row.step, "sources_sealed");
+    assert_eq!(h.op_person_status(op_id, source).await, "sealed");
+    let fence = h.leader.fence_for(source).expect("fence installed");
+    assert_eq!(fence.op_id, op_id);
+    assert_eq!(fence.op_type, LifecycleOpType::Merge);
+    let err = h.leader.admit_write(team, source).await.unwrap_err();
+    h.assert_write_fenced(err, op_id);
+    h.leader
+        .admit_write(team, target)
+        .await
+        .expect("the merge target is never fenced");
+    let sealed = h
+        .op_person_sealed(op_id, source)
+        .await
+        .expect("seal snapshot persisted");
+    assert_eq!(sealed["version"], json!(7));
+    assert_eq!(sealed["is_identified"], json!(false));
+    assert_eq!(sealed["properties"], json!({"a": "source", "b": "source"}));
+
+    // sources_sealed → document_folded: the survivor document persists on
+    // the target row; nothing in Postgres has been destroyed yet, and the
+    // source stays shielded.
+    let row = h.step(op_id).await.expect("fold step");
+    assert_eq!(row.step, "document_folded");
+    let survivor = h
+        .op_person_sealed(op_id, target)
+        .await
+        .expect("survivor persisted on the target row");
+    assert_eq!(
+        survivor["properties"],
+        json!({"a": "target", "b": "source"})
+    );
+    assert_eq!(survivor["version"], json!(8), "max(target 3, sealed 7) + 1");
+    let (source_deleted, source_version, _) = h.person_state(source).await;
+    assert!(!source_deleted, "the flip has not run yet");
+    assert_eq!(source_version, 7);
+    assert!(h.leader.fence_for(source).is_some());
+    let err = h.leader.admit_write(team, source).await.unwrap_err();
+    h.assert_write_fenced(err, op_id);
+
+    // document_folded → flipped: Postgres is destroyed and repointed, but
+    // the fence is STILL held — the half-dead source is never exposed as
+    // writable, and no death document exists yet.
+    let row = h.step(op_id).await.expect("flip step");
+    assert_eq!(row.step, "flipped");
+    for did in ["walk-source", "walk-source-alias"] {
+        let (person_id, is_deleted, version) = h.pdi_state(did).await;
+        assert_eq!(person_id, target, "{did} repointed");
+        assert!(!is_deleted);
+        assert_eq!(version, 1);
+    }
+    let (source_deleted, source_version, source_properties) = h.person_state(source).await;
+    assert!(source_deleted, "the source is a scrubbed tombstone");
+    assert_eq!(source_version, 8, "sealed 7 + 1");
+    assert_eq!(source_properties, json!({}));
+    let moved = h
+        .op_person_moved(op_id, source)
+        .await
+        .expect("the repointed mappings are recorded on the source row");
+    let moved_dids: HashSet<String> = moved
+        .as_array()
+        .expect("moved is an array")
+        .iter()
+        .map(|entry| {
+            assert_eq!(entry["version"], json!(1));
+            entry["distinct_id"].as_str().unwrap().to_string()
+        })
+        .collect();
+    assert_eq!(
+        moved_dids,
+        HashSet::from(["walk-source".to_string(), "walk-source-alias".to_string()])
+    );
+    assert_eq!(
+        h.op_person_status(op_id, target).await,
+        "cleared",
+        "the target is claimable again from here"
+    );
+    assert_eq!(
+        h.op_person_status(op_id, source).await,
+        "sealed",
+        "the source mark is the fence's durable record until release"
+    );
+    assert!(
+        h.leader.fence_for(source).is_some(),
+        "fence held across the flip"
+    );
+    let err = h.leader.admit_write(team, source).await.unwrap_err();
+    h.assert_write_fenced(err, op_id);
+    assert!(h.leader.death_documents().is_empty());
+
+    // flipped → completed: the death document is produced, the fence
+    // released, the mark settled, and the outcome recorded. Only now does
+    // the source answer not-found instead of fenced.
+    let row = h.step(op_id).await.expect("complete step");
+    assert_eq!(row.step, STEP_COMPLETED);
+    assert!(row.completed_at.is_some());
+    let outcome: MergeOutcome = serde_json::from_value(row.outcome.clone().unwrap()).unwrap();
+    assert!(!outcome.aborted);
+    assert_eq!(
+        result_map(&outcome),
+        HashMap::from([("walk-source".to_string(), OUTCOME_MERGED.to_string())])
+    );
+    let deaths = h.leader.death_documents();
+    assert_eq!(deaths.len(), 1);
+    assert_eq!(deaths[0].person_id, source);
+    assert_eq!(deaths[0].version, 8, "death document at sealed 7 + 1");
+    assert!(deaths[0].created_at > 0);
+    assert!(h.leader.fence_for(source).is_none());
+    let err = h.leader.admit_write(team, source).await.unwrap_err();
+    assert_eq!(err.code(), Code::NotFound);
+    h.leader
+        .admit_write(team, target)
+        .await
+        .expect("the merged person takes writes again");
+    assert_eq!(h.op_person_status(op_id, source).await, "deleted");
+
+    // A step on a terminal op is a no-op returning the recorded row.
+    let again = h.step(op_id).await.expect("terminal step is a no-op");
+    assert_eq!(again.step, STEP_COMPLETED);
+    assert_eq!(again.outcome, row.outcome);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// A fence failure for one of two sources leaves the op re-drivable:
+/// the already-installed fence stands (the source stays shielded), the
+/// retry re-seals it idempotently, and the fold consumes the snapshots
+/// in request order — first source wins contested keys.
+#[tokio::test]
+async fn a_partially_failed_seal_re_seals_and_sources_fold_in_request_order() {
+    let h = MergeHarness::new().await;
+    let team = h.ctx.team_id;
+    let _target = h.ctx.insert_person_with_distinct_id("prec-target").await;
+    let s1 = h.ctx.insert_person_with_distinct_id("prec-s1").await;
+    let s2 = h.ctx.insert_person_with_distinct_id("prec-s2").await;
+    h.set_person(s1, r#"{"p": "s1", "q": "s1"}"#, 5, false)
+        .await;
+    h.set_person(s2, r#"{"p": "s2", "r": "s2"}"#, 9, false)
+        .await;
+
+    let op_id = Uuid::now_v7();
+    let request = merge_request("prec-target", &["prec-s1", "prec-s2"]);
+    h.leader.fail_next(
+        Rpc::Fence,
+        s2,
+        Status::unavailable("injected fence failure"),
+    );
+
+    let row = h.create(op_id, &request).await;
+    assert_eq!(row.step, "started");
+    let row = h.step(op_id).await.expect("claim step");
+    assert_eq!(row.step, "claimed");
+
+    // The partial failure: s1's fence installed, s2's failed, the step
+    // did not advance and no snapshot was persisted.
+    let err = h.step(op_id).await.expect_err("injected failure surfaces");
+    assert!(matches!(err, SagaError::Leader(_)));
+    let (step, completed) = op_row_state(&h.ctx.pool, op_id).await;
+    assert_eq!(step, "claimed");
+    assert!(!completed);
+    assert_eq!(h.leader.fence_for(s1).expect("s1 fenced").op_id, op_id);
+    assert!(h.leader.fence_for(s2).is_none());
+    assert_eq!(h.op_person_status(op_id, s1).await, "marked");
+    assert_eq!(h.op_person_status(op_id, s2).await, "marked");
+    assert!(h.op_person_sealed(op_id, s1).await.is_none());
+    // The installed fence stands through the retry window: s1 stays
+    // shielded even while the op is between attempts.
+    let fenced = h.leader.admit_write(team, s1).await.unwrap_err();
+    h.assert_write_fenced(fenced, op_id);
+
+    // The retry re-seals s1 (a same-op re-fence) and fences s2.
+    let row = h.step(op_id).await.expect("seal retry");
+    assert_eq!(row.step, "sources_sealed");
+    assert_eq!(
+        h.leader.fence_for(s1).expect("s1 still fenced").op_id,
+        op_id
+    );
+    assert_eq!(h.leader.fence_for(s2).expect("s2 fenced").op_id, op_id);
+    assert_eq!(
+        h.op_person_sealed(op_id, s1).await.unwrap()["version"],
+        json!(5)
+    );
+    assert_eq!(
+        h.op_person_sealed(op_id, s2).await.unwrap()["version"],
+        json!(9)
+    );
+
+    let outcome = h.execute(op_id, &request).await.expect("merge completes");
+    assert!(!outcome.aborted);
+    assert_eq!(
+        result_map(&outcome),
+        HashMap::from([
+            ("prec-s1".to_string(), OUTCOME_MERGED.to_string()),
+            ("prec-s2".to_string(), OUTCOME_MERGED.to_string()),
+        ])
+    );
+    // Precedence: the target has nothing, s1 (ordinal 0) fills p and q,
+    // s2 only gets keys s1 did not take.
+    let survivor = outcome.survivor.expect("survivor");
+    assert_eq!(
+        survivor["properties"],
+        json!({"p": "s1", "q": "s1", "r": "s2"}),
+        "earlier sources take precedence in the fold"
+    );
+    let deaths = h.leader.death_documents();
+    assert_eq!(deaths.len(), 2);
+    assert_eq!(deaths[0].version, 6, "s1 death at sealed 5 + 1");
+    assert_eq!(deaths[1].version, 10, "s2 death at sealed 9 + 1");
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// A fold failure keeps every fence and mark in place — the sources stay
+/// shielded while the op waits — and the retry completes from the saved
+/// step without re-fencing.
+#[tokio::test]
+async fn a_fold_failure_holds_the_fences_until_the_retry_completes() {
+    let h = MergeHarness::new().await;
+    let team = h.ctx.team_id;
+    let target = h.ctx.insert_person_with_distinct_id("fold-target").await;
+    let source = h.ctx.insert_person_with_distinct_id("fold-source").await;
+    h.set_person(source, r#"{"k": "v"}"#, 2, false).await;
+
+    let op_id = Uuid::now_v7();
+    let request = merge_request("fold-target", &["fold-source"]);
+    h.leader.fail_next(
+        Rpc::Fold,
+        target,
+        Status::unavailable("injected fold failure"),
+    );
+
+    let err = h
+        .execute(op_id, &request)
+        .await
+        .expect_err("injected fold failure surfaces");
+    assert!(matches!(err, SagaError::Leader(_)));
+    let (step, completed) = op_row_state(&h.ctx.pool, op_id).await;
+    assert_eq!(
+        step, "sources_sealed",
+        "the seal committed; the fold did not"
+    );
+    assert!(!completed);
+    assert!(h.leader.fence_for(source).is_some());
+    let fenced = h.leader.admit_write(team, source).await.unwrap_err();
+    h.assert_write_fenced(fenced, op_id);
+    assert!(h.op_person_sealed(op_id, target).await.is_none());
+    assert!(h.leader.death_documents().is_empty());
+    let (source_deleted, _, _) = h.person_state(source).await;
+    assert!(!source_deleted);
+
+    let outcome = h.execute(op_id, &request).await.expect("retry completes");
+    assert!(!outcome.aborted);
+    assert_eq!(
+        result_map(&outcome),
+        HashMap::from([("fold-source".to_string(), OUTCOME_MERGED.to_string())])
+    );
+    // The retry did not re-fence: one fence call for the whole op.
+    let fence_calls = h
+        .leader
+        .calls()
+        .iter()
+        .filter(|c| matches!(c, LeaderCall::Fence { .. }))
+        .count();
+    assert_eq!(fence_calls, 1);
+    assert!(h.leader.fence_for(source).is_none());
+    assert_eq!(h.leader.death_documents().len(), 1);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// A release failure for one of two sources: the other's death document
+/// is already produced, and the retry converges to exactly one death
+/// document per source — the duplicate release is absorbed, never
+/// re-produced — while the failed source stays fenced in between.
+#[tokio::test]
+async fn a_partial_release_failure_retries_to_one_death_document_each() {
+    let h = MergeHarness::new().await;
+    let team = h.ctx.team_id;
+    let target = h.ctx.insert_person_with_distinct_id("rel-target").await;
+    let a = h.ctx.insert_person_with_distinct_id("rel-a").await;
+    let b = h.ctx.insert_person_with_distinct_id("rel-b").await;
+    h.set_person(a, r#"{"a": "a"}"#, 2, false).await;
+    h.set_person(b, r#"{"b": "b"}"#, 4, false).await;
+
+    let op_id = Uuid::now_v7();
+    let request = merge_request("rel-target", &["rel-a", "rel-b"]);
+    h.leader.fail_next(
+        Rpc::Release,
+        b,
+        Status::unavailable("injected release failure"),
+    );
+
+    let err = h
+        .execute(op_id, &request)
+        .await
+        .expect_err("injected release failure surfaces");
+    assert!(matches!(err, SagaError::Leader(_)));
+    let (step, completed) = op_row_state(&h.ctx.pool, op_id).await;
+    assert_eq!(step, "flipped", "the flip committed; the release did not");
+    assert!(!completed);
+    // A's release landed: death produced, fence gone. B's did not: no
+    // death, fence held, still shielded — even though its Postgres row is
+    // already a tombstone, other actors see "fenced", never a half-dead
+    // person.
+    let deaths = h.leader.death_documents();
+    assert_eq!(deaths.len(), 1, "only A's death document exists so far");
+    assert_eq!(deaths[0].person_id, a);
+    assert_eq!(deaths[0].version, 3, "A's death at sealed 2 + 1");
+    assert!(h.leader.fence_for(a).is_none());
+    assert!(h.leader.fence_for(b).is_some());
+    let fenced = h.leader.admit_write(team, b).await.unwrap_err();
+    h.assert_write_fenced(fenced, op_id);
+    // Neither mark settled: the settle transaction runs only after every
+    // release acks, because a settled mark would make the leader refuse
+    // the retry's death document.
+    assert_eq!(h.op_person_status(op_id, a).await, "sealed");
+    assert_eq!(h.op_person_status(op_id, b).await, "sealed");
+
+    let outcome = h.execute(op_id, &request).await.expect("retry completes");
+    assert!(!outcome.aborted);
+    assert_eq!(
+        result_map(&outcome),
+        HashMap::from([
+            ("rel-a".to_string(), OUTCOME_MERGED.to_string()),
+            ("rel-b".to_string(), OUTCOME_MERGED.to_string()),
+        ])
+    );
+    // Convergence, not duplication: A was released twice (the retry
+    // re-releases every sealed source) but its death document was
+    // absorbed, not re-produced.
+    let a_releases = h
+        .leader
+        .calls()
+        .iter()
+        .filter(|c| matches!(c, LeaderCall::ReleaseCommitted { person_id, .. } if *person_id == a))
+        .count();
+    assert_eq!(a_releases, 2, "the retry re-released A");
+    let deaths = h.leader.death_documents();
+    assert_eq!(deaths.len(), 2, "exactly one death document per source");
+    assert_eq!(
+        deaths[0].version, 3,
+        "A's death version unchanged by the retry"
+    );
+    assert_eq!(deaths[1].version, 5, "B's death at sealed 4 + 1");
+    assert_eq!(h.op_person_status(op_id, a).await, "deleted");
+    assert_eq!(h.op_person_status(op_id, b).await, "deleted");
+    assert!(h.leader.fence_for(b).is_none());
+    let err = h.leader.admit_write(team, a).await.unwrap_err();
+    assert_eq!(err.code(), Code::NotFound);
+    let (target_deleted, _, _) = h.person_state(target).await;
+    assert!(!target_deleted);
 
     h.ctx.cleanup().await.expect("cleanup");
 }
@@ -665,7 +940,11 @@ async fn a_leader_failure_is_retried_from_the_saved_step() {
     let op_id = Uuid::now_v7();
     let request = merge_request("retry-target", &["retry-source"]);
 
-    h.leader.fail_next_fence.store(true, Ordering::SeqCst);
+    h.leader.fail_next(
+        Rpc::Fence,
+        source,
+        Status::unavailable("injected fence failure"),
+    );
     let err = h
         .execute(op_id, &request)
         .await
@@ -703,11 +982,7 @@ async fn an_identified_source_detected_at_seal_time_drops_with_a_released_fence(
     // Postgres still says unidentified — only the leader's sealed state
     // carries the flip. The claim's cheap pre-filter must not catch it;
     // the seal's authoritative re-check must.
-    h.leader
-        .sealed_identified
-        .lock()
-        .unwrap()
-        .insert(source, true);
+    h.leader.set_sealed_identified(source, true);
 
     let op_id = Uuid::now_v7();
     let outcome = h
@@ -727,7 +1002,7 @@ async fn an_identified_source_detected_at_seal_time_drops_with_a_released_fence(
         )])
     );
     // The fence was installed, then released without a death document; the
-    // source lives on, unmerged.
+    // source lives on, unmerged and writable again.
     let calls = h.leader.calls();
     assert!(calls.contains(&LeaderCall::Fence {
         person_id: source,
@@ -739,6 +1014,12 @@ async fn an_identified_source_detected_at_seal_time_drops_with_a_released_fence(
     assert!(!calls
         .iter()
         .any(|c| matches!(c, LeaderCall::ReleaseCommitted { .. })));
+    assert!(h.leader.death_documents().is_empty());
+    assert!(h.leader.fence_for(source).is_none());
+    h.leader
+        .admit_write(h.ctx.team_id, source)
+        .await
+        .expect("the dropped source takes writes again");
     let (is_deleted, _, _) = h.person_state(source).await;
     assert!(!is_deleted);
     let (target_deleted, _, _) = h.person_state(target).await;

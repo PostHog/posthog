@@ -2,6 +2,8 @@
 // and none of them uses every helper.
 #![allow(dead_code)]
 
+pub mod sim_leader;
+
 use std::sync::Arc;
 
 use rand::Rng;

@@ -148,6 +148,25 @@ impl Engine {
         team_id: i64,
         request: &Value,
     ) -> Result<OpRow, SagaError> {
+        self.create_or_attach(driver, op_id, team_id, request)
+            .await?;
+        self.drive(driver, op_id, true).await
+    }
+
+    /// The create-or-attach half of [`execute`], without driving: create
+    /// the op if it is new, verify an existing op matches the request, and
+    /// return the current row. Lets tests and tooling walk an op step by
+    /// step with [`step_once`].
+    ///
+    /// [`execute`]: Engine::execute
+    /// [`step_once`]: Engine::step_once
+    pub async fn create_or_attach(
+        &self,
+        driver: &dyn OpDriver,
+        op_id: Uuid,
+        team_id: i64,
+        request: &Value,
+    ) -> Result<OpRow, SagaError> {
         sqlx::query!(
             r#"
             INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request)
@@ -171,8 +190,27 @@ impl Engine {
                 "op {op_id} already exists with a different request"
             )));
         }
+        Ok(row)
+    }
 
-        self.drive(driver, op_id, true).await
+    /// Run exactly one step of an existing op and return the reloaded row;
+    /// a terminal row is returned as-is. Skips the lease machinery — the
+    /// lease is a throttle, not a lock (see the module docs), so a
+    /// concurrent driver stays correct either way. This is the walkthrough
+    /// entry point for tests and tooling that assert state between steps.
+    pub async fn step_once(&self, driver: &dyn OpDriver, op_id: Uuid) -> Result<OpRow, SagaError> {
+        let Some(row) = self.load(op_id).await? else {
+            return Err(SagaError::CorruptState(format!(
+                "op {op_id} does not exist"
+            )));
+        };
+        if row.completed_at.is_some() {
+            return Ok(row);
+        }
+        driver.run_step(&self.pool, &row).await?;
+        self.load(op_id).await?.ok_or_else(|| {
+            SagaError::CorruptState(format!("op {op_id} vanished while being driven"))
+        })
     }
 
     /// Drive an existing op (sweeper entry point — no create, no request

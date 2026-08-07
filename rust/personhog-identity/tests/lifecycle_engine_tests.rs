@@ -1,9 +1,19 @@
 //! Engine tests against a dummy op type: the engine must be generic over op
-//! types, so these drive a two-step fake op (registered under 'delete' —
-//! the real DeleteDriver is never registered here, and keeping 'merge'
-//! free avoids sweep collisions with the merge driver's own tests) and
-//! assert the create-or-attach, lease, CAS advance, recorded-outcome, and
-//! sweeper behaviors that every op type shares.
+//! types, so these drive a two-step fake op and assert the
+//! create-or-attach, lease, CAS advance, recorded-outcome, and sweeper
+//! behaviors that every op type shares.
+//!
+//! Isolation against the other test binaries sharing this database: the
+//! dummy registers under 'merge' (the CHECK constraint allows nothing
+//! else), which is safe because the sweep here is the only sweep in the
+//! whole suite and it can only corrupt what it can claim. The delete
+//! tests' abandoned 'delete' ops match no registered driver and are
+//! skipped; the merge tests never leave an expired-lease 'merge' row
+//! (leases are released to NULL on failure); and the sweep test's engine
+//! uses a one-hour lease so NULL-lease rows from a concurrently running
+//! test are far outside its "unclaimed for one lease" scan window. Every
+//! op this file inserts directly is therefore either live-leased, fresh
+//! with a NULL lease, or the sweep test's own expired-lease row.
 
 mod common;
 
@@ -36,7 +46,7 @@ impl DummyDriver {
 #[async_trait]
 impl OpDriver for DummyDriver {
     fn op_type(&self) -> &'static str {
-        "delete"
+        "merge"
     }
 
     fn initial_step(&self) -> &'static str {
@@ -175,11 +185,13 @@ async fn resume_picks_up_an_op_from_its_saved_step() {
     let driver = DummyDriver::new();
     let op_id = Uuid::now_v7();
 
-    // An op abandoned mid-flight: past its first step, lease lapsed.
+    // An op abandoned mid-flight: past its first step, lease released by
+    // the crashed driver's error path (NULL, not expired — an expired
+    // lease would make this row claimable by the sweep test's engine).
     sqlx::query(
         r#"
-        INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request, lease_expires_at)
-        VALUES ($1, 'delete', $2, 'half', '{}'::jsonb, now() - interval '1 minute')
+        INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request)
+        VALUES ($1, 'merge', $2, 'half', '{}'::jsonb)
         "#,
     )
     .bind(op_id)
@@ -213,7 +225,7 @@ async fn the_sweeper_resumes_abandoned_ops_and_gc_reaps_completed_ones() {
     sqlx::query(
         r#"
         INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request, lease_expires_at)
-        VALUES ($1, 'delete', $2, 'started', '{}'::jsonb, now() - interval '1 minute')
+        VALUES ($1, 'merge', $2, 'started', '{}'::jsonb, now() - interval '1 minute')
         "#,
     )
     .bind(op_id)
@@ -222,7 +234,19 @@ async fn the_sweeper_resumes_abandoned_ops_and_gc_reaps_completed_ones() {
     .await
     .expect("insert abandoned op");
 
-    let resumed = engine.sweep(&[&driver]).await.expect("sweep runs");
+    // A one-hour lease keeps concurrently running tests' fresh NULL-lease
+    // ops out of this sweep's scan window; our expired-lease row is
+    // eligible regardless of the lease length.
+    let sweep_engine = personhog_identity::lifecycle::engine::Engine::new(
+        ctx.pool.clone(),
+        personhog_identity::lifecycle::engine::EngineConfig {
+            lease: std::time::Duration::from_secs(3600),
+            execute_timeout: std::time::Duration::from_secs(10),
+            poll_interval: std::time::Duration::from_millis(25),
+            attempt_alert_threshold: 5,
+        },
+    );
+    let resumed = sweep_engine.sweep(&[&driver]).await.expect("sweep runs");
     assert!(resumed >= 1, "the abandoned op was resumed");
     let (step, _, _, completed) = op_row(&ctx, op_id).await;
     assert_eq!(step, STEP_COMPLETED);
@@ -262,7 +286,7 @@ async fn a_live_lease_blocks_a_second_driver_until_it_lapses() {
     sqlx::query(
         r#"
         INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request, lease_expires_at)
-        VALUES ($1, 'delete', $2, 'started', '{}'::jsonb, now() + interval '1 hour')
+        VALUES ($1, 'merge', $2, 'started', '{}'::jsonb, now() + interval '1 hour')
         "#,
     )
     .bind(op_id)
@@ -306,7 +330,7 @@ async fn resume_bails_immediately_when_another_driver_holds_the_lease() {
     sqlx::query(
         r#"
         INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request, lease_expires_at)
-        VALUES ($1, 'delete', $2, 'started', '{}'::jsonb, now() + interval '1 hour')
+        VALUES ($1, 'merge', $2, 'started', '{}'::jsonb, now() + interval '1 hour')
         "#,
     )
     .bind(op_id)
@@ -364,7 +388,7 @@ struct StolenLeaseDriver {
 #[async_trait]
 impl OpDriver for StolenLeaseDriver {
     fn op_type(&self) -> &'static str {
-        "delete"
+        "merge"
     }
 
     fn initial_step(&self) -> &'static str {
