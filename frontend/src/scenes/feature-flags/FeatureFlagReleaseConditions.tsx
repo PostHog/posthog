@@ -48,7 +48,9 @@ import { MATCHING_ESTIMATE_TOOLTIP } from './constants'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
+    blastRadiusErrorMessage,
     featureFlagReleaseConditionsLogic,
+    isBlastRadiusErrorRetryable,
     isDistinctIdFilter,
     withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
@@ -456,27 +458,30 @@ export function FeatureFlagReleaseConditions({
                                     const sortKey = group.sort_key
                                     const affected = sortKey ? affectedCounts[sortKey] : undefined
                                     const total = sortKey ? totalCounts[sortKey] : undefined
-                                    if (sortKey && blastRadiusErrors[sortKey]) {
+                                    const blastRadiusError = sortKey ? blastRadiusErrors[sortKey] : undefined
+                                    if (sortKey && blastRadiusError) {
                                         return (
                                             <div
                                                 role="status"
-                                                className="basis-full flex items-center gap-2 mt-1 text-secondary"
+                                                className="basis-full flex items-start gap-2 mt-1 text-secondary"
                                             >
-                                                <IconErrorOutline className="text-danger text-base shrink-0" />
-                                                <span>Couldn't estimate how many {pluralName} match.</span>
-                                                <LemonButton
-                                                    type="secondary"
-                                                    size="xsmall"
-                                                    onClick={() =>
-                                                        calculateBlastRadiusForCondition(
-                                                            sortKey,
-                                                            group.properties,
-                                                            resolvedGroupTypeIndex
-                                                        )
-                                                    }
-                                                >
-                                                    Retry
-                                                </LemonButton>
+                                                <IconErrorOutline className="text-danger text-base shrink-0 mt-0.5" />
+                                                <span>{blastRadiusErrorMessage(blastRadiusError, pluralName)}</span>
+                                                {isBlastRadiusErrorRetryable(blastRadiusError) && (
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        size="xsmall"
+                                                        onClick={() =>
+                                                            calculateBlastRadiusForCondition(
+                                                                sortKey,
+                                                                group.properties,
+                                                                resolvedGroupTypeIndex
+                                                            )
+                                                        }
+                                                    >
+                                                        Retry
+                                                    </LemonButton>
+                                                )}
                                             </div>
                                         )
                                     }
