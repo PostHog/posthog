@@ -8,7 +8,6 @@ from .avo.template_avo import (
     TemplateAvoMigrator,
     template as avo,
 )
-from .clearbit.template_clearbit import template as clearbit
 from .discord.template_discord import template as discord
 from .engage.template_engage import (
     TemplateEngageMigrator,
@@ -81,7 +80,6 @@ HOG_FUNCTION_TEMPLATES = [
     blank_site_destination,
     blank_site_app,
     avo,
-    clearbit,
     discord,
     engage,
     gleap,

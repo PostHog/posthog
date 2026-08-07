@@ -9,6 +9,7 @@ import { template as attioTemplate } from './_destinations/attio/attio.template'
 import { template as awsKinesisTemplate } from './_destinations/aws_kinesis/aws_kinesis.template'
 import { template as brazeTemplate } from './_destinations/braze/braze.template'
 import { template as brevoTemplate } from './_destinations/brevo/brevo.template'
+import { template as clearbitTemplate } from './_destinations/clearbit/clearbit.template'
 import { template as clickupTemplate } from './_destinations/clickup/clickup.template'
 import { template as closeTemplate } from './_destinations/close/close.template'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
@@ -116,6 +117,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     awsKinesisTemplate,
     brazeTemplate,
     brevoTemplate,
+    clearbitTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
