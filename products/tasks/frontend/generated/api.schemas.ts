@@ -1434,7 +1434,9 @@ export interface TaskRunArtifactResponseApi {
     storage_path: string
     /** Timestamp when the artifact was uploaded */
     uploaded_at: string
-    /** Presigned download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file directly; it is time-limited and not persisted on the manifest. */
+    /** Timestamp when a user dismissed the artifact. Absent while the artifact is shown. */
+    dismissed_at?: string
+    /** Stable download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file; it redirects to a fresh presigned URL on each request and is not persisted on the manifest. */
     url?: string
 }
 
@@ -2979,6 +2981,22 @@ export interface TaskRunArtifactsUploadResponseApi {
     artifacts: TaskRunArtifactResponseApi[]
 }
 
+export interface TaskRunArtifactsDismissRequestApi {
+    /**
+     * Manifest ids of the artifacts to update. Pass every version of a file together so the whole file is dismissed rather than a single upload of it.
+     * @maxItems 100
+     * @items.maxLength 128
+     */
+    artifact_ids: string[]
+    /** True to hide the artifacts from clients, false to show them again. */
+    dismissed?: boolean
+}
+
+export interface TaskRunArtifactsDismissResponseApi {
+    /** Updated list of artifacts on the run */
+    artifacts: TaskRunArtifactResponseApi[]
+}
+
 export interface TaskRunArtifactPresignRequestApi {
     /**
      * S3 storage path returned in the artifact manifest
@@ -3941,18 +3959,22 @@ export interface PaginatedTaskSummaryDTOListApi {
  * Request body for warming a full idling Run while composing a Code-app cloud task.
  *
  * Collection-level: no task exists yet at typing time. The warmer births a draft Task and an
- * interactive Run that boots, clones, checks out `branch`, and starts the agent, then idles awaiting
- * the first message. `github_integration` is a plain integration PK (an integer); the view re-scopes
- * it to the caller's team before use.
+ * interactive Run that boots and starts the agent, optionally cloning and checking out a repository,
+ * then idles awaiting the first message. `github_integration` is a plain integration PK (an integer);
+ * the view re-scopes it to the caller's team before use.
  */
 export interface WarmTaskRequestApi {
     /**
-     * Target GitHub repository to clone, in `organization/repo` format (e.g. `posthog/posthog`).
+     * Optional GitHub repository to clone, in `organization/repo` format (e.g. `posthog/posthog`).
      * @maxLength 255
+     * @nullable
      */
-    repository: string
-    /** Primary key of the team's GitHub integration to clone with. */
-    github_integration: number
+    repository?: string | null
+    /**
+     * Primary key of the team's GitHub integration to clone with when a repository is selected.
+     * @nullable
+     */
+    github_integration?: number | null
     /**
      * Branch to check out in the warm sandbox. Defaults to the repository's default branch when omitted.
      * @maxLength 255

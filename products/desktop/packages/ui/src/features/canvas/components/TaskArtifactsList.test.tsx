@@ -1,5 +1,11 @@
 import type { Task, TaskRun, TaskRunArtifact } from "@posthog/shared";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -7,6 +13,11 @@ const mocks = vi.hoisted(() => ({
   openArtifactTab: vi.fn(),
   openExternalUrl: vi.fn(),
   getCloudAttachmentPreviewUrl: vi.fn(),
+  commentsError: false,
+}));
+
+vi.mock("@posthog/ui/features/sessions/useCommentsEnabled", () => ({
+  useCommentsEnabled: () => true,
 }));
 
 vi.mock("@posthog/core/sessions/sessionService", () => ({
@@ -43,6 +54,37 @@ vi.mock("@posthog/ui/features/pr-review/usePrComments", () => ({
 vi.mock("@posthog/ui/features/pr-review/usePrReviewThreads", () => ({
   usePrReviewThreads: () => ({ data: undefined }),
 }));
+vi.mock("@posthog/ui/features/sessions/components/useComments", () => ({
+  useCommentsForTargetsQuery: () => ({
+    isError: mocks.commentsError,
+    data: [
+      {
+        id: "comment-1",
+        source_comment: null,
+        item_id: "a",
+        content: "Tighten this summary",
+        created_at: "2024-01-01T00:00:00Z",
+        item_context: { anchor: { kind: "document" } },
+      },
+      {
+        id: "reply-1",
+        source_comment: "comment-1",
+        item_id: "a",
+        content: "Agreed",
+        created_at: "2024-01-01T00:01:00Z",
+        item_context: { anchor: { kind: "document" } },
+      },
+      {
+        id: "comment-2",
+        source_comment: null,
+        item_id: "a",
+        content: "Second thread",
+        created_at: "2024-01-01T00:02:00Z",
+        item_context: { anchor: { kind: "document" } },
+      },
+    ],
+  }),
+}));
 
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
 import { TaskArtifactsList } from "./TaskArtifactsList";
@@ -78,6 +120,7 @@ function outputFile(
 
 describe("TaskArtifactsList", () => {
   beforeEach(() => {
+    mocks.commentsError = false;
     mocks.runs = [run("run-1", { prNumber: 1 }), run("run-2", { prNumber: 2 })];
     mocks.openArtifactTab.mockReset();
     mocks.openExternalUrl.mockReset();
@@ -134,15 +177,41 @@ describe("TaskArtifactsList", () => {
     expect(screen.getByText("Pull request #2")).toBeTruthy();
   });
 
-  it("lists the files the agent uploaded, with their size", () => {
+  it("lists uploaded files with their comment count", () => {
     mocks.runs = [
       run("run-1", { artifacts: [outputFile({ id: "a", size: 16861 })] }),
     ];
 
     render(<TaskArtifactsList task={task} timeline={[]} />);
 
-    expect(screen.getByText("report.md")).toBeTruthy();
-    expect(screen.getByText("File · 17 KB")).toBeTruthy();
+    const row = screen.getByText("report.md").closest("button");
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByText("2")).toBeTruthy();
+    expect(within(row as HTMLElement).getByText("File · 17 KB")).toBeTruthy();
+  });
+
+  it("keeps artifacts visible when comment counts fail", () => {
+    mocks.commentsError = true;
+    mocks.runs = [
+      run("run-1", { artifacts: [outputFile({ id: "a", size: 16861 })] }),
+    ];
+
+    render(<TaskArtifactsList task={task} timeline={[]} />);
+
+    expect(screen.getByText("report.md")).toBeInTheDocument();
+    expect(screen.getByText("File · 17 KB")).toBeInTheDocument();
+  });
+
+  // The threads themselves live in the Comments tab now, so the pane must not
+  // grow a second list of them.
+  it("leaves the thread list to the Comments tab", () => {
+    mocks.runs = [
+      run("run-1", { artifacts: [outputFile({ id: "a", size: 16861 })] }),
+    ];
+
+    render(<TaskArtifactsList task={task} timeline={[]} />);
+
+    expect(screen.queryByText("Tighten this summary")).toBeNull();
   });
 
   // The row should read like the chat's file list: markdown looks like
@@ -255,7 +324,7 @@ describe("TaskArtifactsList", () => {
     render(<TaskArtifactsList task={task} timeline={[]} />);
 
     expect(screen.getAllByText("report.md")).toHaveLength(1);
-    expect(screen.getByText("File · 2 KB")).toBeTruthy();
+    expect(screen.getByText("File · 2 KB")).toBeInTheDocument();
   });
 
   it.each([
