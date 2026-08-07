@@ -130,7 +130,10 @@ export const uploadArtifactTool = defineLocalTool({
       // api-client is regenerated against the updated OpenAPI spec, and older
       // backends simply omit it.
       const downloadUrl = (finalizedEntry as { url?: string }).url;
-      const linkText = downloadUrl ? ` Download URL: ${downloadUrl}` : "";
+      const referenceUrl = getArtifactReferenceUrl(downloadUrl);
+      const linkText = referenceUrl
+        ? ` Reference it as a markdown link: [${escapeMarkdownLinkLabel(name)}](<${referenceUrl}>)`
+        : "";
 
       return {
         content: [
@@ -147,6 +150,28 @@ export const uploadArtifactTool = defineLocalTool({
     }
   },
 });
+
+function getArtifactReferenceUrl(
+  downloadUrl: string | undefined,
+): string | null {
+  if (!downloadUrl) return null;
+
+  try {
+    const referenceUrl = new URL(downloadUrl);
+    // Query parameters contain the bearer credential and replies persist in conversation history.
+    referenceUrl.search = "";
+    referenceUrl.hash = "";
+    referenceUrl.username = "";
+    referenceUrl.password = "";
+    return referenceUrl.toString();
+  } catch {
+    return null;
+  }
+}
+
+function escapeMarkdownLinkLabel(label: string): string {
+  return label.replace(/([\\[\]])/g, "\\$1");
+}
 
 function errorResult(message: string): LocalToolResult {
   return { content: [{ type: "text", text: message }], isError: true };
