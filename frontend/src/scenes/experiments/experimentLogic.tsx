@@ -1064,11 +1064,11 @@ export interface experimentLogicActions {
     setExperiment: (experiment: Partial<Experiment>) => {
         experiment: Partial<Experiment>
     }
-    setExperimentManualErrors: (errors: Record<string, any>) => {
-        errors: Record<string, any>
-    }
     setExperimentLoadFailed: (failed: boolean) => {
         failed: boolean
+    }
+    setExperimentManualErrors: (errors: Record<string, any>) => {
+        errors: Record<string, any>
     }
     setExperimentMissing: () => {
         value: true
