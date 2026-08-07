@@ -24,7 +24,7 @@ import {
   DropdownMenuTrigger,
   Text,
 } from "@posthog/quill";
-import { formatRelativeTimeLong, type TaskRunArtifact } from "@posthog/shared";
+import { formatRelativeTimeShort, type TaskRunArtifact } from "@posthog/shared";
 import { isTerminalStatus, type Task } from "@posthog/shared/domain-types";
 import {
   getAuthIdentity,
@@ -46,6 +46,10 @@ import { createArtifactUploadTracker } from "./countArtifactUploads";
 
 type ArtifactGroup = RunArtifactVersions<TaskRunArtifact>;
 
+/**
+ * The menu sits at the right edge of the thread, and its popup is capped at the space left
+ * there and clips what does not fit, so the age is the compact form rather than the row's.
+ */
 function versionMenuLabel(
   artifact: TaskRunArtifact,
   index: number,
@@ -53,7 +57,7 @@ function versionMenuLabel(
 ): string {
   const label = runArtifactVersionLabel(index, total);
   return artifact.uploaded_at
-    ? `${label} · ${formatRelativeTimeLong(artifact.uploaded_at)}`
+    ? `${label} · ${formatRelativeTimeShort(artifact.uploaded_at)}`
     : label;
 }
 
