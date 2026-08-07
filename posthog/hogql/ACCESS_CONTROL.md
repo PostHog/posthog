@@ -23,7 +23,7 @@ Multi-tenancy therefore depends on every query being scoped to a single team.
 HogQL guarantees this by injecting a mandatory `team_id = <context.team_id>` filter onto **every** table it reads that holds team data, so a query can never see another team's rows even if it tries.
 
 This is enforced at the lowest level, at print time.
-When the printer emits each table in a `FROM` / `JOIN`, `_ensure_team_id_where_clause()` adds the guard built by `team_id_guard_for_table()` (`posthog/hogql/printer/clickhouse.py`), applied in `BasePrinter.visit_join_expr` (`posthog/hogql/printer/base.py`).
+When the printer emits each table in a `FROM` / `JOIN`, `_ensure_team_id_where_clause()` adds the guard built by `team_id_guard_for_table()` (`posthog/hogql/printer/clickhouse.py`).
 Because it's added during printing, query-supplied `WHERE` clauses and modifiers can't remove or widen it.
 For `LEFT JOIN`s the guard goes in the `ON` clause instead of `WHERE`, so unmatched rows aren't dropped.
 
@@ -100,14 +100,24 @@ Gated by the `hogql-warehouse-access-control` feature flag (checked in `Database
 `warehouse_table` and `warehouse_view` both inherit from the umbrella resource `warehouse_objects` (`RESOURCE_INHERITANCE_MAP` in `posthog/rbac/user_access_control.py`).
 Denying `warehouse_objects` for a user filters every warehouse table and view out of their schema at build time.
 
-### Object-level: per-table and per-view
+### Object-level: per-source, per-table, and per-view
 
-Specific tables and views can be restricted individually.
-There's UI for this in the SQL editor: open a table's "More" menu → "Access controls".
+Specific sources, tables, and views can be restricted individually.
+There's UI for this in the SQL editor: open a table's or a source's "More" menu → "Access controls".
 A denied table or view is dropped from the schema entirely, and its name lands in `_denied_tables` so queries get "You don't have access to table" instead of "Unknown table".
 The deny checks are `_is_warehouse_table_denied` and `_is_warehouse_view_denied` in `posthog/hogql/database/database.py`.
 
-The creator always keeps access: `UserAccessControl.access_level_for_object()` grants the object's `created_by` user the highest level regardless of explicit denies.
+### How a table's access level resolves
+
+`external_data_source` is its own access-control resource, and `warehouse_table` falls back to it (`RESOURCE_FALLBACK_MAP` in `posthog/rbac/user_access_control.py`).
+That's a different relationship from the `warehouse_objects` umbrella above: inheritance means the child has no rules of its own and just uses the parent's, while fallback means the child's own rules win and the parent's apply only when the child has none.
+
+`get_user_access_level()` takes the first tier that has a rule, most specific first: this table → this source → all tables and views → all sources → the team default.
+
+So denying one source denies every table it syncs, but a rule on a specific table still beats it.
+Tables with no source (self-managed, S3, manually linked) skip the source tiers, and views never resolve through a source.
+
+The creator always keeps access: the object's `created_by` user resolves to the highest level regardless of explicit denies, ahead of every tier above.
 "Creator" here is the `created_by` on the object — for a view, whoever authored it; for a warehouse table, whoever created the row (for an externally synced source, the user who connected the source).
 
 ### Views vs materialized views
@@ -177,7 +187,8 @@ The cache key is derived from `get_cache_payload()`:
 Two things keep cache hit rates high:
 
 1. **Feature gate:** if the organization doesn't have `AvailableFeature.ACCESS_CONTROL`, no resource/object restrictions exist, so nothing is added and the cache isn't partitioned by user at all.
-2. **Scoped to queried tables:** `queried_access_controlled_resources()` (`posthog/hogql_queries/access_controlled_resources.py`) parses the query and returns only the access-controlled scopes it actually reads, so warehouse scopes are added to the payload only when the query references warehouse tables or views — a plain **events or persons query shares one cache entry across all users**
+2. **Scoped to queried tables:** `queried_access_controlled_resources()` (`posthog/hogql_queries/access_controlled_resources.py`) parses the query and returns only the access-controlled scopes it actually reads, so warehouse scopes are added to the payload only when the query references warehouse tables or views — a plain **events or persons query shares one cache entry across all users**.
+   `external_data_source` is folded in wherever `warehouse_table` is (`_with_fallback_parents`), since a table's access can come from its source.
 
 When a run has no user but does read access-controlled resources, the fingerprint uses `restricted_resources: ["*"]` so it can never collide with a real user's cache, and synthetic principals partition on their readable scopes so a narrow token can't reuse a broader token's cached rows.
 
