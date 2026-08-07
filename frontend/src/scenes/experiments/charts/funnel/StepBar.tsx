@@ -64,28 +64,22 @@ function openExperimentPersonsModalForSeries({
         order_type: experimentQuery.metric.funnel_order_type,
     })
 
-    // IMPORTANT: For experiment funnels, the frontend adds an "Experiment exposure" step at index 0
-    // But the backend actors query funnel doesn't include this - it only has the actual metric events
+    // IMPORTANT: For experiment funnels, the frontend adds an "Experiment exposure" step at index 0.
+    // The backend actors query treats exposure as step 0 (returning all exposed actors) and the
+    // actual metric events as steps 1..N, so frontend step indices map directly to backend steps.
     // Frontend: Step 0=Exposure, Step 1=$pageview, Step 2=click
-    // Backend:                  Step 1=$pageview, Step 2=click
-    // So we map frontend step indices to backend step numbers directly (stepIndex = backendStepNo)
+    // Backend:  Step 0=Exposure, Step 1=$pageview, Step 2=click
     const backendStepNo = stepIndex
 
-    // Skip if trying to query the "Experiment exposure" step (stepIndex 0, doesn't exist in backend)
-    if (backendStepNo < 1) {
+    // The exposure step (step 0) only supports conversions ("all exposed actors").
+    // A drop-off "before exposure" is not a meaningful query.
+    if (backendStepNo === 0 && !converted) {
         return
     }
 
-    // Skip drop-off queries for the first metric step (stepIndex 1)
-    // Drop-offs at step 1 would mean "exposed but never entered the funnel",
-    // which can't be queried via the actors funnel (it starts at the first metric event)
-    if (!converted && backendStepNo === 1) {
-        return
-    }
-
-    // For drop-offs, the mapping is straightforward
-    // Frontend step 2 drop-off = "completed step 1 ($pageview) but not step 2 (click)" = backend -2 = -stepIndex
-    // Frontend step 3 drop-off = "completed step 2 (click) but not step 3 (next event)" = backend -3 = -stepIndex
+    // For drop-offs, the mapping is straightforward (funnelStep = -stepIndex):
+    // Step 1 drop-off = "exposed but did not reach the first metric event" = backend -1
+    // Step 2 drop-off = "completed step 1 but not step 2 (click)" = backend -2
     const funnelStep = converted ? backendStepNo : -backendStepNo
 
     // Create ExperimentActorsQuery with exposure configuration
@@ -173,12 +167,7 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element | null {
                 onMouseEnter={() => {
                     if (ref.current) {
                         const rect = ref.current.getBoundingClientRect()
-                        // Only show "Click to inspect actors" hint when clicking will actually work:
-                        // - Step 0 (exposure): can't use actors query (returns early), so don't show hint
-                        // - Step 1 (first metric) drop-offs: can't query (no exposure in backend funnel), conversions work
-                        // - Step 2+: both conversions and drop-offs work
-                        const hasClickableData = stepIndex > 0
-                        showTooltip([rect.x, rect.y, rect.width], stepIndex, step, hasClickableData)
+                        showTooltip([rect.x, rect.y, rect.width], stepIndex, step)
                     }
                 }}
                 onMouseLeave={() => hideTooltip()}
@@ -187,14 +176,14 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element | null {
                     className="StepBar__backdrop"
                     onClick={handleDropoffClick}
                     style={{
-                        cursor: stepIndex > 1 ? 'pointer' : 'default',
+                        cursor: stepIndex > 0 ? 'pointer' : 'default',
                     }}
                 />
                 <div
                     className="StepBar__fill"
                     onClick={handleConversionClick}
                     style={{
-                        cursor: stepIndex > 0 ? 'pointer' : 'default',
+                        cursor: 'pointer',
                     }}
                 />
             </div>
