@@ -48,10 +48,6 @@ pub struct WarmState {
     /// whose cache may predate writes accepted since, and is released
     /// and rebuilt.
     pub for_handoff: Option<HandoffId>,
-    /// The Kafka transactional-producer epoch held (production:
-    /// `init_transactions` under the `EpochFenced` variant; the broker
-    /// rejects produces bearing a stale epoch).
-    pub epoch: u8,
     /// How much of the changelog this pod's cache reflects: the HWM
     /// captured at warm time, plus every write it has accepted since. A
     /// strong read served while `changelog.len` exceeds this returns state
@@ -153,16 +149,24 @@ pub enum StashedRequest {
 }
 
 /// The Kafka changelog for one partition, reduced to what the safety
-/// invariants need: an append counter (the HWM) and the producer epoch
-/// the broker currently accepts.
+/// invariants need: an append counter (the HWM) and who currently holds
+/// the broker's producer fence.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Changelog {
     /// Number of records appended (the HWM).
     pub len: u8,
-    /// Broker-side producer epoch. Bumped by each warm under the
-    /// `EpochFenced` variant (production: `init_transactions` fencing);
-    /// ignored by `Current`.
-    pub epoch: u8,
+    /// The pod whose transactional producer the broker currently accepts,
+    /// under `Variant::EpochFenced` (production: the latest
+    /// `init_transactions` wins and every earlier producer is fenced out).
+    /// Always `None` under `Current`, which has no broker-side fence.
+    ///
+    /// This is an owner rather than an epoch number because nothing
+    /// compares epochs for order — the single consumer asks whether *this*
+    /// pod's producer is the live one. A counter would have split states
+    /// that differ only in how many fences had been acquired along the way,
+    /// and, being a `u8`, would eventually have wrapped a stale epoch onto
+    /// a live one and admitted a write it should reject.
+    pub epoch_holder: Option<PodId>,
 }
 
 /// The entire distributed system. One value = one node in the explored
