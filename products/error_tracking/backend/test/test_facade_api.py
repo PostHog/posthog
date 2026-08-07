@@ -239,6 +239,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
             ("integer_repository", {"repository": 42, "number": 42}),
             ("blank_repository", {"repository": "   ", "number": 42}),
             ("path_traversal_repository", {"repository": "../../settings", "number": 42}),
+            ("dot_segment_repository", {"repository": "..", "number": 42}),
         ]
     )
     def test_link_existing_issue_rejects_invalid_external_context(self, _name, external_context):

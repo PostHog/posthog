@@ -190,7 +190,9 @@ def _clean_existing_external_context(integration: Integration, external_context:
                 value = int(value)
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise error
-        elif not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9._-]+", value):
+        elif not isinstance(value, str) or not re.fullmatch(r"(?!\.+$)[A-Za-z0-9._-]+", value):
+            # The lookahead rejects all-dot values ("." / ".."), which are URL path
+            # segments with traversal semantics.
             raise error
         cleaned[field] = value
     return cleaned
