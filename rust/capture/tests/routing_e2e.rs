@@ -35,9 +35,7 @@ impl RestrictionKey {
         let key = format!("event_ingestion_restriction_dynamic_config:{restriction_type}");
         let client = redis::Client::open(DEFAULT_CONFIG.redis_url.as_str())
             .expect("failed to create redis client");
-        let mut conn = client
-            .get_connection()
-            .expect("failed to connect to redis");
+        let mut conn = client.get_connection().expect("failed to connect to redis");
         conn.set::<_, _, ()>(&key, entries.to_string())
             .expect("failed to write restriction entries");
         Self { key }
