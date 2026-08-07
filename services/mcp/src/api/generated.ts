@@ -15522,6 +15522,8 @@ export namespace Schemas {
     export interface CommentSlackThreadRef {
       /** Slack channel ID this discussion is mirrored to. */
       channel_id: string;
+      /** Slack channel name resolved from Slack when the discussion was sent (no leading #). Empty for private channels and when unknown; may lag behind a rename in Slack. */
+      channel_name: string;
       /** Deep link that opens the mirrored Slack thread. */
       url: string;
     }
@@ -15577,6 +15579,8 @@ export namespace Schemas {
       readonly integration: number;
       /** Slack channel the mirrored thread lives in. */
       readonly slack_channel_id: string;
+      /** Slack channel name resolved from Slack at send time (no leading #). Empty for private channels and when unknown. */
+      readonly slack_channel_name: string;
       /** Slack thread timestamp anchoring the mirrored thread. */
       readonly slack_thread_ts: string;
       /**
@@ -17863,6 +17867,45 @@ export namespace Schemas {
       /** @nullable */
       readonly created_at: string | null;
       readonly created_by: UserBasic;
+    }
+
+    /**
+     * * `never` - never
+     * * `live` - live
+     * * `stale` - stale
+     */
+    export type FreshnessEnum = typeof FreshnessEnum[keyof typeof FreshnessEnum];
+
+
+    export const FreshnessEnum = {
+      Never: 'never',
+      Live: 'live',
+      Stale: 'stale',
+    } as const;
+
+    export interface DataFreshnessSource {
+      /** The product this timestamp is about, as a `ProductKey` (e.g. `session_replay`, `logs`). Not an enum: products declare their own data sources, so the set grows without an API change. */
+      data_source: string;
+      /** When data of this kind last reached the project. Only sources with data inside the lookback window are listed. */
+      last_data_at: string;
+    }
+
+    export interface DataFreshnessProject {
+      /** ID of the project this freshness verdict is for. */
+      team_id: number;
+      /** `live` if data of any kind arrived within `quiet_after_days`, `stale` if none did, `never` if the project has never ingested anything at all.
+       *
+       * * `never` - never
+       * * `live` - live
+       * * `stale` - stale */
+      freshness: FreshnessEnum;
+      /**
+         * When data of any kind last reached the project, or null if nothing arrived within the lookback window.
+         * @nullable
+         */
+      last_data_at: string | null;
+      /** Per-source breakdown, most recently active first. */
+      sources: DataFreshnessSource[];
     }
 
     /**
@@ -45117,6 +45160,15 @@ export namespace Schemas {
       is_pending_deletion?: boolean | null;
     }
 
+    export interface OrganizationDataFreshness {
+      /** One entry per project the requesting user can see. */
+      results: DataFreshnessProject[];
+      /** How many days back the check looks. Data older than this is not visible to the check. */
+      lookback_days: number;
+      /** How many days without data make a project or source count as quiet. */
+      quiet_after_days: number;
+    }
+
     export interface OrganizationDomain {
       readonly id: string;
       /** @maxLength 128 */
@@ -66833,7 +66885,7 @@ export namespace Schemas {
       /** ID of the Slack integration (kind='slack') whose bot posts the thread. */
       integration_id: number;
       /**
-         * Slack channel ID to create the mirrored thread in. The bot must be a member of the channel.
+         * Slack channel ID to create the mirrored thread in. The bot must be a member of the channel. The channel's display name is resolved server-side.
          * @maxLength 255
          */
       channel_id: string;

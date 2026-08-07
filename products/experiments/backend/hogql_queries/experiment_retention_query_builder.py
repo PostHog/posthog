@@ -3,6 +3,8 @@ from typing import TYPE_CHECKING, Optional
 from django.utils import timezone
 
 from posthog.schema import (
+    ActionsNode,
+    EventsNode,
     ExperimentDataWarehouseNode,
     ExperimentRetentionMetric,
     FunnelConversionWindowTimeUnit,
@@ -51,6 +53,78 @@ class RetentionQueryBuilder:
             self._b.metric.retention_window_end,
             self._b.metric.retention_window_unit,
         )
+
+    def get_metric_events_window_extension_seconds(self) -> int:
+        """
+        How far past the experiment end date the metric-events scan must extend.
+        A completion event can land up to retention_window_end after a start event
+        that itself lands up to conversion_window after the last exposure, so the
+        extension is the sum — unlike funnel/mean, where the conversion window alone
+        bounds it.
+        """
+        assert isinstance(self._b.metric, ExperimentRetentionMetric)
+        return self._b._get_conversion_window_seconds() + conversion_window_to_seconds(
+            self._b.metric.retention_window_end,
+            self._b.metric.retention_window_unit,
+        )
+
+    def get_retention_metric_events_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
+        """
+        Returns the SELECT query that the lazy computation system wraps in an
+        INSERT INTO experiment_metric_events_preaggregated. This is the write
+        path — it stores one row per event matching the start predicate or the
+        completion predicate, flagged via the steps array (steps[1] = matched
+        start_event, steps[2] = matched completion_event; an event can match
+        both). Start anchoring (FIRST_SEEN/LAST_SEEN), the per-user retention
+        window, and the maturity gate are all read-time concerns computed from
+        the stored timestamps.
+
+        The query uses {time_window_min} and {time_window_max} placeholders filled
+        by the lazy computation system for each daily bucket. The experiment date
+        bounds must stay named placeholders (the caller declares experiment_date_to
+        a sentinel) rather than reusing the direct-scan predicates, which bake the
+        resolved dates into the AST — a running experiment's moving window end
+        would then change the job hash and defeat cache reuse. The window extension
+        stays a placeholder too, but as a hashed constant: it derives from
+        retention_window_end, so changing the window must invalidate jobs.
+
+        Returns:
+            Tuple of (query_string, placeholders_dict)
+        """
+        assert isinstance(self._b.metric, ExperimentRetentionMetric)
+        start_event = self._b.metric.start_event
+        completion_event = self._b.metric.completion_event
+        assert isinstance(start_event, (EventsNode, ActionsNode))
+        assert isinstance(completion_event, (EventsNode, ActionsNode))
+
+        query_string = """
+            SELECT
+                {entity_key} AS entity_id,
+                timestamp AS timestamp,
+                uuid AS event_uuid,
+                `$session_id` AS session_id,
+                [
+                    _toUInt8(if({start_event_filter}, 1, 0)),
+                    _toUInt8(if({completion_event_filter}, 1, 0))
+                ] AS steps
+            FROM events
+            WHERE timestamp >= {time_window_min}
+                AND timestamp < {time_window_max}
+                AND timestamp >= {experiment_date_from}
+                AND timestamp < {experiment_date_to} + toIntervalSecond({window_extension_seconds})
+                AND ({start_event_filter} OR {completion_event_filter})
+        """
+
+        placeholders: dict[str, ast.Expr] = {
+            "entity_key": parse_expr(self._b.entity_key),
+            "start_event_filter": event_or_action_to_filter(self._b.team, start_event),
+            "completion_event_filter": event_or_action_to_filter(self._b.team, completion_event),
+            "experiment_date_from": self._b.date_range_query.date_from_as_hogql(),
+            "experiment_date_to": self._b.date_range_query.date_to_as_hogql(),
+            "window_extension_seconds": ast.Constant(value=self.get_metric_events_window_extension_seconds()),
+        }
+
+        return query_string, placeholders
 
     def build_retention_maturity_having_clause(self) -> Optional[ast.Expr]:
         """
@@ -121,34 +195,76 @@ class RetentionQueryBuilder:
         """
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
 
+        if self._b.metric_events_preaggregation_job_ids:
+            # Read start/completion events from the precomputed table instead of scanning
+            # events; the event predicates were applied at build time and survive as the
+            # steps flags (steps[1] = matched start_event, steps[2] = matched completion_event).
+            # Time bounds must mirror the direct-scan predicates exactly — jobs can cover
+            # broader ranges than the experiment for cache reusability — so start events are
+            # bounded by the exposure window + conversion window and completions additionally
+            # by retention_window_end. Everything downstream (start anchoring, window
+            # arithmetic, maturity, same-event exclusion) is read-time and stays unchanged.
+            # No dedup of replayed build rows is needed: min/max/argMin/argMax and the
+            # MAX(0/1) outcome are all idempotent under duplicated rows, unlike mean's sums.
+            entity_id_cast = "toUUID(t.entity_id)" if self._b.entity_key == "person_id" else "t.entity_id"
+            start_events_body = f"""FROM (
+                    SELECT
+                        {entity_id_cast} AS entity_id,
+                        t.timestamp AS timestamp,
+                        t.event_uuid AS uuid
+                    FROM experiment_metric_events_preaggregated AS t
+                    WHERE t.job_id IN {{metric_events_job_ids}}
+                        AND t.team_id = {{metric_events_team_id}}
+                        AND arrayElement(t.steps, 1) = 1
+                        AND t.timestamp >= {{metric_events_date_from}}
+                        AND t.timestamp < {{metric_events_date_to}} + toIntervalSecond({{metric_events_start_window_seconds}})
+                ) AS events
+                INNER JOIN exposures ON events.entity_id = exposures.entity_id
+                WHERE {{start_after_exposure_predicate}}"""
+            completion_events_body = f"""SELECT
+                    {entity_id_cast} AS entity_id,
+                    t.event_uuid AS completion_uuid,
+                    t.timestamp AS completion_timestamp
+                FROM experiment_metric_events_preaggregated AS t
+                WHERE t.job_id IN {{metric_events_job_ids}}
+                    AND t.team_id = {{metric_events_team_id}}
+                    AND arrayElement(t.steps, 2) = 1
+                    AND t.timestamp >= {{metric_events_date_from}}
+                    AND t.timestamp < {{metric_events_date_to}} + toIntervalSecond({{metric_events_completion_window_seconds}})"""
+        else:
+            start_events_body = """FROM events
+                INNER JOIN exposures ON {entity_key} = exposures.entity_id
+                WHERE {start_event_predicate}
+                    AND {start_after_exposure_predicate}"""
+            completion_events_body = """SELECT
+                    {entity_key} AS entity_id,
+                    uuid AS completion_uuid,
+                    timestamp AS completion_timestamp
+                FROM events
+                WHERE {completion_event_predicate}"""
+
         # Build the CTEs
-        common_ctes = """
+        common_ctes = (
+            f"""
             exposures AS (
-                {exposure_select_query}
+                {{exposure_select_query}}
             ),
 
             start_events AS (
                 SELECT
                     exposures.entity_id AS entity_id,
-                    {start_timestamp_expr} AS start_timestamp,
-                    {start_uuid_expr} AS start_uuid
-                FROM events
-                INNER JOIN exposures ON {entity_key} = exposures.entity_id
-                WHERE {start_event_predicate}
-                    AND {start_after_exposure_predicate}
+                    {{start_timestamp_expr}} AS start_timestamp,
+                    {{start_uuid_expr}} AS start_uuid
+                {start_events_body}
                 GROUP BY exposures.entity_id
             ),
 
             completion_events AS (
-                SELECT
-                    {entity_key} AS entity_id,
-                    uuid AS completion_uuid,
-                    timestamp AS completion_timestamp
-                FROM events
-                WHERE {completion_event_predicate}
+                {completion_events_body}
             ),
 
-            entity_metrics AS (
+            entity_metrics AS ("""
+            + """
                 SELECT
                     exposures.entity_id AS entity_id,
                     exposures.variant AS variant,
@@ -174,6 +290,7 @@ class RetentionQueryBuilder:
                 GROUP BY exposures.entity_id, exposures.variant
             )
         """
+        )
 
         placeholders = {
             "exposure_select_query": self._b._get_exposure_query(),
@@ -195,6 +312,18 @@ class RetentionQueryBuilder:
                 parse_expr("completion_events.completion_timestamp")
             ),
         }
+
+        if self._b.metric_events_preaggregation_job_ids:
+            placeholders["metric_events_job_ids"] = ast.Constant(value=self._b.metric_events_preaggregation_job_ids)
+            placeholders["metric_events_team_id"] = ast.Constant(value=self._b.team.id)
+            placeholders["metric_events_date_from"] = self._b.date_range_query.date_from_as_hogql()
+            placeholders["metric_events_date_to"] = self._b.date_range_query.date_to_as_hogql()
+            placeholders["metric_events_start_window_seconds"] = ast.Constant(
+                value=self._b._get_conversion_window_seconds()
+            )
+            placeholders["metric_events_completion_window_seconds"] = ast.Constant(
+                value=self.get_metric_events_window_extension_seconds()
+            )
 
         query = parse_select(
             f"""
