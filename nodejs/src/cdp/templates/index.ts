@@ -2,6 +2,7 @@ import { DESTINATION_PLUGINS, TRANSFORMATION_PLUGINS } from '../legacy-plugins'
 import { SEGMENT_DESTINATIONS } from '../segment/segment-templates'
 import { HogFunctionTemplate, NativeTemplate } from '../types'
 import { template as accoilTemplate } from './_destinations/accoil/accoil.template'
+import { template as activecampaignTemplate } from './_destinations/activecampaign/activecampaign.template'
 import { template as appcuesTemplate } from './_destinations/appcues/appcues.template'
 import { template as clickupTemplate } from './_destinations/clickup/clickup.template'
 import { template as closeTemplate } from './_destinations/close/close.template'
@@ -104,6 +105,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     retainTemplate,
     customerioTemplate,
     slackTemplate,
+    activecampaignTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [

@@ -20,7 +20,8 @@ from cdp_template_to_ts import extract_templates  # noqa: E402
 
 def node_codes(path: str) -> dict[str, str]:
     src = open(path, encoding="utf-8").read()
-    ids = re.findall(r"^\s*id: '([^']+)',", src, re.M)
+    # Exactly four spaces: a top-level template key, not an `id` nested in filters or choices.
+    ids = re.findall(r"^    id: '([^']+)',$", src, re.M)
     codes = []
     for m in re.finditer(r"code: `(.*?)`\.trim\(\)", src, re.S):
         raw = m.group(1)
