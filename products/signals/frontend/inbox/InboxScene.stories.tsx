@@ -89,6 +89,24 @@ export const SelfDrivingOnboarding: Story = {
     ],
 }
 
+// The same fresh-project state with the welcome-redesign experiment's test arm pinned → the
+// full-pane hero welcome (no tab row) instead of the locked "Welcome" tab.
+export const SelfDrivingOnboardingRedesign: Story = {
+    parameters: {
+        // Story parameters replace the meta's, so the meta-level flag is re-listed here.
+        featureFlags: { [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true, [FEATURE_FLAGS.INBOX_WELCOME_REDESIGN]: 'test' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
+                '/api/projects/:id/signals/source_configs': () => [200, { results: [], count: 0 }],
+                '/api/projects/:id/signals/scout/configs': () => [200, []],
+            },
+        }),
+    ],
+}
+
 // Had self-driving before (reports exist) but nothing is watching now → the sleek re-enable banner
 // over the normal inbox, so existing work stays accessible. Reports are mocked explicitly (not
 // inherited) so "existing work" is unambiguous and the banner – not the takeover – is shown.

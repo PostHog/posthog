@@ -15,6 +15,7 @@ import { ScoutDetailView } from './components/config/scouts/ScoutDetailView'
 import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDetail'
 import { FindingsPanel } from './components/findings/FindingsPanel'
 import { InboxOnboardingBanner, InboxOnboardingTakeover } from './components/onboarding/InboxOnboarding'
+import { InboxWelcomeRedesign } from './components/onboarding/InboxWelcomeRedesign'
 import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
 import { AgentSetupColumn } from './components/shell/AgentSetupColumn'
 import { InboxScopeSelect } from './components/shell/InboxScopeSelect'
@@ -109,7 +110,7 @@ function ActiveTabBody({
  */
 function InboxListView(): JSX.Element {
     const { activeTab, signalRuns, signalRunsLoading } = useValues(inboxSceneLogic)
-    const { onboardingMode } = useValues(inboxOnboardingLogic)
+    const { onboardingMode, isWelcomeRedesign } = useValues(inboxOnboardingLogic)
     const { ref: widthRef, size } = useResizeBreakpoints(
         { 0: 'narrow', [SETUP_RAIL_MIN_PX]: 'wide' },
         { initialSize: 'wide' }
@@ -150,17 +151,25 @@ function InboxListView(): JSX.Element {
             <div className="flex flex-col min-h-0 flex-1 min-w-0">
                 {/* pl-5 (20px) aligns the first tab label with the SceneTitleSection description above;
                     pr-6 matches the report list's px-6 so the scope select shares the list's right edge. */}
-                <div className="flex items-end justify-between gap-2 border-b border-primary pl-5 pr-6 shrink-0">
-                    <InboxTabBar showConfigTab={!wide} onboarding={onboarding} />
-                    {!onboarding && isReportListTab(effectiveTab) && (
-                        <div className="pb-1.5">
-                            <InboxScopeSelect />
-                        </div>
-                    )}
-                </div>
+                {/* The redesigned welcome (experiment test arm) is a full-pane page with no tab
+                    row at all; control keeps the locked "Welcome" tab over the disabled real tabs. */}
+                {!isWelcomeRedesign && (
+                    <div className="flex items-end justify-between gap-2 border-b border-primary pl-5 pr-6 shrink-0">
+                        <InboxTabBar showConfigTab={!wide} onboarding={onboarding} />
+                        {!onboarding && isReportListTab(effectiveTab) && (
+                            <div className="pb-1.5">
+                                <InboxScopeSelect />
+                            </div>
+                        )}
+                    </div>
+                )}
                 <div className="flex-1 overflow-auto min-h-0">
                     {onboarding ? (
-                        <InboxOnboardingTakeover />
+                        isWelcomeRedesign ? (
+                            <InboxWelcomeRedesign />
+                        ) : (
+                            <InboxOnboardingTakeover />
+                        )
                     ) : (
                         <ActiveTabBody
                             tab={effectiveTab}
@@ -230,7 +239,7 @@ export function InboxScene(): JSX.Element {
         isFindingsOpen,
     } = useValues(inboxSceneLogic)
     const { runSessionAnalysis, setScratchpadOpen, setFindingsOpen } = useActions(inboxSceneLogic)
-    const { onboardingMode } = useValues(inboxOnboardingLogic)
+    const { onboardingMode, isWelcomeRedesign } = useValues(inboxOnboardingLogic)
     const { isDev } = useValues(preflightLogic)
 
     // Detail routes (report or scout) render full-width over the list (desktop parity), but the list view
@@ -259,9 +268,13 @@ export function InboxScene(): JSX.Element {
                     name="Inbox"
                     // The description explains the active tab so new users can orient themselves.
                     // In the onboarding takeover the tabs are locked, so keep the overall pitch.
+                    // The redesigned welcome leads with its own full-size pitch, so a description
+                    // here would say the same thing twice.
                     description={
                         onboardingMode === 'takeover'
-                            ? 'Self-driving for your product. Look through code changes and reports from PostHog agents.'
+                            ? isWelcomeRedesign
+                                ? null
+                                : 'Self-driving for your product. Look through code changes and reports from PostHog agents.'
                             : INBOX_TAB_DESCRIPTION[activeTab]
                     }
                     resourceType={{ type: 'inbox' }}
