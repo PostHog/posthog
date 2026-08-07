@@ -8,13 +8,26 @@ pub const UPDATES_FILTERED_BY_CACHE: &str = "prop_defs_filtered_by_cache";
 pub const EMPTY_EVENTS: &str = "prop_defs_empty_events";
 pub const EVENT_PARSE_ERROR: &str = "prop_defs_event_parse_error";
 pub const BATCH_ACQUIRE_TIME: &str = "prop_defs_batch_acquire_time_ms";
-pub const CACHE_CONSUMED: &str = "prop_defs_cache_space";
+// Fraction of a subcache's capacity currently occupied, 0.0 to 1.0. Not an absolute size:
+// CACHE_LEN carries that, and a threshold written against this one has to be a fraction.
+pub const CACHE_FILL_RATIO: &str = "prop_defs_cache_fill_ratio";
 pub const CACHE_LEN: &str = "prop_defs_cache_len";
 pub const CACHE_HITS: &str = "prop_defs_cache_hits";
 pub const CACHE_MISSES: &str = "prop_defs_cache_misses";
 pub const CACHE_EVICTIONS: &str = "prop_defs_cache_evictions";
 pub const UPDATES_CACHE: &str = "prop_defs_updates_cache";
-pub const UPDATE_PRODUCER_OFFSET: &str = "prop_defs_update_producer_offset";
+// Kafka offset stores that failed. The producer loop continues past a failure, so a later
+// successful store on the same partition supersedes it and nothing is redelivered. Redelivery
+// only follows a failure that a rebalance or restart interrupts before the next store lands.
+pub const OFFSET_STORE_FAILURES: &str = "prop_defs_offset_store_failures";
+
+// Outcomes of group-type resolution, labeled `action`:
+//   hit          local cache had the index
+//   miss         local cache did not, and personhog resolved it (a cache miss, not a failure)
+//   negative_hit a recent unresolvable lookup is still within its TTL, so we skipped personhog
+//   fail         personhog returned no mapping, and the definition is dropped
+// A hit rate must divide by the sum of all four. Dividing by hit + miss alone silently drops
+// both of the outcomes where a definition does not get written.
 pub const GROUP_TYPE_CACHE: &str = "prop_defs_group_type_cache";
 pub const RECV_DEQUEUED: &str = "prop_defs_recv_dequeued";
 pub const COMPACTED_UPDATES: &str = "prop_defs_compaction_dropped_updates";
