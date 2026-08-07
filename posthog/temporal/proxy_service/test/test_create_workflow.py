@@ -1,22 +1,29 @@
 import uuid
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import dns.resolver
 import temporalio.worker
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import ApplicationError
-from temporalio.testing import WorkflowEnvironment
+from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import Worker
 
-from posthog.temporal.proxy_service.common import SendProxyCreatedEmailInputs, UpdateProxyRecordInputs
+from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.proxy_service.common import (
+    RecordDeletedException,
+    SendProxyCreatedEmailInputs,
+    UpdateProxyRecordInputs,
+)
 from posthog.temporal.proxy_service.create import (
     CreateCloudflareProxyInputs,
     CreateManagedProxyInputs,
     CreateManagedProxyWorkflow,
     ScheduleMonitorJobInputs,
     WaitForDNSRecordsInputs,
+    wait_for_dns_records,
 )
 
 
@@ -181,3 +188,51 @@ class TestCreateManagedProxyWorkflowErrorHandling:
 
         assert "valid" in status_updates
         assert "erroring" not in status_updates
+
+
+def test_record_deleted_exception_is_non_reportable():
+    # The activity interceptor keys error-tracking suppression on the NonReportableError type.
+    # If this inheritance is dropped, every deliberate mid-provisioning abort starts minting
+    # error-tracking issues again — the exact noise this exists to prevent.
+    assert issubclass(RecordDeletedException, NonReportableError)
+
+
+class _FakeARecord:
+    def __init__(self, ip: str):
+        self._ip = ip
+
+    def to_text(self) -> str:
+        return self._ip
+
+
+@pytest.mark.parametrize("record_deleted_mid_lookup", [True, False])
+async def test_wait_for_dns_cloudflare_diagnostic_never_masks_dns_error(record_deleted_mid_lookup: bool):
+    # A customer with Cloudflare proxying on their own zone should always surface the NoAnswer
+    # error that carries the setup-guidance message. The cosmetic diagnostic write is best-effort:
+    # if the record is deleted while we run the DNS lookups, its RecordDeletedException must not
+    # replace the original DNS error.
+    inputs = WaitForDNSRecordsInputs(
+        organization_id=uuid.uuid4(),
+        proxy_record_id=uuid.uuid4(),
+        domain="test.example.com",
+        target_cname="target.example.com",
+    )
+
+    async def fake_resolve(name, rdtype):
+        if rdtype == "CNAME":
+            raise dns.resolver.NoAnswer()
+        # Customer IP inside a Cloudflare range, target IP outside it — the "misconfigured" branch.
+        return [_FakeARecord("1.2.3.4")] if name == inputs.domain else [_FakeARecord("5.6.7.8")]
+
+    update_record_mock = AsyncMock(side_effect=RecordDeletedException("deleted") if record_deleted_mid_lookup else None)
+
+    with (
+        patch("posthog.temporal.proxy_service.create.record_exists", AsyncMock(return_value=True)),
+        patch("posthog.temporal.proxy_service.create.dns.asyncresolver.resolve", side_effect=fake_resolve),
+        patch("posthog.temporal.proxy_service.create.requests.get", return_value=MagicMock(text="1.2.3.0/24")),
+        patch("posthog.temporal.proxy_service.create.update_record", update_record_mock),
+    ):
+        with pytest.raises(dns.resolver.NoAnswer):
+            await ActivityEnvironment().run(wait_for_dns_records, inputs)
+
+    update_record_mock.assert_awaited_once()

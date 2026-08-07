@@ -14,6 +14,7 @@ from temporalio import activity
 from posthog.event_usage import groups
 from posthog.models import ProxyRecord
 from posthog.models.organization import Organization
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.proxy_service.proto import ProxyProvisionerServiceStub
 
@@ -66,8 +67,12 @@ class NonRetriableException(Exception):
     pass
 
 
-class RecordDeletedException(NonRetriableException):
-    pass
+class RecordDeletedException(NonRetriableException, NonReportableError):
+    """A proxy record was deleted mid-provisioning (or mid-monitor). This is expected control flow
+    when a user removes their managed reverse-proxy record while the workflow is still running — the
+    workflow catches it and returns without erroring. It inherits NonReportableError so the activity
+    interceptor skips error-tracking capture: keying on the type silences every raise site at once,
+    rather than re-fingerprinting a fresh issue per raise site and message string."""
 
 
 @sync_to_async

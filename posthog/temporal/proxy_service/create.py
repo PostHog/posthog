@@ -172,11 +172,20 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
                     exc,
                 )
             # IPs don't match our target — customer likely has Cloudflare
-            # proxying enabled on their own zone
-            await update_record(
-                proxy_record_id=inputs.proxy_record_id,
-                message="The DNS record appears to have Cloudflare proxying enabled - please disable this. For more information see [the docs](https://posthog.com/docs/advanced/proxy/managed-reverse-proxy)",
-            )
+            # proxying enabled on their own zone. Writing this diagnostic is
+            # best-effort: if the record was deleted while we were doing the
+            # DNS lookups above, let the original NoAnswer error surface rather
+            # than clobbering it with a RecordDeletedException.
+            try:
+                await update_record(
+                    proxy_record_id=inputs.proxy_record_id,
+                    message="The DNS record appears to have Cloudflare proxying enabled - please disable this. For more information see [the docs](https://posthog.com/docs/advanced/proxy/managed-reverse-proxy)",
+                )
+            except RecordDeletedException:
+                logger.info(
+                    "Proxy record %s deleted before Cloudflare-proxy diagnostic could be written",
+                    inputs.proxy_record_id,
+                )
         raise
     except (dns.resolver.NXDOMAIN, dns.resolver.Timeout, ApplicationError):
         # retriable
