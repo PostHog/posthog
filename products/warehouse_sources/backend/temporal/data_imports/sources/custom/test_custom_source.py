@@ -21,6 +21,7 @@ from posthog.models import User
 
 from products.warehouse_sources.backend.models import ExternalDataSource
 from products.warehouse_sources.backend.models.custom_oauth2_integration import CustomOAuth2Integration
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
     OAUTH2_PERMANENT_ERROR_MARKER,
     APIKeyAuth,
@@ -30,6 +31,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     OAuth2AuthRequestError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import create_auth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.jsonpath_utils import (
+    compile_path,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
 )
@@ -50,6 +54,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
     _PreviewSession,
     _read_capped_text,
     _redact_secrets,
+    _validate_jsonpath_fields,
     _validate_resource_graph,
     manifest_request_hosts,
     validate_manifest_structure,
@@ -2606,6 +2611,85 @@ class TestCustomSourcePaginatorUnsupportedKeys(SimpleTestCase):
         ok, err = source.validate_credentials(config, team_id=999)
         assert ok is False
         assert err is not None and "limit_body_path" in err and "'users'" in err
+
+
+class TestCustomSourceJSONPathValidation(SimpleTestCase):
+    def _with(self, mutate) -> dict:
+        manifest = _minimal_manifest()
+        mutate(manifest)
+        return manifest
+
+    @parameterized.expand(
+        [
+            (
+                "endpoint_data_selector",
+                lambda m: m["resources"][0]["endpoint"].__setitem__("data_selector", ".data"),
+                "endpoint.data_selector",
+            ),
+            (
+                "endpoint_paginator_path",
+                lambda m: m["resources"][0]["endpoint"].__setitem__(
+                    "paginator", {"type": "json_response", "next_url_path": ".next"}
+                ),
+                "endpoint.paginator.next_url_path",
+            ),
+            (
+                "incremental_cursor_path",
+                lambda m: m["resources"][0]["endpoint"].__setitem__(
+                    "incremental", {"cursor_path": ".updated_at", "start_param": "since"}
+                ),
+                "endpoint.incremental.cursor_path",
+            ),
+            (
+                "client_paginator_path",
+                lambda m: m["client"].__setitem__("paginator", {"type": "cursor", "cursor_path": ".cursor"}),
+                "client.paginator.cursor_path",
+            ),
+        ]
+    )
+    def test_rejects_malformed_jsonpath(self, _name, mutate, expected_location):
+        with self.assertRaises(ManifestValidationError) as ctx:
+            _validate_jsonpath_fields(self._with(mutate))
+        message = str(ctx.exception)
+        assert expected_location in message
+        assert "not a valid JSONPath" in message
+
+    @parameterized.expand(
+        [
+            ("valid_dotted", lambda m: m["resources"][0]["endpoint"].__setitem__("data_selector", "data.items")),
+            ("valid_root", lambda m: m["resources"][0]["endpoint"].__setitem__("data_selector", "$.data")),
+            # An empty/absent selector means "use the whole body" — the engine's `if data_selector`
+            # guard skips compilation, so validation must not reject it either.
+            ("empty_selector", lambda m: m["resources"][0]["endpoint"].__setitem__("data_selector", "")),
+            ("no_selector", lambda m: m["resources"][0]["endpoint"].pop("data_selector")),
+        ]
+    )
+    def test_accepts_valid_or_absent_jsonpath(self, _name, mutate):
+        _validate_jsonpath_fields(self._with(mutate))
+
+    def test_validate_credentials_rejects_malformed_data_selector(self):
+        # Wiring guard: the create/update API path must run this check and surface the resource and
+        # the offending expression, the same way it does for resolve-param fields.
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["data_selector"] = ".data"
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok is False
+        assert err is not None and "'users'" in err and "'.data'" in err
+
+    def test_legacy_manifest_selector_error_is_classified_non_retryable(self):
+        # A manifest stored before save-time validation existed still fails a sync, but the engine's
+        # lazy compile now raises a stable, matchable message so the source classifies it as a
+        # permanent config error (should_sync off + a readable message) instead of retrying a raw
+        # parser traceback. This keeps the compile_path prefix and the mapping key in lockstep.
+        with self.assertRaises(Exception) as ctx:
+            compile_path(".data")
+        message = str(ctx.exception)
+        non_retryable = CustomSource().get_non_retryable_errors()
+        assert error_message_matches(message, non_retryable.keys())
+        friendly = next(v for k, v in non_retryable.items() if error_message_matches(message, [k]))
+        assert friendly is not None and "manifest" in friendly
 
 
 def _apikey_manifest() -> dict:

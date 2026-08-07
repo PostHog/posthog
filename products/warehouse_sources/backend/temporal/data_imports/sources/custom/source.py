@@ -55,6 +55,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     create_auth,
     get_paginator_class,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.jsonpath_utils import (
+    compile_path,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     EndpointResource,
     EndpointResourceBase,
@@ -453,6 +456,62 @@ def _check_paginator_config(paginator: Any, location: str) -> None:
             f"{location} has unsupported {'keys' if len(unsupported) > 1 else 'key'} "
             f"{', '.join(unsupported)}. Allowed keys: {', '.join(sorted(supported))}"
         )
+
+
+# Paginator config keys whose value is a JSONPath (see the paginator classes in
+# ``rest_source/paginators.py``). The engine compiles these with jsonpath_ng at request
+# time, so a malformed value would otherwise only fail mid-sync.
+_PAGINATOR_JSONPATH_KEYS = ("next_url_path", "cursor_path", "total_path")
+
+
+def _validate_jsonpath_fields(manifest: dict[str, Any]) -> None:
+    """Compile every JSONPath-shaped manifest field so a malformed expression is rejected at
+    create/update time instead of failing every sync with a context-free jsonpath_ng parser error.
+
+    The REST engine compiles these lazily during a sync — ``data_selector`` per page (in
+    ``rest_client._extract_response``), the paginator paths per request (in ``paginators.py``), and
+    the incremental ``cursor_path`` — so a bad expression (e.g. a leading-dot ``.data`` instead of
+    ``data`` or ``$.data``) fails identically on every retry with a message that names neither the
+    resource nor the offending string. Compiling here mirrors what ``_validate_resource_graph``
+    already does for resolve-param ``field`` expressions.
+    """
+    client = manifest.get("client")
+    if isinstance(client, dict):
+        _check_paginator_jsonpaths(client.get("paginator"), "client.paginator")
+
+    for resource in manifest.get("resources") or []:
+        if not isinstance(resource, dict):
+            continue
+        name = resource.get("name")
+        endpoint = resource.get("endpoint")
+        if not isinstance(endpoint, dict):
+            continue
+        _compile_manifest_jsonpath(endpoint.get("data_selector"), f"Resource {name!r}: endpoint.data_selector")
+        _check_paginator_jsonpaths(endpoint.get("paginator"), f"Resource {name!r}: endpoint.paginator")
+        incremental = endpoint.get("incremental")
+        if isinstance(incremental, dict):
+            _compile_manifest_jsonpath(
+                incremental.get("cursor_path"), f"Resource {name!r}: endpoint.incremental.cursor_path"
+            )
+
+
+def _check_paginator_jsonpaths(paginator: Any, location: str) -> None:
+    if not isinstance(paginator, dict):
+        return
+    for key in _PAGINATOR_JSONPATH_KEYS:
+        _compile_manifest_jsonpath(paginator.get(key), f"{location}.{key}")
+
+
+def _compile_manifest_jsonpath(path: Any, location: str) -> None:
+    # Only a non-empty string reaches jsonpath_ng at runtime; a falsy value means "no selector"
+    # (see the ``if data_selector`` guard in ``_extract_response``), so leave those untouched —
+    # rejecting them here would brick a stored manifest the engine currently tolerates.
+    if not isinstance(path, str) or not path:
+        return
+    try:
+        compile_path(path)
+    except JSONPathError as exc:
+        raise ManifestValidationError(f"{location} is not a valid JSONPath ({path!r}): {exc}") from exc
 
 
 # Plain-English replacements for the pydantic constraint messages users hit most
@@ -906,6 +965,12 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # manifest is edited, so stop retrying. Match the stable prefix, not the
             # customer's hostname that follows it.
             "Couldn't resolve the host": "A host in the manifest (base_url, token_url, or a resource's URL) could not be resolved via DNS. Check that it's spelled correctly and reachable from the public internet, then try again.",
+            # A JSONPath field in a stored manifest (data_selector, a paginator path, or the
+            # incremental cursor_path) can't be parsed. Compiled lazily mid-sync by the REST engine,
+            # so it fails identically on every retry — permanent until the manifest is fixed. Newer
+            # manifests are rejected at save time; this catches ones stored before that validation.
+            # Match the stable prefix InvalidJSONPathError uses, not the variable expression that follows.
+            "Invalid JSONPath in manifest": "A JSONPath expression in the manifest (a data_selector, paginator path, or incremental cursor path) is not valid. Fix the expression in the manifest, then try again.",
         }
 
     def _assemble_manifest(self, config: CustomSourceConfig) -> dict[str, Any]:
@@ -961,6 +1026,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             resolved = _validate_resource_graph(manifest)
             _validate_incremental_configs(manifest)
             _validate_paginator_configs(manifest)
+            _validate_jsonpath_fields(manifest)
         except ManifestValidationError as exc:
             return False, str(exc)
 

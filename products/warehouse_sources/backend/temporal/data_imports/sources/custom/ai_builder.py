@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
     CustomSource,
     ManifestValidationError,
     _validate_incremental_configs,
+    _validate_jsonpath_fields,
     _validate_resource_graph,
     validate_manifest_structure,
 )
@@ -278,6 +279,9 @@ def _validate_manifest(manifest: dict, *, team_id: int) -> tuple[list[str], str 
         # create-time validation rejects — so a draft that skips this would be a false "ok" the user
         # can't actually create.
         _validate_incremental_configs(manifest)
+        # A malformed data_selector / paginator path / cursor_path would otherwise validate here
+        # but be rejected at create time (and fail every sync), so a draft that skips it is a false "ok".
+        _validate_jsonpath_fields(manifest)
     except (ManifestValidationError, ValueError) as exc:
         return [], str(exc)
 
