@@ -141,6 +141,10 @@ export interface ItemBuilder {
   /** Runs that emitted `_posthog/run_started`; until then the setup card's
    *  "agent" step stays in_progress rather than completing at HTTP-boot time. */
   runStartedRunIds: Set<string>;
+  /** Set when a steer was consumed mid-turn (`_posthog/steer_applied`): the
+   *  model's next reply is a new message, so the next top-level text chunk
+   *  opens a fresh block instead of concatenating onto the pre-steer text. */
+  pendingTextBlockBreak: boolean;
 }
 
 export function createItemBuilder(): ItemBuilder {
@@ -157,6 +161,7 @@ export function createItemBuilder(): ItemBuilder {
     lowestTouchedProgressIndex: Number.POSITIVE_INFINITY,
     completedToolCallCount: 0,
     runStartedRunIds: new Set(),
+    pendingTextBlockBreak: false,
   };
 }
 
@@ -471,6 +476,25 @@ function handlePromptRequest(
     return;
   }
 
+  // A steer joins the turn that is already streaming: render its bubble in
+  // place but keep the open turn and its context, so the response text that
+  // keeps arriving after it still belongs to that turn rather than a phantom
+  // new one. The steer's prompt response is a synthetic ack and must not
+  // complete the real turn, so it is not registered in pendingPrompts.
+  const isSteer =
+    (msg.params as { _meta?: { steer?: unknown } } | undefined)?._meta
+      ?.steer === true;
+  if (isSteer && b.currentTurn && !b.currentTurn.isComplete) {
+    b.items.splice(trailingInsertIndex(b), 0, {
+      type: "user_message",
+      id: `turn-${ts}-${msg.id}-user`,
+      content: userContent,
+      timestamp: ts,
+      attachments: userPrompt.attachments,
+    });
+    return;
+  }
+
   const turnId = `turn-${ts}-${msg.id}`;
   const toolCalls = new Map<string, ToolCall>();
   const gitAction = parseGitActionMessage(userContent);
@@ -484,32 +508,7 @@ function handlePromptRequest(
     turnComplete: false,
   };
 
-  // The orchestrator emits its setup progress ("Started agent") before the
-  // prompt it responds to is replayed onto the stream, so the card would sit
-  // above the user's message. Open the turn before any trailing progress cards
-  // so the transcript reads user message → setup → work.
-  let insertIndex = b.items.length;
-  while (insertIndex > 0) {
-    const prev = b.items[insertIndex - 1];
-    if (
-      prev.type === "session_update" &&
-      prev.update.sessionUpdate === "progress_group"
-    ) {
-      insertIndex--;
-    } else {
-      break;
-    }
-  }
-  if (insertIndex < b.items.length) {
-    for (const card of b.progressCards.values()) {
-      if (card.itemIndex >= insertIndex) card.itemIndex++;
-    }
-    // The shifted cards may live inside a turn the incremental builder already
-    // froze; flag the mutation so it falls back to a full rebuild.
-    if (insertIndex < b.lowestTouchedProgressIndex) {
-      b.lowestTouchedProgressIndex = insertIndex;
-    }
-  }
+  const insertIndex = trailingInsertIndex(b);
 
   b.currentTurnStartIndex = insertIndex;
   b.currentTurn = {
@@ -546,6 +545,39 @@ function handlePromptRequest(
       attachments: userPrompt.attachments,
     });
   }
+}
+
+/**
+ * Index at which a user-initiated item should enter the transcript. The
+ * orchestrator emits its setup progress ("Started agent") before the prompt it
+ * responds to is replayed onto the stream, so the card would sit above the
+ * user's message. Insert before any trailing progress cards so the transcript
+ * reads user message → setup → work.
+ */
+function trailingInsertIndex(b: ItemBuilder): number {
+  let insertIndex = b.items.length;
+  while (insertIndex > 0) {
+    const prev = b.items[insertIndex - 1];
+    if (
+      prev.type === "session_update" &&
+      prev.update.sessionUpdate === "progress_group"
+    ) {
+      insertIndex--;
+    } else {
+      break;
+    }
+  }
+  if (insertIndex < b.items.length) {
+    for (const card of b.progressCards.values()) {
+      if (card.itemIndex >= insertIndex) card.itemIndex++;
+    }
+    // The shifted cards may live inside a turn the incremental builder already
+    // froze; flag the mutation so it falls back to a full rebuild.
+    if (insertIndex < b.lowestTouchedProgressIndex) {
+      b.lowestTouchedProgressIndex = insertIndex;
+    }
+  }
+  return insertIndex;
 }
 
 function handlePromptResponse(
@@ -650,6 +682,11 @@ function handleNotification(
     completePromptTurn(b, b.currentTurn, ts, {
       stopReason: params?.stopReason,
     });
+    return;
+  }
+
+  if (isNotification(msg.method, POSTHOG_NOTIFICATIONS.STEER_APPLIED)) {
+    b.pendingTextBlockBreak = true;
     return;
   }
 
@@ -1125,6 +1162,7 @@ function appendTextChunk(
 
   const lastItem = b.items[b.items.length - 1];
   if (
+    !b.pendingTextBlockBreak &&
     lastItem?.type === "session_update" &&
     lastItem.turnContext === b.currentTurn?.context &&
     lastItem.update.sessionUpdate === update.sessionUpdate &&
@@ -1142,6 +1180,7 @@ function appendTextChunk(
       },
     };
   } else {
+    b.pendingTextBlockBreak = false;
     pushItem(b, { ...update, content: { ...update.content } }, ts);
   }
 }

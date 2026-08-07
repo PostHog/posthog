@@ -62,6 +62,43 @@ function promptResponseMsg(ts: number, id: number): AcpMessage {
   };
 }
 
+function steerPromptMsg(ts: number, id: number, text: string): AcpMessage {
+  return {
+    type: "acp_message",
+    ts,
+    message: {
+      jsonrpc: "2.0",
+      id,
+      method: "session/prompt",
+      params: { prompt: [{ type: "text", text }], _meta: { steer: true } },
+    },
+  };
+}
+
+function steerAckMsg(ts: number, id: number): AcpMessage {
+  return {
+    type: "acp_message",
+    ts,
+    message: {
+      jsonrpc: "2.0",
+      id,
+      result: { stopReason: "end_turn", _meta: { steer: true } },
+    },
+  };
+}
+
+function steerAppliedMsg(ts: number): AcpMessage {
+  return {
+    type: "acp_message",
+    ts,
+    message: {
+      jsonrpc: "2.0",
+      method: "_posthog/steer_applied",
+      params: { sessionId: "session-1" },
+    },
+  };
+}
+
 function turnCompleteMsg(ts: number, stopReason = "end_turn"): AcpMessage {
   return {
     type: "acp_message",
@@ -980,6 +1017,65 @@ describe("buildConversationItems", () => {
 
       expect(lastTurnInfo?.isComplete).toBe(true);
       expect(lastTurnInfo?.durationMs).toBeGreaterThan(0);
+    });
+  });
+
+  describe("mid-turn steering", () => {
+    it("keeps the streaming turn intact and separates the steered reply", () => {
+      const events = [
+        userPromptMsg(1000, 1, "write me a poem"),
+        agentMessageMsg(1001, "Roses are red, "),
+        steerPromptMsg(1002, 2, "what error are you hitting?"),
+        steerAckMsg(1003, 2),
+        agentMessageMsg(1004, "violets are blue."),
+        steerAppliedMsg(1005),
+        agentMessageMsg(1006, "The error was a fetch failure."),
+        promptResponseMsg(1007, 1),
+      ];
+
+      const { items, lastTurnInfo } = buildConversationItems(events, null);
+
+      expect(
+        items.map((item) =>
+          item.type === "session_update"
+            ? (item.update as { content: { text: string } }).content.text
+            : item.type === "user_message"
+              ? `user:${item.content}`
+              : item.type,
+        ),
+      ).toEqual([
+        "user:write me a poem",
+        "Roses are red, ",
+        "user:what error are you hitting?",
+        "violets are blue.",
+        "The error was a fetch failure.",
+      ]);
+
+      // All streamed text belongs to the one real turn, which only completes
+      // when the original prompt's response arrives.
+      const contexts = items.flatMap((item) =>
+        item.type === "session_update" ? [item.turnContext] : [],
+      );
+      expect(new Set(contexts).size).toBe(1);
+      expect(contexts[0].turnComplete).toBe(true);
+      expect(lastTurnInfo?.isComplete).toBe(true);
+    });
+
+    it("opens a normal turn for a steer that arrives with no active turn", () => {
+      const events = [
+        steerPromptMsg(1000, 3, "hello?"),
+        agentMessageMsg(1001, "Hi!"),
+        promptResponseMsg(1002, 3),
+      ];
+
+      const { items, lastTurnInfo } = buildConversationItems(events, null);
+
+      expect(items).toHaveLength(2);
+      expect(items[0]).toMatchObject({
+        type: "user_message",
+        content: "hello?",
+      });
+      expect(lastTurnInfo?.isComplete).toBe(true);
     });
   });
 });

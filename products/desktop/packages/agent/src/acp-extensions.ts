@@ -63,6 +63,9 @@ export const POSTHOG_NOTIFICATIONS = {
   /** Agent status update (thinking, working, etc.) */
   STATUS: "_posthog/status",
 
+  /** A steered user message was consumed by the live turn; streamed text after this belongs to the model's next reply */
+  STEER_APPLIED: "_posthog/steer_applied",
+
   /** Structured backend progress notification; events in the same turn group into one card on the client */
   PROGRESS: "_posthog/progress",
 

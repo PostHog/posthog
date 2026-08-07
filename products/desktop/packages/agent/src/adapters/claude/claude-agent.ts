@@ -1247,6 +1247,13 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             // cancelled guard so a turn enqueued after a cancel still starts.
             if (message.type === "user" && "uuid" in message && message.uuid) {
               if (session.activeTurn?.pendingSteerUuids.delete(message.uuid)) {
+                // The steer lands between the assistant reply it interrupted
+                // and the reply it provokes; without this boundary a renderer
+                // cannot tell where one reply's text ends and the next begins.
+                await this.client.extNotification(
+                  POSTHOG_NOTIFICATIONS.STEER_APPLIED,
+                  { sessionId },
+                );
                 break;
               }
               const queued = session.turnQueue.find(
