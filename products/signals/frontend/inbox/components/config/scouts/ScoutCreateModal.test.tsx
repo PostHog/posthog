@@ -34,4 +34,24 @@ describe('ScoutCreateModal', () => {
         expect(await findByText('Connect a Slack workspace')).toBeTruthy()
         expect(await findByText('Tags')).toBeTruthy()
     })
+
+    it('renders the name prefix outside the field and previews the full skill name', async () => {
+        const { baseElement, findByText } = render(
+            <ScoutCreateModal
+                isOpen
+                onClose={jest.fn()}
+                initialValues={{
+                    name: 'signals-scout-ai-observability-daily-digest',
+                    description: 'Creates a daily AI observability digest.',
+                    body: 'Review AI observability and create one actionable digest.',
+                }}
+            />
+        )
+
+        expect(await findByText('signals-scout-')).toBeTruthy()
+        expect(await findByText('signals-scout-ai-observability-daily-digest')).toBeTruthy()
+        expect(baseElement.querySelector<HTMLInputElement>('[data-attr="scout-create-name"]')?.value).toBe(
+            'ai-observability-daily-digest'
+        )
+    })
 })

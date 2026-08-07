@@ -65,6 +65,11 @@ export function stripScoutPrefix(skillName: string): string {
         : skillName
 }
 
+/** Add the fleet prefix unless it is already there. `apm` → `signals-scout-apm`. Idempotent. */
+export function ensureScoutPrefix(skillName: string): string {
+    return skillName.startsWith(SIGNALS_SCOUT_SKILL_PREFIX) ? skillName : `${SIGNALS_SCOUT_SKILL_PREFIX}${skillName}`
+}
+
 /** "signals-scout-error-tracking" → "Error tracking" */
 export function prettifyScoutSkillName(skillName: string): string {
     const cleaned = stripScoutPrefix(skillName).replace(/[-_]/g, ' ').trim()

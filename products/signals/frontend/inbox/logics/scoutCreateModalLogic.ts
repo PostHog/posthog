@@ -18,9 +18,10 @@ import { SKILL_DESCRIPTION_MAX_LENGTH, validateSkillName } from 'products/skills
 import {
     dailyCronToTime,
     DEFAULT_SCOUT_DAILY_TIME,
+    ensureScoutPrefix,
     SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
     SCOUT_DAILY_AT_SCHEDULE_MODE,
-    SIGNALS_SCOUT_SKILL_PREFIX,
+    stripScoutPrefix,
     timeToDailyCron,
 } from '../utils/scoutRunsWindow'
 import { MAX_SCOUT_TAG_LENGTH, MAX_SCOUT_TAGS, normalizeScoutTag } from '../utils/scoutTags'
@@ -47,7 +48,7 @@ export interface ScoutCreateModalLogicProps {
 }
 
 export const DEFAULT_SCOUT_CREATE_FORM_VALUES: ScoutCreateFormValues = {
-    name: SIGNALS_SCOUT_SKILL_PREFIX,
+    name: '',
     description: '',
     body: '',
     dailyTime: DEFAULT_SCOUT_DAILY_TIME,
@@ -68,6 +69,10 @@ export function getScoutCreateFormValues(initialValues?: ScoutCreateInitialValue
     return {
         ...DEFAULT_SCOUT_CREATE_FORM_VALUES,
         ...initialValues,
+        // The form field holds the part after `signals-scout-`, which the modal renders as an inert
+        // input prefix and `submit` puts back. Openers (deep links, product buttons) pass a full
+        // skill name, so strip it here to keep the field and the rendered prefix from doubling up.
+        name: stripScoutPrefix(initialValues?.name?.trim() ?? DEFAULT_SCOUT_CREATE_FORM_VALUES.name),
         config,
         dailyTime: dailyCronToTime(config.run_cron_schedule) ?? DEFAULT_SCOUT_DAILY_TIME,
     }
@@ -78,15 +83,12 @@ function isValidScoutDailyTime(dailyTime: string): boolean {
 }
 
 function scoutNameError(name: string): string | undefined {
-    const normalizedName = name.trim()
-    const validationError = validateSkillName(normalizedName)
-    if (validationError) {
-        return validationError
+    const scopeName = stripScoutPrefix(name.trim())
+    if (!scopeName) {
+        return 'Name is required'
     }
-    if (!normalizedName.startsWith(SIGNALS_SCOUT_SKILL_PREFIX)) {
-        return `Name must start with ${SIGNALS_SCOUT_SKILL_PREFIX}`
-    }
-    return undefined
+    // Validate the name the backend receives, so its 64-character cap and slug rules account for the prefix.
+    return validateSkillName(ensureScoutPrefix(scopeName))
 }
 
 function scoutTagsError(tags: string[]): string | undefined {
@@ -222,7 +224,7 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
 
                 try {
                     const scout = await signalsScoutCreate(String(values.currentTeamId), {
-                        name: formValues.name.trim(),
+                        name: ensureScoutPrefix(formValues.name.trim()),
                         description: formValues.description.trim(),
                         body: formValues.body.trim(),
                         config: formValues.config,

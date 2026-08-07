@@ -16,6 +16,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { SignalScoutCreateResponseApi } from 'products/signals/frontend/generated/api.schemas'
+import { SKILL_NAME_MAX_LENGTH } from 'products/skills/frontend/skillConstants'
 
 import {
     ScoutCreateInitialValues,
@@ -23,11 +24,13 @@ import {
     scoutCreateModalLogic,
 } from '../../../logics/scoutCreateModalLogic'
 import {
+    ensureScoutPrefix,
     getScoutScheduleMode,
     getScoutScheduleOptions,
     SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
     SCOUT_DAILY_AT_SCHEDULE_MODE,
     SIGNALS_SCOUT_SKILL_PREFIX,
+    stripScoutPrefix,
 } from '../../../utils/scoutRunsWindow'
 import { MAX_SCOUT_TAGS, normalizeScoutTags } from '../../../utils/scoutTags'
 import { ScoutSlackDestination } from './ScoutSlackDestination'
@@ -111,18 +114,34 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
                         name="name"
                         label="Name"
                         help={
-                            <>
-                                Scout names start with{' '}
-                                <span className="font-mono text-[11px]">{SIGNALS_SCOUT_SKILL_PREFIX}</span>.
-                            </>
+                            scoutCreateForm.name.trim() ? (
+                                <>
+                                    Full name:{' '}
+                                    <span className="font-mono text-[11px]">
+                                        {ensureScoutPrefix(scoutCreateForm.name.trim())}
+                                    </span>
+                                </>
+                            ) : (
+                                'The prefix is added for you.'
+                            )
                         }
                     >
-                        <LemonInput
-                            autoFocus
-                            maxLength={64}
-                            placeholder="signals-scout-checkout-failures"
-                            data-attr="scout-create-name"
-                        />
+                        {({ value, onChange }) => (
+                            <LemonInput
+                                autoFocus
+                                maxLength={SKILL_NAME_MAX_LENGTH - SIGNALS_SCOUT_SKILL_PREFIX.length}
+                                prefix={
+                                    <span className="font-mono text-[11px] text-secondary">
+                                        {SIGNALS_SCOUT_SKILL_PREFIX}
+                                    </span>
+                                }
+                                placeholder="checkout-failures"
+                                value={value}
+                                // Pasting a full skill name is common, and the prefix is already rendered.
+                                onChange={(name) => onChange(stripScoutPrefix(name))}
+                                data-attr="scout-create-name"
+                            />
+                        )}
                     </LemonField>
 
                     <LemonField
