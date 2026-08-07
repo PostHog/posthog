@@ -157,11 +157,8 @@ jobs:
                       "personhog-leader": 115,
                       "personhog-replica": 140,
                       "personhog-router": 38,
-                      # Re-measure this one after the next master run. The
-                      # previous 700 was calibrated before the model-checker
-                      # work below and understated the observed job by 2.5x
-                      # (1756s, of which 1572s was `cargo test`); this is the
-                      # post-change estimate, not an observation.
+                      # An estimate rather than a measurement; re-measure it
+                      # after the next master run.
                       "personhog-stateright": 600,
                       "posthog-symbol-data": 19,
                       "property-defs-rs": 136,
