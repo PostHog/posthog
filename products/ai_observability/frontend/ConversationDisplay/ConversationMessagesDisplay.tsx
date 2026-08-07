@@ -387,7 +387,9 @@ export const ImageMessageDisplay = ({ message }: { message: ImageDisplayMessage 
         return <span>{content}</span>
     } else if (content?.image) {
         const src = resolveAiBlobUrl(content.image, currentTeamId)
-        return <img src={src} alt="User sent image" {...aiBlobRenderHandlers(src, 'image')} />
+        return (
+            <img src={src} alt="User sent image" data-attr="ai-message-image" {...aiBlobRenderHandlers(src, 'image')} />
+        )
     }
 
     return <span>{String(content ?? '')}</span>
@@ -437,6 +439,7 @@ function renderContentItem(
                 src={src}
                 alt="Message content"
                 className="max-w-full max-h-[400px] rounded"
+                data-attr="ai-message-image"
                 {...aiBlobRenderHandlers(src, 'image')}
             />
         )
@@ -449,6 +452,7 @@ function renderContentItem(
                 src={src}
                 alt="Message content"
                 className="max-w-full max-h-[400px] rounded"
+                data-attr="ai-message-image"
                 {...aiBlobRenderHandlers(src, 'image')}
             />
         )
@@ -465,6 +469,7 @@ function renderContentItem(
                 src={src}
                 alt="Message content"
                 className="max-w-full max-h-[400px] rounded"
+                data-attr="ai-message-image"
                 {...aiBlobRenderHandlers(src, 'image')}
             />
         )

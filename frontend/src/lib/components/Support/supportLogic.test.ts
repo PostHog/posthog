@@ -3,11 +3,10 @@ import posthog from 'posthog-js'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { initKeaTests } from '~/test/init'
-import { OrganizationBasicType, Region, SidePanelTab, TeamPublicType } from '~/types'
+import { SidePanelTab } from '~/types'
 
 import {
     CONVERSATIONS_MESSAGE_MAX_LENGTH,
-    getPublicSupportSnippet,
     SUPPORT_MESSAGE_PREVIEW_MAX_LENGTH,
     SupportFormFields,
     supportLogic,
@@ -19,37 +18,6 @@ import * as SupportModal from './SupportModal'
 const openSupportModal = jest.spyOn(SupportModal, 'openSupportModal').mockImplementation(() => {})
 
 describe('supportLogic', () => {
-    describe('snippet helpers', () => {
-        const mockedGetReplayUrl = posthog.get_session_replay_url as jest.Mock
-        const organization = { id: 'org-1', name: 'Test org' } as OrganizationBasicType
-        const team = { id: 42 } as TeamPublicType
-
-        beforeEach(() => {
-            mockedGetReplayUrl.mockReset()
-        })
-
-        it('rewrites the session line to the internal golink for staff triage', () => {
-            // posthog-js returns a project-scoped path, not one rooted at the current origin's /replay/ —
-            // this shape is what regressed the naive origin-prefix replace this test used to assert on.
-            mockedGetReplayUrl.mockReturnValue(`${window.location.origin}/project/sTMFPsFhdP1Ssg/replay/abc?t=30`)
-            const snippet = getPublicSupportSnippet(Region.US, organization, team, false)
-            expect(snippet).toContain('Session: http://go/session/abc?t=30')
-            expect(snippet).not.toContain(`${window.location.origin}/project/`)
-        })
-
-        it('omits the session line when there is no recording', () => {
-            mockedGetReplayUrl.mockReturnValue(undefined)
-            const snippet = getPublicSupportSnippet(Region.US, organization, team, false)
-            expect(snippet).not.toContain('Session:')
-        })
-
-        it('marks the admin line as internal', () => {
-            mockedGetReplayUrl.mockReturnValue(undefined)
-            const snippet = getPublicSupportSnippet(Region.US, organization, team, false)
-            expect(snippet).toContain('Admin (internal): http://go/adminOrg')
-        })
-    })
-
     describe('openSupportForm modal vs side panel target', () => {
         let logic: ReturnType<typeof supportLogic.build>
 
@@ -190,9 +158,9 @@ describe('supportLogic', () => {
         // ticket that never got created. That needs the draft and a way back into the session.
         it('carries the draft and session context on a lost submit, so an alert is actionable', async () => {
             ;(posthog.get_session_id as jest.Mock).mockReturnValue('sess-1')
-            // Project-scoped path, the shape posthog-js actually returns — see the snippet tests
+            // Resolved against ui_host, the shape posthog-js actually returns
             ;(posthog.get_session_replay_url as jest.Mock).mockReturnValue(
-                `${window.location.origin}/project/sTMFPsFhdP1Ssg/replay/sess-1?t=30`
+                'https://us.posthog.com/project/sTMFPsFhdP1Ssg/replay/sess-1?t=30'
             )
             conversationsMock(jest.fn().mockRejectedValue(new Error('network down')))
 
@@ -206,8 +174,7 @@ describe('supportLogic', () => {
                 message_preview: 'Billing is broken',
                 message_truncated: false,
                 session_id: 'sess-1',
-                // Golinked for the same reason as the ticket snippet: staff-facing, not user-facing
-                session_replay_url: 'http://go/session/sess-1?t=30',
+                session_replay_url: 'https://us.posthog.com/project/sTMFPsFhdP1Ssg/replay/sess-1?t=30',
             })
         })
 

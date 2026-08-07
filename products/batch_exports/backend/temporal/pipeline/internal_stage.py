@@ -263,7 +263,11 @@ async def insert_into_internal_stage_activity(
         set_status_to_running_task(run_id=inputs.run_id),
     ):
         _, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
-            inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema, inputs.batch_export_id
+            inputs.team_id,
+            inputs.batch_export_model,
+            inputs.batch_export_schema,
+            inputs.batch_export_id,
+            is_backfill=inputs.backfill_details is not None,
         )
         data_interval_start = (
             dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None

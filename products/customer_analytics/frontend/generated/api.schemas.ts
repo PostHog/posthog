@@ -210,10 +210,14 @@ export const SlackSummaryCadenceEnumApi = {
 } as const
 
 /**
- * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+ * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
  * @nullable
  */
 export type AccountApiProperties = {
+    /** Email domains owned by this account's company, used to match inbound touchpoints to the account. */
+    email_domains?: string[]
+    /** Individual email addresses pinned to this account, matched before the domain fallback. */
+    known_emails?: string[]
     /** @nullable */
     stripe_customer_id?: string | null
     /** @nullable */
@@ -230,7 +234,7 @@ export type AccountApiProperties = {
     usage_dashboard_link?: string | null
     /** @nullable */
     metabase_link?: string | null
-} | null
+} | null | null
 
 /**
  * A Customer Analytics account — a logical grouping used to assign customer-success ownership.
@@ -249,7 +253,7 @@ export interface AccountApi {
      */
     external_id?: string | null
     /**
-     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
      * @nullable
      */
     properties?: AccountApiProperties
@@ -378,10 +382,14 @@ export interface AccountRelationshipWriteApi {
 }
 
 /**
- * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+ * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
  * @nullable
  */
 export type PatchedAccountApiProperties = {
+    /** Email domains owned by this account's company, used to match inbound touchpoints to the account. */
+    email_domains?: string[]
+    /** Individual email addresses pinned to this account, matched before the domain fallback. */
+    known_emails?: string[]
     /** @nullable */
     stripe_customer_id?: string | null
     /** @nullable */
@@ -398,7 +406,7 @@ export type PatchedAccountApiProperties = {
     usage_dashboard_link?: string | null
     /** @nullable */
     metabase_link?: string | null
-} | null
+} | null | null
 
 /**
  * A Customer Analytics account — a logical grouping used to assign customer-success ownership.
@@ -417,7 +425,7 @@ export interface PatchedAccountApi {
      */
     external_id?: string | null
     /**
-     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
      * @nullable
      */
     properties?: PatchedAccountApiProperties
@@ -436,6 +444,57 @@ export interface PatchedAccountApi {
     readonly created_by?: number | null
     /** @nullable */
     readonly updated_at?: string | null
+}
+
+/**
+ * One attendee of a synced calendar meeting (read-only).
+ */
+export interface MeetingParticipantApi {
+    /** Email address of the attendee. */
+    readonly email: string
+    /** Display name from the calendar event; may be empty. */
+    readonly display_name: string
+    /** The attendee's RSVP: 'needs_action', 'accepted', 'declined', or 'tentative'. */
+    readonly response_status: string
+    /** Whether this attendee organized the meeting. */
+    readonly is_organizer: boolean
+    /**
+     * UUID of the PostHog person resolved for this attendee, if any.
+     * @nullable
+     */
+    readonly person_id: string | null
+}
+
+/**
+ * A calendar meeting synced from a connected employee calendar (read-only).
+ */
+export interface MeetingApi {
+    /** UUID of the meeting. */
+    readonly id: string
+    /** Meeting title; may be empty. */
+    readonly title: string
+    /** When the meeting starts. */
+    readonly start_time: string
+    /**
+     * When the meeting ends.
+     * @nullable
+     */
+    readonly end_time: string | null
+    /** Email address of the meeting organizer; may be empty. */
+    readonly organizer_email: string
+    /** Meeting status: 'confirmed', 'tentative', or 'cancelled'. */
+    readonly status: string
+    /** Attendees of the meeting. */
+    readonly participants: readonly MeetingParticipantApi[]
+}
+
+export interface PaginatedMeetingListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: MeetingApi[]
 }
 
 /**
@@ -620,6 +679,52 @@ export interface AnnouncementChannelApi {
      * @nullable
      */
     customer_name: string | null
+}
+
+/**
+ * Sync state of one connected calendar (read-only).
+ */
+export interface CalendarSyncStatusApi {
+    /** Id of the google-calendar integration. */
+    readonly integration_id: number
+    /**
+     * When the last sync run completed; null before the first sync.
+     * @nullable
+     */
+    readonly last_synced_at: string | null
+    /** Whether a sync run is currently in flight. */
+    readonly is_syncing: boolean
+}
+
+/**
+ * Request body of the calendar sync-now trigger.
+ */
+export interface CalendarSyncTriggerApi {
+    /** Id of the google-calendar integration to sync. */
+    integration_id: number
+}
+
+/**
+ * * `started` - started
+ * * `already_running` - already_running
+ */
+export type CalendarSyncTriggerResponseStatusEnumApi =
+    (typeof CalendarSyncTriggerResponseStatusEnumApi)[keyof typeof CalendarSyncTriggerResponseStatusEnumApi]
+
+export const CalendarSyncTriggerResponseStatusEnumApi = {
+    Started: 'started',
+    AlreadyRunning: 'already_running',
+} as const
+
+/**
+ * Response of the calendar sync-now trigger.
+ */
+export interface CalendarSyncTriggerResponseApi {
+    /** 'started' (a sync run began) or 'already_running' (a sync for this calendar was already in flight, so this was a no-op).
+     *
+     * * `started` - started
+     * * `already_running` - already_running */
+    status: CalendarSyncTriggerResponseStatusEnumApi
 }
 
 /**
@@ -1493,6 +1598,21 @@ export type AccountsRelationshipsListParams = {
      * Include ended assignments (the full timeline), not just active ones.
      */
     include_history?: boolean
+}
+
+export type AccountsMeetingsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter meetings by title or attendee email/name.
+     */
+    search?: string
 }
 
 export type AccountsSummariesListParams = {

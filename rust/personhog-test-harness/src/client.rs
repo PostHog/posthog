@@ -57,6 +57,8 @@ impl HarnessClient {
                 set_properties: serde_json::to_vec(&set_properties)?,
                 set_once_properties: serde_json::to_vec(&set_once_properties)?,
                 unset_properties,
+                is_identified: None,
+                last_seen_at: None,
             })
             .await
             .context("UpdatePersonProperties failed")
