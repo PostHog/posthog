@@ -2,6 +2,8 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from pydantic import ValidationError
+
 from products.marketing_analytics.backend.services.attribution_health import AttributionHealthResponse
 from products.marketing_analytics.backend.services.conversion_goals_inspector import (
     ConversionGoalsListResponse,
@@ -18,10 +20,12 @@ from products.marketing_analytics.backend.services.marketing_diagnostic import (
 )
 from products.marketing_analytics.backend.services.setup_plan import get_setup_plan
 from products.marketing_analytics.backend.services.setup_types import (
+    MAPPING_KINDS,
     Capability,
     OpenOauth,
     ReadinessStatus,
     Severity,
+    Suggestion,
     SuggestionKind,
 )
 from products.marketing_analytics.backend.services.types import Campaign, TeamMappings
@@ -29,10 +33,6 @@ from products.marketing_analytics.backend.services.types import Campaign, TeamMa
 _MODULE = "products.marketing_analytics.backend.services.setup_plan"
 
 NO_MAPPINGS = TeamMappings(source_to_integration={}, campaign_aliases={}, field_preferences={})
-
-# Mapping suggestions carry these kinds, and every one of them must be paired with
-# "fix the ad URL" advice — the mapping is a band-aid, the URL is the cure.
-_MAPPING_KINDS = {SuggestionKind.ADD_SOURCE_MAPPING, SuggestionKind.ADD_CAMPAIGN_NAME_MAPPING}
 
 
 def _integration(
@@ -198,7 +198,7 @@ class TestInvariants(SetupPlanTestCase):
 
         plan = await get_setup_plan(self.team)
 
-        mapping_suggestions = [s for s in plan.suggestions if s.kind in _MAPPING_KINDS]
+        mapping_suggestions = [s for s in plan.suggestions if s.kind in MAPPING_KINDS]
         assert mapping_suggestions, "expected the fixture to produce mapping suggestions"
         for suggestion in mapping_suggestions:
             ops = [op.op for op in suggestion.also_recommended]
@@ -224,6 +224,36 @@ class TestInvariants(SetupPlanTestCase):
         assert proposals is not None, "campaign_proposals was not injected"
         # The same object the plan builds its own suggestions from, not an equal-looking copy.
         assert [p.raw_utm_campaign for p in proposals.proposals] == ["sprng_sale_2024"]
+
+    def test_a_mapping_kind_cannot_be_built_without_the_url_fix(self):
+        # The invariant used to live in a helper the builders had to remember to call, and in this
+        # test's own hardcoded copy of the kind set — so a new mapping kind bypassed both.
+        with pytest.raises(ValidationError) as error:
+            Suggestion(
+                id="add_source_mapping:x",
+                kind=SuggestionKind.ADD_SOURCE_MAPPING,
+                severity=Severity.WARNING,
+                confidence=0.9,
+                title="t",
+                evidence="e",
+            )
+
+        assert "fix_platform_urls" in str(error.value)
+
+    @pytest.mark.asyncio
+    async def test_a_failing_campaign_suggester_degrades_only_its_own_section(self):
+        # These three run outside the gather, so an unwrapped raise here took the whole plan down
+        # — losing the diagnostic and attribution results already in hand.
+        self.campaigns = [Campaign("spring_sale_2024", "1", "google", 8200.0, 0, 0)]
+        self.utm_events = {("sprng_sale_2024", "google"): 1340}
+
+        with patch(f"{_MODULE}.build_audit", side_effect=RuntimeError("bad row")):
+            plan = await get_setup_plan(self.team)
+
+        assert "campaign_suggesters" in plan.degraded
+        assert not [s for s in plan.suggestions if s.kind in MAPPING_KINDS]
+        # The rest of the plan survived, which is the whole point.
+        assert plan.readiness
 
     @pytest.mark.asyncio
     async def test_output_is_byte_stable_across_runs(self):

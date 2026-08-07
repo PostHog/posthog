@@ -12,7 +12,7 @@ automatic fix. The apply endpoint rejects the latter.
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class SuggestionKind(StrEnum):
@@ -56,6 +56,12 @@ class Severity(StrEnum):
     ERROR = "error"
     WARNING = "warning"
     INFO = "info"
+
+
+# A mapping is a band-aid over a tagging bug in the ad platform, so every one of these has to
+# carry `fix_platform_urls` alongside it — the actual cure. Enforced by the validator on
+# `Suggestion` rather than at each builder, so a new mapping kind can't be added without it.
+MAPPING_KINDS = frozenset({SuggestionKind.ADD_SOURCE_MAPPING, SuggestionKind.ADD_CAMPAIGN_NAME_MAPPING})
 
 
 class SuggestionSource(StrEnum):
@@ -260,7 +266,6 @@ class Suggestion(BaseModel):
     evidence: str
     unlocks: list[Capability] = Field(default_factory=list)
     apply: ApplyOp | None = None
-    # Carries `fix_platform_urls` for every mapping suggestion, enforced in `setup_plan`.
     also_recommended: list[ApplyOp] = Field(default_factory=list)
     safe_to_batch: bool = False
     rank_score: float = 0.0
@@ -268,6 +273,15 @@ class Suggestion(BaseModel):
     deep_link: str | None = None
     spend_at_risk: float = 0.0
     event_volume: int = 0
+
+    @model_validator(mode="after")
+    def _mapping_suggestions_carry_the_url_fix(self) -> "Suggestion":
+        if self.kind in MAPPING_KINDS and not any(op.op == "fix_platform_urls" for op in self.also_recommended):
+            raise ValueError(
+                f"{self.kind.value} suggestions must carry a fix_platform_urls op in also_recommended: "
+                "the mapping is a workaround, and offering it without the cure teaches the wrong fix."
+            )
+        return self
 
 
 class CapabilityReadiness(BaseModel):

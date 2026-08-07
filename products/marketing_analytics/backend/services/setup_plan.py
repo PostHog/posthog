@@ -168,14 +168,22 @@ async def get_setup_plan(
     # irrelevant — `sort_suggestions` imposes a total order on the result.
     campaign_mappings: CampaignMappingSuggestions | None = None
     if campaigns and mappings is not None:
-        audit = build_audit(campaigns, utm_events, mappings)
-        suggestions.extend(
-            _field_preference_suggestions(
-                suggest_campaign_field_preferences(campaigns, utm_events, mappings, audit.results)
+        # Wrapped like the gathered leaves even though these three are pure functions: they read
+        # the same rows, so a bad row takes all three down together, and an unwrapped raise here
+        # would lose the diagnostic and attribution results already in hand.
+        try:
+            audit = build_audit(campaigns, utm_events, mappings)
+            suggestions.extend(
+                _field_preference_suggestions(
+                    suggest_campaign_field_preferences(campaigns, utm_events, mappings, audit.results)
+                )
             )
-        )
-        campaign_mappings = suggest_campaign_name_mappings(campaigns, utm_events, mappings)
-        suggestions.extend(_campaign_mapping_suggestions(campaign_mappings))
+            campaign_mappings = suggest_campaign_name_mappings(campaigns, utm_events, mappings)
+            suggestions.extend(_campaign_mapping_suggestions(campaign_mappings))
+        except Exception as error:
+            logger.warning("setup_plan.leaf_failed", leaf="campaign_suggesters", team_id=team.pk, error=str(error))
+            degraded.append("campaign_suggesters")
+            campaign_mappings = None
 
     if attribution is not None:
         utm_mappings = await _safe_utm_mappings(team, attribution, campaign_mappings, degraded)
@@ -254,17 +262,6 @@ def _load_goal_flags(team: Team) -> dict[str, dict[str, Any]]:
 
 
 # --- Suggestion builders ---------------------------------------------------
-
-
-def _with_url_fix(suggestion: Suggestion, fix: FixPlatformUrls) -> Suggestion:
-    """Attach the "fix the ad URL" advice to a mapping suggestion.
-
-    Centralised so it cannot be forgotten at a call site: a mapping is a band-aid
-    over a tagging bug in the ad platform, and the plan should always name the cure
-    next to the band-aid. A service test asserts this holds across the whole plan.
-    """
-    suggestion.also_recommended = [*suggestion.also_recommended, fix]
-    return suggestion
 
 
 def _integration_suggestions(diagnostic: MarketingDiagnosticResponse) -> list[Suggestion]:
@@ -393,7 +390,15 @@ def _source_mapping_suggestions(utm_mappings: UtmMappingSuggestionsResponse) -> 
 def _source_mapping_suggestion(suggestion: SourceMappingSuggestion) -> Suggestion:
     native = KEY_TO_NATIVE[suggestion.suggested_target]
     display = display_name_for_key(suggestion.suggested_target)
-    built = Suggestion(
+    # Passed at construction, not attached after: `Suggestion` rejects a mapping kind without it.
+    fix = FixPlatformUrls(
+        integration=native.value,
+        campaign_name="",
+        expected_utm_campaign="",
+        # Mapping makes the wrong value work; changing the ad URL makes it right.
+        expected_utm_source=suggestion.suggested_target.replace("_ads", ""),
+    )
+    return Suggestion(
         id=f"add_source_mapping:{suggestion.suggested_target}:{suggestion.raw_utm_source}",
         kind=SuggestionKind.ADD_SOURCE_MAPPING,
         severity=Severity.WARNING,
@@ -409,16 +414,7 @@ def _source_mapping_suggestion(suggestion: SourceMappingSuggestion) -> Suggestio
         safe_to_batch=True,
         integration=native.value,
         event_volume=suggestion.event_count_30d,
-    )
-    return _with_url_fix(
-        built,
-        FixPlatformUrls(
-            integration=native.value,
-            campaign_name="",
-            expected_utm_campaign="",
-            # Mapping makes the wrong value work; changing the ad URL makes it right.
-            expected_utm_source=suggestion.suggested_target.replace("_ads", ""),
-        ),
+        also_recommended=[fix],
     )
 
 
@@ -471,7 +467,13 @@ def _campaign_mapping_suggestions(result: CampaignMappingSuggestions) -> list[Su
 
 
 def _campaign_mapping_suggestion(proposal: CampaignMappingProposal) -> Suggestion:
-    built = Suggestion(
+    fix = FixPlatformUrls(
+        integration=proposal.integration,
+        campaign_name=proposal.clean_name,
+        expected_utm_campaign=proposal.expected_utm_campaign,
+        expected_utm_source=proposal.expected_utm_source,
+    )
+    return Suggestion(
         id=f"add_campaign_name_mapping:{proposal.integration}:{proposal.raw_utm_campaign}",
         kind=SuggestionKind.ADD_CAMPAIGN_NAME_MAPPING,
         severity=Severity.WARNING,
@@ -488,15 +490,7 @@ def _campaign_mapping_suggestion(proposal: CampaignMappingProposal) -> Suggestio
         integration=proposal.integration,
         spend_at_risk=proposal.campaign_spend,
         event_volume=proposal.event_count,
-    )
-    return _with_url_fix(
-        built,
-        FixPlatformUrls(
-            integration=proposal.integration,
-            campaign_name=proposal.clean_name,
-            expected_utm_campaign=proposal.expected_utm_campaign,
-            expected_utm_source=proposal.expected_utm_source,
-        ),
+        also_recommended=[fix],
     )
 
 
