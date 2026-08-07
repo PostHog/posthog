@@ -239,11 +239,26 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
             },
         },
     })),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         verification: {
             verifyDomain: async () => {
-                if (values.savedIntegration) {
-                    return api.integrations.verifyEmail(values.savedIntegration.id)
+                if (!values.savedIntegration) {
+                    return values.verification
+                }
+                try {
+                    return await api.integrations.verifyEmail(values.savedIntegration.id)
+                } catch (error) {
+                    if (error instanceof ApiError && error.status === 404) {
+                        // The saved integration id is stale (deleted or from another environment) — drop back to
+                        // the setup form so the user can create a sender again instead of hitting an inert button.
+                        lemonToast.error('This email sender no longer exists. Please set it up again.')
+                        actions.setSavedIntegration(null)
+                        actions.loadIntegrations()
+                    } else {
+                        const detail = error instanceof ApiError ? error.detail : null
+                        lemonToast.error(`Failed to verify domain: ${detail || 'Please try again.'}`)
+                    }
+                    return values.verification
                 }
             },
         },
