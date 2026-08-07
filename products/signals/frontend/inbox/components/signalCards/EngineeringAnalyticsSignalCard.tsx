@@ -4,13 +4,13 @@ import { LemonTag } from '@posthog/lemon-ui'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { percentage } from 'lib/utils/numbers'
 import type { SignalNode } from 'scenes/debug/signals/types'
-import { SignalSourceProduct, SignalSourceType } from 'scenes/inbox/types'
 
 import type {
     EngineeringAnalyticsCIBrokenDefaultBranchSignalExtraApi,
     EngineeringAnalyticsCIDurationRegressionSignalExtraApi,
     EngineeringAnalyticsCIFlakyCheckSignalExtraApi,
 } from 'products/signals/frontend/generated/api.schemas'
+import { SignalSourceProduct, SignalSourceType } from 'products/signals/frontend/inbox/types'
 
 import { SignalCardShell } from './SignalCardShell'
 import type { SignalCardEntry, SignalCardProps } from './types'

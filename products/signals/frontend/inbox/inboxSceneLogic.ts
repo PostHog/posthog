@@ -11,10 +11,10 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { Breadcrumb } from '~/types'
+import type { UserType } from '~/types'
 
 import { OriginProduct, Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
-import type { UserType } from '../../types'
 import {
     captureInboxReportClosed,
     captureInboxReportOpened,

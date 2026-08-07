@@ -19,6 +19,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { personalIntegrationsLogic } from 'scenes/settings/user/personalIntegrationsLogic'
+import type { PersonalGitHubIntegration } from 'scenes/settings/user/personalIntegrationsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -42,9 +43,8 @@ import type {
     PullRequestCommentReactionApi,
     ReportChartApi,
 } from 'products/signals/frontend/generated/api.schemas'
+import type { SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
 
-import type { SignalNodeApi } from '../../../../../products/signals/frontend/generated/api.schemas'
-import type { PersonalGitHubIntegration } from '../../settings/user/personalIntegrationsLogic'
 import {
     deriveTaskPurpose,
     PURPOSE_ORDER,
@@ -474,11 +474,11 @@ export interface inboxReportDetailLogicMeta {
         displayReviewers: (
             reportReviewers: EnrichedReviewer[] | null,
             optimisticReviewers: EnrichedReviewer[] | null,
-            user: null | import('../../../types').UserType
+            user: null | import('~/types').UserType
         ) => EnrichedReviewer[] | null
         addReviewerOptions: (
             availableReviewers: AvailableReviewerOption[] | null,
-            user: null | import('../../../types').UserType
+            user: null | import('~/types').UserType
         ) => AvailableReviewerOption[]
         isReResearch: (reportTasks: ReportTaskEntry[] | null) => boolean
         primaryTask: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
