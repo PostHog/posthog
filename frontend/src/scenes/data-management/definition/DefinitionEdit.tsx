@@ -332,6 +332,8 @@ export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
                                                 eventNames={[editDefinition.name]}
                                                 value={value ?? null}
                                                 onChange={(changedValue) =>
+                                                    // Clearing the picker emits '', but the serializer sets
+                                                    // allow_blank=False on primary_property, so send null to unset it.
                                                     onChange(
                                                         typeof changedValue === 'string' && changedValue
                                                             ? changedValue
