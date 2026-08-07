@@ -458,6 +458,11 @@ export interface MeetingParticipantApi {
     readonly response_status: string
     /** Whether this attendee organized the meeting. */
     readonly is_organizer: boolean
+    /**
+     * UUID of the PostHog person resolved for this attendee, if any.
+     * @nullable
+     */
+    readonly person_id: string | null
 }
 
 /**
@@ -481,6 +486,15 @@ export interface MeetingApi {
     readonly status: string
     /** Attendees of the meeting. */
     readonly participants: readonly MeetingParticipantApi[]
+}
+
+export interface PaginatedMeetingListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: MeetingApi[]
 }
 
 /**
@@ -665,6 +679,52 @@ export interface AnnouncementChannelApi {
      * @nullable
      */
     customer_name: string | null
+}
+
+/**
+ * Sync state of one connected calendar (read-only).
+ */
+export interface CalendarSyncStatusApi {
+    /** Id of the google-calendar integration. */
+    readonly integration_id: number
+    /**
+     * When the last sync run completed; null before the first sync.
+     * @nullable
+     */
+    readonly last_synced_at: string | null
+    /** Whether a sync run is currently in flight. */
+    readonly is_syncing: boolean
+}
+
+/**
+ * Request body of the calendar sync-now trigger.
+ */
+export interface CalendarSyncTriggerApi {
+    /** Id of the google-calendar integration to sync. */
+    integration_id: number
+}
+
+/**
+ * * `started` - started
+ * * `already_running` - already_running
+ */
+export type CalendarSyncTriggerResponseStatusEnumApi =
+    (typeof CalendarSyncTriggerResponseStatusEnumApi)[keyof typeof CalendarSyncTriggerResponseStatusEnumApi]
+
+export const CalendarSyncTriggerResponseStatusEnumApi = {
+    Started: 'started',
+    AlreadyRunning: 'already_running',
+} as const
+
+/**
+ * Response of the calendar sync-now trigger.
+ */
+export interface CalendarSyncTriggerResponseApi {
+    /** 'started' (a sync run began) or 'already_running' (a sync for this calendar was already in flight, so this was a no-op).
+     *
+     * * `started` - started
+     * * `already_running` - already_running */
+    status: CalendarSyncTriggerResponseStatusEnumApi
 }
 
 /**
@@ -1538,6 +1598,21 @@ export type AccountsRelationshipsListParams = {
      * Include ended assignments (the full timeline), not just active ones.
      */
     include_history?: boolean
+}
+
+export type AccountsMeetingsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter meetings by title or attendee email/name.
+     */
+    search?: string
 }
 
 export type AccountsSummariesListParams = {
