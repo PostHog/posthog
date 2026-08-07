@@ -29,11 +29,6 @@ export const DataModelingDagsPartialUpdateBody = /* @__PURE__ */ zod.object({
     sync_frequency: zod.string().nullish().describe("Sync frequency string (e.g. '24hour', '7day')"),
 })
 
-export const DataModelingEdgesCreateBody = /* @__PURE__ */ zod.object({
-    dag: zod.uuid(),
-    properties: zod.unknown().optional(),
-})
-
 export const DataModelingEdgesUpdateBody = /* @__PURE__ */ zod.object({
     dag: zod.uuid(),
     properties: zod.unknown().optional(),

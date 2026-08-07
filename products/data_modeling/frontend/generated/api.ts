@@ -157,23 +157,6 @@ export const dataModelingEdgesList = async (
     })
 }
 
-export const getDataModelingEdgesCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_modeling_edges/`
-}
-
-export const dataModelingEdgesCreate = async (
-    projectId: string,
-    edgeApi: NonReadonly<EdgeApi>,
-    options?: RequestInit
-): Promise<EdgeApi> => {
-    return apiMutator<EdgeApi>(getDataModelingEdgesCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(edgeApi),
-    })
-}
-
 export const getDataModelingEdgesRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/data_modeling_edges/${id}/`
 }
