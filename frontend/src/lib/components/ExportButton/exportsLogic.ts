@@ -14,7 +14,7 @@ import {
     dashboardExportNudgeLogic,
     resolveExportNudgeEligibility,
 } from 'scenes/dashboard/dashboardExportNudgeLogic'
-import { exportCompleteNudgeMessage } from 'scenes/dashboard/DashboardExportNudgeToast'
+import { ExportNudgeRenderer, claimExportNudgeMessage } from 'scenes/dashboard/DashboardExportNudgeToast'
 import type { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
@@ -40,6 +40,10 @@ const LONG_RUNNING_POLL_DELAY_MS = 30000
 // on it. The check starts when the export starts, so by the time an export lands it has normally
 // long since answered.
 const NUDGE_RESOLUTION_TIMEOUT_MS = 5000
+// The toast's headline in each state. Shared because the nudge renders underneath whichever one the
+// toast is currently showing.
+const EXPORT_PENDING_MESSAGE = 'Preparing export…'
+const EXPORT_COMPLETE_MESSAGE = 'Export complete!'
 
 // An export is still rendering while it has neither produced content nor failed.
 const isRendering = (asset: ExportedAssetType): boolean => !asset.has_content && !asset.exception
@@ -104,8 +108,8 @@ const showExportCompleteToast = async (
     onDownload: () => void
 ): Promise<void> => {
     const toastId = 'export-complete-' + uuid()
-    const nudge = exportCompleteNudgeMessage(await settleNudgeCandidate(nudgeCandidate), toastId)
-    lemonToast.success(nudge ?? 'Export complete!', {
+    const nudge = claimExportNudgeMessage(await settleNudgeCandidate(nudgeCandidate), toastId)
+    lemonToast.success(nudge ? nudge(EXPORT_COMPLETE_MESSAGE) : EXPORT_COMPLETE_MESSAGE, {
         button: { label: 'Download', action: onDownload },
         ...(nudge ? { toastId, autoClose: false as const } : {}),
     })
@@ -474,11 +478,6 @@ export const exportsLogic = kea<exportsLogicType>([
             {
                 createExport: ({ exportData }) => {
                     const exportToastId = 'export-' + uuid()
-                    // Started with the export rather than after it, so the completion toast can
-                    // carry the nudge instead of a second toast landing on top of it.
-                    const nudgeCandidate = exportData.dashboard
-                        ? resolveExportNudgeEligibility(exportData.dashboard)
-                        : null
                     // Every export lands in the exports panel: a video render minutes later, a
                     // synchronous download that is easy to miss in the browser's own download UI.
                     // So the toast always points there, in whichever state it ends up.
@@ -486,7 +485,19 @@ export const exportsLogic = kea<exportsLogicType>([
                         label: 'View exports',
                         action: () => actions.openSidePanel(SidePanelTab.Exports),
                     }
-                    let nudgeMessage: JSX.Element | null = null
+                    // Started with the export rather than after it, so the nudge can go into the
+                    // toast the user is already watching instead of arriving as a second one.
+                    // Claimed once and shared: the same nudge renders under the pending headline
+                    // and again under the completion one, and must not count as two nudges.
+                    const nudgePromise: Promise<ExportNudgeRenderer | null> = exportData.dashboard
+                        ? settleNudgeCandidate(resolveExportNudgeEligibility(exportData.dashboard)).then((candidate) =>
+                              claimExportNudgeMessage(candidate, exportToastId)
+                          )
+                        : Promise.resolve(null)
+                    // Held in a box because it is assigned from the nudge's own callback:
+                    // TypeScript cannot see across closures and would narrow a plain `let` to null.
+                    const nudge: { renderer: ExportNudgeRenderer | null } = { renderer: null }
+                    let settled = false
 
                     // Non-video exports (CSV/XLSX/PNG) run synchronously on the backend, so this
                     // request can block for a while. lemonToast.promise shows a spinner immediately
@@ -522,12 +533,14 @@ export const exportsLogic = kea<exportsLogicType>([
                             // Download button whose click is a fresh gesture.
                             if (isUserActivationLive()) {
                                 downloadExportedAsset(response)
-                                // Whatever this resolves to becomes the toast's success message.
-                                nudgeMessage = exportCompleteNudgeMessage(
-                                    await settleNudgeCandidate(nudgeCandidate),
-                                    exportToastId
-                                )
-                                return nudgeMessage ?? 'Export complete!'
+                                // Returning the nudge makes the success state carry it in its own
+                                // right. react-toastify re-renders from the success config on
+                                // settle, so a nudge that only lived in the pending render would
+                                // vanish at the exact moment the user has reason to act on it.
+                                nudge.renderer = await nudgePromise
+                                return nudge.renderer
+                                    ? nudge.renderer(EXPORT_COMPLETE_MESSAGE)
+                                    : EXPORT_COMPLETE_MESSAGE
                             }
                             actions.addFresh(response)
                             throw new ExportAwaitingDownload(response)
@@ -542,32 +555,63 @@ export const exportsLogic = kea<exportsLogicType>([
                         return 'Export started'
                     }
 
+                    const exportPromise = runExport()
+                    const markSettled = (): void => {
+                        settled = true
+                    }
+                    // Registered before lemonToast.promise, so `settled` is already true by the time
+                    // react-toastify queues the toast's own success or error render.
+                    void exportPromise.then(markSettled, markSettled)
+
+                    void nudgePromise.then((renderer) => {
+                        nudge.renderer = renderer
+                        if (renderer && !settled) {
+                            // Put the nudge in front of the user while they are still waiting,
+                            // rather than only once the export lands.
+                            lemonToast.updatePendingMessage(exportToastId, renderer(EXPORT_PENDING_MESSAGE), {
+                                button: viewExportsButton,
+                            })
+                        }
+                    })
+
                     void (async () => {
                         try {
                             await lemonToast.promise(
-                                runExport(),
+                                exportPromise,
                                 {
-                                    pending: 'Preparing export…',
-                                    success: 'Export complete!',
+                                    pending: EXPORT_PENDING_MESSAGE,
+                                    success: EXPORT_COMPLETE_MESSAGE,
                                     error: 'Export failed',
                                 },
                                 { toastId: exportToastId, button: viewExportsButton }
                             )
-                            if (nudgeMessage) {
+                            if (nudge.renderer) {
                                 // autoClose belongs to the options above, which are fixed before the
                                 // export (and so the nudge) resolves, so the settled toast has to be
                                 // rewritten to keep a nudge on screen until the user answers it.
-                                lemonToast.updateToSuccess(exportToastId, nudgeMessage, {
+                                lemonToast.updateToSuccess(exportToastId, nudge.renderer(EXPORT_COMPLETE_MESSAGE), {
                                     autoClose: false,
                                     button: viewExportsButton,
                                 })
                             }
                         } catch (error) {
                             if (error instanceof ExportAwaitingDownload) {
-                                // Content is ready but the auto-download would have been dropped —
-                                // replace the spinner with a Download button the user can click.
-                                lemonToast.dismiss(exportToastId)
-                                await showExportCompleteToast(nudgeCandidate, () => actions.downloadExport(error.asset))
+                                // Content is ready but the auto-download would have been dropped, so
+                                // the toast has to offer a Download button whose click counts as a
+                                // fresh gesture. Rewritten in place rather than dismissed and
+                                // re-raised, so a nudge already rendered into it keeps pointing at
+                                // the toast it lives in.
+                                lemonToast.updateToSuccess(
+                                    exportToastId,
+                                    nudge.renderer ? nudge.renderer(EXPORT_COMPLETE_MESSAGE) : EXPORT_COMPLETE_MESSAGE,
+                                    {
+                                        button: {
+                                            label: 'Download',
+                                            action: () => actions.downloadExport(error.asset),
+                                        },
+                                        ...(nudge.renderer ? { autoClose: false as const } : {}),
+                                    }
+                                )
                                 return
                             }
                             const apiError = error as { data?: APIErrorType }

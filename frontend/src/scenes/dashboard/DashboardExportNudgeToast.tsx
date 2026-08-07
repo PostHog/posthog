@@ -19,22 +19,29 @@ export function onDashboardExportNudgeToastCta(dashboardId: number, toastId: str
     })
 }
 
+/** Renders the nudge under whichever headline the toast is currently showing. */
+export type ExportNudgeRenderer = (headline: string) => JSX.Element
+
 /**
- * The export-complete message with the subscribe nudge folded into it, so an eligible exporter gets
- * one toast rather than a second one landing on top of the first. Returns null when this exporter
- * isn't in the treatment, leaving the caller its plain completion message.
+ * Claims the nudge for this export and hands back a renderer for its body, so an eligible exporter
+ * gets one toast rather than a second one landing on top of the first. Returns null when this
+ * exporter isn't in the treatment, leaving the caller its plain message.
+ *
+ * Claiming happens once, here, while rendering can happen repeatedly: a single export shows the
+ * nudge under "Preparing export…" and again under "Export complete!", and it must not count as two
+ * nudges.
  */
-export function exportCompleteNudgeMessage(
+export function claimExportNudgeMessage(
     candidate: ExportNudgeCandidate | null,
     toastId: string
-): JSX.Element | null {
+): ExportNudgeRenderer | null {
     if (!candidate || !claimExportNudge(candidate.dashboardId)) {
         return null
     }
 
-    return (
+    return (headline: string) => (
         <span className="flex flex-col items-start gap-1.5 min-w-0">
-            <span>Export complete!</span>
+            <span>{headline}</span>
             <span className="text-xs text-secondary leading-snug">
                 Want this on a schedule? We can email or Slack {candidate.dashboardName || 'this dashboard'} to you
                 every week.

@@ -3,7 +3,7 @@ import { ToastContainer, toast } from 'react-toastify'
 
 import api from 'lib/api'
 import { resolveExportNudgeEligibility } from 'scenes/dashboard/dashboardExportNudgeLogic'
-import { exportCompleteNudgeMessage } from 'scenes/dashboard/DashboardExportNudgeToast'
+import { claimExportNudgeMessage } from 'scenes/dashboard/DashboardExportNudgeToast'
 
 import { initKeaTests } from '~/test/init'
 import { ExportedAssetType, ExporterFormat } from '~/types'
@@ -23,7 +23,7 @@ jest.mock('scenes/dashboard/dashboardExportNudgeLogic', () => ({
     },
 }))
 jest.mock('scenes/dashboard/DashboardExportNudgeToast', () => ({
-    exportCompleteNudgeMessage: jest.fn(),
+    claimExportNudgeMessage: jest.fn(),
 }))
 
 const NUDGE_CTA = 'Set up recurring updates'
@@ -39,8 +39,17 @@ describe('export completion toast', () => {
 
     beforeEach(() => {
         jest.clearAllMocks()
-        jest.mocked(exportCompleteNudgeMessage).mockImplementation((candidate) =>
-            candidate ? <span>{NUDGE_CTA}</span> : null
+        // Mirrors the real nudge's shape: a headline supplied by whichever toast state is showing,
+        // plus the call to action underneath it.
+        jest.mocked(claimExportNudgeMessage).mockImplementation((candidate) =>
+            candidate
+                ? (headline) => (
+                      <span>
+                          <span>{headline}</span>
+                          <span>{NUDGE_CTA}</span>
+                      </span>
+                  )
+                : null
         )
         jest.useFakeTimers()
         initKeaTests()
@@ -87,5 +96,43 @@ describe('export completion toast', () => {
         expect(screen.getByText(expected)).toBeTruthy()
         // The export finished, so leaving its spinner up strands the user on "Preparing export…".
         expect(screen.queryByText('Preparing export…')).toBeNull()
+    })
+
+    it('keeps one toast carrying the nudge from the wait through to completion', async () => {
+        jest.mocked(resolveExportNudgeEligibility).mockResolvedValue({ dashboardId: 7, dashboardName: 'Weekly' })
+        let finishExport: (asset: ExportedAssetType) => void = () => {}
+        jest.mocked(api.exports.create).mockReturnValue(
+            new Promise<ExportedAssetType>((resolve) => {
+                finishExport = resolve
+            })
+        )
+
+        render(<ToastContainer />)
+        logic.actions.createExport({ exportData: { export_format: ExporterFormat.PNG, dashboard: 7 } })
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(500)
+        })
+
+        // Still exporting, and the nudge is already readable rather than waiting for the export.
+        expect(screen.getByText('Preparing export…')).toBeTruthy()
+        expect(screen.getByText(NUDGE_CTA)).toBeTruthy()
+
+        finishExport({
+            id: 31,
+            export_format: ExporterFormat.PNG,
+            has_content: true,
+            filename: 'dashboard.png',
+            created_at: '2026-05-11T19:00:00Z',
+            dashboard: 7,
+        } as ExportedAssetType)
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(SETTLE_MS)
+        })
+
+        // react-toastify re-renders from the success config on settle, so a nudge that only lived
+        // in the pending render would disappear exactly when the user has reason to act on it.
+        expect(screen.getByText(NUDGE_CTA)).toBeTruthy()
+        expect(screen.queryByText('Preparing export…')).toBeNull()
+        expect(screen.getAllByText(NUDGE_CTA)).toHaveLength(1)
     })
 })
