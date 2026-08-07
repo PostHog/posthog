@@ -4,7 +4,6 @@ from urllib.parse import urlparse
 from django.utils.formats import date_format
 
 from posthog.email import EmailMessage
-from posthog.models import User
 
 from products.exports.backend.models.subscription import Subscription
 from products.notifications.backend.facade.api import (
@@ -17,19 +16,11 @@ from products.notifications.backend.facade.api import (
 )
 from products.notifications.backend.facade.enums import NotificationOnlyResourceType
 
-
-def _get_notification_creator(subscription: Subscription) -> User | None:
-    creator = subscription.created_by
-    creator_id = subscription.created_by_id
-    if creator is None or creator_id is None:
-        return None
-    if not subscription.team.all_users_with_access().filter(id=creator_id).exists():
-        return None
-    return creator
+from ee.tasks.subscriptions.notification_recipients import get_notification_creator
 
 
 def send_subscription_delivery_failure_email(subscription: Subscription, failure_id: str | None = None) -> None:
-    creator = _get_notification_creator(subscription)
+    creator = get_notification_creator(subscription)
     if creator is None or not creator.email:
         return
 
@@ -56,7 +47,7 @@ def send_subscription_delivery_failure_email(subscription: Subscription, failure
 def create_subscription_delivery_failure_notification(
     subscription: Subscription, failure_id: str | None = None
 ) -> None:
-    creator = _get_notification_creator(subscription)
+    creator = get_notification_creator(subscription)
     if creator is None:
         return
 

@@ -6,7 +6,6 @@ import structlog
 
 from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
-from posthog.models import User
 
 from products.exports.backend.models.subscription import Subscription
 from products.notifications.backend.facade.api import (
@@ -19,6 +18,7 @@ from products.notifications.backend.facade.api import (
 from products.notifications.backend.facade.enums import NotificationOnlyResourceType
 
 from ee.tasks.subscriptions import SUPPORTED_TARGET_TYPES
+from ee.tasks.subscriptions.notification_recipients import get_notification_creator
 
 
 class DisableReason(NamedTuple):
@@ -78,16 +78,6 @@ def validate_re_enable(target_type: str | None, integration_id: int | None) -> s
     return reason.user_message.format(target_type=target_type)
 
 
-def _get_notification_creator(subscription: Subscription) -> User | None:
-    creator = subscription.created_by
-    creator_id = subscription.created_by_id
-    if creator is None or creator_id is None:
-        return None
-    if not subscription.team.all_users_with_access().filter(id=creator_id).exists():
-        return None
-    return creator
-
-
 def disable_invalid_subscription(subscription: Subscription, reason: DisableReason) -> None:
     # Compare-and-swap so only one racing caller sends the disabled-notification
     # email (UUID4 campaign keys mean MessagingRecord can't dedup the duplicate).
@@ -127,7 +117,7 @@ def disable_invalid_subscription(subscription: Subscription, reason: DisableReas
             exc_info=True,
         )
 
-    creator = _get_notification_creator(subscription)
+    creator = get_notification_creator(subscription)
     if creator and creator.email:
         try:
             send_notifications_for_disabled_subscription(subscription, reason, [creator.email])
@@ -146,7 +136,7 @@ def disable_invalid_subscription(subscription: Subscription, reason: DisableReas
 
 
 def create_subscription_auto_disabled_notification(subscription: Subscription, reason: DisableReason) -> None:
-    creator = _get_notification_creator(subscription)
+    creator = get_notification_creator(subscription)
     if creator is None:
         return
 

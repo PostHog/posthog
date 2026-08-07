@@ -21,6 +21,7 @@ from ee.tasks.subscriptions.failure_notifications import (
     create_subscription_delivery_failure_notification,
     send_subscription_delivery_failure_email,
 )
+from ee.tasks.subscriptions.notification_recipients import get_notification_creator
 
 
 class TestValidateReEnable:
@@ -49,6 +50,43 @@ class TestValidateReEnable:
         else:
             assert result is not None
             assert expected in result
+
+
+class TestGetNotificationCreator(APIBaseTest):
+    def _make_subscription(self, created_by: User | None) -> Subscription:
+        return Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="reports@example.com",
+            frequency="daily",
+            start_date=timezone.now(),
+            title="Weekly report",
+            created_by=created_by,
+        )
+
+    @parameterized.expand(
+        [
+            ("no_creator", "none", False),
+            ("creator_outside_the_project", "outsider", False),
+            ("deactivated_creator", "deactivated", False),
+            ("creator_with_access", "member", True),
+        ]
+    )
+    def test_eligibility(self, _label, creator_kind, expected_eligible):
+        if creator_kind == "none":
+            creator = None
+        elif creator_kind == "outsider":
+            creator = User.objects.create_user(email="outsider@example.com", first_name="Outsider", password="password")
+        elif creator_kind == "deactivated":
+            creator = self.user
+            creator.is_active = False
+            creator.save(update_fields=["is_active"])
+        else:
+            creator = self.user
+
+        result = get_notification_creator(self._make_subscription(creator))
+
+        assert result == (creator if expected_eligible else None)
 
 
 class TestDisableInvalidSubscription(APIBaseTest):
@@ -130,21 +168,9 @@ class TestDisableInvalidSubscription(APIBaseTest):
             create_notification_mock.assert_not_called()
         send_mock.assert_not_called()
 
-    @parameterized.expand(
-        [
-            ("former_creator", False),
-            ("deactivated_creator", True),
-        ]
-    )
-    def test_does_not_notify_creator_without_access(self, _label, deactivate_member):
-        if deactivate_member:
-            creator = self.user
-            creator.is_active = False
-            creator.save(update_fields=["is_active"])
-        else:
-            creator = User.objects.create_user(
-                email="former-creator@example.com", first_name="Former", password="password"
-            )
+    def test_does_not_notify_creator_without_access(self):
+        # Wiring guard — the eligibility matrix itself lives in TestGetNotificationCreator.
+        creator = User.objects.create_user(email="former-creator@example.com", first_name="Former", password="password")
         sub = self._make_subscription(created_by=creator)
 
         with (
