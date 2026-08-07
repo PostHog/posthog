@@ -259,6 +259,7 @@ export interface TaskRunArtifact {
   metadata?: TaskRunArtifactMetadata;
   storage_path?: string;
   uploaded_at?: string;
+  dismissed_at?: string | null;
 }
 
 export const TERMINAL_STATUSES = ["completed", "failed", "cancelled"] as const;

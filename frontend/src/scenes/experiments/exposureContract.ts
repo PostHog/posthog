@@ -57,6 +57,32 @@ export function isDefaultExposureConfig(config: ExperimentExposureConfig): boole
 }
 
 /**
+ * The activation event config in effect for the criteria, or undefined when there is none.
+ * Activation only composes with the default exposure, so a custom `exposure_config` disables it
+ * (mirrors the backend's `has_activation_config`). A config pinning `$experiment_exposure` still
+ * counts as default, matching the backend's `is_default_exposure_config`.
+ */
+export function getActivationConfig(
+    exposureCriteria: ExperimentExposureCriteria | undefined
+): ExperimentExposureConfig | undefined {
+    const activationConfig = exposureCriteria?.activation_config
+    if (!activationConfig) {
+        return undefined
+    }
+    const exposureConfig = exposureCriteria?.exposure_config
+    if (
+        exposureConfig &&
+        !(
+            isEventConfig(exposureConfig) &&
+            [EXPOSURE_DEFAULT_EVENT, EXPERIMENT_EXPOSURE_EVENT].includes(exposureConfig.event)
+        )
+    ) {
+        return undefined
+    }
+    return activationConfig
+}
+
+/**
  * Determines which event and variant property carry the exposure for an experiment.
  *
  * - No exposure config, or a `$feature_flag_called` config: the resolved default event, with the

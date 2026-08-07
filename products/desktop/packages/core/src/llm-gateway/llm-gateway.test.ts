@@ -397,6 +397,31 @@ describe("LlmGatewayService.fetchUsage", () => {
     expect(usage.ai_credits?.limit_usd).toBeNull();
   });
 
+  it("parses the optional Desktop component breakdown without rounding integers", async () => {
+    const breakdown = {
+      token_credits: 1_234,
+      compute_credits: 67,
+      cpu_millicore_seconds: 9_876_543_210,
+      memory_mib_seconds: 7_654_321_098,
+    };
+    const fetchMock = vi.fn().mockResolvedValue(
+      createJsonResponse({
+        ...USAGE_BODY,
+        ai_credits: {
+          exhausted: false,
+          used_usd: 13.01,
+          limit_usd: 20,
+          breakdown,
+        },
+      }),
+    );
+    const { service } = createService(fetchMock);
+
+    const usage = await service.fetchUsage();
+
+    expect(usage.ai_credits?.breakdown).toEqual(breakdown);
+  });
+
   it("feeds code_usage_subscribed into helper model routing", async () => {
     const fetchMock = vi
       .fn()

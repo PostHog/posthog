@@ -1437,7 +1437,19 @@ class TestTaskAPI(BaseTaskAPITest):
         task = Task.objects.get(id=response.json()["id"])
         self.assertEqual(task.repositories, ["posthog/posthog", "posthog/code"])
         self.assertEqual(task.create_run().state["repositories"], task.repositories)
-        mock_find_warm_run.assert_not_called()
+        mock_find_warm_run.assert_called_once_with(
+            self.team.id,
+            self.user.id,
+            repository="posthog/posthog",
+            repositories=["posthog/posthog", "posthog/code"],
+            github_integration_id=integration.id,
+            branch="main",
+            runtime_adapter=None,
+            model=None,
+            reasoning_effort=None,
+            sandbox_environment_id=None,
+            custom_image_id=None,
+        )
 
         update = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/",
@@ -5911,9 +5923,18 @@ class TestTaskRunAPI(BaseTaskAPITest):
         mock_write.assert_called_once()
         mock_tag.assert_called_once()
 
+        returned = response.json()["artifacts"][0]
+        self.assertEqual(
+            returned["url"],
+            absolute_uri(
+                f"/api/projects/{self.team.id}/tasks/{task.id}/runs/{run.id}/artifacts/{returned['id']}/download/"
+            ),
+        )
+
         run.refresh_from_db()
         self.assertEqual(len(run.artifacts), 1)
         artifact = run.artifacts[0]
+        self.assertNotIn("url", artifact)
         self.assertIn("id", artifact)
         self.assertEqual(artifact["name"], "plan.md")
         self.assertEqual(artifact["type"], "plan")
@@ -6585,6 +6606,14 @@ class TestTaskRunAPI(BaseTaskAPITest):
         mock_head_object.assert_called_once_with(storage_path)
         mock_tag.assert_called_once()
 
+        returned = response.json()["artifacts"][0]
+        self.assertEqual(
+            returned["url"],
+            absolute_uri(
+                f"/api/projects/{self.team.id}/tasks/{task.id}/runs/{run.id}/artifacts/{artifact_id}/download/"
+            ),
+        )
+
         run.refresh_from_db()
         self.assertEqual(len(run.artifacts), 1)
         artifact = run.artifacts[0]
@@ -6713,7 +6742,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         returned_artifacts = response.json()["artifacts"]
-        # The finalize response augments each entry with a presigned download URL that is not
+        # The finalize response augments each entry with a download URL that is not
         # persisted on the manifest, so compare the stored fields separately from the URL.
         self.assertEqual([{k: v for k, v in a.items() if k != "url"} for a in returned_artifacts], run.artifacts)
         self.assertTrue(all(a.get("url") for a in returned_artifacts))
@@ -6845,6 +6874,39 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["url"], "https://example.com/artifact?sig=123")
         self.assertIn("expires_in", response.json())
+
+    @patch("posthog.storage.object_storage.get_presigned_url")
+    def test_download_artifact_by_id_redirects_to_presigned_url(self, mock_presign):
+        mock_presign.return_value = "https://example.com/artifact?sig=123"
+        task = self.create_task()
+        artifact_id = uuid.uuid4().hex
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            artifacts=[
+                {
+                    "id": artifact_id,
+                    "name": "report.pdf",
+                    "type": "output",
+                    "content_type": "application/pdf",
+                    "storage_path": "tasks/artifacts/team_1/task_2/run_3/report.pdf",
+                }
+            ],
+        )
+
+        response = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/{artifact_id}/download/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response["Location"], "https://example.com/artifact?sig=123")
+        self.assertEqual(mock_presign.call_args.kwargs["content_disposition"], 'attachment; filename="report.pdf"')
+
+        missing = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/{uuid.uuid4().hex}/download/"
+        )
+        self.assertEqual(missing.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_presign_artifact_not_found(self):
         task = self.create_task()
