@@ -112,38 +112,34 @@ async def create_table_from_saved_query(
         table_created.format = table_format
         table_created.url_pattern = url_pattern
         table_created.queryable_folder = queryable_folder
-        await asave_datawarehousetable(table_created)
 
         # TODO: handle dlt columns schemas. Need to refactor dag pipeline to pass through schema or propagate from upstream tables
         # set_columns records the DESCRIBE column order (which follows the view's SELECT order for
         # materialized backing tables) alongside `columns`, since jsonb loses key order.
         table_created.set_columns(await sync_to_async(table_created.get_columns)())
         table_created.row_count = await database_sync_to_async(table_created.get_count)()
-        await asave_datawarehousetable(table_created)
 
         refreshed_saved_query = await aget_saved_query_by_id(saved_query_id=saved_query_id_converted, team_id=team_id)
 
         storage_delta_mib: float | None = None
         total_storage_mib: float | None = None
+        existing_size: float = table_created.size_in_s3_mib or 0
+        table_created.size_in_s3_mib = None
 
         try:
             if refreshed_saved_query:
-                existing_size: float = table_created.size_in_s3_mib or 0
-
                 logger.debug(f"Existing size in MiB = {existing_size:.2f}")
 
                 table_size = await calculate_table_size(refreshed_saved_query, team_id, queryable_folder)
 
                 await logger.adebug(f"Total size in MiB = {table_size:.2f}")
 
+                table_created.size_in_s3_mib = table_size
                 table_size_delta = table_size - existing_size
                 logger.debug(f"Table size delta in MiB = {table_size_delta:.2f}")
 
                 job.storage_delta_mib = (job.storage_delta_mib or 0) + table_size_delta
                 await job.asave()
-
-                table_created.size_in_s3_mib = table_size
-                await asave_datawarehousetable(table_created)
 
                 storage_delta_mib = job.storage_delta_mib
                 total_storage_mib = table_created.size_in_s3_mib
@@ -151,6 +147,8 @@ async def create_table_from_saved_query(
             capture_exception(e)
             await logger.adebug("Error raised from calcuting table size")
             await logger.adebug(str(e))
+
+        await asave_datawarehousetable(table_created)
 
         return CreateTableResult(
             table=table_created,
