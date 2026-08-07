@@ -20,6 +20,7 @@ import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
+import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
 
 const HedgehogDirector = pngHoggie(directorPng)
 
@@ -262,16 +263,62 @@ function PlayerWrapper({
                     </div>
                 </div>
             ) : (
-                <div className="mt-20">
-                    <EmptyMessage
-                        title="No recording selected"
-                        description="Please select a recording from the list on the left"
-                        buttonText="Learn more about recordings"
-                        buttonTo="https://posthog.com/docs/user-guides/recordings"
-                    />
-                </div>
+                <PlayerEmptyState type={props.type} />
             )}
             {resizer}
+        </div>
+    )
+}
+
+// The player pane has nothing to show. Say why, based on the list's actual state, and offer the
+// matching next action: the list may be empty, collapsed out of view, or just have nothing selected.
+function PlayerEmptyState({ type }: { type?: 'filters' | 'collection' }): JSX.Element {
+    const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
+    const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
+    const { visiblePinnedRecordings, otherRecordings, sessionRecordingsAPIErrored, unusableEventsInFilter } =
+        useValues(sessionRecordingsPlaylistLogic)
+
+    if (isPlaylistCollapsed) {
+        return (
+            <div className="mt-20">
+                <EmptyMessage
+                    title="No recording selected"
+                    description="The list is collapsed. Expand it to pick a recording to watch."
+                    buttonText="Expand the list"
+                    buttonOnClick={() => setPlaylistCollapsed(false)}
+                    buttonDataAttr="player-empty-state-expand-playlist"
+                />
+            </div>
+        )
+    }
+
+    // The troubleshooting guidance is about matching filtered recordings, so it only fits the
+    // filters view; collections have their own empty-state copy on the list side.
+    const listIsEmpty =
+        type !== 'collection' &&
+        !sessionRecordingsAPIErrored &&
+        unusableEventsInFilter.length === 0 &&
+        visiblePinnedRecordings.length === 0 &&
+        otherRecordings.length === 0
+
+    if (listIsEmpty) {
+        return (
+            <div className="mt-20 flex justify-center px-4">
+                <div className="w-full max-w-100 text-sm text-secondary">
+                    <SessionRecordingsPlaylistTroubleshooting />
+                </div>
+            </div>
+        )
+    }
+
+    return (
+        <div className="mt-20">
+            <EmptyMessage
+                title="No recording selected"
+                description="Select a recording to watch."
+                buttonText="Learn more about recordings"
+                buttonTo="https://posthog.com/docs/user-guides/recordings"
+            />
         </div>
     )
 }
