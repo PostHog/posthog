@@ -1580,7 +1580,7 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
             __typename: string;
             login: string;
             avatarUrl: string;
-          };
+          } | null;
           createdAt: string;
           updatedAt: string;
         }>;
@@ -1647,9 +1647,9 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
         start_side: thread.startDiffSide,
         in_reply_to_id: c.replyTo?.databaseId ?? null,
         user: {
-          login: c.author.login,
-          avatar_url: c.author.avatarUrl,
-          isBot: c.author.__typename === "Bot",
+          login: c.author?.login ?? "ghost",
+          avatar_url: c.author?.avatarUrl ?? "",
+          isBot: c.author?.__typename === "Bot",
         },
         created_at: c.createdAt,
         updated_at: c.updatedAt,
