@@ -98,6 +98,7 @@ from products.signals.backend.models import (
     AutonomyPriority,
     InvalidStatusTransition,
     SignalReport,
+    SignalReportAction,
     SignalReportArtefact,
     SignalReportRefund,
     SignalSourceConfig,
@@ -598,11 +599,14 @@ class SignalReportFeedbackRequestSerializer(serializers.Serializer):
     )
     note = serializers.CharField(
         max_length=SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH,
+        required=False,
+        allow_blank=True,
+        default="",
         help_text=(
             "Free-form note explaining the rating. Capped at "
-            f"{SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH} characters. Only submitted alongside a note — a "
-            "bare thumb carries none — and, for a report authored by a scout, forwarded to that scout "
-            "as a steering note."
+            f"{SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH} characters. Optional — a bare thumb carries "
+            "none. When present and the report was authored by a scout, the note is forwarded to that "
+            "scout as a steering note."
         ),
     )
 
@@ -827,7 +831,11 @@ class SignalReportViewSet(
     # note for the report it is displayed on. Mutating-by-ID actions (delete, reingest) are
     # deliberately NOT here, so a suppressed report stays unreachable for those and keeps
     # returning 404 — matching the existing contract.
-    _SUPPRESSED_VISIBLE_ACTIONS = frozenset({"state", "bulk_state", "retrieve", "signals", "refund", "feedback"})
+    # `viewed` follows `retrieve` for the same reason: the Dismissed tab's detail view records its
+    # open like any other.
+    _SUPPRESSED_VISIBLE_ACTIONS = frozenset(
+        {"state", "bulk_state", "retrieve", "signals", "refund", "feedback", "viewed"}
+    )
 
     # Human-readable explanation per bulk outcome, surfaced in each result's `detail` field
     # (transitioned needs none — its `status` already says where the report landed).
@@ -1746,22 +1754,23 @@ class SignalReportViewSet(
     @extend_schema(
         summary="Leave feedback on a report",
         description=(
-            "Record a note left with the thumbs rating at the end of a report. The rating itself is a "
-            "product-analytics event; this endpoint exists to carry the note into the scout steering "
-            "channel. For a report authored by a scout, the note is forwarded to that scout as a "
-            "steering note it reads on its next run; for any other report there is nothing to steer and "
-            "the call is a no-op success. The report's state is never changed."
+            "Record the thumbs rating at the end of a report, with an optional note. The rating is "
+            "persisted as a per-person report action, which counts as consumption evidence for the "
+            "scout that authored the report (scouts whose output nobody consumes are eventually "
+            "paused). When a note is present and the report was authored by a scout, the note is also "
+            "forwarded to that scout as a steering note it reads on its next run; for any other report "
+            "there is nothing to steer. The report's state is never changed."
         ),
         request=SignalReportFeedbackRequestSerializer,
         responses={200: SignalReportFeedbackResponseSerializer},
     )
     @action(detail=True, methods=["post"], url_path="feedback", required_scopes=["task:write"])
     def feedback(self, request, pk=None, **kwargs):
-        """Forward a report's feedback note to the scout that authored it.
+        """Persist a report's thumbs rating and forward its note to the authoring scout.
 
-        Feedback-only: unlike `state`, this never transitions the report. The note is a derived
-        convenience — the durable record of the rating is the analytics event the client fires —
-        so forwarding is best-effort and never fails the request.
+        Feedback-only: unlike `state`, this never transitions the report. Note forwarding is
+        best-effort and never fails the request; the action row is what the scout inactivity
+        sweep reads as consumption evidence.
         """
         report = cast(SignalReport, self.get_object())
 
@@ -1769,16 +1778,59 @@ class SignalReportViewSet(
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        if isinstance(request.user, User):
+            SignalReportAction.record(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                user_id=request.user.id,
+                action_type=SignalReportAction.ActionType.FEEDBACK,
+                metadata={"sentiment": data["sentiment"]},
+            )
+
+        note = data["note"].strip()
+        if not note:
+            return Response(SignalReportFeedbackResponseSerializer({"forwarded": False}).data)
+
         note_id = forward_feedback_note(
             team=self.team,
             report_id=str(report.id),
             sentiment=data["sentiment"],
-            note=data["note"],
+            note=note,
             user_id=request.user.id if isinstance(request.user, User) else None,
             scoped_team_ids=get_authenticator_scoped_team_ids(request.successful_authenticator),
             api_scopes=get_authenticator_scopes(request.successful_authenticator),
         )
         return Response(SignalReportFeedbackResponseSerializer({"forwarded": note_id is not None}).data)
+
+    @extend_schema(
+        summary="Record that a person viewed a report",
+        description=(
+            "Record that the caller opened this report's detail view. One row per person per report is "
+            "kept (repeat views bump a counter), and the record counts as consumption evidence for the "
+            "scout that authored the report — scouts whose reports nobody consumes are eventually "
+            "paused. Intended as fire-and-forget from the inbox UI when a person opens a report; "
+            "agents reading reports programmatically should not call it."
+        ),
+        request=None,
+        responses={204: None},
+    )
+    @action(detail=True, methods=["post"], url_path="viewed", required_scopes=["task:write"])
+    def viewed(self, request, pk=None, **kwargs):
+        """Upsert a per-person view record for the report.
+
+        Only session-authenticated people leave a record — a non-user principal (e.g. an
+        impersonation-less service token) is a silent no-op, since the row exists to prove a
+        person looked.
+        """
+        report = cast(SignalReport, self.get_object())
+        if isinstance(request.user, User):
+            SignalReportAction.record(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                user_id=request.user.id,
+                action_type=SignalReportAction.ActionType.VIEW,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def _forward_dismissal_note(
         self,
