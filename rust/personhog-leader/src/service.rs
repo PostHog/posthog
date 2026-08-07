@@ -38,7 +38,7 @@ use crate::recovery::ChangelogRecovery;
 use crate::warnings::{SizeViolationWarning, WarningsProducer};
 use personhog_common::properties::{
     can_trim_property, jsonb_column_size, sanitize_for_jsonb, trim_properties_to_fit_size,
-    trim_properties_with_candidates, TrimResult,
+    trim_properties_with_candidates, SanitizeStats, TrimResult,
 };
 
 /// Mirrors the config's `fence_map_max_entries` default; production
@@ -1193,10 +1193,15 @@ impl PersonHogLeader for PersonHogLeaderService {
         // lock. Snapshot properties were sanitized when the source's
         // leader cached them, but they crossed the wire since; sanitizing
         // again keeps the fold's admission guarantee self-contained.
+        let mut sanitize_totals = SanitizeStats::default();
+        let mut track = |stats: SanitizeStats| {
+            sanitize_totals.nul_strings += stats.nul_strings;
+            sanitize_totals.clamped_numbers += stats.clamped_numbers;
+        };
         let mut event_set = parse_json_object_field(&req.event_set, "event_set")?;
         let mut event_set_once = parse_json_object_field(&req.event_set_once, "event_set_once")?;
-        sanitize_for_jsonb(&mut event_set);
-        sanitize_for_jsonb(&mut event_set_once);
+        track(sanitize_for_jsonb(&mut event_set));
+        track(sanitize_for_jsonb(&mut event_set_once));
         struct SealedSnapshot {
             properties: serde_json::Value,
             version: i64,
@@ -1205,9 +1210,27 @@ impl PersonHogLeader for PersonHogLeaderService {
         }
         let mut snapshots: Vec<SealedSnapshot> = Vec::with_capacity(req.sealed_snapshots.len());
         for snapshot in &req.sealed_snapshots {
+            // A snapshot for the wrong person, or a death document, can
+            // only be a saga bug — folding it silently would launder it
+            // into the target.
+            if snapshot.team_id != req.team_id {
+                return Err(Status::invalid_argument(
+                    "sealed snapshot belongs to a different team than the target",
+                ));
+            }
+            if snapshot.id == req.person_id {
+                return Err(Status::invalid_argument(
+                    "sealed snapshot is the merge target itself",
+                ));
+            }
+            if snapshot.is_deleted {
+                return Err(Status::invalid_argument(
+                    "sealed snapshot is a death document; only living sealed state folds",
+                ));
+            }
             let mut properties =
                 parse_json_object_field(&snapshot.properties, "sealed snapshot properties")?;
-            sanitize_for_jsonb(&mut properties);
+            track(sanitize_for_jsonb(&mut properties));
             snapshots.push(SealedSnapshot {
                 properties,
                 version: snapshot.version,
@@ -1293,11 +1316,23 @@ impl PersonHogLeader for PersonHogLeaderService {
         // still-absent keys in request order; then the merge event's $set
         // overrides and $set_once fills. All inputs are sanitized, so the
         // merged document is measured in stored form.
-        let target_properties = if person.properties.is_object() {
+        let mut target_properties = if person.properties.is_object() {
             person.properties.clone()
         } else {
             serde_json::Value::Object(serde_json::Map::new())
         };
+        // The cached state is an input like any other: rows loaded from
+        // Postgres or warmed from records that predate sanitization can
+        // carry dirt the wire inputs cannot.
+        track(sanitize_for_jsonb(&mut target_properties));
+        if sanitize_totals.nul_strings > 0 {
+            counter!("personhog_leader_properties_nul_sanitized_total")
+                .increment(sanitize_totals.nul_strings);
+        }
+        if sanitize_totals.clamped_numbers > 0 {
+            counter!("personhog_leader_properties_numbers_clamped_total")
+                .increment(sanitize_totals.clamped_numbers);
+        }
         let target_map = target_properties
             .as_object()
             .expect("target_properties was just normalized to an object");
@@ -1445,9 +1480,10 @@ impl PersonHogLeader for PersonHogLeaderService {
             .max();
 
         // The version is a max-merge over the target's floor and every
-        // sealed version, plus one: it stays above every source's death
-        // document (produced at sealed + 1 alongside a fold that clears
-        // max(sealed) + 1), and re-applying the fold only bumps it again
+        // sealed version, plus one: at or above every source's death
+        // document, which derives from the same sealed + 1 (equal when
+        // the highest sealed version dominates — harmless, the streams
+        // are per-person), and re-applying the fold only bumps it again
         // — convergent under at-least-once delivery.
         let base_version = self
             .emitted_versions

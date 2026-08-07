@@ -58,8 +58,10 @@ service PersonHogLeader {
   // order, then the merge event's $set overrides and $set_once fills.
   // Scalars fold as created_at = min(target, sources),
   // is_identified = true, and last_seen_at = max(target, sources); the
-  // version is max(target, max sealed) + 1, a
-  // max-merge that stays above every sealed source's death document.
+  // version is max(target, max sealed) + 1 — at or above every sealed
+  // source's death document, which derives from the same sealed + 1
+  // (equal when the highest sealed version dominates; the streams are
+  // per-person, so the relation is a convention, not a collision guard).
   // Safe under at-least-once delivery: re-applying the same fold on
   // unchanged target state changes no content and only bumps the version.
   // (The standard re-appliable-merge residual applies — see the request's

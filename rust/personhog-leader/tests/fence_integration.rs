@@ -1193,10 +1193,25 @@ fn fold_request(
     event_set: serde_json::Value,
     event_set_once: serde_json::Value,
 ) -> FoldPersonDocumentRequest {
+    // Unset identity fields get the target's team and a distinct source
+    // id, mirroring what FencePerson seals; tests probing the identity
+    // checks set them explicitly.
+    let sealed_snapshots = snapshots
+        .into_iter()
+        .map(|mut snapshot| {
+            if snapshot.team_id == 0 {
+                snapshot.team_id = team_id;
+            }
+            if snapshot.id == 0 {
+                snapshot.id = person_id + 1_000;
+            }
+            snapshot
+        })
+        .collect();
     FoldPersonDocumentRequest {
         team_id,
         person_id,
-        sealed_snapshots: snapshots,
+        sealed_snapshots,
         event_set: serde_json::to_vec(&event_set).unwrap(),
         event_set_once: serde_json::to_vec(&event_set_once).unwrap(),
         op_id: op_id.to_string(),
@@ -1630,10 +1645,47 @@ async fn invalid_fold_requests_are_rejected_before_any_work() {
         )
     };
 
+    let wrong_team = fold_request(
+        harness.team_id,
+        harness.person_id,
+        &op,
+        vec![Person {
+            team_id: harness.team_id + 1,
+            ..snapshot(serde_json::json!({"x": "1"}), 2, 1_650_000_000)
+        }],
+        serde_json::json!({}),
+        serde_json::json!({}),
+    );
+    let snapshot_is_target = fold_request(
+        harness.team_id,
+        harness.person_id,
+        &op,
+        vec![Person {
+            id: harness.person_id,
+            ..snapshot(serde_json::json!({"x": "1"}), 2, 1_650_000_000)
+        }],
+        serde_json::json!({}),
+        serde_json::json!({}),
+    );
+    let death_document_snapshot = fold_request(
+        harness.team_id,
+        harness.person_id,
+        &op,
+        vec![Person {
+            is_deleted: true,
+            ..snapshot(serde_json::json!({"x": "1"}), 2, 1_650_000_000)
+        }],
+        serde_json::json!({}),
+        serde_json::json!({}),
+    );
+
     for (label, request) in [
         ("empty snapshots", no_snapshots),
         ("malformed op_id", bad_op_id),
         ("non-object event_set", non_object_event_set),
+        ("wrong-team snapshot", wrong_team),
+        ("snapshot is the target", snapshot_is_target),
+        ("death-document snapshot", death_document_snapshot),
     ] {
         let status = harness
             .client
@@ -1989,4 +2041,44 @@ async fn a_non_object_target_stays_an_object_through_the_unremediable_path() {
         .unwrap();
 
     assert_eq!(person_properties(&folded), serde_json::json!({}));
+}
+
+/// Cache dirt on the target — state loaded from Postgres or warmed from
+/// records that predate sanitization — is rewritten like every other
+/// fold input, so the committed document is measured in stored form.
+#[tokio::test]
+async fn a_folds_target_cache_dirt_is_sanitized() {
+    let op = Uuid::now_v7();
+    let mut harness = start_marked_fold_harness(
+        CachedPerson {
+            properties: serde_json::json!({"dirty": "a\u{0000}b"}),
+            ..test_cached_person()
+        },
+        &op,
+    )
+    .await;
+
+    let folded = harness
+        .client
+        .fold_person_document(with_partition(
+            fold_request(
+                harness.team_id,
+                harness.person_id,
+                &op,
+                vec![snapshot(serde_json::json!({}), 2, 1_650_000_000)],
+                serde_json::json!({}),
+                serde_json::json!({}),
+            ),
+            harness.partition,
+        ))
+        .await
+        .expect("fold succeeds")
+        .into_inner()
+        .person
+        .unwrap();
+
+    assert_eq!(
+        person_properties(&folded),
+        serde_json::json!({"dirty": "a\u{FFFD}b"})
+    );
 }
