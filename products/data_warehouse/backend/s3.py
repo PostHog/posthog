@@ -74,12 +74,19 @@ async def aget_s3_client(*, fresh_instance: bool = False, endpoint_url: Optional
     try:
         yield s3
     finally:
-        # Uncached instances aren't finalized by the fsspec registry, so close the aiobotocore client
-        # explicitly (s3fs's set_session docs: "to be closed later with await .close()") to avoid
-        # leaking HTTP connections in long-lived workers. Never close the shared cached instance —
-        # other callers hold references to it.
+        # Uncached instances aren't finalized by the fsspec registry, so close the aiobotocore
+        # client(s) explicitly (s3fs's set_session docs: "to be closed later with await .close()")
+        # to avoid leaking HTTP connections in long-lived workers. Close via _s3creator rather than
+        # just _s3: with region caching on (the default), s3fs lazily opens a second, region-specific
+        # client the first time a bucket resolves to a different region (S3BucketRegionCache.get_bucket_client),
+        # and only _s3creator tracks that second client — closing _s3 alone leaks it. _s3creator's
+        # __aexit__ closes everything it opened either way (see s3fs's own close_session, which does
+        # the same). Never close the shared cached instance — other callers hold references to it.
         with contextlib.suppress(Exception):
-            if s3._s3 is not None:
+            s3creator = getattr(s3, "_s3creator", None)
+            if s3creator is not None:
+                await s3creator.__aexit__(None, None, None)
+            elif s3._s3 is not None:
                 await s3._s3.close()
 
 
