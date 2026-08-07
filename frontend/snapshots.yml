@@ -24,6 +24,10 @@ snapshots:
         hash: v1.k794b7964.ddbb5d27187cb1eb9341734e0b780c762cdfbc09aae81833c970369bd7ad4f32.3HNFMfb4Lflcg3uKD1-KNl09d3leMhmfuhR2WVLjLRE
     components-account-project-switcher--no-pending-invite--light:
         hash: v1.k794b7964.3f8d66ba04469cdf3e92d78483c58125e84531888eedde628469fde5e9e39a08.MhOzPyXhl7CeOLA5Em19cktkdgffO_BL7CojWkngtMQ
+    components-account-project-switcher--with-data-freshness--dark:
+        hash: v1.k794b7964.33311041a0feedba12322f5c99b05b91db51c7f26793b837fce7c0666c5ef6f5.EPYhVoP42oDcDI9m3qloUEuvND0yjchkisUylND2Y-s
+    components-account-project-switcher--with-data-freshness--light:
+        hash: v1.k794b7964.825e1ea3745d1f526c46a4d7b365778ce2d3307933461503fca588f68916a3a9.6Bpu71WRfMaGy8N4X06ixaXTIYkj-4jg44eVXhgWkCw
     components-account-project-switcher--with-pending-invite--dark:
         hash: v1.k794b7964.b0c1c0b0b8d1a0c77cd873a1cc0b391924cd64ff7de46b1b4d309a50d98eca8a.ddWvJC0f1_fBpYhfDKtUrKeuZSrY5xR8ViHWVdiIfqk
     components-account-project-switcher--with-pending-invite--light:
