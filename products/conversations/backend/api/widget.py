@@ -13,6 +13,7 @@ Anonymous users are controlled by widget_session_id. Verified users are controll
 
 import uuid
 import logging
+from typing import NoReturn
 
 from django.db.models import F, Q
 
@@ -38,6 +39,11 @@ from products.conversations.backend.api.serializers import (
     WidgetMessagesQuerySerializer,
     WidgetTicketsQuerySerializer,
     validate_origin,
+)
+from products.conversations.backend.api.widget_analytics import (
+    SendFailureReason,
+    report_widget_rate_limited,
+    report_widget_send_failed,
 )
 from products.conversations.backend.cache import (
     get_cached_messages,
@@ -155,53 +161,49 @@ class WidgetMessageView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [WidgetUserBurstThrottle, WidgetTeamThrottle]
 
+    def throttled(self, request: Request, wait: float) -> NoReturn:
+        """A throttled customer can't send a message at all, so it belongs in the failure series.
+
+        DRF raises Throttled from initial(), before post() runs, so this is the only place the 429
+        is visible. report_widget_rate_limited rather than the plain reporter because being over
+        the limit is exactly the state in which requests arrive fastest — it dedupes per window.
+        """
+        team = getattr(request, "auth", None)
+        if isinstance(team, Team):
+            report_widget_rate_limited(team, request)
+        super().throttled(request, wait)
+
     def post(self, request: Request) -> Response:
         """Handle incoming message from widget."""
 
         team: Team | None = request.auth  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         if not team:
+            # report_team_action needs a team, so this exit stays uninstrumented: a customer who
+            # rotated their widget token sees every send fail and we see nothing. A counter like
+            # IDENTITY_VERIFICATION_COUNTER is the right tool for it, not an event.
             return Response({"error": "Authentication required"}, status=status.HTTP_403_FORBIDDEN)
 
         # Check honeypot field (bots fill this)
         if request.data.get("_hp"):
+            # Runs before the origin check below, so an off-domain bot lands here rather than in
+            # `origin_not_allowed`. Filter this reason out when measuring real customer failures.
+            report_widget_send_failed(team, request, SendFailureReason.HONEYPOT)
             return Response({"error": "Invalid request"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Validate origin
         if not validate_origin(request, team):
+            # A misconfigured widget_domains allowlist rejects every ticket a team sends, and the
+            # 403 is silent from their side — `origin_host` names the domain they need to add.
+            report_widget_send_failed(team, request, SendFailureReason.ORIGIN_NOT_ALLOWED)
             return Response({"error": "Origin not allowed"}, status=status.HTTP_403_FORBIDDEN)
 
         # Validate and extract data
         serializer = WidgetMessageSerializer(data=request.data)
         if not serializer.is_valid():
             logger.warning("Validation error in WidgetMessageView", extra={"errors": serializer.errors})
-            try:
-                # Track rejected submissions server-side so they're queryable even when the
-                # client-side event is blocked (ad blockers, network drops). Field names and
-                # value lengths only — never message content. An over-long auto-captured
-                # session_context value (e.g. current_url) is a known rejection cause.
-                # This endpoint is public and unauthenticated, so session_context is
-                # attacker-controlled: bound both the number of fields and the key length we
-                # record so a request stuffed with many keys can't inflate the event payload.
-                raw_session_context = request.data.get("session_context")
-                session_context_field_count = len(raw_session_context) if isinstance(raw_session_context, dict) else 0
-                session_context_field_lengths = {}
-                if isinstance(raw_session_context, dict):
-                    for key, value in list(raw_session_context.items())[:20]:
-                        if isinstance(key, str) and isinstance(value, str):
-                            session_context_field_lengths[key[:100]] = len(value)
-                report_team_action(
-                    team,
-                    "support ticket send failed",
-                    {
-                        "channel_source": "widget",
-                        "reason": "validation_error",
-                        "error_fields": sorted(serializer.errors.keys()),
-                        "session_context_field_count": session_context_field_count,
-                        "session_context_field_lengths": session_context_field_lengths,
-                    },
-                )
-            except Exception as e:
-                capture_exception(e)
+            # Track rejected submissions server-side so they're queryable even when the
+            # client-side event is blocked (ad blockers, network drops).
+            report_widget_send_failed(team, request, SendFailureReason.VALIDATION_ERROR, serializer=serializer)
             return Response(
                 {"error": "Invalid request data", "details": serializer.errors}, status=status.HTTP_400_BAD_REQUEST
             )
@@ -209,6 +211,17 @@ class WidgetMessageView(APIView):
         try:
             verified_distinct_id = _verify_identity(serializer.validated_data, team)
         except IdentityVerificationFailed as e:
+            # The response is deliberately identical for both (see IdentityVerificationNotConfigured),
+            # so if analytics can't separate them the distinction exists nowhere: "not configured" is
+            # the team's setup to fix, "verification failed" is a client signing bug or an attack.
+            report_widget_send_failed(
+                team,
+                request,
+                SendFailureReason.IDENTITY_NOT_CONFIGURED
+                if isinstance(e, IdentityVerificationNotConfigured)
+                else SendFailureReason.IDENTITY_VERIFICATION_FAILED,
+                serializer=serializer,
+            )
             return Response({"error": e.public_error}, status=status.HTTP_403_FORBIDDEN)
 
         if verified_distinct_id is not None:
@@ -219,6 +232,9 @@ class WidgetMessageView(APIView):
             widget_session_id = str(serializer.validated_data["widget_session_id"])
             distinct_id = serializer.validated_data["distinct_id"]
         else:
+            # Unreachable while the serializer's validate() requires one auth mode or the other.
+            # Instrumented anyway: if it ever fires, that invariant has broken.
+            report_widget_send_failed(team, request, SendFailureReason.NO_AUTH_CONTEXT, serializer=serializer)
             return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
         message_content = serializer.validated_data["message"]
@@ -233,6 +249,7 @@ class WidgetMessageView(APIView):
             try:
                 ticket_id = str(serializers.UUIDField().to_internal_value(raw_ticket_id))
             except ValidationError:
+                report_widget_send_failed(team, request, SendFailureReason.INVALID_TICKET_ID, serializer=serializer)
                 return Response({"error": "Invalid ticket_id format"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Find or create ticket
@@ -241,13 +258,22 @@ class WidgetMessageView(APIView):
             try:
                 ticket = Ticket.objects.get(id=ticket_id, team=team)
 
+                # The two ownership checks get their own reasons. An identified client sends both
+                # widget_session_id and the identity fields, so auth_mode reads "both" here and
+                # can't say which check rejected — and they mean different things.
                 if verified_distinct_id is not None:
                     allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
                     if ticket.distinct_id not in allowed_ids:
+                        report_widget_send_failed(
+                            team, request, SendFailureReason.TICKET_FORBIDDEN_IDENTITY, serializer=serializer
+                        )
                         return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
                 else:
                     # CRITICAL: Verify ticket belongs to this widget_session_id (NOT distinct_id)
                     if ticket.widget_session_id != widget_session_id:
+                        report_widget_send_failed(
+                            team, request, SendFailureReason.TICKET_FORBIDDEN_SESSION, serializer=serializer
+                        )
                         return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
                 # Only HMAC-verified requests may (re)bind a ticket's distinct_id.
@@ -285,6 +311,7 @@ class WidgetMessageView(APIView):
                 ticket.refresh_from_db()
 
             except Ticket.DoesNotExist:
+                report_widget_send_failed(team, request, SendFailureReason.TICKET_NOT_FOUND, serializer=serializer)
                 return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
         else:
             # No ticket_id provided - always create a new ticket

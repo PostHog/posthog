@@ -1,20 +1,32 @@
+import json
 import uuid
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ErrorDetail
 from rest_framework.test import APIClient
 
 from posthog.models.comment import Comment
+from posthog.rate_limit import WidgetUserBurstThrottle
 
 from products.conversations.backend.api.serializers import WidgetMessageSerializer
+from products.conversations.backend.api.widget_analytics import (
+    _bounded_keys,
+    _error_codes,
+    _first_code,
+    _trusted_replay_url,
+)
 from products.conversations.backend.models import SigningSecret, Ticket
 from products.conversations.backend.models.constants import ChannelDetail, Status
 from products.conversations.backend.services.identity import compute_identity_hash
+
+WIDGET_ANALYTICS_MODULE = "products.conversations.backend.api.widget_analytics"
 
 
 def _verification_counter(outcome: str, source: str) -> float:
@@ -1111,3 +1123,493 @@ class TestWidgetContextSanitization(SimpleTestCase):
 
         self.assertFalse(serializer.is_valid())
         self.assertIn(field, serializer.errors)
+
+
+class TestWidgetSendFailedAnalytics(BaseTest):
+    """`support ticket send failed` — every exit that returns without creating a message.
+
+    report_team_action is patched in widget_analytics rather than widget, so these exercise the real
+    property construction and leave `support ticket created` alone. Patching is mandatory, not just
+    convenient: settings.TEST disables posthoganalytics, so nothing is observable without it.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # WidgetUserBurstThrottle and WidgetTeamThrottle are plain SimpleRateThrottles, so unlike
+        # BurstRateThrottle they stay live under test, against a LocMemCache no one resets.
+        cache.clear()
+
+        self.widget_token = "test_widget_token_sfa"
+        self.secret = "test_secret_key_for_hmac"
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {"widget_public_token": self.widget_token}
+        self.team.secret_api_token = self.secret
+        self.team.save()
+
+        self.widget_session_id = str(uuid.uuid4())
+        self.distinct_id = "user-123"
+        self.identity_hash = compute_identity_hash(self.distinct_id, self.secret)
+
+        self.client = APIClient()
+
+    def _get_headers(self):
+        return {"HTTP_X_CONVERSATIONS_TOKEN": self.widget_token}
+
+    def _post(self, payload, **extra):
+        """POST with the session auth fields already filled in, so cases state only what they vary."""
+        return self.client.post(
+            "/api/conversations/v1/widget/message",
+            {"widget_session_id": self.widget_session_id, "distinct_id": self.distinct_id, **payload},
+            **self._get_headers(),
+            **extra,
+        )
+
+    def _properties(self, mock_report):
+        self.assertEqual(mock_report.call_count, 1, f"expected exactly one event, got {mock_report.call_args_list}")
+        team, event, properties = mock_report.call_args.args
+        self.assertEqual(team, self.team)
+        self.assertEqual(event, "support ticket send failed")
+        return properties
+
+    def _create_ticket(self, **overrides):
+        return Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=overrides.pop("widget_session_id", self.widget_session_id),
+            distinct_id=overrides.pop("distinct_id", self.distinct_id),
+            channel_source="widget",
+            **overrides,
+        )
+
+    # --- error_codes: the whole point of the change ---
+
+    @parameterized.expand(
+        [
+            ("empty", "", "blank"),
+            # CharField trims whitespace before validate_message sees it, so this is "blank" too
+            # rather than the custom validator's "invalid" — worth pinning, since the two look
+            # identical from the client's side.
+            ("whitespace_only", "   ", "blank"),
+            ("over_max_length", "x" * 10001, "max_length"),
+        ]
+    )
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_error_codes_say_why_a_field_was_rejected(self, _name, message, expected_code, mock_report):
+        # error_fields is ["message"] for all of these, so without error_codes they collapse into
+        # one indistinguishable bucket — different bugs reported identically.
+        response = self._post({"message": message})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        properties = self._properties(mock_report)
+        self.assertEqual(properties["error_fields"], ["message"])
+        self.assertEqual(properties["error_codes"], {"message": expected_code})
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_missing_message_is_reported_as_required(self, mock_report):
+        response = self._post({})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        properties = self._properties(mock_report)
+        self.assertEqual(properties["error_codes"], {"message": "required"})
+        self.assertFalse(properties["had_message"])
+        self.assertEqual(properties["message_length"], 0)
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_non_field_error_is_reported_with_its_code(self, mock_report):
+        # No auth fields at all, so WidgetAuthSerializer.validate() rejects it.
+        response = self.client.post("/api/conversations/v1/widget/message", {"message": "Hello"}, **self._get_headers())
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        properties = self._properties(mock_report)
+        self.assertEqual(properties["error_fields"], ["non_field_errors"])
+        self.assertEqual(properties["error_codes"], {"non_field_errors": "invalid"})
+        self.assertEqual(properties["auth_mode"], "none")
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_multiple_field_errors_are_all_reported(self, mock_report):
+        response = self._post({"message": "x" * 10001, "widget_session_id": "not-a-uuid"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        properties = self._properties(mock_report)
+        self.assertEqual(properties["error_fields"], ["message", "widget_session_id"])
+        self.assertEqual(properties["error_codes"], {"message": "max_length", "widget_session_id": "invalid"})
+
+    # --- reason coverage: exits that used to report nothing ---
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_honeypot_reports_its_reason(self, mock_report):
+        response = self._post({"message": "I am a bot", "_hp": "filled_by_bot"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self._properties(mock_report)["reason"], "honeypot")
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_disallowed_origin_reports_the_domain_to_allowlist(self, mock_report):
+        self.team.conversations_settings = {
+            "widget_public_token": self.widget_token,
+            "widget_domains": ["allowed.example"],
+        }
+        self.team.save()
+
+        response = self._post({"message": "Hello"}, HTTP_ORIGIN="https://evil.example")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        properties = self._properties(mock_report)
+        self.assertEqual(properties["reason"], "origin_not_allowed")
+        self.assertEqual(properties["origin_host"], "evil.example")
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_hostless_origin_falls_back_to_referer(self, mock_report):
+        # A sandboxed iframe sends the literal "Origin: null", which is truthy but has no host.
+        # validate_origin already consults Referer, so the reported host has to as well.
+        self.team.conversations_settings = {
+            "widget_public_token": self.widget_token,
+            "widget_domains": ["allowed.example"],
+        }
+        self.team.save()
+
+        response = self._post(
+            {"message": "Hello"}, HTTP_ORIGIN="null", HTTP_REFERER="https://app.acme.example/settings"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self._properties(mock_report)["origin_host"], "app.acme.example")
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_invalid_identity_hash_reports_verification_failed(self, mock_report):
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {"identity_distinct_id": self.distinct_id, "identity_hash": "0" * 64, "message": "Hello"},
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        properties = self._properties(mock_report)
+        self.assertEqual(properties["reason"], "identity_verification_failed")
+        self.assertEqual(properties["auth_mode"], "identity")
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_missing_signing_secret_reports_not_configured(self, mock_report):
+        # The 403 body is identical to a bad hash on purpose, so the two are only separable here.
+        self.team.secret_api_token = None
+        self.team.save()
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash, "message": "Hello"},
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self._properties(mock_report)["reason"], "identity_not_configured")
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_unparseable_ticket_id_reports_its_reason_without_echoing_it(self, mock_report):
+        response = self._post({"message": "Hello", "ticket_id": "'; DROP TABLE--"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        properties = self._properties(mock_report)
+        self.assertEqual(properties["reason"], "invalid_ticket_id")
+        # Free text from an unauthenticated caller is unbounded cardinality, and the reason
+        # already says it was garbage.
+        self.assertIsNone(properties["ticket_id"])
+        self.assertFalse(properties["is_new_ticket"])
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_someone_elses_ticket_reports_forbidden(self, mock_report):
+        ticket = self._create_ticket(widget_session_id=str(uuid.uuid4()), distinct_id="other-user")
+
+        response = self._post({"message": "Hello", "ticket_id": str(ticket.id)})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        properties = self._properties(mock_report)
+        self.assertEqual(properties["reason"], "ticket_forbidden_session")
+        self.assertEqual(properties["ticket_id"], str(ticket.id))
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_identity_ownership_rejection_is_a_separate_reason(self, mock_report):
+        # An identified client sends widget_session_id too, so auth_mode reads "both" and can't
+        # tell the two ownership checks apart — hence separate reasons.
+        ticket = self._create_ticket(distinct_id="someone-else")
+
+        response = self._post(
+            {
+                "message": "Hello",
+                "ticket_id": str(ticket.id),
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+            }
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        properties = self._properties(mock_report)
+        self.assertEqual(properties["reason"], "ticket_forbidden_identity")
+        self.assertEqual(properties["auth_mode"], "both")
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_missing_ticket_reports_not_found(self, mock_report):
+        missing_id = str(uuid.uuid4())
+
+        response = self._post({"message": "Hello", "ticket_id": missing_id})
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        properties = self._properties(mock_report)
+        self.assertEqual(properties["reason"], "ticket_not_found")
+        self.assertEqual(properties["ticket_id"], missing_id)
+        self.assertFalse(properties["is_new_ticket"])
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_throttled_request_reports_rate_limited(self, mock_report):
+        # DRF raises Throttled from initial(), before post() runs, so throttled() is the only
+        # place a 429 is visible to analytics. `wait` is stubbed alongside `allow_request` because
+        # DRF calls it straight after, and SimpleRateThrottle.wait reads the `history` that only a
+        # real allow_request would have set.
+        with (
+            patch.object(WidgetUserBurstThrottle, "allow_request", return_value=False),
+            patch.object(WidgetUserBurstThrottle, "wait", return_value=1.0),
+        ):
+            response = self._post({"message": "Hello"})
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(self._properties(mock_report)["reason"], "rate_limited")
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_repeated_throttling_reports_once_per_window(self, mock_report):
+        # SimpleRateThrottle.throttle_failure records nothing, so being over the limit is exactly
+        # the state in which requests arrive fastest. Without the dedupe, anyone holding a public
+        # widget token could drive unbounded event volume into PostHog's own project.
+        with (
+            patch.object(WidgetUserBurstThrottle, "allow_request", return_value=False),
+            patch.object(WidgetUserBurstThrottle, "wait", return_value=1.0),
+        ):
+            for _ in range(10):
+                response = self._post({"message": "Hello"})
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(mock_report.call_count, 1)
+
+    # --- the context that was missing ---
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_session_linkage_is_reported(self, mock_report):
+        response = self._post(
+            {
+                "message": "",
+                "session_id": "0199-session",
+                "session_context": {
+                    "current_url": "https://acme.example/insights/new?tab=trends",
+                    "session_replay_url": "https://us.posthog.com/replay/0199-session",
+                },
+            }
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        properties = self._properties(mock_report)
+        self.assertEqual(properties["client_session_id"], "0199-session")
+        self.assertEqual(properties["client_distinct_id"], self.distinct_id)
+        self.assertEqual(properties["session_replay_url"], "https://us.posthog.com/replay/0199-session")
+        self.assertEqual(properties["current_url_host"], "acme.example")
+        self.assertEqual(properties["current_url_path"], "/insights/new")
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_current_url_query_string_is_never_reported(self, mock_report):
+        # Customer URLs routinely carry reset tokens, emails and record ids. Splitting host from
+        # path also means no single property is URL-shaped, so PropertiesTable can't render an
+        # attacker-supplied value as a clickable link.
+        response = self._post(
+            {
+                "message": "",
+                "session_context": {"current_url": "https://acme.example/reset?token=abc123&email=jane@acme.example"},
+            }
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        properties = self._properties(mock_report)
+        self.assertEqual(properties["current_url_path"], "/reset")
+        self.assertNotIn("abc123", json.dumps(properties))
+        self.assertNotIn("jane@acme.example", json.dumps(properties))
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_reply_to_an_existing_ticket_is_distinguishable_from_first_contact(self, mock_report):
+        ticket = self._create_ticket()
+
+        response = self._post({"message": "", "ticket_id": str(ticket.id)})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        properties = self._properties(mock_report)
+        self.assertFalse(properties["is_new_ticket"])
+        self.assertEqual(properties["ticket_id"], str(ticket.id))
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_identity_distinct_id_is_reported_when_there_is_no_plain_one(self, mock_report):
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {"identity_distinct_id": self.distinct_id, "identity_hash": "0" * 64, "message": "Hello"},
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self._properties(mock_report)["client_distinct_id"], self.distinct_id)
+
+    # --- what must never reach the event ---
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_message_content_is_never_reported(self, mock_report):
+        secret = "my card number is 4111111111111111"
+
+        response = self._post({"message": secret + " " * 10, "widget_session_id": "not-a-uuid"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        properties = self._properties(mock_report)
+        self.assertNotIn(secret, json.dumps(properties))
+        self.assertTrue(properties["had_message"])
+        self.assertEqual(properties["message_length"], len(secret) + 10)
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_trait_values_are_never_reported(self, mock_report):
+        response = self._post({"message": "", "traits": {"email": "customer@acme.example", "name": "Ada"}})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        properties = self._properties(mock_report)
+        self.assertTrue(properties["has_traits"])
+        self.assertNotIn("customer@acme.example", json.dumps(properties))
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_offsite_replay_url_is_dropped(self, mock_report):
+        # Staff read this event in a UI that renders URL properties as links, and the value comes
+        # from an unauthenticated caller.
+        response = self._post(
+            {
+                "message": "",
+                "session_context": {
+                    "session_replay_url": "https://evil.example/phish",
+                    "current_url": "https://acme.example/dashboard",
+                },
+            }
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        properties = self._properties(mock_report)
+        self.assertIsNone(properties["session_replay_url"])
+        self.assertEqual(properties["current_url_host"], "acme.example")
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_oversized_values_are_truncated(self, mock_report):
+        response = self._post(
+            {
+                "message": "",
+                "distinct_id": "d" * 1000,
+                "session_context": {"current_url": "https://acme.example/" + "q" * 3000},
+            }
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        properties = self._properties(mock_report)
+        self.assertEqual(len(properties["current_url_path"]), 500)
+        # Matches the serializer's own max_length, so an id it would have accepted is never cut.
+        self.assertEqual(len(properties["client_distinct_id"]), 400)
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_control_characters_are_stripped(self, mock_report):
+        # These land in a console-and-browser UI that staff read.
+        response = self._post({"message": "", "distinct_id": "user\x00\x1b[31m-123"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self._properties(mock_report)["client_distinct_id"], "user[31m-123")
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_payload_keys_are_bounded(self, mock_report):
+        junk = {f"k{i}" * 40: "v" for i in range(100)}
+
+        response = self._post({"message": "", **junk})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        payload_keys = self._properties(mock_report)["payload_keys"]
+        self.assertLessEqual(len(payload_keys), 25)
+        self.assertLessEqual(max(len(key) for key in payload_keys), 50)
+        # Sorted and deduped before slicing, so the same key set always yields the same value —
+        # slicing insertion order first would make it depend on how the client serialized the body.
+        self.assertEqual(payload_keys, sorted(set(payload_keys)))
+
+    # --- contracts ---
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.capture_exception")
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action", side_effect=Exception("analytics is down"))
+    def test_analytics_failure_does_not_change_the_response(self, _mock_report, mock_capture):
+        response = self._post({"message": ""})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("message", response.json()["details"])
+        self.assertEqual(mock_capture.call_count, 1)
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_successful_send_reports_no_failure(self, mock_report):
+        response = self._post({"message": "Hello"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_report.assert_not_called()
+
+    @patch(f"{WIDGET_ANALYTICS_MODULE}.report_team_action")
+    def test_unauthenticated_request_reports_nothing(self, mock_report):
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {"message": "Hello"},
+            headers={"x-conversations-token": "invalid_token"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        # There is no team to attribute it to — a known blind spot, not an oversight.
+        mock_report.assert_not_called()
+
+
+class TestWidgetSendFailedExtraction(SimpleTestCase):
+    """Unit coverage for the extraction helpers, including shapes the view can't produce today."""
+
+    @parameterized.expand(
+        [
+            ("flat_list", {"message": [ErrorDetail("nope", code="blank")]}, {"message": "blank"}),
+            # DictField.run_child_validation nests one level. Unreachable until someone adds
+            # `child=` to traits or session_context, which must not silently drop the code then.
+            ("nested_dict", {"traits": {"email": [ErrorDetail("nope", code="null")]}}, {"traits": "null"}),
+            ("plain_string", {"message": "handed a bare string"}, {"message": "unknown"}),
+            ("empty_detail", {"message": []}, {}),
+            ("not_a_dict", "not a dict", {}),
+            ("none", None, {}),
+        ]
+    )
+    def test_error_codes_extraction(self, _name, errors, expected):
+        self.assertEqual(_error_codes(errors), expected)
+
+    def test_deeply_nested_detail_gives_up_rather_than_recursing(self):
+        detail = [[[[[ErrorDetail("nope", code="blank")]]]]]
+
+        self.assertIsNone(_first_code(detail))
+
+    @parameterized.expand(
+        [
+            ("app_host", "https://us.posthog.com/replay/abc", "https://us.posthog.com/replay/abc"),
+            ("bare_host", "https://posthog.com/replay/abc", "https://posthog.com/replay/abc"),
+            ("offsite", "https://evil.example/replay/abc", None),
+            # Suffix matching must not be fooled by a lookalike domain.
+            ("lookalike", "https://notposthog.com/replay/abc", None),
+            ("insecure", "http://us.posthog.com/replay/abc", None),
+            ("relative", "/replay/abc", None),
+            ("not_a_string", 12345, None),
+            ("empty", "", None),
+        ]
+    )
+    def test_trusted_replay_url(self, _name, value, expected):
+        self.assertEqual(_trusted_replay_url(value), expected)
+
+    def test_bounded_keys_does_not_depend_on_insertion_order(self):
+        keys = [f"key_{i}" for i in range(40)]
+
+        forwards = _bounded_keys(dict.fromkeys(keys, "v"), 25)
+        backwards = _bounded_keys(dict.fromkeys(reversed(keys), "v"), 25)
+
+        self.assertEqual(forwards, backwards)
+        self.assertEqual(len(forwards), 25)
+
+    def test_bounded_keys_dedupes_keys_that_truncate_to_the_same_prefix(self):
+        source = {"a" * 60 + "_x": "v", "a" * 60 + "_y": "v"}
+
+        self.assertEqual(_bounded_keys(source, 25), ["a" * 50])

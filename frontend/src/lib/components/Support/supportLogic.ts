@@ -144,9 +144,12 @@ function messagePreviewProperties(message?: string): Record<string, any> {
 }
 
 // Deliberately a different event from the widget endpoint's own `support ticket send failed`, which
-// reports requests the server rejected. That one names the offending field but has no session and no
-// draft, so only an engineer can act on it. This one means the message never left the browser, so it
-// carries what the customer wrote and someone can follow up. Two audiences, so keep them apart.
+// reports requests the server rejected. Both carry session linkage now, so the split is about what
+// happened rather than how much context each one has: this one means the message never left the
+// browser, so it carries the draft the customer would otherwise have to retype. The server-side one
+// means the request arrived and was refused, so it carries the reason and the field-level error code
+// instead — a draft the server rejected is still sitting in the customer's textarea. Keep them
+// apart: the rates mean different things, and only this one is suppressed by ad blockers.
 export function captureSupportTicketBlocked({
     surface,
     reason,
