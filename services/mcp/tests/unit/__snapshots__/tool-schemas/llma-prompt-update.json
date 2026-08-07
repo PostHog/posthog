@@ -2,9 +2,21 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "base_version": {
-            "description": "Latest version you are editing from. Used for optimistic concurrency checks.",
             "minimum": 1,
             "type": "number"
+        },
+        "config": {
+            "anyOf": [
+                {
+                    "additionalProperties": {},
+                    "properties": {},
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "JSON object with model parameters or any agent configuration to store with this version. If omitted, the current version's config is carried forward; pass null to clear it. Can be combined with either prompt or edits. Don't store secrets here: config is returned to anyone who can read the prompt."
         },
         "edits": {
             "description": "List of find/replace operations to apply to the current prompt version. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with prompt.",
@@ -37,6 +49,6 @@
             "type": "string"
         }
     },
-    "required": ["prompt_name"],
+    "required": ["prompt_name", "base_version"],
     "type": "object"
 }

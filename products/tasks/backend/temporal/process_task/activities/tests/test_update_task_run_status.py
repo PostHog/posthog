@@ -2,8 +2,9 @@ import pytest
 from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
+from temporalio.exceptions import ApplicationError
 
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.models import Loop, TaskRun
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
     UpdateTaskRunStatusInput,
     update_task_run_status,
@@ -37,6 +38,19 @@ class TestUpdateTaskRunStatusActivity:
             assert test_task_run.completed_at is not None
         else:
             assert test_task_run.completed_at is None
+
+    @pytest.mark.django_db(transaction=True)
+    def test_cancelled_run_is_not_resurrected_by_a_late_workflow_completion(self, activity_environment, test_task_run):
+        # A run cancelled out of band (loop cancel_previous overlap, owner deactivation) must stay
+        # cancelled even if its own workflow finishes and reports completed afterward.
+        test_task_run.status = TaskRun.Status.CANCELLED
+        test_task_run.save(update_fields=["status"])
+
+        input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        test_task_run.refresh_from_db()
+        assert test_task_run.status == TaskRun.Status.CANCELLED
 
     @pytest.mark.django_db(transaction=True)
     def test_updates_error_message(self, activity_environment, test_task_run):
@@ -159,13 +173,46 @@ class TestUpdateTaskRunStatusActivity:
         assert len(completed) == 1
 
     @pytest.mark.django_db(transaction=True)
-    def test_handles_non_existent_task_run(self, activity_environment):
+    def test_terminal_transition_updates_loop_bookkeeping_exactly_once(self, activity_environment, test_task_run):
+        # This activity is how workflow-driven loop runs reach a terminal status, so it must
+        # drive loop bookkeeping (last_run_status, consecutive_failures -> auto-pause) — the
+        # HTTP PATCH path is never taken for these. A repeat of the same terminal update must
+        # not double-count.
+        loop = Loop(
+            team=test_task_run.team,
+            created_by=test_task_run.task.created_by,
+            name="Nightly digest",
+            instructions="Summarize",
+            runtime_adapter="claude",
+        )
+        loop.save()
+        test_task_run.state = {**(test_task_run.state or {}), "loop_id": str(loop.id)}
+        test_task_run.save(update_fields=["state"])
+
+        input_data = UpdateTaskRunStatusInput(
+            run_id=str(test_task_run.id), status=TaskRun.Status.FAILED, error_message="sandbox crashed"
+        )
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        loop.refresh_from_db()
+        assert loop.last_run_status == TaskRun.Status.FAILED
+        assert loop.last_error == "sandbox crashed"
+        assert loop.consecutive_failures == 1
+        assert loop.last_run_at is not None
+
+    @pytest.mark.django_db(transaction=True)
+    def test_missing_task_run_raises_non_retryable(self, activity_environment):
+        # Rows hard-deleted mid-run (team deletion cascade) must fail the workflow fast,
+        # not be swallowed as a successful status write.
         non_existent_run_id = "550e8400-e29b-41d4-a716-446655440000"
         input_data = UpdateTaskRunStatusInput(
             run_id=non_existent_run_id,
             status=TaskRun.Status.IN_PROGRESS,
         )
-        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        with pytest.raises(ApplicationError) as exc_info:
+            async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        assert exc_info.value.non_retryable is True
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(

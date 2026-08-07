@@ -7,13 +7,30 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * * `EventsNode` - EventsNode
+ * * `ActionsNode` - ActionsNode
+ * * `DataWarehouseNode` - DataWarehouseNode
+ */
+export type ConversionGoalKindEnumApi = (typeof ConversionGoalKindEnumApi)[keyof typeof ConversionGoalKindEnumApi]
+
+export const ConversionGoalKindEnumApi = {
+    EventsNode: 'EventsNode',
+    ActionsNode: 'ActionsNode',
+    DataWarehouseNode: 'DataWarehouseNode',
+} as const
+
 export interface ConversionGoalSummaryApi {
     /** Unique id of the goal (event name, action id, or DW goal id) */
     id: string
     /** Display name of the conversion goal */
     name: string
-    /** Goal type — one of: EventsNode (PostHog event), ActionsNode (PostHog action), DataWarehouseNode (external table) */
-    kind: string
+    /** Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)
+     *
+     * * `EventsNode` - EventsNode
+     * * `ActionsNode` - ActionsNode
+     * * `DataWarehouseNode` - DataWarehouseNode */
+    kind: ConversionGoalKindEnumApi
     /** Human-readable target the goal matches (event/action name or table) */
     target_label: string
     /** Count of matching conversion events in the last 30 days */
@@ -271,8 +288,12 @@ export interface GoalExplanationApi {
     goal_id: string
     /** Display name of the conversion goal */
     goal_name: string
-    /** EventsNode/ActionsNode/DataWarehouseNode */
-    kind: string
+    /** Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)
+     *
+     * * `EventsNode` - EventsNode
+     * * `ActionsNode` - ActionsNode
+     * * `DataWarehouseNode` - DataWarehouseNode */
+    kind: ConversionGoalKindEnumApi
     /** The period the breakdown was computed over */
     period: GoalExplanationPeriodApi
     /** Total matching conversion events in the period */
@@ -364,6 +385,8 @@ export interface SourceMappingSuggestionApi {
     suggested_target_display_name: string
     /** Why this mapping is suggested */
     reason: string
+    /** Events carrying this raw utm_source in the window. Suggestions are ordered by it. */
+    event_count_30d: number
 }
 
 export interface CampaignMappingSuggestionApi {
@@ -381,6 +404,8 @@ export interface CampaignMappingSuggestionApi {
     method: string
     /** Why these campaign values were clustered together */
     reason: string
+    /** Events across every raw value folded into this suggestion. Suggestions are ordered by it. */
+    event_count_30d: number
 }
 
 export interface RawUnmatchedSampleApi {
@@ -431,7 +456,7 @@ export interface CurrentMappingApi {
 export interface UtmMappingSuggestionsResponseApi {
     /** Suggested custom_source_mappings entries */
     source_suggestions: SourceMappingSuggestionApi[]
-    /** Suggested campaign-name clusters (empty in v1) */
+    /** campaign_name_mappings entries for orphaned utm_campaign values that fuzzy-match a real campaign. Near-ties are withheld, so an absent campaign may still be mappable by hand. */
     campaign_suggestions: CampaignMappingSuggestionApi[]
     /** All unmatched raw utm_source values worth reviewing */
     raw_unmatched_samples: RawUnmatchedSampleApi[]
@@ -453,11 +478,50 @@ export interface UtmMappingSuggestionsResponseApi {
  * * `error` - error
  * * `warning` - warning
  */
-export type UtmIssueSeverityEnumApi = (typeof UtmIssueSeverityEnumApi)[keyof typeof UtmIssueSeverityEnumApi]
+export type DiagnosticSeverityEnumApi = (typeof DiagnosticSeverityEnumApi)[keyof typeof DiagnosticSeverityEnumApi]
 
-export const UtmIssueSeverityEnumApi = {
+export const DiagnosticSeverityEnumApi = {
     Error: 'error',
     Warning: 'warning',
+} as const
+
+/**
+ * * `not_linked` - not_linked
+ * * `name_collision` - name_collision
+ * * `no_tagged_events` - no_tagged_events
+ * * `unknown_source` - unknown_source
+ * * `missing_source` - missing_source
+ */
+export type UtmIssueKindEnumApi = (typeof UtmIssueKindEnumApi)[keyof typeof UtmIssueKindEnumApi]
+
+export const UtmIssueKindEnumApi = {
+    NotLinked: 'not_linked',
+    NameCollision: 'name_collision',
+    NoTaggedEvents: 'no_tagged_events',
+    UnknownSource: 'unknown_source',
+    MissingSource: 'missing_source',
+} as const
+
+export interface UtmAlternativeSourceApi {
+    /** A utm_source value found on this campaign's pageviews */
+    utm_source: string
+    /** Number of pageview events with this utm_source */
+    event_count: number
+}
+
+/**
+ * * `fix_platform_urls` - fix_platform_urls
+ * * `add_source_mapping` - add_source_mapping
+ * * `switch_to_id_match` - switch_to_id_match
+ * * `add_campaign_name_mapping` - add_campaign_name_mapping
+ */
+export type SuggestedActionsEnumApi = (typeof SuggestedActionsEnumApi)[keyof typeof SuggestedActionsEnumApi]
+
+export const SuggestedActionsEnumApi = {
+    FixPlatformUrls: 'fix_platform_urls',
+    AddSourceMapping: 'add_source_mapping',
+    SwitchToIdMatch: 'switch_to_id_match',
+    AddCampaignNameMapping: 'add_campaign_name_mapping',
 } as const
 
 export interface UtmIssueApi {
@@ -467,9 +531,27 @@ export interface UtmIssueApi {
      *
      * * `error` - error
      * * `warning` - warning */
-    severity: UtmIssueSeverityEnumApi
-    /** Human-readable description of the issue */
+    severity: DiagnosticSeverityEnumApi
+    /** Which kind of UTM problem this campaign has
+     *
+     * * `not_linked` - not_linked
+     * * `name_collision` - name_collision
+     * * `no_tagged_events` - no_tagged_events
+     * * `unknown_source` - unknown_source
+     * * `missing_source` - missing_source */
+    kind: UtmIssueKindEnumApi
+    /** Human-readable headline; the frontend composes richer text from the fields below */
     message: string
+    /** utm_source values actually found on this campaign's pageviews, ordered by event count */
+    alternative_sources: UtmAlternativeSourceApi[]
+    /** Other integrations whose campaigns share this campaign's name (name_collision only) */
+    shared_with_integrations: string[]
+    /** Pageviews that matched this campaign but carried no utm_source, on any issue kind */
+    missing_source_count: number
+    /** Recommended remediations, most-recommended first. fix_platform_urls cures the tagging bug itself; the others are workarounds that leave the bad URLs in place. */
+    suggested_actions: SuggestedActionsEnumApi[]
+    /** The orphaned utm_campaign value that looks like a typo of this campaign, when one was found confidently. Set only alongside add_campaign_name_mapping; empty otherwise, including when several candidates tie and picking one could misattribute spend. */
+    mapping_candidate: string
 }
 
 export interface CampaignAuditResultApi {

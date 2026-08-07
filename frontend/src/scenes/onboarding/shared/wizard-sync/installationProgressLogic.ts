@@ -22,31 +22,17 @@ import { wizardSessionStreamLogic } from 'products/wizard/frontend/wizardSession
 import type { WizardConnectionStatus } from '../../../../../../products/wizard/frontend/wizardSessionStreamLogic'
 import { activeCloudRunLogic } from './activeCloudRunLogic'
 import type { CloudRunHandle } from './activeCloudRunLogic'
-import { finishedLocalRunLogic, FinishedLocalRunHandle } from './finishedLocalRunLogic'
-import {
-    taskRunPrMerged,
-    taskRunPrUrl,
-    taskRunStreamLogic,
-    TaskRunProgressStep,
-    TaskRunStreamState,
-} from './taskRunStreamLogic'
+import { finishedLocalRunLogic } from './finishedLocalRunLogic'
+import { cloudProgress, isSessionFresh, localProgress } from './installationProgress'
+import { taskRunStreamLogic, TaskRunProgressStep, TaskRunStreamState } from './taskRunStreamLogic'
 import type { TaskRunConnectionStatus } from './taskRunStreamLogic'
-import { isSessionActive, wizardActiveSessionDetectorLogic } from './wizardActiveSessionDetectorLogic'
-import { wizardDashboardLogic } from './wizardDashboardLogic'
-
-// The wizard session stream the local CLI publishes to — and the channel a cloud wizard reports its
-// own sub-progress on.
-const WORKFLOW_ID = 'posthog-integration'
-
-// A session counts as "current" if it was updated within the last 10 minutes. Lets the install step
-// ignore stale terminal sessions left over from previous runs / test data when a user lands on the
-// app, while still re-surfacing recently-completed runs after a quick navigation away and back.
-const SESSION_CURRENT_THRESHOLD_MS = 10 * 60 * 1000
-
-export function isSessionFresh(session: WizardSessionDTOApi, now: number): boolean {
-    const updatedAt = new Date(session.updated_at).getTime()
-    return !Number.isNaN(updatedAt) && now - updatedAt < SESSION_CURRENT_THRESHOLD_MS
-}
+import {
+    isSessionActive,
+    watchWorkflowWhileMounted,
+    wizardActiveSessionDetectorLogic,
+} from './wizardActiveSessionDetectorLogic'
+import { wizardSyncUiLogic } from './wizardSyncUiLogic'
+import { resolveWorkflowId } from './workflows'
 
 // Per-session telemetry guards, deliberately module-scoped rather than on the kea `cache`: the logic
 // unmounts whenever its last consumer does (FAB gate flips, install step navigated away), and a
@@ -62,15 +48,26 @@ const reportedFinishedSessions = new Set<string>()
 // on unmount (and early, by a cloud instance whose run went terminal), and only the LAST release
 // disconnects. Without this, a finishing cloud run would kill the stream for the still-mounted
 // local instance and the "Run it yourself" recovery flow would go deaf until a full remount.
-const sessionStreamShares = new Set<string>()
+// Keyed by stream, not global: `wizardSessionStreamLogic` is itself keyed per workflow, so a single
+// flat set would both collide (two workflows share the instance key `local`) and leak (the last
+// release of ANY workflow would disconnect only its own stream, stranding the others).
+const sessionStreamShares = new Map<string, Set<string>>()
 
-function releaseSessionShare(shareKey: string, disconnectSession: () => void): void {
-    if (!sessionStreamShares.delete(shareKey)) {
+function releaseSessionShare(streamKey: string, shareKey: string, disconnectSession: () => void): void {
+    const shares = sessionStreamShares.get(streamKey)
+    if (!shares?.delete(shareKey)) {
         return
     }
-    if (sessionStreamShares.size === 0) {
+    if (shares.size === 0) {
+        sessionStreamShares.delete(streamKey)
         disconnectSession()
     }
+}
+
+function acquireSessionShare(streamKey: string, shareKey: string): void {
+    const shares = sessionStreamShares.get(streamKey) ?? new Set<string>()
+    shares.add(shareKey)
+    sessionStreamShares.set(streamKey, shares)
 }
 
 export function resetWizardSyncTelemetryForTests(): void {
@@ -79,8 +76,23 @@ export function resetWizardSyncTelemetryForTests(): void {
     sessionStreamShares.clear()
 }
 
+/**
+ * Identity of one mounted instance. Shared by `key()` and the stream-share bookkeeping, which must
+ * agree — if they drift, the refcount releases a share nobody holds and the transport leaks.
+ */
 function instanceKey(props: InstallationProgressLogicProps): string {
-    return props.mode === 'cloud' ? `cloud:${props.runId ?? ''}` : 'local'
+    const mode = props.mode === 'cloud' ? `cloud:${props.runId ?? ''}` : 'local'
+    return `${resolveWorkflowId(props.workflowId)}:${mode}`
+}
+
+/**
+ * The `wizardSessionStreamLogic` instance an install-progress instance shares. Mirrors that logic's
+ * own key. `skillId` is deliberately left unset: the CLI reassigns `session.skillId` per agent run,
+ * so a self-driving run's skill flips to the framework name mid-session and a skill-scoped
+ * subscription would drop out partway through.
+ */
+function sessionStreamKey(props: InstallationProgressLogicProps): string {
+    return `${resolveWorkflowId(props.workflowId)}::*`
 }
 
 export type InstallationMode = 'local' | 'cloud'
@@ -97,6 +109,16 @@ export interface InstallationStep {
     source?: 'wizard'
 }
 
+/** The wizard's in-flight `wizard_ask` prompt, published on the session row while the CLI is
+ * blocked on the user. Sensitive asks (secrets) carry no prompt text by design. */
+export interface WizardPendingInput {
+    id: string
+    askedAt: string
+    questionCount: number
+    sensitive: boolean
+    prompts: string[]
+}
+
 export interface InstallationProgress {
     phase: InstallationPhase
     steps: InstallationStep[]
@@ -105,248 +127,22 @@ export interface InstallationProgress {
     /** The bound PR was merged (webhook-recorded on the run's output). */
     prMerged: boolean
     isCurrent: boolean
+    /** Set while the wizard is waiting on the user in the terminal — the widget's attention state.
+     * Cleared by the next session push without the field (answered, cancelled, or timed out). */
+    pendingInput: WizardPendingInput | null
+    /** Who started the run (null when unknown). `email` is for the "is this me?" check. */
+    startedBy: { name: string; email: string } | null
+    /** Markdown handoff doc the wizard produced (its setup report), once the run has one. Sticky on
+     * the session row, so it survives later pushes and the finished-run snapshot. */
+    handoffText: string | null
 }
 
 export interface InstallationProgressLogicProps {
     mode: InstallationMode
     runId?: string
     taskId?: string
-}
-
-const STEP_STATUSES: Record<string, InstallationStepStatus> = {
-    pending: 'pending',
-    in_progress: 'in_progress',
-    completed: 'completed',
-    failed: 'failed',
-    canceled: 'failed',
-}
-
-// The stages every cloud run walks, in order — the timeline's fixed plan. Labels match the
-// connecting preview (UPCOMING_STEPS) so the handoff between the two is seamless; announced steps
-// override them with the backend's own labels.
-const CLOUD_PIPELINE_SKELETON: { group: string; step: string; label: string }[] = [
-    { group: 'setup', step: 'sandbox', label: 'Setting up sandbox' },
-    { group: 'setup', step: 'clone', label: 'Cloning repository' },
-    { group: 'setup', step: 'wizard', label: 'Running setup wizard' },
-    { group: 'deliver', step: 'pr', label: 'Opening a pull request' },
-]
-
-function stepStatus(raw: string): InstallationStepStatus {
-    return STEP_STATUSES[raw] ?? 'pending'
-}
-
-// Cloud: the TaskRun is the spine (phase, steps, PR url, terminal error); the wizard session's own
-// tasks expand into the timeline as wizard-sourced steps nested after the pipeline's wizard stage
-// (absent while the cloud wizard hasn't reported yet — degrades to the bare TaskRun pipeline).
-export function cloudProgress(
-    taskRunState: TaskRunStreamState | null,
-    progressSteps: TaskRunProgressStep[],
-    taskConnectionStatus: string,
-    latestSession: WizardSessionDTOApi | null,
-    isStalled: boolean = false,
-    now: number = Date.now()
-): InstallationProgress {
-    let phase: InstallationPhase
-    let stalledError: { title: string; detail: string | null } | null = null
-    if (!taskRunState) {
-        phase = taskConnectionStatus === 'connecting' ? 'connecting' : 'idle'
-    } else if (taskRunState.status === 'queued' && isStalled) {
-        // The run never left the queue (see taskRunStreamLogic's stall timer) — nothing is actually
-        // running, so an eternal spinner would be a lie.
-        phase = 'error'
-        stalledError = {
-            title: "Setup hasn't started",
-            detail: 'The run has been queued for a while without starting. Please try again in a bit.',
-        }
-    } else if (taskRunState.status === 'completed') {
-        phase = 'completed'
-    } else if (taskRunState.status === 'failed' || taskRunState.status === 'cancelled') {
-        phase = 'error'
-    } else if (taskRunState.status === 'queued') {
-        // Queued means nothing has started yet — "getting ready", not "running".
-        phase = 'connecting'
-    } else {
-        phase = 'running'
-    }
-
-    // A completed run has nothing in flight: clamp a lingering in-progress step (e.g. "Keeping
-    // CI green", emitted in-progress when the PR opened) to completed so the timeline matches.
-    const clamp = (status: InstallationStepStatus): InstallationStepStatus =>
-        phase === 'completed' && status === 'in_progress' ? 'completed' : status
-
-    // 'Started agent' is internal plumbing — it tells the user nothing about their setup. Hide it;
-    // the pending "Opening a pull request" row (flipped in-progress below) narrates that window.
-    const announced = progressSteps.filter((p) => p.step !== 'agent')
-    const mapStep = (p: TaskRunProgressStep): InstallationStep => ({
-        id: `${p.group}:${p.step}`,
-        label: p.label,
-        status: clamp(stepStatus(p.status)),
-        // The "pr" step carries the PR url in `detail` (surfaced as the CTA, not as raw step text).
-        detail: p.step === 'pr' ? null : p.detail,
-    })
-    // Every cloud run walks the same pipeline, so the whole plan is visible from the start as
-    // pending rows — announced steps light their slot up in place (keeping the backend's label and
-    // detail), and anything outside the skeleton (e.g. "Keeping CI green") appends in arrival
-    // order. Skipped when no run state exists yet: the view's connecting preview owns that window.
-    let pipelineSteps: InstallationStep[]
-    if (taskRunState) {
-        const byName = new Map(announced.map((p) => [p.step, p]))
-        pipelineSteps = CLOUD_PIPELINE_SKELETON.map((sk) => {
-            const real = byName.get(sk.step)
-            return real
-                ? mapStep(real)
-                : { id: `${sk.group}:${sk.step}`, label: sk.label, status: 'pending' as const, detail: null }
-        })
-        const skeletonNames = new Set(CLOUD_PIPELINE_SKELETON.map((sk) => sk.step))
-        pipelineSteps.push(...announced.filter((p) => !skeletonNames.has(p.step)).map(mapStep))
-    } else {
-        pipelineSteps = announced.map(mapStep)
-    }
-
-    // The session stream is keyed by workflow only and replays the latest session on connect even
-    // when it's a stale terminal row from a previous (possibly local) run — apply the same freshness
-    // gate the local path uses before letting it near this run's timeline or error detail. A fresh
-    // unrelated session can still slip in (the cloud wizard posts to the same workflow by design).
-    const session = latestSession && isSessionFresh(latestSession, now) ? latestSession : null
-
-    // The cloud wizard reports its own sub-steps on the session stream — once they exist they
-    // REPLACE the pipeline's aggregate "wizard" stage in the timeline (the tasks are that stage,
-    // told in more detail). Until then the stage row stands in. When the stage hasn't been
-    // announced at all (e.g. polling mode where step notifications are stream-borne), slot the
-    // tasks before the first not-yet-completed pipeline step so in-flight wizard work never
-    // renders after the PR stage.
-    const wizardSteps: InstallationStep[] = (session?.tasks ?? []).map((t) => ({
-        id: `wizard-task:${t.id}`,
-        label: t.title,
-        status: clamp(stepStatus(t.status)),
-        detail: null,
-        source: 'wizard',
-    }))
-    const wizardStageIndex = pipelineSteps.findIndex((s) => s.id.endsWith(':wizard'))
-    let steps: InstallationStep[]
-    if (wizardStageIndex !== -1 && wizardSteps.length > 0) {
-        steps = [
-            ...pipelineSteps.slice(0, wizardStageIndex),
-            ...wizardSteps,
-            ...pipelineSteps.slice(wizardStageIndex + 1),
-        ]
-    } else if (wizardSteps.length > 0) {
-        const firstUnfinished = pipelineSteps.findIndex((s) => s.status !== 'completed')
-        const insertIndex = firstUnfinished === -1 ? pipelineSteps.length : firstUnfinished
-        steps = [...pipelineSteps.slice(0, insertIndex), ...wizardSteps, ...pipelineSteps.slice(insertIndex)]
-    } else {
-        steps = pipelineSteps
-    }
-
-    const prUrl = taskRunPrUrl(taskRunState, progressSteps)
-    const prMerged = taskRunPrMerged(taskRunState)
-
-    // A merged PR ends the story: the CI-babysitting row would otherwise keep spinning forever
-    // (the workflow's follow-up loop skips closed PRs, so nothing will ever complete it).
-    if (prMerged) {
-        steps = steps.filter((s) => !s.id.endsWith(':ci'))
-    }
-
-    // The pipeline goes quiet between agent start and the PR opening: everything reads completed
-    // while the agent is still writing code, committing, and drafting the PR — which looks stalled.
-    // Flip the still-pending PR slot to in-progress with an honest detail line for that window; the
-    // real deliver-stage step replaces it when it arrives.
-    const allDoneExceptPr = steps.every((s) => s.id.endsWith(':pr') || s.status === 'completed')
-    if (phase === 'running' && !prUrl && allDoneExceptPr) {
-        steps = steps.map((s) =>
-            s.id.endsWith(':pr') && s.status === 'pending'
-                ? {
-                      ...s,
-                      status: 'in_progress' as const,
-                      detail: 'The agent is committing its changes and drafting the PR',
-                  }
-                : s
-        )
-    }
-
-    const error =
-        phase === 'error'
-            ? (stalledError ?? {
-                  title: 'Installation failed',
-                  detail:
-                      taskRunState?.error_message ?? (session?.error as { message?: string } | null)?.message ?? null,
-              })
-            : null
-
-    return {
-        phase,
-        steps,
-        error,
-        prUrl,
-        prMerged,
-        isCurrent: phase !== 'idle',
-    }
-}
-
-// Local: the wizard session is the only source. `sessionIsCurrent` is the sticky freshness flag —
-// the SSE replays the latest session on connect even when it's a stale terminal row from a previous
-// run, and those must not read as a run in flight. `dismissed` is the user's explicit dismissal of
-// this session — it wins over freshness, so a dismissed run releases the install-step takeover.
-export function localProgress(
-    latestSession: WizardSessionDTOApi | null,
-    sessionConnectionStatus: string,
-    sessionIsCurrent: boolean,
-    dismissed: boolean = false
-): InstallationProgress {
-    if (!latestSession) {
-        return {
-            phase: sessionConnectionStatus === 'connecting' ? 'connecting' : 'idle',
-            steps: [],
-            error: null,
-            prUrl: null,
-            prMerged: false,
-            isCurrent: false,
-        }
-    }
-
-    let phase: InstallationPhase
-    if (latestSession.run_phase === 'completed') {
-        phase = 'completed'
-    } else if (latestSession.run_phase === 'error') {
-        phase = 'error'
-    } else if (sessionConnectionStatus === 'connecting' || sessionConnectionStatus === 'error') {
-        phase = 'connecting'
-    } else {
-        phase = 'running'
-    }
-
-    const steps: InstallationStep[] = (latestSession.tasks ?? []).map((t) => ({
-        id: t.id,
-        label: t.title,
-        status: stepStatus(t.status),
-        detail: null,
-    }))
-
-    const error =
-        latestSession.run_phase === 'error'
-            ? {
-                  title: 'Wizard hit an error',
-                  detail: (latestSession.error as { message?: string } | null)?.message ?? null,
-              }
-            : null
-
-    return { phase, steps, error, prUrl: null, prMerged: false, isCurrent: sessionIsCurrent && !dismissed }
-}
-
-// A finished local run rendered from its persisted snapshot, after the live session stream has
-// gated itself off — same shape the live path produces for the same terminal session.
-export function progressFromFinishedLocalRun(handle: FinishedLocalRunHandle): InstallationProgress {
-    return {
-        phase: handle.runPhase,
-        steps: handle.tasks.map((t) => ({ id: t.id, label: t.title, status: stepStatus(t.status), detail: null })),
-        error:
-            handle.runPhase === 'error'
-                ? { title: 'Wizard hit an error', detail: handle.error?.message ?? null }
-                : null,
-        prUrl: null,
-        prMerged: false,
-        isCurrent: true,
-    }
+    /** Wizard program to track. Defaults to the SDK install (`posthog-integration`). */
+    workflowId?: string
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -354,6 +150,7 @@ export interface installationProgressLogicValues {
     activeCloudRun: CloudRunHandle | null // activeCloudRunLogic
     dismissedSessionId: string | null // finishedLocalRunLogic
     isStalled: boolean // taskRunStreamLogic
+    lastActivityAt: number | null // taskRunStreamLogic
     progressSteps: TaskRunProgressStep[] // taskRunStreamLogic
     taskConnectionStatus: TaskRunConnectionStatus // taskRunStreamLogic
     taskRunState: TaskRunStreamState | null // taskRunStreamLogic
@@ -406,9 +203,6 @@ export interface installationProgressLogicActions {
     taskRunStreamCompleted: () => {
         value: true
     } // taskRunStreamLogic
-    detectWizardDashboard: (args_0: { startedAt: string }) => {
-        startedAt: string
-    } // wizardDashboardLogic
     connectSession: () => {
         value: true
     } // wizardSessionStreamLogic
@@ -418,6 +212,11 @@ export interface installationProgressLogicActions {
     sessionUpdated: (session: WizardSessionDTOApi) => {
         session: WizardSessionDTOApi
     } // wizardSessionStreamLogic
+    handoffDocReceived: (doc: { key: string; startedByEmail: string | null; text: string }) => {
+        key: string
+        startedByEmail: string | null
+        text: string
+    } // wizardSyncUiLogic
     markSessionCurrent: () => {
         value: true
     }
@@ -436,7 +235,9 @@ export interface installationProgressLogicMeta {
             sessionIsCurrent: boolean,
             isStalled: boolean,
             dismissedSessionId: string | null,
-            arg: any
+            activeCloudRun: CloudRunHandle | null,
+            arg: any,
+            arg2: any
         ) => InstallationProgress
     }
 }
@@ -460,13 +261,21 @@ export type installationProgressLogicType = MakeLogicType<
  */
 export const installationProgressLogic = kea<installationProgressLogicType>([
     props({} as InstallationProgressLogicProps),
-    key((props) => (props.mode === 'cloud' ? `cloud:${props.runId ?? ''}` : 'local')),
+    // Must include the workflow: kea mutates props in place on a cache hit, so two workflows sharing
+    // a key would leave the second one's `connect` wiring pinned to the first one's stream.
+    key(instanceKey),
     path((key) => ['scenes', 'onboarding', 'installationProgressLogic', key]),
     connect((props: InstallationProgressLogicProps) => ({
         values: [
             taskRunStreamLogic({ runId: props.runId ?? '', taskId: props.taskId ?? '' }),
-            ['taskRunState', 'progressSteps', 'connectionStatus as taskConnectionStatus', 'isStalled'],
-            wizardSessionStreamLogic({ workflowId: WORKFLOW_ID }),
+            [
+                'taskRunState',
+                'progressSteps',
+                'connectionStatus as taskConnectionStatus',
+                'isStalled',
+                'lastActivityAt',
+            ],
+            wizardSessionStreamLogic({ workflowId: resolveWorkflowId(props.workflowId) }),
             ['latestSession', 'connectionStatus as sessionConnectionStatus'],
             finishedLocalRunLogic,
             ['dismissedSessionId'],
@@ -480,14 +289,14 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
                 'disconnect as disconnectTaskRun',
                 'streamCompleted as taskRunStreamCompleted',
             ],
-            wizardSessionStreamLogic({ workflowId: WORKFLOW_ID }),
+            wizardSessionStreamLogic({ workflowId: resolveWorkflowId(props.workflowId) }),
             ['connect as connectSession', 'disconnect as disconnectSession', 'sessionUpdated'],
             eventUsageLogic,
             ['reportWizardSyncSessionDetected', 'reportWizardSyncSessionFinished'],
             finishedLocalRunLogic,
             ['recordFinishedLocalRun', 'supersedeFinishedLocalRun'],
-            wizardDashboardLogic,
-            ['detectWizardDashboard'],
+            wizardSyncUiLogic,
+            ['handoffDocReceived'],
         ],
     })),
     actions({
@@ -514,7 +323,9 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
                 s.sessionIsCurrent,
                 s.isStalled,
                 s.dismissedSessionId,
+                s.activeCloudRun,
                 (_, props) => props.mode,
+                (_, props) => props.runId,
             ],
             (
                 taskRunState: TaskRunStreamState | null,
@@ -525,10 +336,22 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
                 sessionIsCurrent: boolean,
                 isStalled: boolean,
                 dismissedSessionId: string | null,
-                mode
+                activeCloudRun: CloudRunHandle | null,
+                mode,
+                runId
             ): InstallationProgress =>
                 mode === 'cloud'
-                    ? cloudProgress(taskRunState, progressSteps, taskConnectionStatus, latestSession, isStalled)
+                    ? cloudProgress(
+                          taskRunState,
+                          progressSteps,
+                          taskConnectionStatus,
+                          latestSession,
+                          isStalled,
+                          Date.now(),
+                          // The kickoff stamp scopes the handoff doc to this run (see cloudProgress);
+                          // a handle for a different run means no window rather than a wrong one.
+                          activeCloudRun?.runId === runId ? (activeCloudRun?.startedAt ?? null) : null
+                      )
                     : localProgress(
                           latestSession,
                           sessionConnectionStatus,
@@ -537,7 +360,7 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
                       ),
         ],
     }),
-    listeners(({ actions, props, cache, values }) => ({
+    listeners(({ actions, props, cache }) => ({
         // Once the cloud run is terminal there is nothing left for the session source to enrich —
         // release this instance's share so an undismissed finished run doesn't keep a session
         // stream/poll alive app-wide. The share accounting protects a co-mounted local instance,
@@ -546,15 +369,7 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
             if (props.mode !== 'cloud') {
                 return
             }
-            releaseSessionShare(instanceKey(props), actions.disconnectSession)
-            // The cloud wizard builds a dashboard too — look it up so the completed surfaces can
-            // link to it. startedAt travels on the persisted run handle; without it there's no run
-            // window to scope the search to, so skip.
-            const startedAt =
-                values.activeCloudRun?.runId === props.runId ? values.activeCloudRun?.startedAt : undefined
-            if (values.taskRunState?.status === 'completed' && startedAt) {
-                actions.detectWizardDashboard({ startedAt })
-            }
+            releaseSessionShare(sessionStreamKey(props), instanceKey(props), actions.disconnectSession)
         },
         // Local-run bookkeeping, owned by the single local-mode instance so cloud instances (which
         // share the session stream purely for wizard-stage detail) don't double-fire it.
@@ -564,33 +379,33 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
             }
             const prev = (cache.prevSession ?? null) as WizardSessionDTOApi | null
             cache.prevSession = session
-            runLocalSessionBookkeeping(session, prev, actions)
+            runLocalSessionBookkeeping(session, prev, resolveWorkflowId(props.workflowId), actions)
         },
     })),
     afterMount(({ actions, props, cache, values }) => {
         actions.connectTaskRun()
-        sessionStreamShares.add(instanceKey(props))
+        acquireSessionShare(sessionStreamKey(props), instanceKey(props))
         actions.connectSession()
         if (props.mode === 'local') {
             // The detector's REST poll is only useful to the local instance (it gates the FAB's
             // local stream and receives markActive sync) — mounting it from cloud instances would
             // run a background poll for the whole run for nothing (INC-886 family).
-            cache.detectorUnmount = wizardActiveSessionDetectorLogic.mount()
+            cache.unwatchWorkflow = watchWorkflowWhileMounted(resolveWorkflowId(props.workflowId))
             // Seed from a session already on the shared stream: the listener only sees NEW
             // deliveries, so a remount would otherwise wait for the next tick (long in polling
             // backoff) and flap the install-step takeover back to the command block.
             if (values.latestSession) {
                 cache.prevSession = values.latestSession
-                runLocalSessionBookkeeping(values.latestSession, null, actions)
+                runLocalSessionBookkeeping(values.latestSession, null, resolveWorkflowId(props.workflowId), actions)
             }
         }
     }),
     beforeUnmount(({ actions, props, cache }) => {
         actions.disconnectTaskRun()
-        releaseSessionShare(instanceKey(props), actions.disconnectSession)
-        if (cache.detectorUnmount) {
-            cache.detectorUnmount()
-            cache.detectorUnmount = undefined
+        releaseSessionShare(sessionStreamKey(props), instanceKey(props), actions.disconnectSession)
+        if (cache.unwatchWorkflow) {
+            cache.unwatchWorkflow()
+            cache.unwatchWorkflow = undefined
         }
     }),
 ])
@@ -603,13 +418,16 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
 //     session schedule its teardown grace window
 //   - finished-run handle: snapshot a fresh terminal run so its handoff surface outlives the
 //     stream, and supersede the previous run's handle once a new run goes live
+//   - handoff doc: announce a fresh session's doc so the one-time auto-open dialog can fire
 export function runLocalSessionBookkeeping(
     session: WizardSessionDTOApi,
     prev: WizardSessionDTOApi | null,
+    workflowId: string,
     actions: {
         markSessionCurrent: () => void
         recordFinishedLocalRun: (session: WizardSessionDTOApi) => void
         supersedeFinishedLocalRun: (sessionId: string) => void
+        handoffDocReceived: (doc: { key: string; text: string; startedByEmail: string | null }) => void
         reportWizardSyncSessionDetected: (props: {
             workflowId: string
             skillId: string
@@ -641,13 +459,28 @@ export function runLocalSessionBookkeeping(
         } else {
             actions.supersedeFinishedLocalRun(session.session_id)
         }
+        // Freshness-gated like the rest: a stale row's doc was either seen already or belongs to a
+        // run nobody is watching. The seen-keys guard makes redeliveries a no-op. Completed only:
+        // the buttons that reopen the doc are gated on the completed phase, so announcing it for an
+        // errored run would burn the one auto-open on a dialog the user can never get back to.
+        if (
+            session.run_phase === 'completed' &&
+            typeof session.handoff_text === 'string' &&
+            session.handoff_text.length > 0
+        ) {
+            actions.handoffDocReceived({
+                key: session.session_id,
+                text: session.handoff_text,
+                startedByEmail: session.created_by?.email ?? null,
+            })
+        }
         // Reach metric: count each live wizard session the sync surfaces, once per session_id.
         // Gated on freshness so stale terminal rows sitting in the DB — which never reach the
         // user — don't inflate the funnel.
         if (!reportedDetectedSessions.has(session.session_id)) {
             reportedDetectedSessions.add(session.session_id)
             actions.reportWizardSyncSessionDetected({
-                workflowId: WORKFLOW_ID,
+                workflowId,
                 skillId: session.skill_id,
                 runPhase: session.run_phase,
                 taskCount: tasks.length,
@@ -665,7 +498,7 @@ export function runLocalSessionBookkeeping(
         const eligible = isSessionActive(session)
         const wasEligible = isSessionActive(prev)
         if (eligible) {
-            detector.actions.markActive()
+            detector.actions.markActive(workflowId)
         } else if (wasEligible) {
             detector.actions.scheduleMarkInactive()
         }
@@ -677,7 +510,7 @@ export function runLocalSessionBookkeeping(
         if (isTerminalPhase && !reportedFinishedSessions.has(session.session_id)) {
             reportedFinishedSessions.add(session.session_id)
             actions.reportWizardSyncSessionFinished({
-                workflowId: WORKFLOW_ID,
+                workflowId,
                 skillId: session.skill_id,
                 outcome: session.run_phase,
                 taskCount: tasks.length,

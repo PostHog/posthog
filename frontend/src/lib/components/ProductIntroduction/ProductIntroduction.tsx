@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import * as construction2 from '@posthog/brand/hoggies/png/construction-2'
-import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass'
+import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import { IconOpenSidebar, IconPlus, IconX } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -68,6 +68,18 @@ export type ProductIntroductionProps = {
     mcpSurfaceKey?: SurfaceKey
 }
 
+/**
+ * @deprecated Use {@link ProductEmptyState} instead: declare {@link SceneExport.emptyState} on the
+ * scene's {@link SceneExport} (see {@link ../ProductEmptyState | ProductEmptyState} and the
+ * `building-product-empty-states` skill).
+ *
+ * {@link ProductEmptyState} covers both of this component's jobs -
+ * "product not installed" via real data detection and "no entities yet" via an
+ * entity-count status - with a local-only skip instead of {@link UserType.has_seen_product_intro_for}.
+ * Don't add new call sites; existing ones should migrate product by product.
+ *
+ * The Growth team is responsible for migrating all call sites to {@link ProductEmptyState}.
+ */
 export const ProductIntroduction = ({
     productName,
     productKey,
@@ -113,8 +125,9 @@ export const ProductIntroduction = ({
             )}
             data-attr={`product-introduction-${thingName}`}
         >
+            {/* Below md the copy starts in the top-right corner (no hog beside it), so only pull it up under the dismiss button from md on. */}
             {!isEmpty && (
-                <div className="flex justify-end -mb-6 -mt-2 -mr-2 relative z-10">
+                <div className="flex justify-end md:-mb-6 -mt-2 -mr-2 relative z-10">
                     <div>
                         <LemonButton
                             icon={<IconX />}

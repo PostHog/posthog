@@ -16,11 +16,7 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -34,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io import api_client
 from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.constants import (
@@ -42,7 +39,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.customer_i
     CIO_WEBHOOK_SCHEMA_NAMES,
     RESOURCE_TO_CIO_OBJECT_TYPE,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CustomerIOSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.customerio import (
+    CustomerIOSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
@@ -179,7 +178,11 @@ class CustomerIOSource(
         )
 
     def validate_credentials(
-        self, config: CustomerIOSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CustomerIOSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return api_client.validate_credentials(config.app_api_key, config.region)
 
@@ -193,6 +196,17 @@ class CustomerIOSource(
                 "The App API Key doesn't have permission for this endpoint. Make sure the key has "
                 "access to the resources you're syncing."
             ),
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_get_list_page` already retries 429/5xx and connection/read-timeout errors with
+        # backoff (see api_client.py); if that budget still exhausts, Temporal retries the
+        # whole activity and the failure is transient and self-recovering, so don't surface it
+        # as tracked exception noise.
+        return {
+            api_client.LIST_ENDPOINT_RETRYABLE_ERROR_PREFIX,
+            "HTTPSConnectionPool(host='api.customer.io', port=443)",
+            "HTTPSConnectionPool(host='api-eu.customer.io', port=443)",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -209,6 +223,7 @@ class CustomerIOSource(
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # `supports_append=False` on the webhook schemas: events arrive via the realtime
         # webhook pipeline (not the polling sync), so user-facing append/full-refresh
@@ -247,7 +262,9 @@ class CustomerIOSource(
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         return WebhookSourceManager(inputs, inputs.logger)
 
-    def create_webhook(self, config: CustomerIOSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
+    def create_webhook(
+        self, config: CustomerIOSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookCreationResult:
         return api_client.create_webhook(
             api_key=config.app_api_key,
             region=config.region,
@@ -256,7 +273,12 @@ class CustomerIOSource(
         )
 
     def webhook_inputs_updated(
-        self, config: CustomerIOSourceConfig, webhook_url: str, team_id: int, inputs: dict[str, Any]
+        self,
+        config: CustomerIOSourceConfig,
+        webhook_url: str,
+        team_id: int,
+        inputs: dict[str, Any],
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The webhook is created in a disabled state so Customer.io doesn't fire
         # events at PostHog before we can verify them with the signing secret.
@@ -266,11 +288,13 @@ class CustomerIOSource(
         return api_client.enable_webhook(config.app_api_key, config.region, webhook_url)
 
     def get_external_webhook_info(
-        self, config: CustomerIOSourceConfig, webhook_url: str, team_id: int
+        self, config: CustomerIOSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> ExternalWebhookInfo | None:
         return api_client.get_external_webhook_info(config.app_api_key, config.region, webhook_url)
 
-    def delete_webhook(self, config: CustomerIOSourceConfig, webhook_url: str, team_id: int) -> WebhookDeletionResult:
+    def delete_webhook(
+        self, config: CustomerIOSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookDeletionResult:
         return api_client.delete_webhook(config.app_api_key, config.region, webhook_url)
 
     def source_for_pipeline(self, config: CustomerIOSourceConfig, inputs: SourceInputs) -> SourceResponse:

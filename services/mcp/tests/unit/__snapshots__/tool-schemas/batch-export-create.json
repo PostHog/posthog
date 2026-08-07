@@ -265,7 +265,7 @@
                             "type": "object"
                         },
                         "integration_id": {
-                            "description": "ID of an aws-s3-kind Integration providing AWS credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.",
+                            "description": "ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.",
                             "type": "number"
                         },
                         "type": {
@@ -273,7 +273,7 @@
                             "type": "string"
                         }
                     },
-                    "required": ["type", "config"],
+                    "required": ["type", "integration_id", "config"],
                     "type": "object"
                 },
                 {
@@ -334,7 +334,7 @@
                             "type": "object"
                         },
                         "integration_id": {
-                            "description": "ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Preferred over inline credentials. Use the integrations-list MCP tool to find one.",
+                            "description": "ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Required when creating a batch export. Use the integrations-list MCP tool to find one.",
                             "type": "number"
                         },
                         "type": {
@@ -342,7 +342,7 @@
                             "type": "string"
                         }
                     },
-                    "required": ["type", "config"],
+                    "required": ["type", "integration_id", "config"],
                     "type": "object"
                 },
                 {
@@ -404,8 +404,8 @@
             "type": "string"
         },
         "model": {
-            "description": "Which data model to export (events, persons, sessions).\n\n* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions",
-            "enum": ["events", "persons", "sessions"],
+            "description": "Which data model to export (events, persons, sessions).\n\n* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions\n* `hogql` - Hogql",
+            "enum": ["events", "persons", "sessions", "hogql"],
             "type": "string"
         },
         "name": {

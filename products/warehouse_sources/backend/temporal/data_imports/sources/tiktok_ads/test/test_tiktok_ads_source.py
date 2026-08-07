@@ -8,16 +8,30 @@ from unittest.mock import MagicMock, Mock, patch
 
 import structlog
 from parameterized import parameterized
+from requests.exceptions import (
+    ConnectionError as RequestsConnectionError,
+    RequestException,
+    Timeout,
+)
 
 from posthog.schema import ReleaseStatus
 
 from posthog.models.integration import Integration
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TikTokAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tiktokads import (
+    TikTokAdsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source import TikTokAdsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import TikTokAdsPaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import (
+    TIKTOK_TRANSIENT_ERROR_MESSAGE,
+    TikTokAdsAPIError,
+    TikTokAdsPaginator,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
 
 
@@ -104,6 +118,64 @@ class TestTikTokAdsSource:
         patterns = self.source.get_non_retryable_errors()
         assert not any(pattern in error_message for pattern in patterns)
 
+    @parameterized.expand(
+        [
+            ("connection_reset", RequestsConnectionError("Connection reset by peer")),
+            ("timeout", Timeout("Read timed out")),
+            ("base_request_exception", RequestException("DNS lookup failed")),
+        ]
+    )
+    def test_get_oauth_accounts_maps_transport_failure_to_transient(self, name, exception):
+        """A network failure (DNS/reset/timeout) raises a bare RequestException, not HTTPError,
+        so it must still map to the actionable transient message instead of escaping as a 500."""
+        _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source"
+        with (
+            patch.object(self.source, "get_oauth_integration", return_value=self.mock_integration),
+            patch(f"{_MODULE}.list_advertisers", side_effect=exception),
+        ):
+            with pytest.raises(IntegrationAccountListingError) as exc_info:
+                self.source.get_oauth_accounts(self.integration_id, self.team_id)
+
+        assert str(exc_info.value) == TIKTOK_TRANSIENT_ERROR_MESSAGE
+
+    @parameterized.expand(
+        [
+            ("invalid_access_token", 40105, "Invalid access_token"),
+            ("no_advertiser_permission", 40110, "No permission to access this advertiser"),
+            (
+                "app_token_mismatch",
+                40000,
+                "The app_id is inconsistent with the token's app information. Please retry after correcting it.",
+            ),
+        ]
+    )
+    def test_get_oauth_accounts_maps_auth_errors_to_reconnect_message(self, name, api_code, message):
+        """Auth-rejection responses — including the app/token mismatch TikTok returns under the
+        generic 40000 code — must surface as an actionable reconnect message, not escape as a bug."""
+        _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source"
+        error = TikTokAdsAPIError(message, api_code=api_code)
+        with (
+            patch.object(self.source, "get_oauth_integration", return_value=self.mock_integration),
+            patch(f"{_MODULE}.list_advertisers", side_effect=error),
+        ):
+            with pytest.raises(IntegrationAccountListingError) as exc_info:
+                self.source.get_oauth_accounts(self.integration_id, self.team_id)
+
+        assert "reconnect your TikTok Ads integration" in str(exc_info.value)
+
+    def test_get_oauth_accounts_does_not_treat_other_40000_errors_as_auth(self):
+        """Code 40000 is a generic params-error bucket with many unrelated messages — only the
+        specific app/token mismatch text should map to the reconnect message; anything else must
+        keep surfacing as a bug so real request-construction errors aren't hidden."""
+        _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source"
+        error = TikTokAdsAPIError("Invalid parameter: advertiser_id", api_code=40000)
+        with (
+            patch.object(self.source, "get_oauth_integration", return_value=self.mock_integration),
+            patch(f"{_MODULE}.list_advertisers", side_effect=error),
+        ):
+            with pytest.raises(TikTokAdsAPIError):
+                self.source.get_oauth_accounts(self.integration_id, self.team_id)
+
     def test_get_source_config(self):
         """Test source configuration generation."""
         config = self.source.get_source_config
@@ -113,13 +185,15 @@ class TestTikTokAdsSource:
         assert config.releaseStatus == ReleaseStatus.GA
         assert len(config.fields) == 2
 
-        advertiser_field = config.fields[0]
-        assert advertiser_field.name == "advertiser_id"
-        assert hasattr(advertiser_field, "required") and advertiser_field.required is True
-
-        integration_field = config.fields[1]
+        # OAuth field comes first — the account selector below reads from it
+        integration_field = config.fields[0]
         assert integration_field.name == "tiktok_integration_id"
         assert hasattr(integration_field, "kind") and integration_field.kind == "tiktok-ads"
+
+        advertiser_field = config.fields[1]
+        assert advertiser_field.name == "advertiser_id"
+        assert hasattr(advertiser_field, "required") and advertiser_field.required is True
+        assert getattr(advertiser_field, "integrationField", None) == "tiktok_integration_id"
 
     @parameterized.expand(
         [
@@ -154,7 +228,25 @@ class TestTikTokAdsSource:
         """Test schema retrieval."""
         schemas = self.source.get_schemas(self.config, self.team_id)
 
-        expected_schemas = {"campaigns", "ad_groups", "ads", "campaign_report", "ad_group_report", "ad_report"}
+        expected_schemas = {
+            "campaigns",
+            "ad_groups",
+            "ads",
+            "creative_videos",
+            "creative_images",
+            "campaign_report",
+            "ad_group_report",
+            "ad_report",
+            "campaign_demographic_report",
+            "campaign_country_report",
+            "campaign_platform_report",
+            "ad_group_demographic_report",
+            "ad_group_country_report",
+            "ad_group_platform_report",
+            "ad_demographic_report",
+            "ad_country_report",
+            "ad_platform_report",
+        }
         actual_schema_names = {schema.name for schema in schemas}
 
         assert actual_schema_names == expected_schemas
@@ -167,6 +259,26 @@ class TestTikTokAdsSource:
             else:
                 assert schema.supports_incremental is False
                 assert schema.incremental_fields == []
+
+    def test_only_breakdown_reports_are_off_by_default(self):
+        # New tables land in the schema picker pre-ticked. The breakdown reports fan every
+        # entity-day out across its dimension values, so they must stay opt-in while the
+        # tables that shipped before this stay selected.
+        should_sync = {schema.name: schema.should_sync_default for schema in self.source.get_schemas(self.config, 1)}
+
+        off_by_default = {name for name, default in should_sync.items() if not default}
+
+        assert off_by_default == {
+            "campaign_demographic_report",
+            "campaign_country_report",
+            "campaign_platform_report",
+            "ad_group_demographic_report",
+            "ad_group_country_report",
+            "ad_group_platform_report",
+            "ad_demographic_report",
+            "ad_country_report",
+            "ad_platform_report",
+        }
 
     def test_get_resumable_source_manager(self):
         """The source must expose a ResumableSourceManager instance."""

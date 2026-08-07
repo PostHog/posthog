@@ -39,6 +39,7 @@ import { compactCount, compactUsd } from '../lib/format'
 import { githubCommitUrl, githubPrUrl } from '../lib/github'
 import { LifecycleSummary, WorkflowRun, isPassingConclusion } from '../lib/lifecycle'
 import { PushRound, pushRoundColor, pushRoundOf, pushRoundVerdictLabel } from '../lib/pushRounds'
+import { withCurrentScope } from '../lib/scope'
 import {
     PrCommitRuns,
     PrRunRow,
@@ -267,10 +268,7 @@ function LifecycleStrip({ summary, openedAt, commitGroups }: LifecycleStripProps
                                             } · ${pushRoundVerdictLabel(node.round)}`}
                                         >
                                             <span
-                                                className={cn(
-                                                    'w-2.5 rounded-t-sm',
-                                                    node.round.pending && 'animate-pulse'
-                                                )}
+                                                className="w-2.5 rounded-t-sm"
                                                 // eslint-disable-next-line react/forbid-dom-props
                                                 style={{
                                                     height: barPx(node.round),
@@ -366,12 +364,10 @@ function PerPushRunsTable({
             render: (_, run) =>
                 run.runId != null ? (
                     <Link
-                        to={
-                            combineUrl(
-                                urls.engineeringAnalyticsWorkflowRun(repoOwner, repoName, run.runId),
-                                sourceId ? { source: sourceId } : {}
-                            ).url
-                        }
+                        to={withCurrentScope(
+                            urls.engineeringAnalyticsWorkflowRun(repoOwner, repoName, run.runId),
+                            sourceId
+                        )}
                         className="font-mono text-xs"
                     >
                         #{run.runId}
@@ -535,12 +531,10 @@ function PrWorkflowsTable({
                             )}
                         />
                         <Link
-                            to={
-                                combineUrl(
-                                    urls.engineeringAnalyticsWorkflowRuns(repoOwner, repoName, row.workflowName),
-                                    sourceId ? { source: sourceId } : {}
-                                ).url
-                            }
+                            to={withCurrentScope(
+                                urls.engineeringAnalyticsWorkflowRuns(repoOwner, repoName, row.workflowName),
+                                sourceId
+                            )}
                         >
                             {row.workflowName}
                         </Link>
@@ -609,6 +603,8 @@ function PrWorkflowsTable({
     ]
     return (
         <LemonTable
+            // Namespaces the page search param so paging can't move other tables sharing this URL.
+            id="pr-workflows"
             dataSource={orderedRows}
             columns={columns}
             size="small"
@@ -633,6 +629,7 @@ function PrWorkflowsTable({
                     />
                 ),
             }}
+            pagination={{ pageSize: 10 }}
             emptyState="No CI runs match."
             nouns={['workflow', 'workflows']}
         />
@@ -684,7 +681,7 @@ export function PullRequestDetailScene(): JSX.Element {
 
     if (loadFailed) {
         return (
-            <SceneContent>
+            <SceneContent className="pb-16">
                 <SceneTitleSection name="Pull request" resourceType={{ type: 'health' }} />
                 <div className="flex items-center gap-3">
                     <span className="text-secondary">
@@ -699,7 +696,7 @@ export function PullRequestDetailScene(): JSX.Element {
     }
 
     return (
-        <SceneContent>
+        <SceneContent className="pb-16">
             <SceneTitleSection
                 name="Pull request"
                 resourceType={{ type: 'health' }}
@@ -722,12 +719,12 @@ export function PullRequestDetailScene(): JSX.Element {
                 repoSlot={
                     <RepoScopeChip
                         label={`${repoOwner}/${repoName}`}
-                        to={combineUrl(urls.engineeringAnalytics(), sourceId ? { source: sourceId } : {}).url}
+                        to={withCurrentScope(urls.engineeringAnalytics(), sourceId)}
                     />
                 }
                 lensFilter={{
                     label: `pr: #${pullRequest?.number ?? ''}`,
-                    to: combineUrl(urls.engineeringAnalytics(), sourceId ? { source: sourceId } : {}).url,
+                    to: withCurrentScope(urls.engineeringAnalytics(), sourceId),
                 }}
                 showDate={false}
             />

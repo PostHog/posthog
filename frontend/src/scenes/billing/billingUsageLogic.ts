@@ -24,13 +24,13 @@ import {
     syncBillingSearchParams,
     updateBillingSearchParams,
 } from './billing-utils'
-import type { BillingPeriodMarker } from './BillingLineGraph'
 import { billingLogic } from './billingLogic'
+import type { BillingPeriodMarker } from './BillingPeriodMarkers'
 import type { BillingFilters } from './types'
 import type { BillingUsageInteractionProps } from './types'
 
 // These date filters return correct data but there's an issue with filter label after selecting it, showing 'No date range override' instead
-const TEMPORARILY_EXCLUDED_DATE_FILTER_OPTIONS = ['This month', 'Year to date', 'All time']
+const TEMPORARILY_EXCLUDED_DATE_FILTER_OPTIONS = ['This month', 'This year', 'All time']
 
 export enum BillingUsageResponseBreakdownType {
     TYPE = 'type',

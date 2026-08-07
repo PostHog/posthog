@@ -13,6 +13,7 @@ import asyncio
 from datetime import timedelta
 from uuid import UUID
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -37,6 +38,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricsRecalculation,
 )
 from products.experiments.backend.result_serialization import strip_step_sessions
+from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
 from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.experiments.backend.temporal.recalculation_logic import discover_experiment_metrics, find_metric_dict
 
@@ -189,6 +191,7 @@ def build_job_payload(
         "completed_metrics": completed_metrics,
         "failed_metrics": failed_metrics,
         "metric_errors": recalc.metric_errors,
+        "metric_retries": recalc.metric_retries,
         "trigger": recalc.trigger,
         "created_at": recalc.created_at,
         "started_at": recalc.started_at,
@@ -202,6 +205,29 @@ def build_job_payload(
         if live_progress is not None:
             payload.update(live_progress)
     return payload
+
+
+def cancel_recalculation_workflow(recalculation_id: str) -> None:
+    """Best-effort cancel of a single recalc's Temporal workflow. Swallows failures (already-finished or
+    never-started runs) so callers can pair it with a status write without the cancel masking that write."""
+    _cancel_superseded_workflows([recalculation_id])
+
+
+def start_metrics_recalculation_workflow(recalculation_id: str, organization_id: str) -> None:
+    """Dispatch the recalculation Temporal workflow for an already-created pending row. Mirrors the API's
+    start path (task queue + org-scoped fairness key) so the admin and the viewset stay in step."""
+    temporal = sync_connect()
+    asyncio.run(
+        temporal.start_workflow(
+            "experiment-metrics-recalculation-workflow",
+            ExperimentMetricsRecalculationWorkflowInputs(
+                recalculation_id=recalculation_id,
+                fairness_key=organization_id,
+            ),
+            id=f"experiment-metrics-recalculation-{recalculation_id}",
+            task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
+        )
+    )
 
 
 def _cancel_superseded_workflows(recalculation_ids: list[str]) -> None:
@@ -270,9 +296,11 @@ def request_recalculation(experiment: Experiment, user: User, trigger: str = "ma
             ).values_list("id", flat=True)
         )
         if stale_ids:
+            # No completed_at: that stamp is reserved for the workflow finalize step, and its absence is
+            # what keeps superseded/tombstone rows out of get_latest_recalculation.
             ExperimentMetricsRecalculation.objects.filter(
                 team=experiment.team, experiment=experiment, id__in=stale_ids
-            ).update(status=ExperimentMetricsRecalculation.Status.FAILED, completed_at=timezone.now())
+            ).update(status=ExperimentMetricsRecalculation.Status.FAILED)
             _recalculation_stale_cleanup_counter.inc(len(stale_ids))
             transaction.on_commit(lambda: _cancel_superseded_workflows([str(stale_id) for stale_id in stale_ids]))
 
@@ -291,18 +319,31 @@ def request_recalculation(experiment: Experiment, user: User, trigger: str = "ma
         return build_job_payload(recalc, is_existing=False)
 
 
-def get_latest_recalculation(experiment: Experiment) -> ExperimentMetricsRecalculation | None:
-    """Most recent successfully-completed recalculation for an experiment, or None.
+def get_active_recalculation(experiment: Experiment) -> ExperimentMetricsRecalculation | None:
+    with team_scope(experiment.team_id, canonical=True):
+        threshold = timezone.now() - _STALE_RECALC_THRESHOLD
+        return (
+            ExperimentMetricsRecalculation.objects.filter(team=experiment.team, experiment=experiment)
+            .filter(
+                Q(status=ExperimentMetricsRecalculation.Status.PENDING, created_at__gte=threshold)
+                | Q(status=ExperimentMetricsRecalculation.Status.IN_PROGRESS, started_at__gte=threshold)
+            )
+            .order_by("-created_at")
+            .first()
+        )
 
-    Powers ``GET /metrics_recalculation/latest``: the frontend renders cached results from the last good run.
-    Runs that are pending/in_progress/failed are NOT returned — the client tracks those separately by id.
-    """
+
+def get_latest_recalculation(experiment: Experiment) -> ExperimentMetricsRecalculation | None:
     with team_scope(experiment.team_id, canonical=True):
         return (
-            ExperimentMetricsRecalculation.objects.filter(
-                team=experiment.team,
-                experiment=experiment,
-                status=ExperimentMetricsRecalculation.Status.COMPLETED,
+            ExperimentMetricsRecalculation.objects.filter(team=experiment.team, experiment=experiment)
+            .filter(
+                # completed_at is only ever stamped by the workflow's finalize step, so it separates runs
+                # that really finished from trigger-failure tombstones (status flipped to FAILED at create
+                # time, never started). Keying on metric_errors instead would hide a failed run whose
+                # failures live only in result rows.
+                Q(status=ExperimentMetricsRecalculation.Status.COMPLETED)
+                | (Q(status=ExperimentMetricsRecalculation.Status.FAILED) & Q(completed_at__isnull=False))
             )
             .order_by("-created_at")
             .first()
@@ -349,6 +390,7 @@ def _recalc_fingerprints_for_run(experiment: Experiment, recalc: ExperimentMetri
             stats_method,
             experiment.exposure_criteria,
             only_count_matured_users=experiment.only_count_matured_users,
+            excluded_variants=experiment.excluded_variants,
         )
         fingerprints[metric_uuid] = compute_recalc_fingerprint(config_fp)
     return fingerprints
@@ -412,6 +454,7 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
                 stats_method,
                 experiment.exposure_criteria,
                 only_count_matured_users=experiment.only_count_matured_users,
+                excluded_variants=experiment.excluded_variants,
             )
             row = (
                 ExperimentMetricResult.objects.filter(

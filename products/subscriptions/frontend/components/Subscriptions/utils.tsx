@@ -3,13 +3,12 @@ import { RRule } from 'rrule'
 import { IconLetter } from '@posthog/icons'
 import { LemonSelectOption, LemonSelectOptionLeaf, LemonSelectOptions } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { range } from 'lib/utils/arrays'
 import { urls } from 'scenes/urls'
 
 import { SubscriptionAIPromptMaxLength } from '~/queries/schema/schema-general'
-import { InsightShortId, SubscriptionType } from '~/types'
+import { InsightShortId, SubscriptionType, WeekdayType } from '~/types'
 
 export const AI_PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength.CHARACTERS
 
@@ -19,10 +18,6 @@ export interface SubscriptionBaseProps {
 }
 
 export type SubscriptionsLogicProps = SubscriptionBaseProps
-
-export function formatNextDeliveryDate(date: string | Date): string {
-    return dayjs(date).format('ddd, MMM D [at] HH:mm')
-}
 
 export const urlForSubscriptions = ({ dashboardId, insightShortId }: SubscriptionBaseProps): string => {
     if (insightShortId) {
@@ -81,9 +76,7 @@ export const frequencyOptionsPlural: LemonSelectOption<FrequencyOptionValue>[] =
     { value: 'monthly', label: 'months' },
 ]
 
-export const weekdayOptions: LemonSelectOptionLeaf<
-    'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
->[] = [
+export const weekdayOptions = [
     { value: 'monday', label: 'Monday' },
     { value: 'tuesday', label: 'Tuesday' },
     { value: 'wednesday', label: 'Wednesday' },
@@ -91,7 +84,14 @@ export const weekdayOptions: LemonSelectOptionLeaf<
     { value: 'friday', label: 'Friday' },
     { value: 'saturday', label: 'Saturday' },
     { value: 'sunday', label: 'Sunday' },
-]
+] satisfies LemonSelectOptionLeaf<WeekdayType>[]
+
+export const ALL_DAYS = weekdayOptions.map(({ value }) => value)
+export const weekdayInputOptions = weekdayOptions.map(({ value, label }) => ({
+    key: value,
+    value,
+    label,
+}))
 
 export const WEEKDAYS: Set<string> = new Set(['monday', 'tuesday', 'wednesday', 'thursday', 'friday'])
 
@@ -109,7 +109,7 @@ export const bysetposOptions: LemonSelectOptions<'1' | '2' | '3' | '4' | '-1'> =
 
 export const timeOptions: LemonSelectOptions<string> = range(0, 24).map((x) => ({
     value: String(x),
-    label: `${String(x).padStart(2, '0')}:00`,
+    label: `${x % 12 || 12}:00 ${x < 12 ? 'AM' : 'PM'}`,
 }))
 
 const RRULE_WEEKDAY_MAP: Record<string, (typeof RRule)['MO']> = {
@@ -141,7 +141,7 @@ export function getNextDeliveryDate(subscription: Partial<SubscriptionType>): Da
             interval: subscription.interval ?? 1,
             dtstart: new Date(subscription.start_date),
             byweekday: subscription.byweekday?.map((d) => RRULE_WEEKDAY_MAP[d]) ?? null,
-            bysetpos: subscription.bysetpos ?? null,
+            bysetpos: subscription.frequency === 'monthly' ? (subscription.bysetpos ?? null) : null,
         })
         return rule.after(new Date())
     } catch {

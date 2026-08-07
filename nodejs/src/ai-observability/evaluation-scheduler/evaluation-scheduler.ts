@@ -18,10 +18,10 @@ import { EvaluationManagerService } from '~/ai-observability/services/evaluation
 import { ProviderKeyManagerService } from '~/ai-observability/services/provider-key-manager.service'
 import { TaggerManagerService } from '~/ai-observability/services/tagger-manager.service'
 import {
-    DEFAULT_TRACE_EVALUATION_WINDOW_SECONDS,
     TemporalService,
     TemporalServiceConfig,
     isEvaluationWorkflowRuntime,
+    resolveSettleConfig,
 } from '~/ai-observability/services/temporal.service'
 import { Evaluation, EvaluationConditionSet, Matchable, Tagger } from '~/ai-observability/types'
 import { execHog } from '~/cdp/utils/hog-exec'
@@ -50,7 +50,7 @@ const evaluationSchedulerEventsProcessed = new Counter({
 const evaluationMatchesCounter = new Counter({
     name: 'evaluation_matches',
     help: 'Number of evaluation matches by outcome',
-    labelNames: ['outcome', 'type'], // matched, filtered, sampling_excluded, error × evaluation/tagger
+    labelNames: ['outcome', 'type'], // matched, filtered, sampling_excluded, error × evaluation/tagger; no_ai_session_id on evaluation only
 })
 
 const evaluationSchedulerMessagesReceived = new Counter({
@@ -123,22 +123,31 @@ export function groupEventsByTeam(events: RawKafkaEvent[]): Map<number, RawKafka
 }
 
 /**
- * Pull the trace linkage out of an event's properties. Trace ids are user-controlled and can
+ * Pull the evaluation-unit linkage out of an event's properties. Ids are user-controlled and can
  * be ingested as numbers (e.g. a buggy `trace_id: 0`), so values are string-coerced; empty or
  * missing ids resolve to null.
+ *
+ * `sessionId` ($session_id) is PostHog's product-analytics session and only ever travels through
+ * to the emitted evaluation event. `aiSessionId` ($ai_session_id) is the AI-observability session
+ * and is the unit a session-target evaluation runs on. They are different id spaces.
  */
-export function extractTraceContext(event: RawKafkaEvent): { traceId: string | null; sessionId: string | null } {
+export function extractEvaluationContext(event: RawKafkaEvent): {
+    traceId: string | null
+    sessionId: string | null
+    aiSessionId: string | null
+} {
     let properties: Record<string, unknown> = {}
     try {
         properties = parseJSON(event.properties || '{}')
     } catch {
-        return { traceId: null, sessionId: null }
+        return { traceId: null, sessionId: null, aiSessionId: null }
     }
     const coerce = (value: unknown): string | null =>
         value === null || value === undefined || value === '' ? null : String(value)
     return {
         traceId: coerce(properties['$ai_trace_id']),
         sessionId: coerce(properties['$session_id']),
+        aiSessionId: coerce(properties['$ai_session_id']),
     }
 }
 
@@ -439,21 +448,26 @@ async function processEventEvaluationMatch(
 ): Promise<void> {
     evaluationSchedulerEventsProcessed.labels({ status: 'received', type: 'evaluation' }).inc()
 
-    const isTraceTarget = evaluationDefinition.target === 'trace'
-    let traceContext: ReturnType<typeof extractTraceContext> | null = null
-    if (isTraceTarget) {
-        traceContext = extractTraceContext(event)
-        if (!traceContext.traceId) {
+    const target = evaluationDefinition.target
+    const isAggregateTarget = target === 'trace' || target === 'session'
+    let context: ReturnType<typeof extractEvaluationContext> | null = null
+    if (isAggregateTarget) {
+        context = extractEvaluationContext(event)
+        if (!context.traceId) {
             evaluationMatchesCounter.labels({ outcome: 'no_trace_id', type: 'evaluation' }).inc()
+            return
+        }
+        if (target === 'session' && !context.aiSessionId) {
+            // Expected for any producer that doesn't set $ai_session_id (most of them). This
+            // counter is the coverage signal for whether session evals can fire at all.
+            evaluationMatchesCounter.labels({ outcome: 'no_ai_session_id', type: 'evaluation' }).inc()
             return
         }
     }
 
-    const result = await matcher.shouldTriggerEvaluation(
-        event,
-        evaluationDefinition,
-        traceContext?.traceId ?? undefined
-    )
+    // Sample per unit so a whole trace, or a whole session, is atomically in or out.
+    const samplingKey = target === 'session' ? context?.aiSessionId : context?.traceId
+    const result = await matcher.shouldTriggerEvaluation(event, evaluationDefinition, samplingKey ?? undefined)
 
     if (!result.matched) {
         evaluationMatchesCounter.labels({ outcome: result.reason, type: 'evaluation' }).inc()
@@ -469,24 +483,25 @@ async function processEventEvaluationMatch(
     logger.debug('Evaluation matched, enqueueing evaluation run', {
         evaluationId: evaluationDefinition.id,
         eventUuid: event.uuid,
-        traceId: traceContext?.traceId,
+        traceId: context?.traceId,
+        aiSessionId: context?.aiSessionId,
         conditionId: result.conditionId,
     })
 
     evaluationMatchesCounter.labels({ outcome: 'matched', type: 'evaluation' }).inc()
 
-    if (isTraceTarget && traceContext?.traceId) {
-        // No isEvaluationWorkflowRuntime guard here: the trace workflow validates evaluation_type
+    if (isAggregateTarget && context?.traceId) {
+        // No isEvaluationWorkflowRuntime guard here: the aggregate workflow validates evaluation_type
         // server-side and rejects unsupported types as a non-retryable ApplicationError.
-        const windowSeconds =
-            evaluationDefinition.target_config?.window_seconds ?? DEFAULT_TRACE_EVALUATION_WINDOW_SECONDS
-        await temporalService.startTraceEvaluationRunWorkflow(
-            evaluationDefinition.id,
+        await temporalService.startAggregateEvaluationWorkflow({
+            evaluationId: evaluationDefinition.id,
             event,
-            traceContext.traceId,
-            traceContext.sessionId,
-            windowSeconds
-        )
+            target,
+            traceId: context.traceId,
+            sessionId: context.sessionId,
+            aiSessionId: context.aiSessionId,
+            settle: resolveSettleConfig(evaluationDefinition.target_config, target),
+        })
     } else {
         const evaluationRuntime = evaluationDefinition.evaluation_type
         if (!isEvaluationWorkflowRuntime(evaluationRuntime)) {

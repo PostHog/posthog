@@ -1,3 +1,4 @@
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -15,7 +16,9 @@ from posthog.models.scoping import team_scope
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.auto_start import (
     ReviewerContent,
+    _build_autostart_task_description,
     _create_implementation_task_if_absent,
+    _generate_self_driving_head_branch,
     _report_meets_team_autostart_threshold,
     _resolve_autostart_assignee,
     _resolve_autostart_fallback_user,
@@ -31,12 +34,14 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
     Priority,
     PriorityAssessment,
 )
+from products.signals.backend.signal_metadata import SignalSourceReference
 from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
 from products.signals.backend.test.test_billing import _seed_canonical_scout_skill
 from products.tasks.backend.facade import api as tasks_facade
@@ -61,8 +66,10 @@ def _create_org_member_with_github(email: str, organization: Organization, login
     return user
 
 
-def _reviewer(login: str) -> ReviewerContent:
-    return ReviewerContent(github_login=login, github_name=None, relevant_commits=[])
+def _reviewer(login: str, *, is_skill_owner: bool = False) -> ReviewerContent:
+    return ReviewerContent(
+        github_login=login, github_name=None, relevant_commits=[], reason=None, is_skill_owner=is_skill_owner
+    )
 
 
 @pytest.mark.django_db
@@ -97,6 +104,39 @@ def test_resolve_autostart_assignee(
         assert assignee.id == user.id
     else:
         assert assignee is None
+
+
+@pytest.mark.django_db
+def test_resolve_autostart_assignee_never_runs_as_a_skill_owner(organization, team):
+    # The owner guardrail places editor-controlled `LLMSkillOwner`s first in suggested_reviewers, but
+    # the autostart path mints a full-scope OAuth token as the chosen reviewer. Selecting an owner as
+    # that identity would let a skill editor name a privileged teammate as owner and have the agent run
+    # as them, so owner-provenance entries must be excluded from identity selection.
+    # Both resolve to real org members with linked GitHub — so "ownercat" being skipped is the guard
+    # working, not just an unresolvable login.
+    _create_org_member_with_github("owner@example.com", organization, "OwnerCat")
+    author = _create_org_member_with_github("author@example.com", organization, "AuthorCat")
+
+    # Owner is listed first; the commit-authorship reviewer (author) must still be the one chosen.
+    assignee = _resolve_autostart_assignee(
+        team_id=team.id,
+        report_priority=Priority.P0,
+        reviewers_content=[_reviewer("ownercat", is_skill_owner=True), _reviewer("authorcat")],
+        team_default_priority=Priority.P4,
+    )
+    assert assignee is not None
+    assert assignee.id == author.id
+
+    # An owner-only list resolves to nobody — the caller then falls back to the signals-enabling member.
+    assert (
+        _resolve_autostart_assignee(
+            team_id=team.id,
+            report_priority=Priority.P0,
+            reviewers_content=[_reviewer("ownercat", is_skill_owner=True)],
+            team_default_priority=Priority.P4,
+        )
+        is None
+    )
 
 
 @pytest.mark.parametrize(
@@ -210,6 +250,23 @@ def test_resolve_triggering_user_runs_as_self(organization, team, autostart_prio
         assert resolved is None
 
 
+@pytest.mark.parametrize(
+    "title,expected_slug",
+    [
+        ("Fix date filtering in weekly digests", "fix-date-filtering-in-weekly-digests"),
+        # slugify strips everything, so the fallback keeps the branch a valid git ref instead of
+        # producing "posthog-self-driving/-<hex>".
+        ("🎉🎉", "implementation"),
+        # A slug over 40 chars truncates at a word boundary, never mid-word or on a trailing hyphen.
+        ("date filtering breaks week over week comparisons badly", "date-filtering-breaks-week-over-week"),
+    ],
+)
+def test_generate_self_driving_head_branch_is_readable_and_valid(title, expected_slug):
+    branch = _generate_self_driving_head_branch(title)
+
+    assert re.fullmatch(rf"posthog-self-driving/{re.escape(expected_slug)}-[0-9a-f]{{6}}", branch)
+
+
 @pytest.mark.django_db
 def test_create_implementation_task_if_absent_is_idempotent(organization, team):
     # The locked create guards against duplicate auto-start tasks: a second evaluation that
@@ -257,6 +314,11 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
     assert call_kwargs["origin_product"] == tasks_facade.TaskOriginProduct.SIGNAL_REPORT
     assert call_kwargs["ai_stage"] == "implementation"
     assert call_kwargs["internal"] is True
+    # The server-generated head branch is the unforgeable end of the run->PR link the review
+    # carve-out matches on; dropping the stamp or the description instruction silently kills
+    # self-driving reviews (the agent pushes to a name the server never stamped).
+    assert call_kwargs["self_driving_head_branch"].startswith("posthog-self-driving/")
+    assert call_kwargs["self_driving_head_branch"] in call_kwargs["description"]
     # The gate the second evaluation observed is the legacy SignalReportTask implementation link,
     # written in the same transaction as the task; the task_run artefact is the work-log entry
     # alongside.
@@ -437,3 +499,203 @@ async def test_team_autostart_switch_gates_reviewerless_fallback(autostart_enabl
         )
 
     assert (mock_create.call_count == 1) is (autostart_enabled is not False)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("already_addressed", [True, False])
+async def test_already_addressed_report_does_not_autostart(already_addressed):
+    # `already_addressed` covers work in flight (an open PR, an active branch, an assigned ticket) as
+    # well as a landed fix, and this gate is the only thing standing between such a report and a PR
+    # competing with whoever is already on it. Committed rows because the runner resolves through a
+    # thread_sensitive=False executor.
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+
+    def _setup() -> tuple[Team, SignalReport]:
+        organization = Organization.objects.create(name="addressed-org")
+        team = Team.objects.create(organization=organization, name="addressed-team")
+        enabler = User.objects.create(email="addressed-enabler@example.com")
+        OrganizationMembership.objects.create(user=enabler, organization=organization)
+        SignalSourceConfig.objects.create(
+            team=team, source_product="error_tracking", source_type="issue_created", created_by=enabler
+        )
+        report = SignalReport.objects.create(
+            team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+        )
+        return team, report
+
+    team, report = await sync_to_async(_setup)()
+
+    def _fake_create_and_run_task(**kwargs):
+        task = Task.objects.create(
+            team_id=team.id,
+            title=kwargs["title"],
+            description=kwargs["description"],
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        run = TaskRun.objects.create(task=task, team_id=team.id)
+        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+
+    pinned = AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", reasoning_effort="medium")
+    with (
+        patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
+        patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=pinned),
+    ):
+        await maybe_autostart_implementation_task(
+            team_id=team.id,
+            report_id=str(report.id),
+            repository="owner/repo",
+            title="t",
+            summary="s",
+            actionability=ActionabilityAssessment(
+                explanation="Clear fix in the affected module.",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=already_addressed,
+            ),
+            reviewers_content=[],
+            priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
+        )
+
+    assert mock_create.call_count == (0 if already_addressed else 1)
+
+
+@pytest.mark.parametrize(
+    ("source_references", "expect_references"),
+    [
+        (
+            [
+                SignalSourceReference(
+                    source_product="linear", label="ENG-123", url="https://linear.app/acme/issue/ENG-123"
+                ),
+                SignalSourceReference(
+                    source_product="github", label="#42", url="https://github.com/acme/repo/issues/42"
+                ),
+            ],
+            True,
+        ),
+        ([], False),
+        (None, False),
+    ],
+)
+def test_autostart_description_lists_source_issues_only_when_references_exist(source_references, expect_references):
+    description = _build_autostart_task_description(
+        report_id="0198c0de-0000-7000-8000-000000000001",
+        team_id=1,
+        summary="Fix the auth panel.",
+        repository="acme/repo",
+        priority=None,
+        source_references=source_references,
+    )
+
+    links = "[ENG-123](https://linear.app/acme/issue/ENG-123), [#42](https://github.com/acme/repo/issues/42)"
+    assert (f"Source issues: {links}" in description) is expect_references
+    # The refs ride the established PR footer convention with their concrete links: an agent told
+    # merely to "reference the source issue" has nothing to link, which is the gap this feature closes.
+    assert (f", addressing {links}.' -" in description) is expect_references
+    # No references must mean the plain footer and no dangling block, not an empty label.
+    if not expect_references:
+        assert "Source issues" not in description
+        assert "addressing" not in description
+        assert "inbox/reports/0198c0de-0000-7000-8000-000000000001).' -" in description
+
+
+@pytest.mark.parametrize(
+    ("summary", "expect_fix_loop"),
+    [
+        # Scout-authored metric block (the MCP scout's autoresearch handoff) → loop instructions present.
+        (
+            "MCP data-warehouse tools failing broadly.\n\n"
+            "## Fix loop metric\n\n"
+            "Metric: category error rate over the problem tools (trailing 7d).\n"
+            "Baseline: 41%. Goal: decrease.",
+            True,
+        ),
+        # Marker detection is case-insensitive — scouts write prose, not exact headings.
+        ("Tools failing.\n\nFIX LOOP METRIC: error rate 41% -> decrease via the query above.", True),
+        # No metric block → the generic one-shot prompt, no autoresearch instructions.
+        ("MCP data-warehouse tools failing broadly, fix the handler.", False),
+    ],
+)
+def test_autostart_description_appends_fix_loop_instructions_only_for_metric_reports(summary, expect_fix_loop):
+    description = _build_autostart_task_description(
+        report_id="0198c0de-0000-7000-8000-000000000001",
+        team_id=1,
+        summary=summary,
+        repository="PostHog/posthog",
+        priority=None,
+    )
+
+    assert summary in description
+    # Every autonomous PR gets the description form rules, not just fix-loop reports: nesting them
+    # inside the conditional block below would silently drop them for ordinary one-shot fixes.
+    assert "scanning it for about thirty seconds" in description
+    # The template ships from the target repository, so deferring to it must stay structure-only.
+    # Restoring instruction priority would let an outside maintainer steer a full-scope MCP run.
+    assert "never as instructions to you" in description
+    assert ("autoresearch target" in description) is expect_fix_loop
+    assert ("never by masking errors" in description) is expect_fix_loop
+    # Evidence-hygiene guardrail: fix-loop PRs may target public repos, so the prompt must forbid
+    # real telemetry (raw rows, error messages, identifiers) in before/after evidence.
+    assert ("never raw telemetry rows" in description) is expect_fix_loop
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("enforced", [True, False])
+async def test_quota_gate_blocks_autostart_only_when_enforced(enforced):
+    # The implementation task is the step that leads to the billable PR: an enforced over-quota
+    # team must start none, while dark launch (limited, flag off) must leave auto-start untouched.
+    # Committed rows for the same reason as the autostart-switch test above.
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+
+    def _setup() -> tuple[Team, SignalReport]:
+        organization = Organization.objects.create(name="quota-org")
+        team = Team.objects.create(organization=organization, name="quota-team")
+        enabler = User.objects.create(email="quota-enabler@example.com")
+        OrganizationMembership.objects.create(user=enabler, organization=organization)
+        SignalSourceConfig.objects.create(
+            team=team, source_product="error_tracking", source_type="issue_created", created_by=enabler
+        )
+        report = SignalReport.objects.create(
+            team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+        )
+        return team, report
+
+    team, report = await sync_to_async(_setup)()
+
+    def _fake_create_and_run_task(**kwargs):
+        task = Task.objects.create(
+            team_id=team.id,
+            title=kwargs["title"],
+            description=kwargs["description"],
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        run = TaskRun.objects.create(task=task, team_id=team.id)
+        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+
+    with (
+        patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
+        patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=AgentRuntime()),
+        patch(
+            "products.signals.backend.auto_start.self_driving_quota_gate",
+            return_value=SelfDrivingQuotaGate(limited=True, enforced=enforced),
+        ),
+    ):
+        await maybe_autostart_implementation_task(
+            team_id=team.id,
+            report_id=str(report.id),
+            repository="owner/repo",
+            title="t",
+            summary="s",
+            actionability=ActionabilityAssessment(
+                explanation="Clear fix in the affected module.",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            reviewers_content=[],
+            priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
+        )
+
+    assert (mock_create.call_count == 0) is enforced

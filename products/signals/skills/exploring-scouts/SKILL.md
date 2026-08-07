@@ -29,16 +29,22 @@ It is the observability counterpart to the `authoring-scouts` skill (which teach
 **A scout's output is inbox reports, written 1:1.** Scouts list `emit_report` / `edit_report` in their `allowed_tools` and **author or edit inbox reports directly**; a run's output shows up as **`emitted_report_ids`** (reports it authored) and **`edited_report_ids`** (reports it updated).
 The run rows also carry `emitted_count` / `emitted_finding_ids` — **legacy fields from the deprecated signal-emitting channel** (weak `emit_signal` findings a pipeline consolidated). On a report-channel scout they stay `0` / empty even on a productive run; a non-zero tally means the run came from a scout still on the legacy channel (an old custom scout, or a canonical scout not yet ported) — real output for that run, not noise. When unsure of a scout's channel, check its `allowed_tools` via `skill-get`.
 **Never read `emitted_count: 0` as "did nothing"** — check the report columns and the run summary first.
+Each run also carries a `metadata` map. Top-level: the provenance set `harness_prompt_version` / `report_channel` (`none`, `emit`, `edit`, or `both`) / `skill_origin` / `github_guidance`, saying which instructions the run was given; plus routing keys (`model` / `runtime_adapter` / `reasoning_effort`) only when a gate or pin overrode the default. Nested under `metadata.derived`: booleans the harness computes at the end of the run (`has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, `has_self_validation`).
+When comparing runs (before/after a prompt change, one model against another), segment on all four provenance values first: runs differing on any of `harness_prompt_version`, `report_channel`, `skill_origin`, or `github_guidance` were given different instructions and aren't a like-for-like population. Runs predating this field have none of them, so treat missing provenance as unknown and exclude those runs from a comparison rather than pooling them.
+For "what kind of run was this?" questions — did it author a self-improvement report, did it validate its follow-up queue — read `derived` rather than parsing the prose summary. It's computed server-side from what the run actually did, so it can't disagree with the run's own output. No `derived` map at all means unknown, not "all false" — the run predates the field, failed before finishing, or its stamp failed. Most runs from before this shipped have no map, so don't read their absence as a finding.
 
-There are five things you can observe about the fleet, each with its own tool:
+There are six things you can observe about the fleet, each with its own tool:
 
-| What you want to know                        | Tool                            | What it tells you                                                                                 |
-| -------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Which scouts run, how often, in what posture | `scout-config-list`             | One row per scout: schedule, `enabled`, `emit`, `last_run_at`, `description`                      |
-| What the scouts actually did, run by run     | `scout-runs-list` / `-retrieve` | Per-run status, timing, end-of-run summary, `emitted_report_ids` / `edited_report_ids`, deep-link |
-| What the fleet has learned across runs       | `scout-scratchpad-search`       | Durable per-team memory (baselines, noise, allowlists)                                            |
-| Which reports a run wrote or edited          | the run row itself              | `emitted_report_ids` / `edited_report_ids` — resolve each id via `inbox-reports-retrieve`         |
-| What the scouts surfaced to the user         | `inbox-reports-list`            | The scout-written reports, as the user sees them (filter `source_product: "signals_scout"`)       |
+| What you want to know                        | Tool                            | What it tells you                                                                                               |
+| -------------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Which scouts run, how often, in what posture | `scout-config-list`             | One row per scout: schedule, `enabled`, `status` / `pause_reason`, `emit`, `last_run_at`, `description`, `tags` |
+| What the scouts actually did, run by run     | `scout-runs-list` / `-retrieve` | Per-run status, timing, end-of-run summary, `emitted_report_ids` / `edited_report_ids`, deep-link               |
+| What the fleet has learned across runs       | `scout-scratchpad-search`       | Durable per-team memory (baselines, noise, allowlists)                                                          |
+| What the team has told the fleet             | `scout-notes-list`              | Steering notes humans/agents left for scouts (per-scout or fleet-wide, newest first)                            |
+| Which reports a run wrote or edited          | the run row itself              | `emitted_report_ids` / `edited_report_ids` — resolve each id via `inbox-reports-retrieve`                       |
+| What the scouts surfaced to the user         | `inbox-reports-list`            | The scout-written reports, as the user sees them (filter `source_product: "signals_scout"`)                     |
+
+`scout-config-list` takes a `tags` parameter (comma-separated) to narrow the roster to the scouts carrying any of the given labels — useful on a large fleet when the question is scoped to one area, e.g. `tags=revenue`.
 
 The orienting tool is `scout-project-profile-get` — the deterministic snapshot of "what's true about this project" that every scout cold-starts from.
 When a scout found nothing, this is usually why.
@@ -73,12 +79,14 @@ Read the result against three cases:
 - **Empty (`results: []`)** — no scouts are registered.
   The project isn't enrolled in the scout fleet (or hasn't ticked yet).
   Say so plainly; don't go fishing for runs.
-  Point the user at the Signals scout settings / PostHog Code onboarding rather than inventing activity.
+  Point the user at the Signals scout settings / PostHog Desktop onboarding rather than inventing activity.
 - **Configs exist but all `enabled: false`** — the fleet is registered but paused.
   Nothing is running.
-  Tell the user which scouts exist and that they're all off.
+  Tell the user which scouts exist and that they're all off — and say who switched each one off, which `status` carries: `paused_by_user` means a person (or a launch seed posture) turned it off, `paused_by_system` means an automatic pause with its cause in `pause_reason` (`no_output` / `ignored` / `repeated_failures`).
+  Either kind resumes with `enabled: true` via `scout-config-update`.
 - **At least one `enabled: true`** — the fleet is registered and that scout is allowed to run.
   For each enabled scout note its `run_interval_minutes` (cadence), `emit` (false = **dry-run**, runs but writes nothing to the inbox), and `last_run_at`.
+  A `status` of `pending_pause` means the scout still runs but the system has flagged it to pause soon (cause in `pause_reason`); any config edit clears the warning.
   One caveat before reporting "it's live": runs are gated by the `signals-scout` feature flag, not by `enabled`.
   A project that was enrolled and later drained from the flag keeps its `enabled: true` rows, but the coordinator no longer plans runs for it — so a stale or `null` `last_run_at` on an enabled scout usually means the project is no longer enrolled, not that the scout is idle.
 
@@ -116,6 +124,9 @@ Present it as a table the user can scan — scout, cadence, posture, last run, l
    The end-of-run `summary` on each run is the scout's own account of what it looked at and decided.
 4. **Read what it remembered** — `scratchpad-search` (see below).
    The memory entries a scout wrote reveal the baselines and noise it has internalized about this project.
+5. **Read what it was told** — `scout-notes-list {"skill_name": "signals-scout-error-tracking"}` returns the steering notes humans left for this scout plus the general fleet-wide ones — exactly what its runs read as prior context.
+   A behavior change that doesn't trace to a skill edit or a scratchpad entry often traces to a note.
+   When asked to _steer_ a scout with a note (rather than observe), hand off to the `authoring-scouts` skill, which covers the notes channel's write side.
 
 ## Workflow: read recent runs
 
@@ -195,6 +206,7 @@ Each entry's `key` carries a category prefix that tells you _what kind_ of learn
 | `not-in-use:` | A product/surface this team doesn't use (close-out memo)                               |
 | `mcp-gap:`    | A tooling gap a scout noticed worth raising later                                      |
 | `improve:`    | A custom scout's suggested change to its own skill body, awaiting owner review         |
+| `reported:`   | A canonical scout's record of a skill gap already fed back upstream to PostHog         |
 | `report:`     | A report a scout authored — stores the `report_id` so later runs edit/dedup against it |
 | `reviewer:`   | A resolved owner (GitHub login) for an area, cached for `suggested_reviewers` routing  |
 
@@ -210,6 +222,7 @@ A custom scout on the report channel escalates recurring or material suggestions
 When assessing a custom scout, search `{"text": "improve:"}` and surface these to the user: an entry re-confirmed across several runs is the highest-signal edit the owner can make.
 Reviewing and applying them is a write operation — hand off to the `authoring-scouts` skill.
 Canonical scouts never write `improve:` entries (their skill bodies are synced from PostHog's fleet), so an `improve:` entry under a canonical scout's domain is itself worth flagging.
+Instead, a canonical scout routes skill-content gaps upstream to the PostHog team via the `agent-feedback` MCP tool (`feedback_type: "scout"`), generalized so no project data travels, and keeps a `reported:<skill-name>:<topic>` entry as its local record of what it already submitted — so a `reported:` entry tells you a gap has been raised with PostHog, not with this team.
 
 ## Workflow: see what scouts have written
 

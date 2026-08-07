@@ -1,7 +1,7 @@
 """Summarize the team's written thumbs-down feedback into recurring failure modes.
 
 Themes are cached on the scanner (`ReplayScanner.feedback_themes`) and shown as chips on the
-Quality tab, so raters know what to look for. They also feed the prompt-suggestion generation
+calibration tab, so raters know what to look for. They also feed the prompt-suggestion generation
 context, so the rewrite attacks the failure modes the team keeps reporting.
 """
 
@@ -23,7 +23,7 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 
 logger = structlog.get_logger(__name__)
 
-_THEMES_MODEL = "gemini-3.1-flash-lite-preview"
+_THEMES_MODEL = "gemini-3.5-flash-lite"
 _MODEL_CALL_TIMEOUT_MS = 90_000
 MIN_FEEDBACK_FOR_THEMES = 3
 _MAX_FEEDBACK_COMMENTS = 100

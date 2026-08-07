@@ -1,11 +1,11 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { BIN_COUNT_AUTO } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { average, percentage, sum } from 'lib/utils/numbers'
+import { findBreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
 import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'scenes/insights/filters/aggregationTargetUtils'
@@ -59,6 +59,7 @@ import type {
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '../../queries/schema/schema-general'
+import type { PathsV2Query } from '../../queries/schema/schema-general'
 import type { BreakdownKeyType, FunnelStep, IntervalType, LabelGroupType } from '../../types'
 import type { QuerySourceUpdate } from '../insights/insightVizDataLogic'
 import {
@@ -201,6 +202,7 @@ export interface funnelDataLogicValues {
         | FunnelsQuery
         | LifecycleQuery
         | PathsQuery
+        | PathsV2Query
         | RetentionQuery
         | StickinessQuery
         | TrendsQuery
@@ -208,7 +210,6 @@ export interface funnelDataLogicValues {
         | WebStatsTableQuery
         | null // insightVizDataLogic
     vizSeries: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined // insightVizDataLogic
-    searchParams: Record<string, any> // router
     advancedOptionsUsedCount: number
     aggregationTargetLabel: Noun
     breakdownSorting: string | undefined
@@ -289,15 +290,6 @@ export interface funnelDataLogicActions {
     updateQuerySource: (querySource: QuerySourceUpdate) => {
         querySource: QuerySourceUpdate
     } // insightVizDataLogic
-    push: (
-        url: string,
-        searchInput?: string | Record<string, any>,
-        hashInput?: string | Record<string, any>
-    ) => {
-        hashInput: string | Record<string, any>
-        searchInput: string | Record<string, any>
-        url: string
-    } // router
     commitConversionWindow: () => {
         value: true
     }
@@ -330,6 +322,7 @@ export interface funnelDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -342,6 +335,7 @@ export interface funnelDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -364,6 +358,7 @@ export interface funnelDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -378,6 +373,7 @@ export interface funnelDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -538,16 +534,12 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             ['aggregationLabel'],
             featureFlagLogic,
             ['featureFlags'],
-            router,
-            ['searchParams'],
         ],
         actions: [
             insightVizDataLogic(props),
             ['updateInsightFilter', 'updateQuerySource'],
             insightDataLogic(props),
             ['cancelChanges'],
-            router,
-            ['push'],
         ],
     })),
 
@@ -1262,18 +1254,14 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 return (
                     dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
                 ): [DataColorTheme | null, DataColorToken | null] => {
-                    // stringified breakdown value
-                    const key = getFunnelDatasetKey(dataset)
-                    let breakdownValue = JSON.parse(key)['breakdown_value']
-                    breakdownValue = Array.isArray(breakdownValue) ? breakdownValue.join('::') : breakdownValue
+                    const breakdownValue = JSON.parse(getFunnelDatasetKey(dataset))['breakdown_value']
 
                     // dashboard color overrides
                     const logic = dashboardLogic.findMounted({ id: props.dashboardId })
-                    const dashboardBreakdownColors = logic?.values.temporaryBreakdownColors
-                    const colorOverride = dashboardBreakdownColors?.find(
-                        (config) =>
-                            config.breakdownValue === breakdownValue &&
-                            config.breakdownType === (breakdownFilter?.breakdown_type ?? 'event')
+                    const colorOverride = findBreakdownColorConfig(
+                        logic?.values.effectiveBreakdownColors,
+                        breakdownValue,
+                        breakdownFilter?.breakdown_type
                     )
 
                     if (colorOverride?.colorToken) {
@@ -1401,18 +1389,11 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             }
         },
         setBreakdownSorting: ({ breakdownSorting }) => {
-            actions.updateInsightFilter({ breakdownSorting })
+            // updateInsightFilter debounces 300ms, too slow for the table's controlled sort indicator
+            const update: Partial<FunnelsQuery> = {
+                funnelsFilter: { ...values.funnelsFilter, breakdownSorting },
+            }
+            actions.updateQuerySource(update)
         },
     })),
-
-    afterMount(({ actions, values }) => {
-        // Sync URL with saved sorting on mount
-        if (values.breakdownSorting && !values.searchParams.order) {
-            actions.push(
-                window.location.pathname,
-                { ...values.searchParams, order: values.breakdownSorting },
-                window.location.hash
-            )
-        }
-    }),
 ])

@@ -107,13 +107,18 @@ class TicketCommand(SlashCommand):
 
     def _get_model(self) -> MaxChatAnthropic:
         # We are not billing for conversation summary since we would be billing per-ticket creation.
+        # Needs a 1M-context model because this summarizes the whole conversation window, which can
+        # hold up to CONVERSATION_WINDOW_SIZE tokens.
         return MaxChatAnthropic(
-            model="claude-haiku-4-5",
+            model="claude-sonnet-5",
             streaming=True,
             stream_usage=True,
             user=self._user,
             team=self._team,
             max_tokens=2048,
+            # Sonnet 5 thinks by default and `max_tokens` covers thinking plus response together,
+            # so leaving it on would let thinking eat the summary's budget.
+            thinking={"type": "disabled"},
             billable=False,
         )
 

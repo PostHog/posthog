@@ -53,10 +53,12 @@ export type SettingSectionId =
     | 'project-access-control'
     | 'project-ai-observability'
     | 'project-autocapture'
+    | 'project-customization'
     | 'project-integrations'
     | 'project-product-analytics'
     | 'project-replay'
     | 'project-surveys'
+    | 'project-web-analytics'
     | 'project-danger-zone'
     // Organization
     | 'organization-details'
@@ -77,6 +79,7 @@ export type SettingSectionId =
     | 'user-api-keys'
     | 'user-connected-apps'
     | 'user-customization'
+    | 'user-navigation'
     | 'user-feature-previews'
     | 'user-notifications'
     | 'user-personal-integrations'
@@ -97,6 +100,7 @@ export type SettingId =
     | 'approval-policies'
     | 'authentication-domains'
     | 'autocapture'
+    | 'enforce-verified-domains'
     | 'autocapture-data-attributes'
     | 'banner'
     | 'base-currency'
@@ -119,6 +123,9 @@ export type SettingId =
     | 'csp-reporting'
     | 'customer-analytics-accounts'
     | 'customer-analytics-dashboard-events'
+    | 'customer-analytics-event-stream'
+    | 'customer-analytics-group-properties'
+    | 'customer-analytics-person-properties'
     | 'customer-analytics-usage-metrics'
     | 'customization-irl'
     | 'data-theme'
@@ -164,6 +171,7 @@ export type SettingId =
     | 'group-analytics'
     | 'heatmaps'
     | 'hedgehog-mode'
+    | 'homepage'
     | 'human-friendly-comparison-periods'
     | 'integration-error-tracking'
     | 'integration-github'
@@ -180,8 +188,10 @@ export type SettingId =
     | 'logs-distinct-id-attribute-key'
     | 'logs-drop-rules'
     | 'logs-json-parse'
+    | 'logs-metric-rules'
     | 'logs-pii-scrub'
     | 'logs-retention'
+    | 'logs-retention-rules'
     | 'logs-session-id-attribute-keys'
     | 'marketing-settings'
     | 'mcp-hints'
@@ -213,6 +223,7 @@ export type SettingId =
     | 'personal-api-keys'
     | 'personal-integrations-github'
     | 'personal-integrations-slack'
+    | 'personal-integrations-posthog'
     | 'persons-join-mode'
     | 'reminders'
     | 'persons-on-events'
@@ -235,11 +246,13 @@ export type SettingId =
     | 'revenue-analytics-events'
     | 'revenue-analytics-external-data-sources'
     | 'revenue-analytics-filter-test-accounts'
-    | 'revenue-analytics-goals'
     | 'revenue-base-currency'
     | 'session-join-mode'
     | 'session-table-version'
     | 'sidebar-auto-suggest'
+    | 'sidebar-items'
+    | 'sidebar-layout'
+    | 'sidebar-my-tools'
     | 'snippet'
     | 'snippet-v2'
     | 'surveys-default-appearance'
@@ -254,6 +267,7 @@ export type SettingId =
     | 'web-analytics-pre-aggregated-tables'
     | 'web-revenue-events'
     | 'web-vitals-autocapture'
+    | 'workflows-email-tracking-consent'
     | 'workflows-engagement-events'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
@@ -334,4 +348,12 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
      * product's own configuration scene).
      */
     hideFromNavigation?: boolean
+
+    /**
+     * When true, navigating to this section prompts for re-authentication if the sensitive
+     * session has expired — matching how user- and organization-level settings behave. Use for
+     * environment/project sections that manage credentials, which otherwise only surface the
+     * re-auth modal reactively when a write is attempted.
+     */
+    requiresReauthentication?: boolean
 }

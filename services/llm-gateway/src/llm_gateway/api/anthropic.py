@@ -11,10 +11,10 @@ from botocore.exceptions import ClientError
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from llm_gateway.anthropic_request import drop_orphaned_clear_thinking, enable_required_opus_5_thinking
 from llm_gateway.api.handler import (
     ANTHROPIC_CONFIG,
     BEDROCK_CONFIG,
-    CLOUDFLARE_ANTHROPIC_CONFIG,
     ProviderError,
     _sanitize_request_data,
     handle_llm_request,
@@ -30,13 +30,12 @@ from llm_gateway.bedrock import (
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
 from llm_gateway.cloudflare import (
     cloudflare_litellm_model,
-    ensure_cloudflare_configured,
     ensure_cloudflare_model_allowed,
     is_cloudflare_model,
-    make_cloudflare_anthropic_call,
 )
 from llm_gateway.config import get_settings
 from llm_gateway.dependencies import AnthropicCircuitBreakerDep, RateLimitedUser
+from llm_gateway.inference_routing import is_inference_routed_model, send_inference_anthropic_messages
 from llm_gateway.metrics.prometheus import (
     ANTHROPIC_CIRCUIT_BREAKER_BYPASSED,
     BEDROCK_COUNT_TOKENS_ERRORS,
@@ -47,6 +46,8 @@ from llm_gateway.metrics.prometheus import (
     REQUEST_COUNT,
     REQUEST_LATENCY,
 )
+from llm_gateway.modal import is_modal_served_model
+from llm_gateway.modal_routing import send_modal_anthropic_messages
 from llm_gateway.models.anthropic import GATEWAY_ONLY_FIELDS, AnthropicCountTokensRequest, AnthropicMessagesRequest
 from llm_gateway.products.config import validate_product
 from llm_gateway.request_context import (
@@ -357,31 +358,6 @@ def reconcile_tool_choice(data: dict[str, Any], *, model: str, product: str) -> 
         BEDROCK_PARAM_STRIPPED.labels(param="tool_choice", product=product).inc()
 
 
-async def _send_cloudflare_messages(
-    request_data: dict[str, Any],
-    user: RateLimitedUser,
-    is_streaming: bool,
-    product: str,
-) -> dict[str, Any] | StreamingResponse:
-    ensure_cloudflare_model_allowed(request_data["model"])
-    settings = get_settings()
-    api_base, api_key = ensure_cloudflare_configured(settings)
-
-    data = dict(request_data)
-    original_model = data["model"]
-    llm_call = make_cloudflare_anthropic_call(api_base, api_key)
-
-    return await handle_llm_request(
-        request_data=data,
-        user=user,
-        model=original_model,
-        is_streaming=is_streaming,
-        provider_config=CLOUDFLARE_ANTHROPIC_CONFIG,
-        llm_call=llm_call,
-        product=product,
-    )
-
-
 async def _send_bedrock_messages(
     request_data: dict[str, Any],
     user: RateLimitedUser,
@@ -546,24 +522,33 @@ async def _handle_anthropic_messages(
     product: str = "llm_gateway",
 ) -> dict[str, Any] | StreamingResponse:
     data = body.model_dump(exclude_none=True, exclude=GATEWAY_ONLY_FIELDS)
+    data = enable_required_opus_5_thinking(data)
     provider = _get_provider_from_headers(request)
     use_bedrock_fallback = _get_use_bedrock_fallback_from_headers(request)
 
-    # `@cf/` models are Cloudflare-only, so route them to CF by model id — the same way the
-    # chat/completions and responses handlers do. The agent harness derives the provider header from
-    # the runtime (`claude`->anthropic, `codex`->openai) and never sends "cloudflare", so a
-    # claude-runtime scout on a CF-served model (e.g. GLM) arrives here as provider="anthropic".
-    # Without the id check it would fall through to the real Anthropic API and 404. Unlike the
-    # Responses path, this CF route serves tools fine: litellm's Anthropic->chat/completions adapter
-    # translates Anthropic tools into OpenAI function tools that CF's endpoint accepts.
-    if provider == "cloudflare" or is_cloudflare_model(body.model):
-        return await _send_cloudflare_messages(data, user, body.stream or False, product)
+    # Models backed by our inference providers route by model id, just as the chat/completions and
+    # responses handlers do. The agent harness derives the provider header from the runtime
+    # (`claude`->anthropic, `codex`->openai) and never sends "cloudflare", so a claude-runtime scout
+    # on a CF-served model (e.g. GLM) arrives here as provider="anthropic". Without the id check it
+    # would fall through to the real Anthropic API and 404. Unlike the Responses path, this route
+    # serves tools fine: litellm's Anthropic->chat/completions adapter translates Anthropic tools
+    # into OpenAI function tools that both backends' OpenAI-compatible endpoints accept.
+    if provider == "cloudflare" or is_inference_routed_model(body.model):
+        return await send_inference_anthropic_messages(data, user, body.stream or False, product)
+
+    if is_modal_served_model(body.model):
+        return await send_modal_anthropic_messages(data, user, body.stream or False, product)
 
     if provider == "bedrock":
         return await _send_bedrock_messages(data, user, request, body.stream or False, product)
 
     if await _maybe_bypass_anthropic(breaker, body.model, product, use_bedrock_fallback=use_bedrock_fallback):
         return await _send_bedrock_messages(data, user, request, body.stream or False, product)
+
+    # A body assembled for a non-thinking model reaches Anthropic when a runtime retries under its
+    # fallback model. Only this leg needs the fix: GLM normalizes its own traffic and Bedrock drops
+    # context_management wholesale.
+    data = drop_orphaned_clear_thinking(data, product=product)
 
     litellm_data = {**data, "model": normalize_litellm_model_name(body.model, ANTHROPIC_CONFIG.name)}
 
@@ -634,12 +619,13 @@ async def _handle_count_tokens(
     # Route `@cf/` models by model id (see `_handle_anthropic_messages`): a claude-runtime scout on a
     # CF model counts tokens here with provider="anthropic", and CF has no count_tokens endpoint, so
     # approximate locally rather than POST a CF model id to the real Anthropic count_tokens API.
-    if provider == "cloudflare" or is_cloudflare_model(body.model):
-        ensure_cloudflare_model_allowed(body.model)
+    if provider == "cloudflare" or is_cloudflare_model(body.model) or is_modal_served_model(body.model):
+        if is_cloudflare_model(body.model):
+            ensure_cloudflare_model_allowed(body.model)
         # CF Workers AI has no count_tokens endpoint. Approximate via litellm's tokenizer on the
         # serialised payload — callers use this for context-window budgeting, where over-counting
         # just trims and only under-counting would overflow.
-        aliased_model = cloudflare_litellm_model(body.model)
+        aliased_model = cloudflare_litellm_model(body.model) if is_cloudflare_model(body.model) else body.model
         try:
             count = await asyncio.to_thread(litellm.token_counter, model=aliased_model, text=json.dumps(data))
         except Exception as exc:

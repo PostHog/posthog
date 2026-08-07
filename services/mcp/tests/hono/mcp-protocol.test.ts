@@ -15,6 +15,7 @@ import {
     defineResourceCatalogTests,
     defineSessionLifecycleTests,
     defineSessionTrackingTests,
+    defineStatelessProtocolTests,
     type ProtocolTestHarness,
 } from '../integration/mcp-protocol-suite'
 import { handlers, contextMillHandler } from '../workers/fixtures/handlers'
@@ -22,7 +23,10 @@ import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
 
 const mswServer = setupServer(...handlers, contextMillHandler)
 
-function createInMemoryRedis(): RedisLike & { ping(): Promise<string> } {
+function createInMemoryRedis(): RedisLike & {
+    ping(): Promise<string>
+    incrby(key: string, increment: number): Promise<number>
+} {
     const store = new Map<string, string>()
     return {
         get: async (key) => store.get(key) ?? null,
@@ -87,3 +91,4 @@ defineResourceCatalogTests('Hono', harness)
 defineCatalogFilterTests('Hono', harness)
 defineExecModeTests('Hono', harness)
 defineSessionTrackingTests('Hono', harness)
+defineStatelessProtocolTests('Hono', harness)

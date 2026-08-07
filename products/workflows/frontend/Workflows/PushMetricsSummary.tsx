@@ -4,9 +4,9 @@ import { useMemo } from 'react'
 import { getColorVar } from 'lib/colors'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
-import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 
-import { WORKFLOW_PUSH_METRICS } from './workflowMetricsSummaryLogic'
+import { WorkflowMetricCard } from './WorkflowMetricCard'
+import { METRIC_COLORS, WORKFLOW_PUSH_METRICS } from './workflowMetricsSummaryLogic'
 
 const PUSH_METRIC_KEYS = Object.keys(WORKFLOW_PUSH_METRICS) as (keyof typeof WORKFLOW_PUSH_METRICS)[]
 
@@ -25,7 +25,6 @@ export function PushMetricsSummary({ logicKey }: { logicKey: string }): JSX.Elem
                               name:
                                   WORKFLOW_PUSH_METRICS[series.name as keyof typeof WORKFLOW_PUSH_METRICS]?.name ??
                                   series.name,
-                              color: WORKFLOW_PUSH_METRICS[series.name as keyof typeof WORKFLOW_PUSH_METRICS]?.color,
                           })),
                   }
                 : null,
@@ -38,7 +37,7 @@ export function PushMetricsSummary({ logicKey }: { logicKey: string }): JSX.Elem
                 {PUSH_METRIC_KEYS.map((key) => {
                     const metric = WORKFLOW_PUSH_METRICS[key]
                     return (
-                        <AppMetricSummary
+                        <WorkflowMetricCard
                             key={key}
                             name={metric.name}
                             description={metric.description}
@@ -51,7 +50,11 @@ export function PushMetricsSummary({ logicKey }: { logicKey: string }): JSX.Elem
                     )
                 })}
             </div>
-            <AppMetricsTrends appMetricsTrends={pushTrends} loading={appMetricsTrendsLoading} />
+            <AppMetricsTrends
+                appMetricsTrends={pushTrends}
+                loading={appMetricsTrendsLoading}
+                seriesColors={METRIC_COLORS}
+            />
         </>
     )
 }

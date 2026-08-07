@@ -12,7 +12,7 @@ export const ErrorTrackingAssignmentRulesListParams = /* @__PURE__ */ zod.object
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -25,7 +25,7 @@ export const ErrorTrackingAssignmentRulesCreateParams = /* @__PURE__ */ zod.obje
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -52,7 +52,8 @@ export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnesevenT
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
+export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `account_custom_property`
+export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwofourTypeDefault = `workflow_variable`
 export const errorTrackingAssignmentRulesCreateBodyOrderKeyDefault = 0
 
 export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object({
@@ -72,6 +73,10 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                                     'is_not',
                                     'icontains',
                                     'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
                                     'regex',
                                     'not_regex',
                                     'gt',
@@ -128,6 +133,10 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -181,6 +190,10 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -234,6 +247,10 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -286,6 +303,10 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -338,6 +359,10 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -395,6 +420,10 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                                     'is_not',
                                     'icontains',
                                     'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
                                     'regex',
                                     'not_regex',
                                     'gt',
@@ -442,6 +471,10 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -494,6 +527,10 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -548,6 +585,10 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -600,6 +641,10 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -634,7 +679,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                         type: zod
                             .literal('feature')
                             .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnetwoTypeDefault)
-                            .describe('Event property with "$feature/\" prepended'),
+                            .describe('Event property with \"$feature\/\" prepended'),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -689,6 +734,10 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -741,6 +790,10 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -793,6 +846,10 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -845,6 +902,10 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -895,6 +956,10 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -947,6 +1012,10 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -997,6 +1066,10 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -1049,6 +1122,69 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
+                            'regex',
+                            'not_regex',
+                            'gt',
+                            'gte',
+                            'lt',
+                            'lte',
+                            'is_set',
+                            'is_not_set',
+                            'is_date_exact',
+                            'is_date_before',
+                            'is_date_after',
+                            'between',
+                            'not_between',
+                            'min',
+                            'max',
+                            'in',
+                            'not_in',
+                            'is_cleaned_path_exact',
+                            'flag_evaluates_to',
+                            'semver_eq',
+                            'semver_neq',
+                            'semver_gt',
+                            'semver_gte',
+                            'semver_lt',
+                            'semver_lte',
+                            'semver_tilde',
+                            'semver_caret',
+                            'semver_wildcard',
+                            'icontains_multi',
+                            'not_icontains_multi',
+                        ]),
+                        type: zod
+                            .literal('account_custom_property')
+                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault)
+                            .describe(
+                                'Customer analytics account custom property — the key is the property definition id'
+                            ),
+                        value: zod
+                            .union([
+                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                zod.string(),
+                                zod.number(),
+                                zod.boolean(),
+                                zod.null(),
+                            ])
+                            .optional(),
+                    }),
+                    zod.object({
+                        key: zod.string(),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
+                        operator: zod.enum([
+                            'exact',
+                            'is_not',
+                            'icontains',
+                            'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -1082,7 +1218,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                         ]),
                         type: zod
                             .literal('workflow_variable')
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault),
+                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwofourTypeDefault),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -1101,9 +1237,9 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
         .object({
             type: zod
                 .enum(['user', 'role'])
-                .describe('* `user` - user\n* `role` - role')
+                .describe('\* `user` - user\n\* `role` - role')
                 .describe(
-                    'Assignee type. Use `user` for a user ID or `role` for a role UUID.\n\n* `user` - user\n* `role` - role'
+                    'Assignee type. Use `user` for a user ID or `role` for a role UUID.\n\n\* `user` - user\n\* `role` - role'
                 ),
             id: zod
                 .union([zod.number(), zod.string()])
@@ -1122,7 +1258,7 @@ export const ErrorTrackingBypassRulesListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1135,7 +1271,7 @@ export const ErrorTrackingBypassRulesCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1162,7 +1298,8 @@ export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemOnesevenTypeD
 export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
+export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `account_custom_property`
+export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwofourTypeDefault = `workflow_variable`
 
 export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
     filters: zod
@@ -1181,6 +1318,10 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                                     'is_not',
                                     'icontains',
                                     'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
                                     'regex',
                                     'not_regex',
                                     'gt',
@@ -1237,6 +1378,10 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -1290,6 +1435,10 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -1343,6 +1492,10 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -1395,6 +1548,10 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -1447,6 +1604,10 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -1504,6 +1665,10 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                                     'is_not',
                                     'icontains',
                                     'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
                                     'regex',
                                     'not_regex',
                                     'gt',
@@ -1551,6 +1716,10 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -1603,6 +1772,10 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -1657,6 +1830,10 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -1709,6 +1886,10 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -1743,7 +1924,7 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                         type: zod
                             .literal('feature')
                             .default(errorTrackingBypassRulesCreateBodyFiltersOneValuesItemOnetwoTypeDefault)
-                            .describe('Event property with "$feature/\" prepended'),
+                            .describe('Event property with \"$feature\/\" prepended'),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -1798,6 +1979,10 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -1850,6 +2035,10 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -1902,6 +2091,10 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -1954,6 +2147,10 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -2004,6 +2201,10 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -2056,6 +2257,10 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -2106,6 +2311,10 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -2158,6 +2367,69 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
+                            'regex',
+                            'not_regex',
+                            'gt',
+                            'gte',
+                            'lt',
+                            'lte',
+                            'is_set',
+                            'is_not_set',
+                            'is_date_exact',
+                            'is_date_before',
+                            'is_date_after',
+                            'between',
+                            'not_between',
+                            'min',
+                            'max',
+                            'in',
+                            'not_in',
+                            'is_cleaned_path_exact',
+                            'flag_evaluates_to',
+                            'semver_eq',
+                            'semver_neq',
+                            'semver_gt',
+                            'semver_gte',
+                            'semver_lt',
+                            'semver_lte',
+                            'semver_tilde',
+                            'semver_caret',
+                            'semver_wildcard',
+                            'icontains_multi',
+                            'not_icontains_multi',
+                        ]),
+                        type: zod
+                            .literal('account_custom_property')
+                            .default(errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault)
+                            .describe(
+                                'Customer analytics account custom property — the key is the property definition id'
+                            ),
+                        value: zod
+                            .union([
+                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                zod.string(),
+                                zod.number(),
+                                zod.boolean(),
+                                zod.null(),
+                            ])
+                            .optional(),
+                    }),
+                    zod.object({
+                        key: zod.string(),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
+                        operator: zod.enum([
+                            'exact',
+                            'is_not',
+                            'icontains',
+                            'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -2191,7 +2463,7 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                         ]),
                         type: zod
                             .literal('workflow_variable')
-                            .default(errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault),
+                            .default(errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwofourTypeDefault),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -2215,7 +2487,7 @@ export const ErrorTrackingBypassRulesUpdateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -2242,7 +2514,8 @@ export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemOnesevenTypeD
 export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
+export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault = `account_custom_property`
+export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwofourTypeDefault = `workflow_variable`
 
 export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
     filters: zod
@@ -2261,6 +2534,10 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                                     'is_not',
                                     'icontains',
                                     'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
                                     'regex',
                                     'not_regex',
                                     'gt',
@@ -2317,6 +2594,10 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -2370,6 +2651,10 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -2423,6 +2708,10 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -2475,6 +2764,10 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -2527,6 +2820,10 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -2584,6 +2881,10 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                                     'is_not',
                                     'icontains',
                                     'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
                                     'regex',
                                     'not_regex',
                                     'gt',
@@ -2631,6 +2932,10 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -2683,6 +2988,10 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -2737,6 +3046,10 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -2789,6 +3102,10 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -2823,7 +3140,7 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                         type: zod
                             .literal('feature')
                             .default(errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemOnetwoTypeDefault)
-                            .describe('Event property with "$feature/\" prepended'),
+                            .describe('Event property with \"$feature\/\" prepended'),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -2878,6 +3195,10 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -2930,6 +3251,10 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -2982,6 +3307,10 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -3034,6 +3363,10 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -3084,6 +3417,10 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -3136,6 +3473,10 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -3186,6 +3527,10 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -3238,6 +3583,69 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
+                            'regex',
+                            'not_regex',
+                            'gt',
+                            'gte',
+                            'lt',
+                            'lte',
+                            'is_set',
+                            'is_not_set',
+                            'is_date_exact',
+                            'is_date_before',
+                            'is_date_after',
+                            'between',
+                            'not_between',
+                            'min',
+                            'max',
+                            'in',
+                            'not_in',
+                            'is_cleaned_path_exact',
+                            'flag_evaluates_to',
+                            'semver_eq',
+                            'semver_neq',
+                            'semver_gt',
+                            'semver_gte',
+                            'semver_lt',
+                            'semver_lte',
+                            'semver_tilde',
+                            'semver_caret',
+                            'semver_wildcard',
+                            'icontains_multi',
+                            'not_icontains_multi',
+                        ]),
+                        type: zod
+                            .literal('account_custom_property')
+                            .default(errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault)
+                            .describe(
+                                'Customer analytics account custom property — the key is the property definition id'
+                            ),
+                        value: zod
+                            .union([
+                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                zod.string(),
+                                zod.number(),
+                                zod.boolean(),
+                                zod.null(),
+                            ])
+                            .optional(),
+                    }),
+                    zod.object({
+                        key: zod.string(),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
+                        operator: zod.enum([
+                            'exact',
+                            'is_not',
+                            'icontains',
+                            'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -3271,7 +3679,7 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                         ]),
                         type: zod
                             .literal('workflow_variable')
-                            .default(errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault),
+                            .default(errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwofourTypeDefault),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -3295,7 +3703,7 @@ export const ErrorTrackingExternalReferencesCreateParams = /* @__PURE__ */ zod.o
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -3308,7 +3716,7 @@ export const ErrorTrackingExternalReferencesCreateBody = /* @__PURE__ */ zod.obj
     config: zod
         .record(zod.string(), zod.string())
         .describe(
-            'Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}.'
+            'Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace\"}; linear {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}; jira {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}.'
         ),
     issue: zod.string().describe('ID of the error tracking issue to link the reference to.'),
 })
@@ -3317,7 +3725,7 @@ export const ErrorTrackingGroupingRulesListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -3325,7 +3733,7 @@ export const ErrorTrackingGroupingRulesCreateParams = /* @__PURE__ */ zod.object
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -3352,7 +3760,8 @@ export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnesevenTyp
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
+export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `account_custom_property`
+export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwofourTypeDefault = `workflow_variable`
 
 export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
     filters: zod
@@ -3371,6 +3780,10 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                                     'is_not',
                                     'icontains',
                                     'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
                                     'regex',
                                     'not_regex',
                                     'gt',
@@ -3427,6 +3840,10 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -3480,6 +3897,10 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -3533,6 +3954,10 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -3585,6 +4010,10 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -3637,6 +4066,10 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -3694,6 +4127,10 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                                     'is_not',
                                     'icontains',
                                     'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
                                     'regex',
                                     'not_regex',
                                     'gt',
@@ -3741,6 +4178,10 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -3793,6 +4234,10 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -3847,6 +4292,10 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -3899,6 +4348,10 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -3933,7 +4386,7 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                         type: zod
                             .literal('feature')
                             .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnetwoTypeDefault)
-                            .describe('Event property with "$feature/\" prepended'),
+                            .describe('Event property with \"$feature\/\" prepended'),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -3988,6 +4441,10 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -4040,6 +4497,10 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -4092,6 +4553,10 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -4144,6 +4609,10 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -4194,6 +4663,10 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -4246,6 +4719,10 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -4296,6 +4773,10 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -4348,6 +4829,69 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
+                            'regex',
+                            'not_regex',
+                            'gt',
+                            'gte',
+                            'lt',
+                            'lte',
+                            'is_set',
+                            'is_not_set',
+                            'is_date_exact',
+                            'is_date_before',
+                            'is_date_after',
+                            'between',
+                            'not_between',
+                            'min',
+                            'max',
+                            'in',
+                            'not_in',
+                            'is_cleaned_path_exact',
+                            'flag_evaluates_to',
+                            'semver_eq',
+                            'semver_neq',
+                            'semver_gt',
+                            'semver_gte',
+                            'semver_lt',
+                            'semver_lte',
+                            'semver_tilde',
+                            'semver_caret',
+                            'semver_wildcard',
+                            'icontains_multi',
+                            'not_icontains_multi',
+                        ]),
+                        type: zod
+                            .literal('account_custom_property')
+                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault)
+                            .describe(
+                                'Customer analytics account custom property — the key is the property definition id'
+                            ),
+                        value: zod
+                            .union([
+                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                zod.string(),
+                                zod.number(),
+                                zod.boolean(),
+                                zod.null(),
+                            ])
+                            .optional(),
+                    }),
+                    zod.object({
+                        key: zod.string(),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
+                        operator: zod.enum([
+                            'exact',
+                            'is_not',
+                            'icontains',
+                            'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -4381,7 +4925,7 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                         ]),
                         type: zod
                             .literal('workflow_variable')
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault),
+                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwofourTypeDefault),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -4401,9 +4945,9 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
             zod.object({
                 type: zod
                     .enum(['user', 'role'])
-                    .describe('* `user` - user\n* `role` - role')
+                    .describe('\* `user` - user\n\* `role` - role')
                     .describe(
-                        'Assignee type. Use `user` for a user ID or `role` for a role UUID.\n\n* `user` - user\n* `role` - role'
+                        'Assignee type. Use `user` for a user ID or `role` for a role UUID.\n\n\* `user` - user\n\* `role` - role'
                     ),
                 id: zod
                     .union([zod.number(), zod.string()])
@@ -4424,7 +4968,7 @@ export const ErrorTrackingGroupingRulesUpdateParams = /* @__PURE__ */ zod.object
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -4451,7 +4995,8 @@ export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnesevenTyp
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
+export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault = `account_custom_property`
+export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwofourTypeDefault = `workflow_variable`
 
 export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
     filters: zod
@@ -4471,6 +5016,10 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                         'is_not',
                                         'icontains',
                                         'not_icontains',
+                                        'starts_with',
+                                        'not_starts_with',
+                                        'ends_with',
+                                        'not_ends_with',
                                         'regex',
                                         'not_regex',
                                         'gt',
@@ -4527,6 +5076,10 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -4580,6 +5133,10 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -4635,6 +5192,10 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -4687,6 +5248,10 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -4739,6 +5304,10 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -4796,6 +5365,10 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                         'is_not',
                                         'icontains',
                                         'not_icontains',
+                                        'starts_with',
+                                        'not_starts_with',
+                                        'ends_with',
+                                        'not_ends_with',
                                         'regex',
                                         'not_regex',
                                         'gt',
@@ -4846,6 +5419,10 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -4898,6 +5475,10 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -4952,6 +5533,10 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -5004,6 +5589,10 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -5038,7 +5627,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                             type: zod
                                 .literal('feature')
                                 .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnetwoTypeDefault)
-                                .describe('Event property with "$feature/\" prepended'),
+                                .describe('Event property with \"$feature\/\" prepended'),
                             value: zod
                                 .union([
                                     zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -5095,6 +5684,10 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -5147,6 +5740,10 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -5199,6 +5796,10 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -5251,6 +5852,10 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -5301,6 +5906,10 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -5353,6 +5962,10 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -5403,6 +6016,10 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -5455,6 +6072,69 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
+                                'regex',
+                                'not_regex',
+                                'gt',
+                                'gte',
+                                'lt',
+                                'lte',
+                                'is_set',
+                                'is_not_set',
+                                'is_date_exact',
+                                'is_date_before',
+                                'is_date_after',
+                                'between',
+                                'not_between',
+                                'min',
+                                'max',
+                                'in',
+                                'not_in',
+                                'is_cleaned_path_exact',
+                                'flag_evaluates_to',
+                                'semver_eq',
+                                'semver_neq',
+                                'semver_gt',
+                                'semver_gte',
+                                'semver_lt',
+                                'semver_lte',
+                                'semver_tilde',
+                                'semver_caret',
+                                'semver_wildcard',
+                                'icontains_multi',
+                                'not_icontains_multi',
+                            ]),
+                            type: zod
+                                .literal('account_custom_property')
+                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault)
+                                .describe(
+                                    'Customer analytics account custom property — the key is the property definition id'
+                                ),
+                            value: zod
+                                .union([
+                                    zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                    zod.string(),
+                                    zod.number(),
+                                    zod.boolean(),
+                                    zod.null(),
+                                ])
+                                .optional(),
+                        }),
+                        zod.object({
+                            key: zod.string(),
+                            label: zod.union([zod.string(), zod.null()]).optional(),
+                            operator: zod.enum([
+                                'exact',
+                                'is_not',
+                                'icontains',
+                                'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -5488,7 +6168,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                             ]),
                             type: zod
                                 .literal('workflow_variable')
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault),
+                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwofourTypeDefault),
                             value: zod
                                 .union([
                                     zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -5515,17 +6195,17 @@ export const ErrorTrackingIssuesPartialUpdateParams = /* @__PURE__ */ zod.object
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
     status: zod
         .enum(['active', 'resolved', 'suppressed'])
-        .describe('* `active` - active\n* `resolved` - resolved\n* `suppressed` - suppressed')
+        .describe('\* `active` - active\n\* `resolved` - resolved\n\* `suppressed` - suppressed')
         .optional()
         .describe(
-            'Issue status to set. Deprecated archived and pending_release values are rejected.\n\n* `active` - active\n* `resolved` - resolved\n* `suppressed` - suppressed'
+            'Issue status to set. Deprecated archived and pending_release values are rejected.\n\n\* `active` - active\n\* `resolved` - resolved\n\* `suppressed` - suppressed'
         ),
     name: zod.string().nullish().describe('Optional issue display name.'),
     description: zod.string().nullish().describe('Optional issue description.'),
@@ -5536,7 +6216,7 @@ export const ErrorTrackingIssuesMergeCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -5549,7 +6229,7 @@ export const ErrorTrackingIssuesSplitCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -5580,7 +6260,7 @@ export const ErrorTrackingQueryIssueCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -5609,7 +6289,7 @@ export const ErrorTrackingQueryIssueCreateBody = /* @__PURE__ */ zod.object({
     filterTestAccounts: zod
         .boolean()
         .default(errorTrackingQueryIssueCreateBodyFilterTestAccountsDefault)
-        .describe('When true, exclude internal/test account data from results. Defaults to true.'),
+        .describe('When true, exclude internal\/test account data from results. Defaults to true.'),
     volumeResolution: zod
         .number()
         .min(errorTrackingQueryIssueCreateBodyVolumeResolutionMin)
@@ -5630,7 +6310,7 @@ export const ErrorTrackingQueryIssueEventsCreateParams = /* @__PURE__ */ zod.obj
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -5666,7 +6346,7 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
     filterTestAccounts: zod
         .boolean()
         .default(errorTrackingQueryIssueEventsCreateBodyFilterTestAccountsDefault)
-        .describe('When true, exclude internal/test account data from results. Defaults to true.'),
+        .describe('When true, exclude internal\/test account data from results. Defaults to true.'),
     filterGroup: zod
         .array(
             zod.object({
@@ -5681,7 +6361,7 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
                         zod.array(zod.union([zod.string(), zod.number()])),
                     ])
                     .describe(
-                        'Value of your filter. For example `test@example.com` or `https:/\/example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`'
+                        'Value of your filter. For example `test@example.com` or `https:\/\/example.com\/test\/`. Can be an array for an OR query, like `[\"test@example.com\",\"ok@example.com\"]`'
                     ),
                 operator: zod
                     .union([
@@ -5691,6 +6371,10 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -5706,7 +6390,7 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
                                 'not_in',
                             ])
                             .describe(
-                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte\n* `is_set` - is_set\n* `is_not_set` - is_not_set\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before\n* `in` - in\n* `not_in` - not_in'
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `gte` - gte\n\* `lte` - lte\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set\n\* `is_date_exact` - is_date_exact\n\* `is_date_after` - is_date_after\n\* `is_date_before` - is_date_before\n\* `in` - in\n\* `not_in` - not_in'
                             ),
                         zod.enum(['']),
                         zod.null(),
@@ -5743,11 +6427,12 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
                                 'span_attribute',
                                 'span_resource_attribute',
                                 'revenue_analytics',
+                                'account_custom_property',
                                 'flag',
                                 'workflow_variable',
                             ])
                             .describe(
-                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `person_metadata` - person_metadata\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `metric_attribute` - metric_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                '\* `event` - event\n\* `event_metadata` - event_metadata\n\* `feature` - feature\n\* `person` - person\n\* `person_metadata` - person_metadata\n\* `cohort` - cohort\n\* `element` - element\n\* `static-cohort` - static-cohort\n\* `dynamic-cohort` - dynamic-cohort\n\* `precalculated-cohort` - precalculated-cohort\n\* `group` - group\n\* `recording` - recording\n\* `log_entry` - log_entry\n\* `behavioral` - behavioral\n\* `session` - session\n\* `hogql` - hogql\n\* `data_warehouse` - data_warehouse\n\* `data_warehouse_person_property` - data_warehouse_person_property\n\* `error_tracking_issue` - error_tracking_issue\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute\n\* `metric_attribute` - metric_attribute\n\* `span` - span\n\* `span_attribute` - span_attribute\n\* `span_resource_attribute` - span_resource_attribute\n\* `revenue_analytics` - revenue_analytics\n\* `account_custom_property` - account_custom_property\n\* `flag` - flag\n\* `workflow_variable` - workflow_variable'
                             ),
                         zod.enum(['']),
                     ])
@@ -5763,9 +6448,9 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
         .describe('Search exception types, exception values, and current URL among sampled events.'),
     orderDirection: zod
         .enum(['ASC', 'DESC'])
-        .describe('* `ASC` - ASC\n* `DESC` - DESC')
+        .describe('\* `ASC` - ASC\n\* `DESC` - DESC')
         .default(errorTrackingQueryIssueEventsCreateBodyOrderDirectionDefault)
-        .describe('Timestamp sort direction. Defaults to DESC.\n\n* `ASC` - ASC\n* `DESC` - DESC'),
+        .describe('Timestamp sort direction. Defaults to DESC.\n\n\* `ASC` - ASC\n\* `DESC` - DESC'),
     limit: zod
         .number()
         .min(1)
@@ -5791,7 +6476,7 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
                     'diagnostics',
                 ])
                 .describe(
-                    '* `exception` - exception\n* `stacktrace` - stacktrace\n* `code_variables` - code_variables\n* `environment` - environment\n* `release` - release\n* `navigation` - navigation\n* `correlation` - correlation\n* `diagnostics` - diagnostics'
+                    '\* `exception` - exception\n\* `stacktrace` - stacktrace\n\* `code_variables` - code_variables\n\* `environment` - environment\n\* `release` - release\n\* `navigation` - navigation\n\* `correlation` - correlation\n\* `diagnostics` - diagnostics'
                 )
         )
         .optional()
@@ -5812,7 +6497,7 @@ export const ErrorTrackingQueryIssuesListCreateParams = /* @__PURE__ */ zod.obje
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -5859,11 +6544,11 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
     status: zod
         .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed', 'all'])
         .describe(
-            '* `archived` - archived\n* `active` - active\n* `resolved` - resolved\n* `pending_release` - pending_release\n* `suppressed` - suppressed\n* `all` - all'
+            '\* `archived` - archived\n\* `active` - active\n\* `resolved` - resolved\n\* `pending_release` - pending_release\n\* `suppressed` - suppressed\n\* `all` - all'
         )
         .default(errorTrackingQueryIssuesListCreateBodyStatusDefault)
         .describe(
-            'Filter by issue status. Defaults to active.\n\n* `archived` - archived\n* `active` - active\n* `resolved` - resolved\n* `pending_release` - pending_release\n* `suppressed` - suppressed\n* `all` - all'
+            'Filter by issue status. Defaults to active.\n\n\* `archived` - archived\n\* `active` - active\n\* `resolved` - resolved\n\* `pending_release` - pending_release\n\* `suppressed` - suppressed\n\* `all` - all'
         ),
     assignee: zod
         .union([
@@ -5871,8 +6556,8 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
                 id: zod.union([zod.string(), zod.number(), zod.null()]).describe('User ID or role UUID to filter by.'),
                 type: zod
                     .enum(['user', 'role'])
-                    .describe('* `user` - user\n* `role` - role')
-                    .describe('Assignee target type: user or role.\n\n* `user` - user\n* `role` - role'),
+                    .describe('\* `user` - user\n\* `role` - role')
+                    .describe('Assignee target type: user or role.\n\n\* `user` - user\n\* `role` - role'),
             }),
             zod.null(),
         ])
@@ -5881,7 +6566,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
     filterTestAccounts: zod
         .boolean()
         .default(errorTrackingQueryIssuesListCreateBodyFilterTestAccountsDefault)
-        .describe('When true, exclude internal/test account data from results. Defaults to true.'),
+        .describe('When true, exclude internal\/test account data from results. Defaults to true.'),
     searchQuery: zod
         .string()
         .max(errorTrackingQueryIssuesListCreateBodySearchQueryMax)
@@ -5901,7 +6586,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
                         zod.array(zod.union([zod.string(), zod.number()])),
                     ])
                     .describe(
-                        'Value of your filter. For example `test@example.com` or `https:/\/example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`'
+                        'Value of your filter. For example `test@example.com` or `https:\/\/example.com\/test\/`. Can be an array for an OR query, like `[\"test@example.com\",\"ok@example.com\"]`'
                     ),
                 operator: zod
                     .union([
@@ -5911,6 +6596,10 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -5926,7 +6615,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
                                 'not_in',
                             ])
                             .describe(
-                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte\n* `is_set` - is_set\n* `is_not_set` - is_not_set\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before\n* `in` - in\n* `not_in` - not_in'
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `gte` - gte\n\* `lte` - lte\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set\n\* `is_date_exact` - is_date_exact\n\* `is_date_after` - is_date_after\n\* `is_date_before` - is_date_before\n\* `in` - in\n\* `not_in` - not_in'
                             ),
                         zod.enum(['']),
                         zod.null(),
@@ -5963,11 +6652,12 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
                                 'span_attribute',
                                 'span_resource_attribute',
                                 'revenue_analytics',
+                                'account_custom_property',
                                 'flag',
                                 'workflow_variable',
                             ])
                             .describe(
-                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `person_metadata` - person_metadata\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `metric_attribute` - metric_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                '\* `event` - event\n\* `event_metadata` - event_metadata\n\* `feature` - feature\n\* `person` - person\n\* `person_metadata` - person_metadata\n\* `cohort` - cohort\n\* `element` - element\n\* `static-cohort` - static-cohort\n\* `dynamic-cohort` - dynamic-cohort\n\* `precalculated-cohort` - precalculated-cohort\n\* `group` - group\n\* `recording` - recording\n\* `log_entry` - log_entry\n\* `behavioral` - behavioral\n\* `session` - session\n\* `hogql` - hogql\n\* `data_warehouse` - data_warehouse\n\* `data_warehouse_person_property` - data_warehouse_person_property\n\* `error_tracking_issue` - error_tracking_issue\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute\n\* `metric_attribute` - metric_attribute\n\* `span` - span\n\* `span_attribute` - span_attribute\n\* `span_resource_attribute` - span_resource_attribute\n\* `revenue_analytics` - revenue_analytics\n\* `account_custom_property` - account_custom_property\n\* `flag` - flag\n\* `workflow_variable` - workflow_variable'
                             ),
                         zod.enum(['']),
                     ])
@@ -5981,17 +6671,17 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
     orderBy: zod
         .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
         .describe(
-            '* `last_seen` - last_seen\n* `first_seen` - first_seen\n* `occurrences` - occurrences\n* `users` - users\n* `sessions` - sessions'
+            '\* `last_seen` - last_seen\n\* `first_seen` - first_seen\n\* `occurrences` - occurrences\n\* `users` - users\n\* `sessions` - sessions'
         )
         .default(errorTrackingQueryIssuesListCreateBodyOrderByDefault)
         .describe(
-            'Field used to sort issues. Defaults to occurrences.\n\n* `last_seen` - last_seen\n* `first_seen` - first_seen\n* `occurrences` - occurrences\n* `users` - users\n* `sessions` - sessions'
+            'Field used to sort issues. Defaults to occurrences.\n\n\* `last_seen` - last_seen\n\* `first_seen` - first_seen\n\* `occurrences` - occurrences\n\* `users` - users\n\* `sessions` - sessions'
         ),
     orderDirection: zod
         .enum(['ASC', 'DESC'])
-        .describe('* `ASC` - ASC\n* `DESC` - DESC')
+        .describe('\* `ASC` - ASC\n\* `DESC` - DESC')
         .default(errorTrackingQueryIssuesListCreateBodyOrderDirectionDefault)
-        .describe('Sort direction. Defaults to DESC.\n\n* `ASC` - ASC\n* `DESC` - DESC'),
+        .describe('Sort direction. Defaults to DESC.\n\n\* `ASC` - ASC\n\* `DESC` - DESC'),
     limit: zod
         .number()
         .min(1)
@@ -6012,7 +6702,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
     library: zod
         .union([zod.string(), zod.array(zod.string()).min(1)])
         .optional()
-        .describe('Filter by SDK/library value from event $lib, for example posthog-js.'),
+        .describe('Filter by SDK\/library value from event $lib, for example posthog-js.'),
     release: zod
         .string()
         .max(errorTrackingQueryIssuesListCreateBodyReleaseMax)
@@ -6026,7 +6716,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
         .string()
         .max(errorTrackingQueryIssuesListCreateBodyUserMax)
         .optional()
-        .describe('Search user/email text.'),
+        .describe('Search user\/email text.'),
     personId: zod.string().optional().describe('Filter by exact PostHog person UUID.'),
     url: zod
         .string()
@@ -6037,14 +6727,14 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
         .string()
         .max(errorTrackingQueryIssuesListCreateBodyFilePathMax)
         .optional()
-        .describe('Search stack-frame source/file path text.'),
+        .describe('Search stack-frame source\/file path text.'),
 })
 
 export const ErrorTrackingRecommendationsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -6057,7 +6747,7 @@ export const ErrorTrackingSettingsRetrieveSettingsRetrieveParams = /* @__PURE__ 
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -6065,7 +6755,7 @@ export const ErrorTrackingSettingsUpdateSettingsPartialUpdateParams = /* @__PURE
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -6100,7 +6790,7 @@ export const ErrorTrackingSuppressionRulesListParams = /* @__PURE__ */ zod.objec
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -6113,7 +6803,7 @@ export const ErrorTrackingSuppressionRulesCreateParams = /* @__PURE__ */ zod.obj
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -6140,7 +6830,8 @@ export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOneseven
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
+export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `account_custom_property`
+export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwofourTypeDefault = `workflow_variable`
 export const errorTrackingSuppressionRulesCreateBodySamplingRateDefault = 1
 export const errorTrackingSuppressionRulesCreateBodySamplingRateMin = 0
 export const errorTrackingSuppressionRulesCreateBodySamplingRateMax = 1
@@ -6162,6 +6853,10 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                                     'is_not',
                                     'icontains',
                                     'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
                                     'regex',
                                     'not_regex',
                                     'gt',
@@ -6218,6 +6913,10 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -6271,6 +6970,10 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -6324,6 +7027,10 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -6376,6 +7083,10 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -6428,6 +7139,10 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -6485,6 +7200,10 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                                     'is_not',
                                     'icontains',
                                     'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
                                     'regex',
                                     'not_regex',
                                     'gt',
@@ -6532,6 +7251,10 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -6584,6 +7307,10 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -6638,6 +7365,10 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -6690,6 +7421,10 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -6724,7 +7459,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                         type: zod
                             .literal('feature')
                             .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnetwoTypeDefault)
-                            .describe('Event property with "$feature/\" prepended'),
+                            .describe('Event property with \"$feature\/\" prepended'),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -6779,6 +7514,10 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -6831,6 +7570,10 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -6883,6 +7626,10 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -6935,6 +7682,10 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -6985,6 +7736,10 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -7037,6 +7792,10 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -7087,6 +7846,10 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -7139,6 +7902,69 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
+                            'regex',
+                            'not_regex',
+                            'gt',
+                            'gte',
+                            'lt',
+                            'lte',
+                            'is_set',
+                            'is_not_set',
+                            'is_date_exact',
+                            'is_date_before',
+                            'is_date_after',
+                            'between',
+                            'not_between',
+                            'min',
+                            'max',
+                            'in',
+                            'not_in',
+                            'is_cleaned_path_exact',
+                            'flag_evaluates_to',
+                            'semver_eq',
+                            'semver_neq',
+                            'semver_gt',
+                            'semver_gte',
+                            'semver_lt',
+                            'semver_lte',
+                            'semver_tilde',
+                            'semver_caret',
+                            'semver_wildcard',
+                            'icontains_multi',
+                            'not_icontains_multi',
+                        ]),
+                        type: zod
+                            .literal('account_custom_property')
+                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault)
+                            .describe(
+                                'Customer analytics account custom property — the key is the property definition id'
+                            ),
+                        value: zod
+                            .union([
+                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                zod.string(),
+                                zod.number(),
+                                zod.boolean(),
+                                zod.null(),
+                            ])
+                            .optional(),
+                    }),
+                    zod.object({
+                        key: zod.string(),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
+                        operator: zod.enum([
+                            'exact',
+                            'is_not',
+                            'icontains',
+                            'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -7172,7 +7998,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                         ]),
                         type: zod
                             .literal('workflow_variable')
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault),
+                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwofourTypeDefault),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -7205,7 +8031,7 @@ export const ErrorTrackingSuppressionRulesUpdateParams = /* @__PURE__ */ zod.obj
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -7232,7 +8058,8 @@ export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOneseven
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
+export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault = `account_custom_property`
+export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwofourTypeDefault = `workflow_variable`
 export const errorTrackingSuppressionRulesUpdateBodySamplingRateMin = 0
 export const errorTrackingSuppressionRulesUpdateBodySamplingRateMax = 1
 
@@ -7253,6 +8080,10 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                                     'is_not',
                                     'icontains',
                                     'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
                                     'regex',
                                     'not_regex',
                                     'gt',
@@ -7309,6 +8140,10 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -7362,6 +8197,10 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -7415,6 +8254,10 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -7467,6 +8310,10 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -7519,6 +8366,10 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -7576,6 +8427,10 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                                     'is_not',
                                     'icontains',
                                     'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
                                     'regex',
                                     'not_regex',
                                     'gt',
@@ -7623,6 +8478,10 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -7675,6 +8534,10 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -7729,6 +8592,10 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -7781,6 +8648,10 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -7815,7 +8686,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                         type: zod
                             .literal('feature')
                             .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnetwoTypeDefault)
-                            .describe('Event property with "$feature/\" prepended'),
+                            .describe('Event property with \"$feature\/\" prepended'),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -7870,6 +8741,10 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -7922,6 +8797,10 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -7974,6 +8853,10 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -8026,6 +8909,10 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -8076,6 +8963,10 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -8128,6 +9019,10 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -8178,6 +9073,10 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -8230,6 +9129,69 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                             'is_not',
                             'icontains',
                             'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
+                            'regex',
+                            'not_regex',
+                            'gt',
+                            'gte',
+                            'lt',
+                            'lte',
+                            'is_set',
+                            'is_not_set',
+                            'is_date_exact',
+                            'is_date_before',
+                            'is_date_after',
+                            'between',
+                            'not_between',
+                            'min',
+                            'max',
+                            'in',
+                            'not_in',
+                            'is_cleaned_path_exact',
+                            'flag_evaluates_to',
+                            'semver_eq',
+                            'semver_neq',
+                            'semver_gt',
+                            'semver_gte',
+                            'semver_lt',
+                            'semver_lte',
+                            'semver_tilde',
+                            'semver_caret',
+                            'semver_wildcard',
+                            'icontains_multi',
+                            'not_icontains_multi',
+                        ]),
+                        type: zod
+                            .literal('account_custom_property')
+                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault)
+                            .describe(
+                                'Customer analytics account custom property — the key is the property definition id'
+                            ),
+                        value: zod
+                            .union([
+                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                zod.string(),
+                                zod.number(),
+                                zod.boolean(),
+                                zod.null(),
+                            ])
+                            .optional(),
+                    }),
+                    zod.object({
+                        key: zod.string(),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
+                        operator: zod.enum([
+                            'exact',
+                            'is_not',
+                            'icontains',
+                            'not_icontains',
+                            'starts_with',
+                            'not_starts_with',
+                            'ends_with',
+                            'not_ends_with',
                             'regex',
                             'not_regex',
                             'gt',
@@ -8263,7 +9225,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                         ]),
                         type: zod
                             .literal('workflow_variable')
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault),
+                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwofourTypeDefault),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -8295,7 +9257,7 @@ export const ErrorTrackingSymbolSetsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -8309,7 +9271,7 @@ export const ErrorTrackingSymbolSetsListQueryParams = /* @__PURE__ */ zod.object
         .min(1)
         .optional()
         .describe(
-            'Sort order for symbol sets. Prefix with `-` for descending order.\n\n* `created_at` - created_at\n* `-created_at` - -created_at\n* `ref` - ref\n* `-ref` - -ref\n* `last_used` - last_used\n* `-last_used` - -last_used'
+            'Sort order for symbol sets. Prefix with `-` for descending order.\n\n\* `created_at` - created_at\n\* `-created_at` - -created_at\n\* `ref` - ref\n\* `-ref` - -ref\n\* `last_used` - last_used\n\* `-last_used` - -last_used'
         ),
     ref: zod.string().min(1).optional().describe('Exact symbol set reference to filter by.'),
     search: zod
@@ -8323,7 +9285,7 @@ export const ErrorTrackingSymbolSetsListQueryParams = /* @__PURE__ */ zod.object
         .enum(['all', 'valid', 'invalid'])
         .default(errorTrackingSymbolSetsListQueryStatusDefault)
         .describe(
-            'Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.\n\n* `all` - all\n* `valid` - valid\n* `invalid` - invalid'
+            'Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.\n\n\* `all` - all\n\* `valid` - valid\n\* `invalid` - invalid'
         ),
 })
 
@@ -8332,7 +9294,7 @@ export const ErrorTrackingSymbolSetsRetrieveParams = /* @__PURE__ */ zod.object(
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -8344,6 +9306,6 @@ export const ErrorTrackingSymbolSetsDownloadRetrieveParams = /* @__PURE__ */ zod
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })

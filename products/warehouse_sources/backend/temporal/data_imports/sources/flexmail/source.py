@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.flexmail.flexmail import (
     FlexmailResumeConfig,
     flexmail_source,
@@ -29,7 +26,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.flexmail.s
     ENDPOINTS,
     FLEXMAIL_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FlexmailSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flexmail import (
+    FlexmailSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -99,6 +98,7 @@ You can create a personal access token under **Settings → API → Personal acc
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Flexmail's list endpoints expose no server-side
         # timestamp filter, so there is no incremental cursor to advance.
@@ -117,7 +117,11 @@ You can create a personal access token under **Settings → API → Personal acc
         return schemas
 
     def validate_credentials(
-        self, config: FlexmailSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FlexmailSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # Personal access tokens are account-wide, so a single probe validates access to every schema.
         return validate_credentials(config.account_id, config.personal_access_token)
@@ -138,6 +142,7 @@ You can create a personal access token under **Settings → API → Personal acc
             account_id=config.account_id,
             personal_access_token=config.personal_access_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

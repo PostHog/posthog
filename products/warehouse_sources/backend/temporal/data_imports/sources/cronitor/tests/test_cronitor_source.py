@@ -9,7 +9,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cronitor.s
     ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cronitor.source import CronitorSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CronitorSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cronitor import (
+    CronitorSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Only the metrics API exposes a server-side time filter (start/end); everything else is full refresh.

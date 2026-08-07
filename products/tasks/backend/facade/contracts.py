@@ -42,6 +42,22 @@ class TaskDTO:
 
 
 @dataclass(frozen=True)
+class SignalImplementationRunDTO:
+    """Identity of a signals-origin ("self-driving") implementation run that produced a PR.
+
+    Returned by ``find_signal_implementation_run``. Consumers (stamphog's inbox carve-out) use it
+    to confirm a bot-authored PR is a PostHog Code self-driving implementation and to find whose
+    review preferences apply.
+    """
+
+    run_id: UUID
+    task_id: UUID
+    team_id: int
+    signal_report_id: UUID
+    task_created_by_id: int | None = None
+
+
+@dataclass(frozen=True)
 class WizardCloudRunDTO:
     """A team's active onboarding wizard cloud run.
 
@@ -136,6 +152,7 @@ class TaskDetailDTO:
     origin_product: str
     runtime: str
     repository: str | None
+    repositories: list[str]
     github_integration: int | None
     github_user_integration: UUID | None
     signal_report: UUID | None
@@ -159,7 +176,24 @@ class ChannelDTO:
     id: UUID
     name: str
     channel_type: str
+    github_integration: int | None
+    repositories: list[str]
     created_at: datetime
+    created_by: "TaskUserBasicInfo | None" = None
+    starred: bool = False
+
+
+@dataclass(frozen=True)
+class ChannelInstructionsDTO:
+    """The HTTP representation of a channel's CONTEXT.md instructions version.
+
+    A channel that has never had instructions published reads as a blank
+    version 0 — publish against ``base_version: 0`` to create version 1."""
+
+    channel: UUID
+    content: str
+    version: int
+    created_at: datetime | None = None
     created_by: "TaskUserBasicInfo | None" = None
 
 
@@ -206,6 +240,92 @@ class TaskMentionDTO:
     content: str
     created_at: datetime
     author: "TaskUserBasicInfo | None" = None
+
+
+@dataclass(frozen=True)
+class TaskActivityDTO:
+    """One entry in the requesting user's task-centric activity feed.
+
+    Lifecycle signals collapse to one row per task, while comment notifications remain
+    separate entries. Source fields describe the message or comment tied
+    to ``activity_at`` and stay empty for task creation.
+    """
+
+    id: UUID
+    task_id: UUID
+    task_title: str
+    channel_id: UUID | None
+    channel_name: str | None
+    activity_at: datetime
+    activity_kind: str
+    snippet: str
+    latest_author: "TaskUserBasicInfo | None" = None
+    latest_message_id: UUID | None = None
+    latest_comment_id: UUID | None = None
+    latest_comment_scope: str | None = None
+    latest_comment_item_id: str | None = None
+    is_unread: bool = True
+
+
+@dataclass(frozen=True)
+class TaskActivityPageDTO:
+    results: list[TaskActivityDTO]
+    unread_count: int
+    next_before: datetime | None = None
+    next_before_id: UUID | None = None
+
+
+@dataclass(frozen=True)
+class TaskArtifactDTO:
+    id: str
+    type: str
+    name: str
+
+
+@dataclass(frozen=True)
+class TaskCommentTargetDTO:
+    id: str
+    type: str
+    name: str
+
+
+@dataclass(frozen=True)
+class TaskCommentSummaryDTO:
+    id: UUID
+    target: TaskCommentTargetDTO
+    content: str
+    content_truncated: bool
+    selected_text: str | None
+    created_at: datetime
+    reply_count: int
+    resolved: bool
+
+
+@dataclass(frozen=True)
+class TaskCommentPageDTO:
+    comments: list[TaskCommentSummaryDTO]
+    next: str | None
+
+
+@dataclass(frozen=True)
+class TaskCommentEntryDTO:
+    id: UUID
+    content: str
+    content_truncated: bool
+    content_next_offset: int | None
+    author: str | None
+    created_at: datetime
+    anchor: dict | None
+    canvas_version_id: str | None
+
+
+@dataclass(frozen=True)
+class TaskCommentDetailDTO:
+    id: UUID
+    target: TaskCommentTargetDTO
+    resolved: bool
+    comments: list[TaskCommentEntryDTO]
+    next: str | None
 
 
 @dataclass(frozen=True)
@@ -479,7 +599,7 @@ class CreatedTaskDTO:
 
 @dataclass(frozen=True)
 class CodeInviteRedeemResult:
-    """Outcome of attempting to redeem a PostHog Code invite.
+    """Outcome of attempting to redeem a PostHog Desktop invite.
 
     ``outcome`` is one of ``redeemed`` (or ``already_redeemed``), ``invalid_code``, or
     ``not_redeemable``. The presentation layer maps it to the success/error HTTP response;
@@ -518,102 +638,6 @@ class TaskAutomationDTO:
     last_error: str | None
     created_at: datetime
     updated_at: datetime
-
-
-@dataclass(frozen=True)
-class CodeWorkflowConfigDTO:
-    """A user's per-team code-workflow binding configuration.
-
-    Mirrors exactly the JSON shape the code-workflow endpoints emit: ``id`` and
-    ``updatedAt`` are stringified, ``version`` powers optimistic locking, and
-    ``bindings`` is the situation-id → ordered action-list mapping.
-    """
-
-    id: str
-    version: int
-    updated_at: datetime
-    bindings: dict
-
-
-@dataclass(frozen=True)
-class CodeWorkflowDiagnosticDTO:
-    """One binding-validation diagnostic.
-
-    Mirrors a ``ValidationDiagnostic``; ``situation_id`` / ``action_id`` are present only
-    when the diagnostic is scoped to a specific situation or action.
-    """
-
-    severity: str
-    code: str
-    message: str
-    situation_id: str | None = None
-    action_id: str | None = None
-
-
-@dataclass(frozen=True)
-class CodeWorkflowSaveResult:
-    """Outcome of attempting to save code-workflow bindings.
-
-    ``outcome`` is one of ``saved`` (bindings persisted, version bumped), ``conflict``
-    (``expected_version`` did not match the stored version), or ``invalid`` (validation
-    failed). ``config`` is always the resulting/current config; ``diagnostics`` is only
-    populated on the ``invalid`` outcome.
-    """
-
-    outcome: str
-    config: CodeWorkflowConfigDTO
-    diagnostics: list[CodeWorkflowDiagnosticDTO] = Field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class CodeHomeWorkstreamTaskDTO:
-    """One grouped task inside a workstream card."""
-
-    id: str | None
-    title: str | None
-    status: str | None
-    is_generating: bool = False
-    needs_permission: bool = False
-    quick_action: str | None = None
-
-
-@dataclass(frozen=True)
-class CodeHomeWorkstreamDTO:
-    """A persisted workstream card for the code-home board."""
-
-    id: str
-    repo_name: str | None
-    repo_full_path: str | None
-    branch: str | None
-    pr_url: str | None
-    pr: dict | None
-    primary_situation: str | None
-    last_activity_at: int
-    tasks: list[CodeHomeWorkstreamTaskDTO] = Field(default_factory=list)
-    situations: list = Field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class CodeHomeActiveAgentDTO:
-    """A live, in-flight agent run shown on the code-home board."""
-
-    task_id: str
-    title: str
-    repo_name: str | None
-    branch: str | None
-    status: str
-    last_activity_at: int
-    needs_permission: bool = False
-    cloud_pr_url: str | None = None
-
-
-@dataclass(frozen=True)
-class CodeHomeDTO:
-    """The full code-home board: live agents plus persisted workstreams by column."""
-
-    active_agents: list[CodeHomeActiveAgentDTO] = Field(default_factory=list)
-    needs_attention: list[CodeHomeWorkstreamDTO] = Field(default_factory=list)
-    in_progress: list[CodeHomeWorkstreamDTO] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)

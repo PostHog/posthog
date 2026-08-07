@@ -16,7 +16,7 @@ from posthog.temporal.ai.slack_app.attachments import (
     prepare_slack_file_artifacts,
 )
 from posthog.temporal.ai.slack_app.helpers import block_if_team_over_quota, safe_react
-from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs
+from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs, SlackAppModelOverride
 from posthog.temporal.common.utils import close_db_connections
 
 logger = structlog.get_logger(__name__)
@@ -82,10 +82,11 @@ _THREAD_UPDATE_MAX_MESSAGES = 50
 
 
 def _slack_actor_state_updates(*, user_id: int, slack_user_id: str) -> dict[str, Any]:
-    return {
-        "slack_actor_user_id": user_id,
-        "slack_actor_slack_user_id": slack_user_id,
-    }
+    from products.tasks.backend.facade import (
+        api as tasks_facade,  # noqa: PLC0415 — keep tasks deps off the slack_app import path
+    )
+
+    return tasks_facade.slack_actor_state_updates(user_id=user_id, slack_user_id=slack_user_id)
 
 
 def _strip_context_tag(text: str) -> str:
@@ -124,11 +125,12 @@ def _max_ts(*candidates: str | None) -> str:
 def _format_author_token(user_id: str | None, display_name: str | None) -> str:
     """Render a message author as a labeled Slack mention when we have the raw id.
 
-    `<@U…|displayname>` is the wire-format token Slack accepts on both inbound and
-    outbound messages; including it here means the agent sees who wrote each line
-    *and* can echo the token verbatim to ping that participant back. When the raw
-    id is missing (bots, app-posted messages, unresolved users), fall back to the
-    plain display name so the line still reads naturally.
+    `<@U…|displayname>` is the form Slack uses to deliver mentions inbound; rendering
+    it here means the agent sees who wrote each line *and* can echo the token verbatim
+    to ping that participant back (the Slack relay rewrites echoed tokens to the bare
+    `<@U…>` on the way out, which is what actually notifies). When the raw id is missing
+    (bots, app-posted messages, unresolved users), fall back to the plain display name
+    so the line still reads naturally.
     """
     name = (display_name or "").strip() or "user"
     uid = (user_id or "").strip()
@@ -515,6 +517,7 @@ def create_posthog_code_task_for_repo_activity(
     repository: str | None,
     repo_research_task_id: str | None = None,
     repo_research_run_id: str | None = None,
+    model_override: SlackAppModelOverride | None = None,
 ) -> None:
     from posthog.models.integration import Integration, SlackIntegration
 
@@ -573,7 +576,7 @@ def create_posthog_code_task_for_repo_activity(
     from products.slack_app.backend.services.slack_user_info import get_slack_user_info  # noqa: PLC0415
 
     user_text = decode_slack_event_text(slack, integration, event.get("text", ""))
-    # Title is shown in PostHog Code's UI (task lists, PR titles) where the
+    # Title is shown in PostHog Desktop's UI (task lists, PR titles) where the
     # labeled `<@U…|name>` form would render as literal noise; the description
     # keeps the labeled form so the agent can echo tokens back as real pings.
     title_text = labeled_mentions_to_display_names(user_text)
@@ -630,9 +633,21 @@ def create_posthog_code_task_for_repo_activity(
     # PR tooling enabled so an explicit follow-up can clone a repo and publish.
     allow_pr_creation = True
 
-    from products.slack_app.backend.facade.slack_settings import resolve_ai_preferences
+    from products.slack_app.backend.facade.run_preferences import resolve_run_preferences
 
-    ai_prefs = resolve_ai_preferences(integration, slack_user_id)
+    run_prefs = resolve_run_preferences(integration, slack_user_id, override=model_override)
+
+    # File into the creator's personal "#me" channel so the task surfaces in PostHog Desktop's
+    # Spaces feed, which is strictly channel-scoped — a NULL-channel task shows up in no space.
+    personal_channel_id: uuid.UUID | None = None
+    try:
+        personal_channel_id = tasks_facade.ensure_personal_channel_id(integration.team_id, user_id)
+    except Exception:
+        logger.warning(
+            "posthog_code_personal_channel_resolution_failed",
+            team_id=integration.team_id,
+            user_id=user_id,
+        )
 
     # 1. Create task + run WITHOUT starting the workflow
     try:
@@ -650,9 +665,10 @@ def create_posthog_code_task_for_repo_activity(
             start_workflow=False,
             posthog_mcp_scopes="full",
             initial_permission_mode="bypassPermissions",
-            runtime_adapter=ai_prefs.runtime_adapter,
-            model=ai_prefs.model,
-            reasoning_effort=ai_prefs.reasoning_effort,
+            runtime_adapter=run_prefs.runtime_adapter,
+            model=run_prefs.model,
+            reasoning_effort=run_prefs.reasoning_effort,
+            channel_id=personal_channel_id,
         )
     except Exception as e:
         logger.exception(
@@ -847,25 +863,11 @@ def forward_posthog_code_followup_activity(
     ):
         return True
 
-    # Record the live actor so async reply paths tag them instead of the
-    # thread's original mentioner. Concurrent follow-ups can race here; see PR.
+    # Reply-tag fallback for turns with no per-turn actor (boot prompt,
+    # pre-rollout runs); the actor stamped at delivery normally wins.
     if slack_user_id != mapping.latest_actor_slack_user_id:
         mapping.latest_actor_slack_user_id = slack_user_id
         mapping.save(update_fields=["latest_actor_slack_user_id", "updated_at"])
-
-    if actor_user and actor_user.id:
-        try:
-            tasks_facade.update_task_run_state(
-                task_run.id,
-                updates=_slack_actor_state_updates(user_id=actor_user.id, slack_user_id=slack_user_id),
-            )
-        except Exception:
-            logger.exception(
-                "posthog_code_followup_actor_state_update_failed",
-                channel=channel,
-                thread_ts=thread_ts,
-                actor_user_id=actor_user.id,
-            )
 
     if task_run.is_terminal:
         return _resume_task_with_new_run(
@@ -948,13 +950,6 @@ def forward_posthog_code_followup_activity(
     if user_message_ts:
         safe_react(slack.client, channel, user_message_ts, "eyes")
 
-    auth_token = None
-    if actor_user and actor_user.id:
-        distinct_id = actor_user.distinct_id or f"user_{actor_user.id}"
-        auth_token = tasks_facade.create_sandbox_connection_token(
-            task_run.id, user_id=actor_user.id, distinct_id=distinct_id
-        )
-
     uploaded_attachments, attachment_skips = _upload_prepared_slack_attachments(
         tasks_facade,
         task_run_id=task_run.id,
@@ -973,42 +968,26 @@ def forward_posthog_code_followup_activity(
         or user_text
     )
 
-    send_kwargs: dict[str, Any] = {
-        "auth_token": auth_token,
-        "timeout": 90,
-        # Deterministic across activity retries: a retry after a partial failure
-        # (or the in-line resend below) redelivers with the same id, and the
-        # agent-server drops the duplicate instead of applying the message twice.
-        "message_id": _slack_followup_message_id(channel, user_message_ts, thread_ts),
-    }
-    if uploaded_attachments:
-        send_kwargs["artifacts"] = uploaded_attachments
-
-    result = tasks_facade.send_user_message(task_run.id, user_text, **send_kwargs)
-    if not result.success and result.retryable and result.status_code != 504:
-        result = tasks_facade.send_user_message(task_run.id, user_text, **send_kwargs)
-
-    if not result.success:
+    # Queue on the workflow so delivery is ordered with the web path. The
+    # deterministic message id keeps redelivery idempotent.
+    signal_result = tasks_facade.signal_task_run_user_message(
+        task_run.id,
+        mapping.task_id,
+        task_run.team_id,
+        content=user_text,
+        artifact_ids=_uploaded_attachment_ids(uploaded_attachments),
+        actor_user_id=actor_user.id if actor_user and actor_user.id else None,
+        message_id=_slack_followup_message_id(channel, user_message_ts, thread_ts),
+        actor_slack_user_id=slack_user_id,
+    )
+    if signal_result is not True:
         logger.warning(
-            "posthog_code_followup_forwarding_failed",
+            "slack_app_followup_signal_failed",
             channel=channel,
             thread_ts=thread_ts,
-            error=result.error,
-            status_code=result.status_code,
+            task_run_id=str(task_run.id),
+            signal_result=signal_result,
         )
-        if result.retryable and result.status_code == 504:
-            # Agent is still processing — leave the :eyes: reaction up so the thread
-            # reads as in-progress. relayAgentResponse fires when it finishes,
-            # delivering the correct response to Slack.
-            _delete_followup_progress(
-                integration_id=inputs.integration_id,
-                channel=channel,
-                thread_ts=thread_ts,
-                user_message_ts=user_message_ts,
-                mentioning_slack_user_id=mapping.mentioning_slack_user_id,
-            )
-            return True
-
         _set_followup_done_reaction(slack, channel, user_message_ts, "x")
         slack.client.chat_postMessage(
             channel=channel,
@@ -1017,7 +996,7 @@ def forward_posthog_code_followup_activity(
         )
         return True
 
-    # Message delivered; the agent is now working on it, so leave the :eyes: reaction
+    # Message queued; the agent picks it up next, so leave the :eyes: reaction
     # up. relayAgentResponse posts the agent's response once it finishes.
     _delete_followup_progress(
         integration_id=inputs.integration_id,

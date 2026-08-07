@@ -1,3 +1,8 @@
+// Each `tests/*.rs` integration test compiles as its own binary and imports
+// `common` via `mod common;`. Helpers used by some test files but not others
+// would otherwise fire `dead_code` per-binary; suppress at the module level.
+#![allow(dead_code)]
+
 use std::time::Duration;
 
 use common_kafka::kafka_producer::KafkaContext;
@@ -20,8 +25,6 @@ pub fn test_store_config() -> StoreConfig {
     StoreConfig {
         chunk_size: 500,
         row_fallback_concurrency: 8,
-        properties_size_threshold: 655_360,
-        properties_trim_target: 524_288,
     }
 }
 
@@ -30,9 +33,19 @@ pub async fn create_mock_kafka() -> (
     MockCluster<'static, DefaultProducerContext>,
     FutureProducer<KafkaContext>,
 ) {
+    create_mock_kafka_with_partitions(1).await
+}
+
+/// Create a mock Kafka cluster with a multi-partition personhog_updates topic.
+pub async fn create_mock_kafka_with_partitions(
+    partitions: i32,
+) -> (
+    MockCluster<'static, DefaultProducerContext>,
+    FutureProducer<KafkaContext>,
+) {
     let (cluster, producer) = common_kafka::test::create_mock_kafka().await;
     cluster
-        .create_topic(TOPIC, 1, 1)
+        .create_topic(TOPIC, partitions, 1)
         .expect("failed to create mock topic");
     (cluster, producer)
 }

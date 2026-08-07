@@ -42,6 +42,11 @@ export const KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA = `${prefix}session_replay_m
 // raw inlined replay images: ml-mirror producer -> image-scrub worker
 export const KAFKA_SESSION_REPLAY_IMAGE_SCRUB = `${prefix}session_replay_image_scrub${suffix}`
 
+// images the scrub sidecar cannot process, parked so they stop holding the head of their partition.
+// The original bytes are kept: unscrubbed content must never reach the ML bucket, but it must not be
+// thrown away either, so it waits here for the sidecar bug behind it to be fixed and replayed.
+export const KAFKA_SESSION_REPLAY_IMAGE_SCRUB_DLQ = `${prefix}session_replay_image_scrub_dlq${suffix}`
+
 // write performance events to ClickHouse
 export const KAFKA_PERFORMANCE_EVENTS = `${prefix}clickhouse_performance_events${suffix}`
 // write heatmap events to ClickHouse
@@ -62,8 +67,6 @@ export const KAFKA_MESSAGE_ASSETS = `${prefix}clickhouse_message_assets${suffix}
 export const KAFKA_CDP_FUNCTION_OVERFLOW = `${prefix}cdp_function_overflow${suffix}`
 export const KAFKA_CDP_INTERNAL_EVENTS = `${prefix}cdp_internal_events${suffix}`
 export const KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES = `${prefix}clickhouse_behavioral_cohorts_matches${suffix}`
-export const KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS = `${prefix}clickhouse_prefiltered_events${suffix}`
-export const KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES = `${prefix}clickhouse_precalculated_person_properties${suffix}`
 export const KAFKA_COHORT_MEMBERSHIP_CHANGED = `${prefix}cohort_membership_changed${suffix}`
 // Cross-partition merge protocol trigger consumed by the cohort-stream-processor (Rust).
 export const KAFKA_PERSON_MERGE_EVENTS = `${prefix}person_merge_events${suffix}`

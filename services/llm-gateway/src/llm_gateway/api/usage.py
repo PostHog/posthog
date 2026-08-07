@@ -27,7 +27,7 @@ usage_router = APIRouter(prefix="/v1/usage", tags=["Usage"])
 
 class CostLimitStatus(BaseModel):
     used_percent: float
-    # Kept on the wire for older PostHog Code clients whose zod schema still
+    # Kept on the wire for older PostHog Desktop clients whose zod schema still
     # requires it. Newer clients anchor to `reset_at`; drop in a follow-up once
     # the long tail of pinned clients has rolled forward.
     resets_in_seconds: int
@@ -41,6 +41,7 @@ class AiCreditsStatus(BaseModel):
     # org, resolver fail-open) — clients must not render None as $0.
     used_usd: float | None = None
     limit_usd: float | None = None
+    breakdown: dict[str, object] | None = None
 
 
 class UsageResponse(BaseModel):
@@ -101,7 +102,6 @@ async def get_usage(
     # through the same decision as the request-path throttle: clients gate on this
     # response, so it must never disagree with what enforcement would do.
     credits_exhausted = bucket_block_applies(context)
-
     burst_status: CostLimitStatus | None = None
     sustained_status: CostLimitStatus | None = None
 
@@ -147,6 +147,7 @@ async def get_usage(
             exhausted=credits_exhausted,
             used_usd=quota_status.used_usd,
             limit_usd=quota_status.limit_usd,
+            breakdown=quota_status.posthog_desktop_usage if product == POSTHOG_CODE_PRODUCT else None,
         ),
         is_rate_limited=burst_status.exceeded or sustained_status.exceeded or credits_exhausted,
         is_pro=is_pro_plan(plan_info.plan_key),

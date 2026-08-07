@@ -34,7 +34,6 @@ import { CdpHogflowSubscriptionMatcherConsumer } from './cdp/consumers/cdp-hogfl
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
-import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculated-filters.consumer'
 import { CdpRerunWorkerConsumer } from './cdp/consumers/cdp-rerun-worker.consumer'
 import { createCdpProducerRegistry } from './cdp/outputs/producer-registry'
 import { CdpProducerName } from './cdp/outputs/producers'
@@ -103,7 +102,6 @@ export class PluginServer implements NodeServer {
             capabilities.cdpCyclotronWorkerHogFlowLegacyPg ||
             capabilities.cdpCyclotronWorkerEmail ||
             capabilities.cdpCyclotronWorkerEmailLegacyPg ||
-            capabilities.cdpPrecalculatedFilters ||
             capabilities.cdpCohortMembership ||
             capabilities.cdpCyclotronWorkerBatchResolve ||
             capabilities.cdpHogflowSubscriptionMatcher ||
@@ -280,6 +278,8 @@ export class PluginServer implements NodeServer {
                         maxTouchCount: this.config.CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT,
                         cleanupGraceMs: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS,
                         poisonRecoveryEnabled: this.config.CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED,
+                        stallBackoffBaseMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_BASE_MS,
+                        stallBackoffMaxMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS,
                     },
                     invocationResults
                 )
@@ -399,14 +399,6 @@ export class PluginServer implements NodeServer {
             this.lifecycle.expressApp.use('/', serverCommands.router())
             return Promise.resolve(serverCommands.service)
         })
-
-        if (capabilities.cdpPrecalculatedFilters) {
-            serviceLoaders.push(async () => {
-                const worker = new CdpPrecalculatedFiltersConsumer(this.config, cdpDeps!)
-                await worker.start()
-                return worker.service
-            })
-        }
 
         if (capabilities.cdpCohortMembership) {
             serviceLoaders.push(async () => {

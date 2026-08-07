@@ -12,9 +12,9 @@ import { logger } from '~/common/utils/logger'
 import { CapturedEventsService } from '../captured-events/captured-events.service'
 import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from '../managers/hog-function-manager.service'
-import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
+import { EmailSuppressionService } from './email-suppression.service'
 import { SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
 
@@ -142,10 +142,11 @@ export class EmailTrackingService {
         private hogFunctionMonitoringService: HogFunctionMonitoringService,
         private capturedEventsService: CapturedEventsService,
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
-        private recipientsManager: RecipientsManagerService,
-        private trackingCodeSigner: EmailTrackingCodeSigner
+        private trackingCodeSigner: EmailTrackingCodeSigner,
+        private emailSuppressionService: EmailSuppressionService
     ) {
-        this.sesWebhookHandler = new SesWebhookHandler(this.trackingCodeSigner)
+        const allowedTopicArns = (process.env.SES_ALLOWED_SNS_TOPIC_ARNS ?? '').split(',')
+        this.sesWebhookHandler = new SesWebhookHandler(this.trackingCodeSigner, allowedTopicArns)
     }
 
     public async trackMetric({
@@ -158,6 +159,7 @@ export class EmailTrackingService {
         source,
         properties,
         timestamp,
+        workflowVersion,
     }: {
         functionId?: string
         invocationId?: string
@@ -168,6 +170,7 @@ export class EmailTrackingService {
         source: 'direct' | 'ses'
         properties?: Record<string, unknown>
         timestamp?: string
+        workflowVersion?: number
     }): Promise<void> {
         if (!functionId || !invocationId) {
             logger.error('[EmailTrackingService] trackMetric: Invalid custom ID', {
@@ -208,6 +211,11 @@ export class EmailTrackingService {
                 metric_name: metricName,
                 metric_kind: 'email',
                 count: 1,
+                // The version comes off the tracking code minted at send time, never from `hogFlow`
+                // above — that's the currently published version, which for an engagement event
+                // arriving after a republish would blame the new version for the old one's sends.
+                app_source_version:
+                    hogFlow && workflowVersion !== undefined ? { id: hogFlow.id, version: workflowVersion } : undefined,
             },
             hogFlow ? 'hog_flow' : 'hog_function'
         )
@@ -222,6 +230,7 @@ export class EmailTrackingService {
                 properties: {
                     $workflow_id: appSourceId,
                     $workflow_action_id: actionId,
+                    ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
                     ...properties,
                 },
             })
@@ -308,7 +317,15 @@ export class EmailTrackingService {
         }
 
         try {
-            const { status, body, metrics, logEntries, optOutRecipients } = await this.sesWebhookHandler.handleWebhook({
+            const {
+                status,
+                body,
+                metrics,
+                logEntries,
+                transientBounceRecipients,
+                hardBounceRecipients,
+                deliveredRecipients,
+            } = await this.sesWebhookHandler.handleWebhook({
                 body: parseJSON(req.body),
                 headers: req.headers,
                 verifySignature: true,
@@ -325,10 +342,11 @@ export class EmailTrackingService {
                     source: 'ses',
                     properties: metric.properties,
                     timestamp: metric.timestamp,
+                    workflowVersion: metric.workflowVersion,
                 })
             }
 
-            // Wrapped so a failure here doesn't skip the opt-out processing below.
+            // Wrapped so a failure here doesn't skip the suppression writes below.
             try {
                 await this.trackLogs(
                     (logEntries || []).map((entry) => ({
@@ -344,36 +362,36 @@ export class EmailTrackingService {
                 emailTrackingErrorsCounter.inc({ error_type: 'track_logs_failed', source: 'ses' })
             }
 
-            // Collect all emails to opt out per team, then batch each team's opt-out in one query
-            const emailsByTeam = new Map<number, string[]>()
-            for (const { teamId: teamIdStr, emailAddresses } of optOutRecipients || []) {
-                const teamId = teamIdStr ? parseInt(teamIdStr, 10) : NaN
-                if (!teamId || isNaN(teamId)) {
-                    logger.error('[EmailTrackingService] handleSesWebhook: Missing or invalid teamId for opt-out', {
-                        teamIdStr,
-                        emailAddresses,
-                    })
-                    continue
+            // Feed bounces and successful deliveries into the suppression list. Wrapped so a
+            // failure here never affects the webhook's 200 response to SNS. Deliveries are processed
+            // first so a delivery + bounce in the same batch nets out conservatively (count resets,
+            // then the fresh bounce re-counts from a clean slate).
+            try {
+                for (const { teamId, emailAddresses, timestamp } of deliveredRecipients || []) {
+                    const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
+                    if (parsedTeamId && !isNaN(parsedTeamId)) {
+                        await this.emailSuppressionService.recordDeliveries(parsedTeamId, emailAddresses, timestamp)
+                    }
                 }
-                const existing = emailsByTeam.get(teamId) ?? []
-                existing.push(...emailAddresses)
-                emailsByTeam.set(teamId, existing)
-            }
-
-            for (const [teamId, emails] of emailsByTeam) {
-                try {
-                    await this.recipientsManager.optOut(teamId, emails)
-                    logger.info('[EmailTrackingService] Opted out recipients after a hard bounce', {
-                        teamId,
-                        emails,
-                    })
-                } catch (error) {
-                    logger.error('[EmailTrackingService] Failed to opt out recipients', {
-                        teamId,
-                        emails,
-                        error,
-                    })
+                for (const { teamId, emailAddresses, diagnostic } of transientBounceRecipients || []) {
+                    const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
+                    if (parsedTeamId && !isNaN(parsedTeamId)) {
+                        await this.emailSuppressionService.recordTransientBounces(
+                            parsedTeamId,
+                            emailAddresses,
+                            diagnostic
+                        )
+                    }
                 }
+                for (const { teamId, emailAddresses, diagnostic } of hardBounceRecipients || []) {
+                    const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
+                    if (parsedTeamId && !isNaN(parsedTeamId)) {
+                        await this.emailSuppressionService.recordHardBounces(parsedTeamId, emailAddresses, diagnostic)
+                    }
+                }
+            } catch (error) {
+                logger.error('[EmailTrackingService] Failed to update suppression list', { error })
+                emailTrackingErrorsCounter.inc({ error_type: 'suppression_update_failed', source: 'ses' })
             }
 
             return { status, message: body as string }
@@ -390,6 +408,7 @@ export class EmailTrackingService {
         actionId?: string
         parentRunId?: string
         distinctId?: string
+        workflowVersion?: number
     } {
         // Support both combined ph_id format and legacy separate params
         if (query.ph_id) {
@@ -403,6 +422,7 @@ export class EmailTrackingService {
                 actionId: parsed?.actionId,
                 parentRunId: parsed?.parentRunId,
                 distinctId: parsed?.distinctId,
+                workflowVersion: parsed?.workflowVersion,
             }
         }
         return {

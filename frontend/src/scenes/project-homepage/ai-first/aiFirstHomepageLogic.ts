@@ -12,10 +12,12 @@ import {
     capabilitiesForGrouping,
     capabilityGroupingFromVariant,
 } from 'scenes/max/maxCapabilities'
-import { maxLogic } from 'scenes/max/maxLogic'
+import { type PhaiViewMode, maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { maxLogic, parseCommandString } from 'scenes/max/maxLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -24,7 +26,7 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { emptySceneParams } from '~/scenes/scenes'
 import { Scene, SceneTab } from '~/scenes/sceneTypes'
-import { DashboardBasicType } from '~/types'
+import { DashboardBasicType, SidePanelTab } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { Node } from '../../../queries/schema/schema-general'
@@ -87,6 +89,7 @@ export interface aiFirstHomepageLogicValues {
     dashboardsLoading: boolean // dashboardsModel
     pinnedDashboards: (DashboardBasicType | DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>)[] // dashboardsModel
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    effectivePhaiView: PhaiViewMode // maxGlobalLogic
     conversationId: string | null // maxLogic
     threadLogicKey: string // maxLogic
     cachedStarred: FileSystemEntry[] // projectTreeDataLogic
@@ -220,6 +223,8 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             ['chatDraftFor'],
             featureFlagLogic,
             ['featureFlags'],
+            maxGlobalLogic,
+            ['effectivePhaiView'],
         ],
         actions: [
             maxLogic({ panelId: HOMEPAGE_TAB_ID }),
@@ -405,6 +410,18 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             // resurrect it as "unsent input" the next time the homepage is mounted.
             actions.setChatDraftForTab(HOMEPAGE_IDLE_DRAFT_KEY, '')
 
+            // The homepage chat only drives the legacy runtime, so on the new PostHog AI surface a prompt
+            // submitted here would start a LangGraph conversation that surface never shows. Hand it to
+            // /ai instead, which seeds its composer from `ask` and submits it. An AI submit with no
+            // prompt is a chat being restored from `?mode=ai&chat=…` — that still opens here.
+            if (mode === 'ai' && values.effectivePhaiView === 'new' && values.query.trim()) {
+                router.actions.push(urls.ai(undefined, values.query))
+                // Undo the mode flip the reducers just made, so the legacy homepage thread never mounts
+                // and fires a second, competing send while the route change lands.
+                actions.returnToIdle()
+                return
+            }
+
             if (mode === 'ai' && !values.conversationId) {
                 actions.startNewConversation()
             }
@@ -455,8 +472,15 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
     })),
 
     actionToUrl(({ values }) => ({
-        submitQuery: () => {
+        submitQuery: ({ mode: submittedMode }) => {
             const { mode, query } = values
+            // On the new PostHog AI surface the homepage never owns an AI route: a submit with a prompt
+            // is navigated to /ai by the listener (which reads the query before clearing it), and one
+            // without is a restore that arrived on this URL already. Keyed off the submitted mode rather
+            // than `values.mode`, which the listener may already have reset.
+            if (submittedMode === 'ai' && values.effectivePhaiView === 'new') {
+                return undefined
+            }
             if (mode === 'ai') {
                 return [
                     urls.projectHomepage(),
@@ -473,7 +497,27 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
     })),
 
     urlToAction(({ actions, values }) => ({
-        [urls.projectHomepage()]: (_, searchParams) => {
+        [urls.projectHomepage()]: (_, searchParams, hashParams) => {
+            // A `#panel=max:<prompt>` link (e.g. app.posthog.com/#panel=max:...) means "open PostHog
+            // AI prefilled". Here the homepage already IS the full-scene PostHog AI, so consume the
+            // prompt into this scene instead of stacking a redundant Max side panel on top of it.
+            const panelHash = typeof hashParams.panel === 'string' ? hashParams.panel : undefined
+            if (panelHash) {
+                const [panel, ...rest] = panelHash.split(':')
+                if (panel === SidePanelTab.Max) {
+                    const { question } = parseCommandString(rest.join(':'))
+                    if (question) {
+                        actions.setQuestion(question)
+                    }
+                    // enterAiMode rewrites the URL to ?mode=ai (dropping the hash), and closeSidePanel
+                    // clears the panel hash too — so both undo the side panel that already opened and
+                    // stop it replaying on refresh.
+                    actions.enterAiMode('')
+                    sidePanelStateLogic.actions.closeSidePanel(SidePanelTab.Max)
+                    return
+                }
+            }
+
             const urlMode = (searchParams.mode as HomepageMode) || 'idle'
             const urlQuery = searchParams.q != null ? String(searchParams.q) : ''
             const urlChat = (searchParams.chat as string) || ''

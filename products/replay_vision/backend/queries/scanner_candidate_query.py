@@ -13,11 +13,15 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models import Team
-from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
+from posthog.session_recordings.queries.session_recording_list_from_query import (
+    UNSCORED_SURFACING_SCORE,
+    SessionRecordingListFromQuery,
+)
 
-from products.replay_vision.backend.models.replay_scanner import SamplingMode
+from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, SamplingMode
 from products.replay_vision.backend.temporal.constants import (
     MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
     MAX_SESSION_ID_LENGTH,
@@ -27,9 +31,6 @@ from products.replay_vision.backend.temporal.constants import (
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
-
-# 30-min inactivity timeout + 5-min merge-lag buffer.
-SETTLE_INTERVAL = dt.timedelta(minutes=35)
 
 # Partition prune anchored to the SDK's 24h session_id rotation + 2h headroom for skew and lag.
 _PARTITION_LOOKBACK = dt.timedelta(hours=26)
@@ -43,9 +44,6 @@ DEFAULT_MAX_EXECUTION_SECONDS = 180
 # Calibrated from the prod score distribution: focused keeps roughly the top 25% of sessions, balanced the top 65%.
 FOCUSED_SURFACING_THRESHOLD = 0.30
 BALANCED_SURFACING_THRESHOLD = 0.10
-# Below balanced so unscored sessions are skipped by both filtered modes.
-NULL_SURFACING_SCORE_FALLBACK = 0.0
-
 _SURFACING_THRESHOLDS = {
     SamplingMode.FOCUSED: FOCUSED_SURFACING_THRESHOLD,
     SamplingMode.BALANCED: BALANCED_SURFACING_THRESHOLD,
@@ -63,7 +61,9 @@ def surfacing_score_predicate(sampling_mode: SamplingMode | str) -> ast.Expr | N
             name="coalesce",
             args=[
                 ast.Call(name="max", args=[ast.Field(chain=["s", "surfacing_score"])]),
-                ast.Constant(value=NULL_SURFACING_SCORE_FALLBACK),
+                # Unscored sessions get the same neutral score the recordings list shows, so a session
+                # visible as eligible in the UI is also eligible to the sweep.
+                ast.Constant(value=UNSCORED_SURFACING_SCORE),
             ],
         ),
         right=ast.Constant(value=threshold),
@@ -133,6 +133,8 @@ class ScannerCandidateQuery:
         self._sampling_salt = sampling_salt
         self._candidate_limit = candidate_limit
         self._max_execution_time_seconds = max_execution_time_seconds
+        # Fixed at construction and exposed so callers can persist exactly the horizon the query filtered on.
+        self.settle_cutoff = dt.datetime.now(dt.UTC) - SETTLE_INTERVAL
 
         # The schedule owns the time window, not the user.
         inner_query = query.model_copy(deep=True)
@@ -160,6 +162,8 @@ class ScannerCandidateQuery:
                 team=self._team,
                 query_type="ReplayVisionScannerCandidateQuery",
                 settings=HogQLGlobalSettings(max_execution_time=self._max_execution_time_seconds),
+                # Dedicated user keeps sweep admission out of the contended shared `default` pool.
+                ch_user=ClickHouseUser.REPLAY_VISION,
             )
         return [CandidateSession(session_id=row[0], session_end=row[1]) for row in (response.results or [])]
 
@@ -173,7 +177,7 @@ class ScannerCandidateQuery:
             ast.CompareOperation(
                 op=ast.CompareOperationOp.LtEq,
                 left=ast.Field(chain=["sessions", "end_time"]),
-                right=ast.Constant(value=dt.datetime.now(dt.UTC) - SETTLE_INTERVAL),
+                right=ast.Constant(value=self.settle_cutoff),
             ),
             # Excludes attacker-supplied over-length session_ids that would later wedge wire-payload validation.
             ast.CompareOperation(

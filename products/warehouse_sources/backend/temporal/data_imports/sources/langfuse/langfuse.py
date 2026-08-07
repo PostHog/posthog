@@ -12,10 +12,10 @@ from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.settings import (
     LANGFUSE_ENDPOINTS,
     LangfuseEndpointConfig,
@@ -328,7 +328,11 @@ def get_rows(
             url, params=params, auth=auth, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False, stream=True
         )
 
-        if response.status_code == 429 or response.status_code >= 500:
+        # Langfuse maps a ClickHouse resource limit (memory/timeout) to 422 with an "Request timed
+        # out" body; genuine request-validation failures come back as 400. Deep offset pagination on
+        # the traces endpoint can trip that resource limit, so 422 is a transient upstream error —
+        # retry it through the backoff/resume machinery rather than crashing the sync.
+        if response.status_code in (422, 429) or response.status_code >= 500:
             retry_after = _parse_retry_after(response) if response.status_code == 429 else None
             raise LangfuseRetryableError(
                 f"Langfuse API error (retryable): status={response.status_code}, endpoint={endpoint}",

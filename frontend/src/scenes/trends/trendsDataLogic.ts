@@ -3,6 +3,7 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { isMultiSeriesFormula } from 'lib/utils/strings'
+import { findBreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -81,6 +82,7 @@ import type {
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '../../queries/schema/schema-general'
+import type { PathsV2Query } from '../../queries/schema/schema-general'
 import { IndexedTrendResult } from './types'
 
 export const RESULT_CUSTOMIZATION_DEFAULT = ResultCustomizationBy.Value
@@ -135,6 +137,7 @@ export interface trendsDataLogicValues {
         | FunnelsQuery
         | LifecycleQuery
         | PathsQuery
+        | PathsV2Query
         | RetentionQuery
         | StickinessQuery
         | TrendsQuery
@@ -269,6 +272,7 @@ export interface trendsDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -286,6 +290,7 @@ export interface trendsDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -307,6 +312,7 @@ export interface trendsDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -327,6 +333,7 @@ export interface trendsDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -380,6 +387,7 @@ export interface trendsDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -873,18 +881,14 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => {
                 return (dataset: IndexedTrendResult): [DataColorTheme | null, DataColorToken | null] => {
-                    // stringified breakdown value
-                    const key = getTrendDatasetKey(dataset)
-                    let breakdownValue = JSON.parse(key)['breakdown_value']
-                    breakdownValue = Array.isArray(breakdownValue) ? breakdownValue.join('::') : breakdownValue
+                    const breakdownValue = JSON.parse(getTrendDatasetKey(dataset))['breakdown_value']
 
                     // dashboard color overrides
                     const logic = dashboardLogic.findMounted({ id: props.dashboardId })
-                    const dashboardBreakdownColors = logic?.values.temporaryBreakdownColors
-                    const colorOverride = dashboardBreakdownColors?.find(
-                        (config) =>
-                            config.breakdownValue === breakdownValue &&
-                            config.breakdownType === (breakdownFilter?.breakdown_type ?? 'event')
+                    const colorOverride = findBreakdownColorConfig(
+                        logic?.values.effectiveBreakdownColors,
+                        breakdownValue,
+                        breakdownFilter?.breakdown_type
                     )
 
                     if (colorOverride?.colorToken) {

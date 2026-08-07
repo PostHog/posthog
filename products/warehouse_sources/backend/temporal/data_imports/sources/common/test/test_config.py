@@ -578,6 +578,20 @@ def test_to_config_optional_config_does_not_retain_unparseable_dict():
     assert cfg.auth is None
 
 
+@pytest.mark.parametrize("config_dict", [{}, {"unrelated_key": "value"}])
+def test_from_dict_missing_required_field_raises_clear_error(config_dict):
+    # Stored job inputs that don't supply a required (no-default) field used to surface the
+    # opaque builtin `TypeError: SourceConfig.__init__() missing 1 required positional argument:
+    # 'api_key'`, which is impossible to triage from error tracking. It must name the field
+    # instead, and must not leak the (absent) secret value.
+    @config.config
+    class SourceConfig(config.Config):
+        api_key: str
+
+    with pytest.raises(TypeError, match=r"Cannot build 'SourceConfig': missing required field\(s\) \['api_key'\]"):
+        SourceConfig.from_dict(config_dict)
+
+
 @config.config
 class _SecretFieldConfig(config.Config):
     password: str | None = None
@@ -674,7 +688,9 @@ def test_repr_redacts_nested_config_secrets():
 
 
 def test_repr_redacts_real_postgres_source_config():
-    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
+        PostgresSourceConfig,
+    )
 
     cfg = PostgresSourceConfig(
         host="fadevpn-11499.example.cloud",

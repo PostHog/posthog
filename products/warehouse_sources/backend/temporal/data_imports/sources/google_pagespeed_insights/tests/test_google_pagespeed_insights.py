@@ -234,6 +234,30 @@ class TestFetch:
         # The host prefix is preserved so non-retryable-error matching still works.
         assert "for url: https://pagespeedonline.googleapis.com" in message
 
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            # A connection broken mid-response surfaces as ChunkedEncodingError, and a body that fails
+            # to decode as ContentDecodingError. Both subclass RequestException directly (not
+            # ConnectionError), so they must be retried rather than failing the sync on the first hiccup.
+            requests.exceptions.ChunkedEncodingError(
+                "Connection broken: InvalidChunkLength(got length b'', 0 bytes read)"
+            ),
+            requests.exceptions.ContentDecodingError(
+                "Received response with content-encoding: gzip, but failed to decode it."
+            ),
+        ],
+    )
+    def test_body_read_errors_are_retried(self, exc):
+        session = mock.MagicMock()
+        session.get.side_effect = [exc, _response(200, {"analysisUTCTimestamp": "2024-01-15T12:34:56Z"})]
+
+        with mock.patch.object(_fetch.retry, "sleep"):  # type: ignore[attr-defined]
+            body = _fetch(session, "k", "DESKTOP", "https://posthog.com", structlog.get_logger())
+
+        assert body == {"analysisUTCTimestamp": "2024-01-15T12:34:56Z"}
+        assert session.get.call_count == 2
+
     @pytest.mark.parametrize("exc_type", [requests.ConnectionError, requests.ReadTimeout, requests.exceptions.SSLError])
     def test_transport_error_redacts_key_and_preserves_type(self, exc_type):
         # Transport failures (no HTTP response) embed the full request URL, including `key=...`, in
@@ -254,17 +278,31 @@ class TestFetch:
 
 
 class TestValidateCredentials:
+    # 418 is an unmapped status that exercises the catch-all branch.
     @pytest.mark.parametrize(
         "status, expected_valid",
-        [(200, True), (400, False), (403, False), (500, False)],
+        [(200, True), (400, False), (403, False), (429, False), (500, False), (503, False), (418, False)],
     )
     def test_status_mapping(self, status, expected_valid):
         with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
             mock_session.return_value.get.return_value = _response(status)
 
-            is_valid, _ = validate_credentials("test-key", "https://posthog.com")
+            is_valid, message = validate_credentials("test-key", "https://posthog.com")
 
         assert is_valid is expected_valid
+        if not expected_valid:
+            # No error branch, including the catch-all, may echo the raw status code.
+            assert message is not None
+            assert str(status) not in message
+
+    def test_server_error_shows_transient_copy(self):
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.return_value = _response(503)
+
+            _, message = validate_credentials("test-key", "https://posthog.com")
+
+        assert message is not None
+        assert "temporary" in message
 
     def test_malformed_urls_is_invalid_without_request(self):
         with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:

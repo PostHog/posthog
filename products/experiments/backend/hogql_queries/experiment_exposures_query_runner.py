@@ -43,6 +43,7 @@ from products.experiments.backend.hogql_queries.experiment_query_builder import 
 from products.experiments.backend.hogql_queries.experiment_query_runner import (
     experiment_has_min_runtime_for_precomputation,
     experiment_precompute_ttl_schedule,
+    has_uncalculated_cohorts,
 )
 from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key
 from products.experiments.backend.models.experiment import Experiment
@@ -136,7 +137,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             exposure_config,
             multiple_variant_handling,
             filter_test_accounts,
-        ) = get_exposure_config_params_for_builder(self.exposure_criteria)
+        ) = get_exposure_config_params_for_builder(self.exposure_criteria, self.team, self.experiment.start_date)
 
         builder = ExperimentQueryBuilder(
             team=self.team,
@@ -164,6 +165,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                 self.experiment.start_date,
                 self.experiment.end_date,
             )
+            and not has_uncalculated_cohorts(self.team, self.exposure_criteria)
         ):
             try:
                 with tags_context(experiment_query_surface="precompute_build", experiment_precompute_table="exposures"):
@@ -276,7 +278,9 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             return None
         multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
         flag_variants = multivariate_data.get("variants", [])
-        _, handling, _ = get_exposure_config_params_for_builder(self.exposure_criteria)
+        _, handling, _ = get_exposure_config_params_for_builder(
+            self.exposure_criteria, self.team, self.experiment.start_date
+        )
         return evaluate_bias_risk(
             flag_variants=flag_variants,
             multiple_variant_handling=handling,

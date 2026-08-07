@@ -26,6 +26,8 @@ Usage:
 
 import csv
 import json
+import zlib
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from io import StringIO
 from pathlib import Path
@@ -37,13 +39,17 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.logs.logs34 import TABLE_NAME as LOGS_LOCAL_TABLE
 from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
 from posthog.models import Team
 from posthog.models.scoping import team_scope
 from posthog.storage import object_storage
 
-from products.engineering_analytics.backend.logic.queries._test_spans import CI_SERVICE_NAME
+from products.engineering_analytics.backend.logic.job_logs.constants import CI_LOGS_SERVICE_NAME
+from products.engineering_analytics.backend.logic.queries._test_spans import PYTEST_CI_SERVICE_NAME
 from products.engineering_analytics.backend.logic.sources import (
+    ISSUE_EVENTS_SCHEMA,
     PULL_REQUESTS_SCHEMA,
     TEAM_MEMBERS_SCHEMA,
     WORKFLOW_JOBS_SCHEMA,
@@ -51,6 +57,7 @@ from products.engineering_analytics.backend.logic.sources import (
 )
 from products.engineering_analytics.backend.logic.views.pull_requests import KNOWN_BOT_HANDLES
 from products.engineering_analytics.backend.logic.views.source_schema import (
+    ISSUE_EVENTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
     TEAM_MEMBERS_COLUMNS,
     WORKFLOW_JOBS_COLUMNS,
@@ -82,7 +89,8 @@ DEFAULT_PREFIX = "eng_analytics_seed"
 
 def _flatten_pr(pr: dict[str, Any]) -> dict[str, Any]:
     return {
-        **{key: pr[key] for key in PULL_REQUESTS_COLUMNS if key not in ("user", "head", "base", "labels", "draft")},
+        # .get() tolerates a pre-existing fixture captured before merge_commit_sha was kept.
+        **{key: pr.get(key) for key in PULL_REQUESTS_COLUMNS if key not in ("user", "head", "base", "labels", "draft")},
         "draft": int(bool(pr["draft"])),
         "user": json.dumps(pr["user"]),
         "head": json.dumps(pr["head"]),
@@ -91,21 +99,40 @@ def _flatten_pr(pr: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _synthetic_repo_id(full_name: str) -> int:
+    """A stable stand-in for GitHub's numeric repo id, derived from ``owner/name``."""
+    return zlib.crc32(full_name.encode())
+
+
 def _flatten_run(run: dict[str, Any]) -> dict[str, Any]:
-    json_keys = ("repository", "pull_requests", "head_commit")
+    json_keys = ("repository", "pull_requests", "head_commit", "actor")
     scalar_keys = [key for key in WORKFLOW_RUNS_COLUMNS if key not in json_keys]
+    # A run is attributed to a PR only when the PR's base repo id equals the run's own — that's what
+    # keeps the fork network's PRs out (see logic/views/workflow_runs). Snapshots captured before
+    # those ids were kept, and the synthetic demo rows below, carry neither, so stamp both ends with
+    # one synthetic id rather than seeding data that attributes nothing.
+    repository = {**run["repository"]}
+    repository.setdefault("id", _synthetic_repo_id(repository["full_name"]))
+    associations = [
+        {**pr, "base": {"repo": {"id": pr.get("base", {}).get("repo", {}).get("id", repository["id"])}}}
+        for pr in run.get("pull_requests") or []
+    ]
     return {
         # .get() tolerates a pre-existing fixture captured before run_attempt / pull_requests were added.
         **{key: run.get(key) for key in scalar_keys},
-        "repository": json.dumps(run["repository"]),
-        "pull_requests": json.dumps(run.get("pull_requests", [])),
+        "repository": json.dumps(repository),
+        "pull_requests": json.dumps(associations),
         "head_commit": json.dumps(run.get("head_commit", {})),
+        # Snapshots captured before actor was kept land '{}', which reads as "not the merge queue" —
+        # the safe answer, since the branch parse it gates only ever adds attribution.
+        "actor": json.dumps(run.get("actor") or {}),
     }
 
 
 # Synthesize a few jobs per run so the expandable job breakdown and cost cards are demoable in local
 # dev. Tiers vary so the cost model produces a spread; the last job inherits a failing run's conclusion.
 _JOB_NAMES = ("build", "test", "lint", "e2e")
+_FAILING_CONCLUSIONS = ("failure", "timed_out")
 _RUNNER_LABELS = (
     '["depot-ubuntu-22.04-16"]',
     '["depot-ubuntu-22.04-8"]',
@@ -139,7 +166,7 @@ def _synthesize_jobs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         for idx in range(count):
             is_last = idx == count - 1
             # Healthy jobs pass; a failing run's failure surfaces on its last job.
-            conclusion = run_conclusion if (is_last and run_conclusion in ("failure", "timed_out")) else None
+            conclusion = run_conclusion if (is_last and run_conclusion in _FAILING_CONCLUSIONS) else None
             if completed and conclusion is None:
                 conclusion = "success"
 
@@ -213,9 +240,15 @@ _MASTER_WORKFLOWS = ("Backend CI", "Frontend CI", "Rust CI", "E2E Tests", "Lint"
 # Co-windowed with the merge spread: a day with merges but no seeded job cost would chart as $0/merge.
 _MASTER_DAYS = _MERGE_SPREAD_DAYS
 _MASTER_COMMITS_PER_DAY = 18
+# Each master push carries a downstream fork's open "sync from upstream" PR, because that is what
+# GitHub really sends: the association lists every PR in the fork network sharing the run's head SHA.
+# Seeding it keeps the demo honest about what a master run is never attributable by, which is the
+# association (SPEC §6, "two PR keys").
+_FORK_REPO_ID = 778592526
+_FORK_PR_NUMBER = 1379
 
 
-def _demo_master_commits(anchor: datetime) -> list[dict[str, Any]]:
+def _demo_master_commits(anchor: datetime, merged_prs: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
     def iso(dt: datetime) -> str:
         return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -227,6 +260,22 @@ def _demo_master_commits(anchor: datetime) -> list[dict[str, Any]]:
         age_minutes = (total - 1 - commit_index) * spacing_minutes + (commit_index * 37) % 90
         commit_time = anchor - timedelta(minutes=age_minutes)
         sha = f"aa57e2{commit_index:04d}" + "e" * 30
+        # Cite a PR that is really in the seeded snapshot, so following the run's PR link lands on a
+        # PR page instead of dead-ending on "may not exist in the connected GitHub source". Cycling
+        # through the merged set is enough: the demo needs the link to resolve, not a faithful
+        # commit-to-merge history.
+        pr = merged_prs[commit_index % len(merged_prs)] if merged_prs else None
+        subject = f"feat: seeded master commit {commit_index}"
+        if pr is not None:
+            # The first commit to cite a PR owns its merge commit, so that run resolves through the
+            # merge_commit_sha join; later citations reuse the number and exercise the message
+            # fallback. Every tenth join-backed commit drops the (#NNNN) suffix too, seeding the
+            # merge-commit landing that only the join can attribute.
+            joins_via_merge_sha = not pr.get("merge_commit_sha")
+            if joins_via_merge_sha:
+                pr["merge_commit_sha"] = sha
+            if not (joins_via_merge_sha and commit_index % 10 == 3):
+                subject += f" (#{pr['number']})"
         red_commit = commit_index % 9 == 4  # an occasional broken master push
         cancelled_commit = commit_index % 17 == 9  # a rare all-cancelled push (neutral dot)
         for wf_index, workflow in enumerate(_MASTER_WORKFLOWS):
@@ -255,7 +304,11 @@ def _demo_master_commits(anchor: datetime) -> list[dict[str, Any]]:
                     "updated_at": iso(start) if running else iso(start + duration),
                     "run_attempt": 1,
                     "repository": {"full_name": "PostHog/posthog"},
-                    "pull_requests": [],
+                    "pull_requests": [{"number": _FORK_PR_NUMBER, "base": {"repo": {"id": _FORK_REPO_ID}}}],
+                    "head_commit": {
+                        "message": subject,
+                        "author": {"name": "PostHog Bot", "email": "bot@posthog.com"},
+                    },
                 }
             )
     return demo_runs
@@ -276,6 +329,57 @@ def _spread_merges(prs: list[dict[str, Any]], anchor: datetime) -> None:
             open_hours += 24 * (2 + index % 5)  # ...with a 2–6 day review tail on some
         pr["merged_at"] = merged_at.strftime("%Y-%m-%dT%H:%M:%SZ")
         pr["created_at"] = (merged_at - timedelta(hours=open_hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# Synthetic PR draft/ready transition stream backing ready_to_merge_seconds and the lifecycle
+# timeline. A real issue-events sync covers a bounded recent window (GitHub caps the history
+# walk), so the seed mirrors that: events land only inside the last _ISSUE_EVENTS_WINDOW_DAYS
+# of the merge spread, leaving older merges NULL ("not observed") exactly like production.
+# Every in-window merge lands its `merged` event too — that is what arms the never-drafted
+# fallback's window proof. Deterministic (index arithmetic, no random).
+_ISSUE_EVENTS_WINDOW_DAYS = 10
+
+
+def _issue_event_rows(prs: list[dict[str, Any]], anchor: datetime) -> list[dict[str, Any]]:
+    window_start = anchor - timedelta(days=_ISSUE_EVENTS_WINDOW_DAYS)
+    rows: list[dict[str, Any]] = []
+
+    def add(event_id: int, event: str, pr: dict[str, Any], at: datetime) -> None:
+        if at < window_start:  # a real desc walk never lands rows past its cap
+            return
+        rows.append(
+            {
+                "id": event_id,
+                "event": event,
+                "actor": json.dumps({"login": (pr.get("user") or {}).get("login") or "", "avatar_url": ""}),
+                "issue": json.dumps({"number": pr["number"]}),
+                "created_at": at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            }
+        )
+
+    merged = [pr for pr in prs if pr.get("merged_at")]
+    if merged:
+        # Pin the observed range's left edge with a non-transition event type, so the window
+        # bound is deterministic rather than whichever transition happens to land first.
+        add(7_000_000_000, "labeled", merged[0], window_start)
+    for index, pr in enumerate(merged):
+        created = datetime.fromisoformat(pr["created_at"])
+        merged_at = datetime.fromisoformat(pr["merged_at"])
+        life = merged_at - created
+        base_id = 7_000_000_100 + index * 10
+        add(base_id, "merged", pr, merged_at)
+        if index % 3 == 0:  # opened as a draft, readied once (opening as draft emits no event)
+            add(base_id + 1, "ready_for_review", pr, created + life * 0.4)
+        elif index % 3 == 1:  # re-drafted mid-review, then readied again — only the last ready counts
+            add(base_id + 1, "convert_to_draft", pr, created + life * 0.3)
+            add(base_id + 2, "ready_for_review", pr, created + life * 0.75)
+        # index % 3 == 2: no transitions — an in-window life takes the never-drafted fallback
+    demo_pr = next((pr for pr in prs if pr.get("number") == _DEMO_PR_NUMBER), None)
+    if demo_pr is not None:  # the multi-push demo PR's timeline shows both transition kinds
+        created = datetime.fromisoformat(demo_pr["created_at"])
+        add(7_000_000_050, "convert_to_draft", demo_pr, created + timedelta(hours=6))
+        add(7_000_000_051, "ready_for_review", demo_pr, created + timedelta(hours=30))
+    return rows
 
 
 def _demo_multi_push(
@@ -663,6 +767,11 @@ def _team_membership_rows(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return rows
 
 
+def _selector(module_dir: str, test_class: str, test_name: str) -> str:
+    """The pytest selector for a roster test: one recipe shared by the span and failure-log seeds."""
+    return f"{module_dir}/{test_name}.py::{test_class}::{test_name}"
+
+
 def _seed_trace_spans(team: Team) -> int:
     anchor = timezone.now().replace(microsecond=0)
     rows: list[str] = []
@@ -671,7 +780,7 @@ def _seed_trace_spans(team: Team) -> int:
         for test_index, (test_class, test_name, prior_daily, current_daily) in enumerate(tests):
             module = test_name
             nodeid = f"{module_dir}/{module}/{test_class}::{test_name}"
-            selector = f"{module_dir}/{module}.py::{test_class}::{test_name}"
+            selector = _selector(module_dir, test_class, test_name)
             for day in range(_SPAN_DAYS):
                 is_current = day >= _SPAN_DAYS // 2
                 daily = current_daily if is_current else prior_daily
@@ -701,7 +810,7 @@ def _seed_trace_spans(team: Team) -> int:
                     rows.append(
                         f"('{_SPAN_TRACE_PREFIX}-{span_index:06d}', {team.pk}, "
                         f"'{_SPAN_TRACE_PREFIX}-trace-{span_index}', 'span-{span_index}', 'parent', "
-                        f"'{nodeid}', 1, '{ts}', '{ts}', '{ts}', 0, '{CI_SERVICE_NAME}', "
+                        f"'{nodeid}', 1, '{ts}', '{ts}', '{ts}', 0, '{PYTEST_CI_SERVICE_NAME}', "
                         f"map({', '.join(attr_pairs)}), map({', '.join(resource_pairs)}))"
                     )
 
@@ -722,6 +831,101 @@ def _seed_trace_spans(team: Team) -> int:
         "timestamp, end_time, observed_timestamp, status_code, service_name, attributes_map_str, "
         "resource_attributes) VALUES " + ",".join(rows)
     )
+    return len(rows)
+
+
+# Synthetic thinned CI failure logs for the broken-tests panel and the per-run failure-log
+# drilldowns (they read the Logs product, fed in production by the Temporal job-logs pipeline;
+# see logic/job_logs/). One small failure region per seeded failing job, reusing the _SPAN_TEAMS
+# roster so test health and broken tests describe the same tests. Deterministic; uuids are
+# prefixed 'engseed-log-' so re-seeding deletes exactly its own rows.
+_LOG_UUID_PREFIX = "engseed-log"
+# Volatile bits (hex ids, digit runs) on purpose: the ci_failures fingerprint recipe normalizes
+# them, so two seeded runs of the same failure demonstrably share a fingerprint.
+# OTLP severity numbers for the two levels the seed emits.
+_LOG_SEVERITY = {"INFO": 9, "ERROR": 17}
+_LOG_FAILURE_DETAILS = (
+    "AssertionError: expected 200, got 500",
+    "TimeoutError: ClickHouse query 8f3aa21b4c9d timed out after 30000 ms",
+    "psycopg.OperationalError: connection to server at 127.0.0.1 port 5432 failed",
+    "AssertionError: rows mismatch: 1042 != 1041",
+)
+
+
+def _sql_escape(value: object) -> str:
+    # For single-quoted ClickHouse literals; job fields originate from the GitHub API via the fixture.
+    return str(value).replace("\\", "\\\\").replace("'", "\\'")
+
+
+def _seed_ci_failure_logs(team: Team, jobs: list[dict[str, Any]]) -> int:
+    roster = [
+        _selector(module_dir, test_class, test_name)
+        for _owner, module_dir, tests in _SPAN_TEAMS
+        for test_class, test_name, _prior, _current in tests
+    ]
+    expiry = (timezone.now() + timedelta(days=30)).strftime(_TS_FMT)
+    rows: list[str] = []
+    for job in jobs:
+        if job.get("conclusion") not in _FAILING_CONCLUSIONS:
+            continue
+        ts = job.get("completed_at") or job.get("started_at")
+        if not ts:
+            continue
+        job_id, run_id = job["id"], job["run_id"]
+        selector = roster[job_id % len(roster)]
+        detail = _LOG_FAILURE_DETAILS[job_id % len(_LOG_FAILURE_DETAILS)]
+        orig_total = 1800 + job_id % 900
+        base_line = 1200 + job_id % 300
+        # The thinned shape the real pipeline emits: context, the FAILED line, an omission marker
+        # (no orig_line), and the job's closing ##[error]. (body, severity_text, orig_line).
+        lines: list[tuple[str, str, int | None]] = [
+            ("=========================== short test summary info ============================", "INFO", base_line),
+            (f"FAILED {selector} - {detail}", "ERROR", base_line + 1),
+            (f"... {orig_total - base_line - 3} lines omitted ...", "INFO", None),
+            ("##[error]Process completed with exit code 1.", "ERROR", orig_total),
+        ]
+        # Mirrors the attribute contract in job_logs/activity.py; the read paths filter on these.
+        # Keys carry the stored ``__str`` type suffix; the logs table's ``attributes`` alias strips
+        # it, so ``attributes['repo']`` reads require ``repo__str`` in ``attributes_map_str``.
+        base_attrs = (
+            f"'job_id__str', '{job_id}', 'run_id__str', '{run_id}', 'repo__str', '{SEED_REPOSITORY}', "
+            f"'branch__str', '{_sql_escape(job.get('head_branch') or '')}', "
+            f"'conclusion__str', '{_sql_escape(job.get('conclusion'))}', "
+            f"'job_name__str', '{_sql_escape(job.get('name'))}', "
+            f"'workflow_name__str', '{_sql_escape(job.get('workflow_name') or '')}', "
+            f"'run_attempt__str', '{job.get('run_attempt') or 1}', "
+            f"'head_sha__str', '{_sql_escape(job.get('head_sha') or '')}', "
+            f"'orig_total__str', '{orig_total}'"
+        )
+        for seq, (body, severity_text, orig_line) in enumerate(lines):
+            attrs = f"{base_attrs}, 'seq__str', '{seq}'"
+            if orig_line is not None:
+                attrs += f", 'orig_line__str', '{orig_line}'"
+            rows.append(
+                f"('{_LOG_UUID_PREFIX}-{job_id}-{seq}', {team.pk}, '{run_id}', '{job_id}', 0, "
+                f"'{_sql_escape(ts)}', '{_sql_escape(ts)}', '{expiry}', '{_sql_escape(body)}', "
+                f"'{severity_text}', {_LOG_SEVERITY[severity_text]}, "
+                f"'{CI_LOGS_SERVICE_NAME}', map('service.name', '{CI_LOGS_SERVICE_NAME}'), 'engseed@1', '', "
+                f"map({attrs}))"
+            )
+
+    # Replace only this seed's lines; anything a real pipeline emitted on the same dev stack is
+    # untouched. HogQL's `logs` reads `logs_distributed` (over logs34, not the legacy `logs`
+    # Distributed over logs32), so write there; the mutation targets the local table because a
+    # Distributed engine rejects ALTER.
+    sync_execute(
+        f"ALTER TABLE {LOGS_LOCAL_TABLE} DELETE WHERE team_id = %(team_id)s AND uuid LIKE '{_LOG_UUID_PREFIX}-%%' "
+        "SETTINGS mutations_sync = 1",
+        {"team_id": team.pk},
+        workload=Workload.LOGS,
+    )
+    if rows:
+        sync_execute(
+            "INSERT INTO logs_distributed (uuid, team_id, trace_id, span_id, trace_flags, timestamp, "
+            "observed_timestamp, original_expiry_timestamp, body, severity_text, severity_number, service_name, "
+            "resource_attributes, instrumentation_scope, event_name, attributes_map_str) VALUES " + ",".join(rows),
+            workload=Workload.LOGS,
+        )
     return len(rows)
 
 
@@ -785,12 +989,19 @@ class Command(BaseCommand):
         # scheduled/re-triggered runs span days, which pins the scatter's Y axis at 100h+ and crushes
         # every real duration to the baseline. PR-branch rows stay untouched.
         runs = [run for run in runs if run.get("head_branch") != "master"]
-        runs.extend(_demo_master_commits(_fixture_anchor(prs, runs)))
+        # Passed as the PR rows, not just their numbers: seeding master stamps each cited PR's
+        # merge_commit_sha with the commit it landed, which is what the attribution join reads.
+        merged_prs = [pr for pr in prs if pr.get("merged_at")]
+        runs.extend(_demo_master_commits(_fixture_anchor(prs, runs), merged_prs))
+        # Synthetic draft/ready transitions + merged events for ready_to_merge_seconds, windowed
+        # like a real capped issue-events sync (see _issue_event_rows).
+        issue_events = _issue_event_rows(prs, _fixture_anchor(prs, runs))
 
         # Always normalize timestamps to a ClickHouse-friendly format; rebasing is optional.
         shift = timedelta(0) if options["keep_dates"] else self._rebase_delta(prs, runs)
         prs = [self._shift_dates(pr, PR_DATE_FIELDS, shift) for pr in prs]
         runs = [self._shift_dates(run, RUN_DATE_FIELDS, shift) for run in runs]
+        issue_events = [self._shift_dates(event, ("created_at",), shift) for event in issue_events]
         if shift:
             self.stdout.write(f"Rebased timestamps forward by {shift}.")
 
@@ -816,6 +1027,9 @@ class Command(BaseCommand):
             self._upsert_schema_table(
                 team, source, credential, prefix, TEAM_MEMBERS_SCHEMA, TEAM_MEMBERS_COLUMNS, _team_membership_rows(prs)
             )
+            self._upsert_schema_table(
+                team, source, credential, prefix, ISSUE_EVENTS_SCHEMA, ISSUE_EVENTS_COLUMNS, issue_events
+            )
 
         # Per-test CI spans back the flaky-test leaderboard and the team CI health surfaces.
         # Best-effort: a dev stack without the traces table still gets the warehouse seed.
@@ -825,6 +1039,14 @@ class Command(BaseCommand):
         except Exception as exc:
             self.stdout.write(self.style.WARNING(f"Skipped trace_spans seed (traces table unavailable?): {exc}"))
 
+        # Thinned failure lines back the broken-tests panel and per-run failure-log drilldowns.
+        # Best-effort: a dev stack without the logs table still gets the warehouse seed.
+        try:
+            log_count = _seed_ci_failure_logs(team, jobs)
+            self.stdout.write(f"Seeded {log_count} CI failure log lines into logs (broken tests/failure logs).")
+        except Exception as exc:
+            self.stdout.write(self.style.WARNING(f"Skipped CI failure logs seed (logs table unavailable?): {exc}"))
+
         self.stdout.write(
             self.style.SUCCESS(
                 f"Seeded {len(prs)} pull requests, {len(runs)} workflow runs, and {len(jobs)} jobs into "
@@ -832,7 +1054,7 @@ class Command(BaseCommand):
             )
         )
         self.stdout.write(
-            f"Multi-push demo PR: /project/{team.pk}/engineering-analytics/PostHog/posthog/pull/{_DEMO_PR_NUMBER}"
+            f"Multi-push demo PR: /project/{team.pk}/engineering-analytics/repos/{SEED_REPOSITORY}/pull-requests/{_DEMO_PR_NUMBER}"
         )
 
     def _load_fixture(self, fixture_dir: Path, filename: str) -> list[dict[str, Any]]:

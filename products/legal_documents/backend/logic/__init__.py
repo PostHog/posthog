@@ -16,7 +16,7 @@ import structlog
 import posthoganalytics
 
 from posthog.cloud_utils import get_cached_instance_license
-from posthog.email import EmailMessage, is_email_available
+from posthog.email import EmailMessage, get_email_team_and_org_context, is_email_available
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization, OrganizationMembership
@@ -247,8 +247,8 @@ def _send_baa_signed_ai_disabled_email(organization: Organization, document: Leg
             template_name=BAA_SIGNED_AI_DISABLED_TEMPLATE,
             subject=f"AI features have been disabled for {organization.name}",
             template_context={
-                "organization_name": organization.name,
                 "ai_settings_url": f"{settings.SITE_URL}/settings/organization-details#organization-ai-consent",
+                **get_email_team_and_org_context(organization=organization),
             },
             use_http=True,
         )
@@ -413,8 +413,10 @@ def create_pandadoc_envelope(document: LegalDocument) -> str | None:
 def send_pandadoc_envelope(document: LegalDocument) -> bool:
     """
     Dispatch the signing email for a previously-created PandaDoc envelope.
-    Called from the `document.draft` webhook once PandaDoc has finished
-    processing the template and the envelope is actually sendable.
+    Normally called from the `document.draft` webhook once PandaDoc has
+    finished processing the template and the envelope is actually sendable.
+    Also driven manually from the Django admin re-send action to recover an
+    envelope that was stranded because that webhook was missed.
 
     Returns True when the send succeeded, False otherwise. Never re-raises:
     PandaDoc will also reject a second send on a doc that's already past

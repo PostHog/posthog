@@ -11,6 +11,7 @@ export {
     isCloudApi,
     isLocalApi,
     MCP_DOCS_URL,
+    OAUTH_SCOPES_HIDDEN,
     OAUTH_SCOPES_SUPPORTED,
 } from './oauth-constants'
 
@@ -25,3 +26,7 @@ export const MCP_ANALYTICS_SOURCE = 'posthog_mcp_analytics'
 // Gates the semantic layer (governed-metrics catalog) — no tool declares it, so it must be
 // joined into the evaluated flag set explicitly; instructions content branches on it.
 export const PRODUCT_DATA_CATALOG_FLAG = 'product-data-catalog'
+
+// Gates reaching third-party MCP servers connected through the MCP gateway. Same flag as
+// the gateway's own UI in the main app, so a team gets the tools when it gets the gateway.
+export const MCP_GATEWAY_FLAG = 'mcp-gateway'

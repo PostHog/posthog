@@ -69,5 +69,12 @@ jobs:
             - name: CI report section tests (Node)
               run: node --test .github/scripts/post-ci-sections.test.mjs
 
+            - name: Weekly flaky report tests (Node)
+              if: ${{ hashFiles('.github/scripts/weekly-flaky-report.test.mjs') != '' }}
+              run: node --test .github/scripts/weekly-flaky-report.test.mjs
+
             - name: Turbo-discover dependent-cascade tests (Node)
               run: node --test .github/scripts/turbo-discover-cascade.test.js
+
+            - name: Trunk impacted-targets tests (Node)
+              run: node --test .github/scripts/trunk-impacted-targets.test.js

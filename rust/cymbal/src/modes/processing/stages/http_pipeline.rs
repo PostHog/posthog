@@ -50,7 +50,7 @@ fn handle_result(
 ) -> Result<Option<AnyEvent>, UnhandledError> {
     let item: Option<AnyEvent> = match processed {
         Ok(props) => {
-            original.set_properties(props.to_clickhouse_value())?;
+            original.set_properties(props.into_clickhouse_properties())?;
             Some(original)
         }
         Err(err) => match err {

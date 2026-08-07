@@ -105,17 +105,10 @@ export function OverviewTab(): JSX.Element {
             sorter: (a, b) => STATUS_SEVERITY[a.readiness_state] - STATUS_SEVERITY[b.readiness_state],
         },
         {
-            title: 'Schemas backfilled',
-            key: 'backfilled_schemas',
-            render: (_, source) => `${source.backfilled_schemas} / ${source.total_schemas}`,
-            sorter: (a, b) => a.backfilled_schemas / a.total_schemas - b.backfilled_schemas / b.total_schemas,
-        },
-        {
-            title: 'Pending imports',
-            dataIndex: 'pending_batches',
-            render: (pendingBatches) =>
-                typeof pendingBatches === 'number' ? pendingBatches.toLocaleString() : 'Unavailable',
-            sorter: (a, b) => (a.pending_batches ?? -1) - (b.pending_batches ?? -1),
+            title: 'Schemas applied',
+            key: 'applied_schemas',
+            render: (_, source) => `${source.applied_schemas} / ${source.total_schemas}`,
+            sorter: (a, b) => a.applied_schemas / a.total_schemas - b.applied_schemas / b.total_schemas,
         },
         {
             title: 'Last source import',
@@ -123,6 +116,13 @@ export function OverviewTab(): JSX.Element {
             render: (lastSyncedAt) =>
                 typeof lastSyncedAt === 'string' ? humanFriendlyDetailedTime(lastSyncedAt) : 'Not synced yet',
             sorter: (a, b) => new Date(a.last_synced_at ?? 0).getTime() - new Date(b.last_synced_at ?? 0).getTime(),
+        },
+        {
+            title: 'Applied to warehouse',
+            dataIndex: 'last_applied_at',
+            render: (lastAppliedAt) =>
+                typeof lastAppliedAt === 'string' ? humanFriendlyDetailedTime(lastAppliedAt) : 'Not recorded yet',
+            sorter: (a, b) => new Date(a.last_applied_at ?? 0).getTime() - new Date(b.last_applied_at ?? 0).getTime(),
         },
     ]
 
@@ -167,7 +167,7 @@ export function OverviewTab(): JSX.Element {
                 <div>
                     <h2 className="mb-1">Warehouse data readiness</h2>
                     <p className="text-muted mb-0">
-                        Track historical backfills and whether recent source imports have reached your warehouse.
+                        Track historical backfills and the workflows applying source imports to your warehouse.
                     </p>
                 </div>
                 <LemonButton

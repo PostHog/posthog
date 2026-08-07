@@ -243,6 +243,9 @@ function defaultAlertName(props: AlertFormLogicProps, goalLines?: GoalLine[] | n
     if (props.defaultToAnomalyDetection) {
         return props.insightName ? `Anomaly in ${props.insightName}` : 'Anomaly alert'
     }
+    if (props.insightName) {
+        return `${props.insightName} alert`
+    }
     return goalLines && goalLines.length > 0 ? `Crossed ${goalLines[0].label}` : ''
 }
 
@@ -400,12 +403,12 @@ export interface alertFormLogicMeta {
         hogqlAlertPreview: (
             insightData: Record<string, any>,
             arg: AlertConfig,
-            arg2: InsightsThresholdBounds | undefined
+            arg2: InsightsThresholdBounds | null | undefined
         ) => HogQLAlertPreview | null
         funnelAlertPreview: (
             insightData: Record<string, any>,
             arg: AlertConfig,
-            arg2: InsightsThresholdBounds | undefined,
+            arg2: InsightsThresholdBounds | null | undefined,
             arg3: AlertConditionType,
             arg4: InsightThresholdType
         ) => FunnelAlertPreview | null
@@ -647,6 +650,12 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     throw error
                 }
 
+                if (isNewAlert) {
+                    posthog.capture('alert creation completed', {
+                        ui_version: 'redesigned',
+                    })
+                }
+
                 // The alert is already persisted — any error from the local side-effects below is a
                 // client-side bug, not a save failure. Capture it for investigation but don't surface it
                 // as "Error saving alert" since the API returned 2xx. Regression guarded by `alertFormLogic.test.ts`.
@@ -877,10 +886,16 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     parent.actions.upsertAlert(updatedAlert)
                     parent.actions.loadAlerts()
                 }
-                props.onEditSuccess(values.alertForm.id)
             },
             submitAlertForm: () => {
                 actions.setAlertFormSubmitAttempted()
+                const validationErrors = Object.values(values.alertFormValidationErrors).filter(
+                    (error): error is string => typeof error === 'string'
+                )
+                if (validationErrors.length > 0) {
+                    const message = validationErrors.map((error) => error.replace(/[.!?]+$/, '')).join('. ')
+                    lemonToast.error(`Couldn't save alert: ${message}`)
+                }
             },
             submitAlertFormSuccess: async () => {
                 // Background sync to pick up any server-side changes

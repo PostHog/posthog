@@ -12,6 +12,7 @@ workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
+arc-swap = { workspace = true }
 async-compression = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
@@ -42,7 +43,6 @@ opentelemetry_sdk = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
 rdkafka = { workspace = true }
-redis = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_urlencoded = { workspace = true }
@@ -82,4 +82,5 @@ rand = { workspace = true }
 rstest = "0.26"
 rdkafka = { workspace = true }
 reqwest = { workspace = true, features = ["multipart"] }
+redis = { workspace = true }
 serde_json = { workspace = true }

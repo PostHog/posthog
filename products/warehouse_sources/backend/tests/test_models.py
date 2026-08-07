@@ -1,14 +1,17 @@
 import uuid
 from datetime import date, datetime, timedelta
+from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import DatabaseError, OperationalError, transaction
 from django.db.models import Model
 from django.test import SimpleTestCase
 from django.utils import timezone
 
+from dateutil import parser
 from parameterized import parameterized
 
 from posthog.models.signals import model_activity_signal
@@ -18,6 +21,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     apply_incremental_lookback,
+    complete_schema_run,
     mark_initial_sync_complete,
     process_incremental_value,
     update_sync_type_config_keys,
@@ -26,7 +30,11 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type
+from products.warehouse_sources.backend.models.util import (
+    CLICKHOUSE_HOGQL_MAPPING,
+    clean_type,
+    clickhouse_column_to_dwh_column,
+)
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
@@ -198,6 +206,118 @@ class TestExternalDataSchemaActivityLogging(BaseTest):
         schema.refresh_from_db()
         assert schema.incremental_field_last_value == 42
 
+    def test_set_partitioning_enabled_save_skips_activity_log(self) -> None:
+        schema = self._create(sync_type_config={})
+        model_activity_signal.connect(self._signal_handler, sender=ExternalDataSchema)
+        try:
+            schema.set_partitioning_enabled(
+                partitioning_keys=["id"],
+                partition_count=10,
+                partition_size=None,
+                partition_mode="md5",
+                partition_format=None,
+            )
+            assert not self.signal_received
+        finally:
+            model_activity_signal.disconnect(self._signal_handler, sender=ExternalDataSchema)
+        schema.refresh_from_db()
+        assert schema.sync_type_config["partitioning_enabled"] is True
+
+    def test_stage_incremental_field_value_save_skips_activity_log(self) -> None:
+        schema = self._create(
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field_type": IncrementalFieldType.Integer},
+        )
+        model_activity_signal.connect(self._signal_handler, sender=ExternalDataSchema)
+        try:
+            schema.stage_incremental_field_value("run-1", 42)
+            assert not self.signal_received
+        finally:
+            model_activity_signal.disconnect(self._signal_handler, sender=ExternalDataSchema)
+        schema.refresh_from_db()
+        assert schema.sync_type_config["incremental_staged"]["last_value"] == 42
+
+    def test_promote_staged_incremental_values_save_skips_activity_log(self) -> None:
+        schema = self._create(
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={
+                "incremental_field_type": IncrementalFieldType.Integer,
+                "incremental_staged": {"run_uuid": "run-1", "last_value": 42},
+            },
+        )
+        model_activity_signal.connect(self._signal_handler, sender=ExternalDataSchema)
+        try:
+            assert schema.promote_staged_incremental_values("run-1")
+            assert not self.signal_received
+        finally:
+            model_activity_signal.disconnect(self._signal_handler, sender=ExternalDataSchema)
+        schema.refresh_from_db()
+        assert schema.sync_type_config["incremental_field_last_value"] == 42
+
+    def test_bookkeeping_save_raises_instead_of_resurrecting_deleted_row(self) -> None:
+        # Source (and its schema, via CASCADE) deleted concurrently with a sync still holding a
+        # stale in-memory schema reference. Without force_update, Django's UUID-pk insert fallback
+        # would silently recreate the row here and hit an FK violation on source_id instead.
+        schema = self._create(
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field_type": IncrementalFieldType.Integer},
+        )
+        schema_id = schema.pk
+        # A queryset delete (unlike self.source.delete()) doesn't null out this process's cached
+        # `schema.source`, matching production where the delete happens on another connection.
+        ExternalDataSource.objects.filter(pk=self.source.pk).delete()
+
+        # Postgres aborts the whole transaction on an unhandled DatabaseError; a savepoint keeps
+        # the failure scoped so the existence check below can still run.
+        with self.assertRaises(DatabaseError), transaction.atomic():
+            schema.update_incremental_field_value(42)
+
+        assert not ExternalDataSchema.objects.filter(pk=schema_id).exists()
+
+
+class TestSaveSyncTypeConfigRetriesOnConnectionDrop(BaseTest):
+    """A pgbouncer `query_wait_timeout` (surfaced as `OperationalError`) on this per-batch
+    bookkeeping write used to propagate straight past `record_partition_measurement` and get
+    swallowed by the caller's broad except, silently losing the write for that run."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+
+    def _create(self, **kwargs) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(team_id=self.team.pk, source=self.source, name="users", **kwargs)
+
+    def test_retries_once_on_operational_error_then_succeeds(self) -> None:
+        schema = self._create()
+        real_save = ExternalDataSchema.save
+        calls = 0
+
+        def flaky_save(self: ExternalDataSchema, *args: Any, **kwargs: Any) -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise OperationalError("query_wait_timeout")
+            real_save(self, *args, **kwargs)
+
+        with patch.object(ExternalDataSchema, "save", flaky_save):
+            schema.record_partition_measurement(123)
+
+        assert calls == 2
+        schema.refresh_from_db()
+        assert schema.sync_type_config["max_partition_bytes"] == 123
+
+    def test_second_consecutive_operational_error_propagates(self) -> None:
+        schema = self._create()
+        with patch.object(ExternalDataSchema, "save", side_effect=OperationalError("query_wait_timeout")):
+            with self.assertRaises(OperationalError):
+                schema.record_partition_measurement(123)
+
 
 class TestExternalDataSchemaOOMEvent(BaseTest):
     def _source(self) -> ExternalDataSource:
@@ -212,8 +332,18 @@ class TestExternalDataSchemaOOMEvent(BaseTest):
     def _schema(self, name: str) -> ExternalDataSchema:
         return ExternalDataSchema.objects.create(team_id=self.team.pk, source=self._source(), name=name)
 
-    def _oom(self, schema: ExternalDataSchema, *, age_days: float = 0) -> ExternalDataSchemaOOMEvent:
-        event = ExternalDataSchemaOOMEvent.objects.for_team(self.team.pk).create(team_id=self.team.pk, schema=schema)
+    def _oom(
+        self,
+        schema: ExternalDataSchema,
+        *,
+        age_days: float = 0,
+        run_id: str | None = None,
+    ) -> ExternalDataSchemaOOMEvent:
+        event = ExternalDataSchemaOOMEvent.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk,
+            schema=schema,
+            run_id=run_id,
+        )
         if age_days:
             # created_at is auto_now_add, so backdate via an update to place the row outside the window.
             ExternalDataSchemaOOMEvent.objects.unscoped().filter(pk=event.pk).update(
@@ -255,6 +385,16 @@ class TestExternalDataSchemaOOMEvent(BaseTest):
         # real escalation the controller should act on.
         self._oom(schema)
         assert ExternalDataSchemaOOMEvent.recent_count(schema, days=7) == 1
+
+    def test_recent_count_counts_every_retry_attempt(self) -> None:
+        # Retries of one job are separate attempts at the same merge, each rescheduled onto whichever
+        # worker picks it up. A job that OOMs attempt after attempt is a table failing deterministically,
+        # so collapsing those into one occurrence would discard the clearest evidence this log carries.
+        schema = self._schema("orders")
+        for _ in range(5):
+            self._oom(schema, run_id="run-1")
+
+        assert ExternalDataSchemaOOMEvent.recent_count(schema, days=7) == 5
 
 
 class TestUpdateSyncTypeConfigKeys(BaseTest):
@@ -460,6 +600,85 @@ class TestMarkInitialSyncComplete(BaseTest):
         assert schema.sync_type_config == expected_config
 
 
+class TestCompleteSchemaRun(BaseTest):
+    """The success repaint checks the broken marker under the row lock: the sweeper can mark the
+    source broken while a run is in flight, and an unlocked check on a stale instance would
+    overwrite the sweeper's FAILED with COMPLETED, hiding the breakage from the failure digest."""
+
+    def _schema(self, sync_type_config: dict) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+        return ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source=source,
+            name="users",
+            sync_type="cdc",
+            sync_type_config=sync_type_config,
+            status=ExternalDataSchema.Status.FAILED,
+            latest_error="boom",
+        )
+
+    @parameterized.expand(
+        [
+            (
+                # The sweeper marked the source broken after this run's instance was loaded;
+                # the stale instance must not repaint FAILED away.
+                "broken_marker_blocks_repaint",
+                {"cdc_mode": "streaming", "cdc_broken": {"reason": "slot_missing"}},
+                False,
+                ExternalDataSchema.Status.FAILED,
+                {"cdc_mode": "streaming", "cdc_broken": {"reason": "slot_missing"}},
+            ),
+            (
+                # A successful run proves extraction resumed: the pause marker is cleared in the
+                # same transaction as the repaint.
+                "paused_marker_cleared_on_repaint",
+                {"cdc_mode": "streaming", "cdc_extraction_paused": {"reason": "auth_failed"}},
+                True,
+                ExternalDataSchema.Status.COMPLETED,
+                {"cdc_mode": "streaming"},
+            ),
+            (
+                "healthy_schema_repaints",
+                {"cdc_mode": "streaming"},
+                True,
+                ExternalDataSchema.Status.COMPLETED,
+                {"cdc_mode": "streaming"},
+            ),
+        ]
+    )
+    def test_repaint_respects_markers(
+        self,
+        _name: str,
+        config: dict,
+        expected_repainted: bool,
+        expected_status: str,
+        expected_config: dict,
+    ) -> None:
+        schema = self._schema({"cdc_mode": "streaming"})
+        # The instance the activity holds predates the sweeper's marker write — a check against
+        # its in-memory config would see no marker and repaint every case below.
+        stale_instance = ExternalDataSchema.objects.get(id=schema.id)
+        ExternalDataSchema.objects.filter(id=schema.id).update(sync_type_config=config)
+
+        now = timezone.now()
+        repainted = complete_schema_run(stale_instance, last_synced_at=now)
+
+        assert repainted is expected_repainted
+        schema.refresh_from_db()
+        assert schema.status == expected_status
+        assert schema.sync_type_config == expected_config
+        assert schema.latest_error == ("boom" if not expected_repainted else None)
+        # The passed instance mirrors the persisted outcome either way.
+        assert stale_instance.status == expected_status
+        assert stale_instance.sync_type_config == expected_config
+
+
 @pytest.mark.parametrize(
     "clickhouse_type,expected",
     [
@@ -475,6 +694,21 @@ def test_clean_type_unwraps_low_cardinality(clickhouse_type: str, expected: str)
     cleaned = clean_type(clickhouse_type)
     assert cleaned == expected
     assert cleaned in CLICKHOUSE_HOGQL_MAPPING
+
+
+@pytest.mark.parametrize(
+    "clickhouse_type,nullable,expected",
+    [
+        ("String", False, "String"),
+        ("String", True, "Nullable(String)"),
+        ("Nullable(String)", True, "Nullable(String)"),
+        # LowCardinality must stay outermost — ClickHouse rejects Nullable(LowCardinality(...)).
+        ("LowCardinality(String)", True, "LowCardinality(Nullable(String))"),
+        ("LowCardinality(Nullable(String))", True, "LowCardinality(Nullable(String))"),
+    ],
+)
+def test_clickhouse_column_to_dwh_column_nullable_wrapping(clickhouse_type: str, nullable: bool, expected: str) -> None:
+    assert clickhouse_column_to_dwh_column("col", clickhouse_type, nullable)["clickhouse"] == expected
 
 
 @pytest.mark.parametrize(
@@ -626,6 +860,57 @@ def test_process_incremental_value_xid_returns_value_as_is() -> None:
 
 
 @pytest.mark.parametrize(
+    "value,field_type,expected",
+    [
+        # Unix-epoch cursors (e.g. Stripe `created`) arrive as numbers on datetime-typed fields;
+        # dateutil raised "Parser must be a string or character stream, not int" before this passthrough.
+        (1718377611, IncrementalFieldType.DateTime, 1718377611),
+        (1718377611, IncrementalFieldType.Timestamp, 1718377611),
+        (1718377611, IncrementalFieldType.Date, 1718377611),
+        (1718377611.5, IncrementalFieldType.DateTime, 1718377611.5),
+        (datetime(2024, 6, 14, 15, 33, 31), IncrementalFieldType.DateTime, datetime(2024, 6, 14, 15, 33, 31)),
+        ("2024-06-14T15:33:31", IncrementalFieldType.DateTime, datetime(2024, 6, 14, 15, 33, 31)),
+        ("2024-06-14", IncrementalFieldType.Date, date(2024, 6, 14)),
+        # JS `Date.prototype.toString()` cursors carry a parenthetical timezone name dateutil
+        # can't parse on its own, even though the GMT offset earlier in the string is sufficient.
+        (
+            "Sun Mar 15 2026 16:59:47 GMT+0000 (Coordinated Universal Time)",
+            IncrementalFieldType.DateTime,
+            datetime(2026, 3, 15, 16, 59, 47, tzinfo=timezone.get_fixed_timezone(0)),
+        ),
+        (
+            "Mon Jan 05 2026 09:15:00 GMT-0800 (Pacific Standard Time)",
+            IncrementalFieldType.Date,
+            date(2026, 1, 5),
+        ),
+        # A bare digit-string cursor on a date/time-typed field (e.g. a ClickHouse column Arrow
+        # casts to String) crashed here: dateutil misreads it as a calendar year and overflows
+        # past datetime's year-9999 ceiling. Fall back to the raw integer instead of crashing.
+        ("20662", IncrementalFieldType.Timestamp, 20662),
+        ("20662", IncrementalFieldType.DateTime, 20662),
+        ("20662", IncrementalFieldType.Date, 20662),
+        # Longer digit runs overflow C's int range and raise `OverflowError` instead of
+        # `ParserError` - same fallback must catch both.
+        ("20662123456", IncrementalFieldType.DateTime, 20662123456),
+        # A genuine compact date string (YYYYMMDD) must still parse as a real date, not fall
+        # back to the raw-integer path.
+        ("20240115", IncrementalFieldType.Date, date(2024, 1, 15)),
+    ],
+)
+def test_process_incremental_value_datetime_handles_epoch_numbers(value, field_type, expected) -> None:
+    assert process_incremental_value(value, field_type) == expected
+
+
+@pytest.mark.parametrize(
+    "field_type",
+    [IncrementalFieldType.DateTime, IncrementalFieldType.Timestamp, IncrementalFieldType.Date],
+)
+def test_process_incremental_value_datetime_reraises_unparseable_non_numeric_string(field_type) -> None:
+    with pytest.raises(parser.ParserError):
+        process_incremental_value("not-a-date-at-all", field_type)
+
+
+@pytest.mark.parametrize(
     "value,field_type,lookback_seconds,expected",
     [
         (datetime(2026, 6, 14, 15, 33, 31), IncrementalFieldType.Timestamp, 3600, datetime(2026, 6, 14, 14, 33, 31)),
@@ -638,6 +923,8 @@ def test_process_incremental_value_xid_returns_value_as_is() -> None:
         (datetime(2026, 6, 14, 15, 33, 31), IncrementalFieldType.Timestamp, -5, datetime(2026, 6, 14, 15, 33, 31)),
         (100, IncrementalFieldType.Integer, 3600, 100),
         (100, IncrementalFieldType.Numeric, 3600, 100),
+        # Epoch-second cursor on a datetime field shifts directly instead of crashing on int - timedelta.
+        (1718377611, IncrementalFieldType.DateTime, 3600, 1718374011),
         ("abc123", IncrementalFieldType.ObjectID, 3600, "abc123"),
         (None, IncrementalFieldType.Timestamp, 3600, None),
         (datetime(2026, 6, 14, 15, 33, 31), None, 3600, datetime(2026, 6, 14, 15, 33, 31)),
@@ -663,6 +950,19 @@ class TestStagedIncrementalCursor:
             schema.stage_incremental_field_value("run-1", 42)
         staged = schema.sync_type_config["incremental_staged"]
         assert staged == {"run_uuid": "run-1", "last_value": 42}
+
+    def test_stage_keeps_epoch_number_for_datetime_field(self) -> None:
+        # A datetime-typed epoch cursor must round-trip as a number, not "1718377611", so the next
+        # run's read-back doesn't feed a numeric string into dateutil and crash.
+        schema = self._make_schema(incremental_field_type=IncrementalFieldType.DateTime)
+        with patch.object(schema, "save"):
+            schema.stage_incremental_field_value("run-1", 1718377611)
+        assert schema.sync_type_config["incremental_staged"]["last_value"] == 1718377611
+
+    def test_update_incremental_field_value_keeps_epoch_number_for_datetime_field(self) -> None:
+        schema = self._make_schema(incremental_field_type=IncrementalFieldType.DateTime)
+        schema.update_incremental_field_value(1718377611, save=False)
+        assert schema.sync_type_config["incremental_field_last_value"] == 1718377611
 
     def test_stage_writes_earliest_value(self) -> None:
         schema = self._make_schema()

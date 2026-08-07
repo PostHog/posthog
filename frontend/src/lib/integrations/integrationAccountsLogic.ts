@@ -12,6 +12,7 @@ const SEARCH_DEBOUNCE_MS = 300
 export interface integrationAccountsLogicValues {
     accounts: IntegrationAccountApi[]
     accountsError: string | null
+    accountsLoaded: boolean
     accountsLoading: boolean
     search: string
 }
@@ -88,6 +89,15 @@ export const integrationAccountsLogic = kea<integrationAccountsLogicType>([
 
     reducers({
         search: ['', { setSearch: (_, { search }) => search }],
+        // Whether a load has finished at least once, so the UI can distinguish "not fetched yet" from
+        // "fetched and genuinely empty" without flashing an empty state on first paint.
+        accountsLoaded: [
+            false,
+            {
+                loadAccountsSuccess: () => true,
+                loadAccountsFailure: () => true,
+            },
+        ],
         // Surface the backend's actionable 400 message (e.g. "reconnect the integration") instead of
         // falling back to a generic "no accounts" empty state. Cleared when a fresh load starts or succeeds.
         accountsError: [
