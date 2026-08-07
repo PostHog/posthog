@@ -12,6 +12,12 @@ A sub-product of Session Replay. Users configure named **scanners** that PostHog
 
 **Quota** — succeeded observations write an immutable usage receipt; usage (receipts + in-flight rows) is counted against a monthly per-organization quota, with per-scanner volume estimates summed into a projected-usage prognosis shown at configuration time.
 
+## Experiment-created scanners
+
+The experiment creation wizard offers an opt-in Replay Vision scanner when the `replay-vision` feature flag is enabled. The scanner is a **disabled** classifier — enabling it, and the credit spend that follows, stays a human decision on the scanner itself. Its `RecordingsQuery` uses the experiment's exposure event, enrolled variant filters, custom exposure properties, and test-account setting, with the session-linkability check the experiment recordings surfaces use, applied as advice rather than a veto: an exposure event never seen with a `$session_id` falls back to the `$feature/<key>` property where one applies, and otherwise keeps the exposure filter. The check can't distinguish "captured server-side" from "not emitted yet", which at creation time is the common case, so it must never refuse and never widen the query. Scanner creation runs after the experiment has been persisted and cannot roll back a successfully created experiment.
+
+The template lives in `frontend/src/scenes/experiments/replayVisionScanner.ts` and mirrors the one in the `scanning-experiments-with-replay-vision` skill: a fixed tag set (so variants stay comparable), an escape tag for sessions that never reached the changed surface, and no variant names in the prompt.
+
 ## Layout
 
 - `backend/models/` — `ReplayScanner`, `ReplayObservation`, usage receipts, quota grants.
