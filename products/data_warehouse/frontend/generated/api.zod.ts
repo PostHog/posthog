@@ -280,6 +280,9 @@ export const warehouseExpressionsCreateBodyTableNameMax = 400
 
 export const warehouseExpressionsCreateBodyFieldNameMax = 400
 
+export const warehouseExpressionsCreateBodyFieldNameRegExp = new RegExp('^[A-Za-z_$][A-Za-z0-9_$]\*$')
+export const warehouseExpressionsCreateBodyExpressionMax = 10000
+
 export const WarehouseExpressionsCreateBody = /* @__PURE__ */ zod.object({
     deleted: zod.boolean().nullish().describe('Whether this expression has been soft-deleted.'),
     table_name: zod
@@ -289,11 +292,13 @@ export const WarehouseExpressionsCreateBody = /* @__PURE__ */ zod.object({
     field_name: zod
         .string()
         .max(warehouseExpressionsCreateBodyFieldNameMax)
+        .regex(warehouseExpressionsCreateBodyFieldNameRegExp)
         .describe(
-            'Name of the virtual field the expression is exposed as. Must not clash with an existing field on the table.'
+            'Name of the virtual field the expression is exposed as. Letters, numbers, underscores and $ only, starting with a letter, underscore or $. Must not clash with an existing field on the table.'
         ),
     expression: zod
         .string()
+        .max(warehouseExpressionsCreateBodyExpressionMax)
         .describe(
             'HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email).'
         ),
@@ -312,6 +317,9 @@ export const warehouseExpressionsUpdateBodyTableNameMax = 400
 
 export const warehouseExpressionsUpdateBodyFieldNameMax = 400
 
+export const warehouseExpressionsUpdateBodyFieldNameRegExp = new RegExp('^[A-Za-z_$][A-Za-z0-9_$]\*$')
+export const warehouseExpressionsUpdateBodyExpressionMax = 10000
+
 export const WarehouseExpressionsUpdateBody = /* @__PURE__ */ zod.object({
     deleted: zod.boolean().nullish().describe('Whether this expression has been soft-deleted.'),
     table_name: zod
@@ -321,11 +329,13 @@ export const WarehouseExpressionsUpdateBody = /* @__PURE__ */ zod.object({
     field_name: zod
         .string()
         .max(warehouseExpressionsUpdateBodyFieldNameMax)
+        .regex(warehouseExpressionsUpdateBodyFieldNameRegExp)
         .describe(
-            'Name of the virtual field the expression is exposed as. Must not clash with an existing field on the table.'
+            'Name of the virtual field the expression is exposed as. Letters, numbers, underscores and $ only, starting with a letter, underscore or $. Must not clash with an existing field on the table.'
         ),
     expression: zod
         .string()
+        .max(warehouseExpressionsUpdateBodyExpressionMax)
         .describe(
             'HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email).'
         ),
@@ -344,6 +354,9 @@ export const warehouseExpressionsPartialUpdateBodyTableNameMax = 400
 
 export const warehouseExpressionsPartialUpdateBodyFieldNameMax = 400
 
+export const warehouseExpressionsPartialUpdateBodyFieldNameRegExp = new RegExp('^[A-Za-z_$][A-Za-z0-9_$]\*$')
+export const warehouseExpressionsPartialUpdateBodyExpressionMax = 10000
+
 export const WarehouseExpressionsPartialUpdateBody = /* @__PURE__ */ zod.object({
     deleted: zod.boolean().nullish().describe('Whether this expression has been soft-deleted.'),
     table_name: zod
@@ -354,12 +367,14 @@ export const WarehouseExpressionsPartialUpdateBody = /* @__PURE__ */ zod.object(
     field_name: zod
         .string()
         .max(warehouseExpressionsPartialUpdateBodyFieldNameMax)
+        .regex(warehouseExpressionsPartialUpdateBodyFieldNameRegExp)
         .optional()
         .describe(
-            'Name of the virtual field the expression is exposed as. Must not clash with an existing field on the table.'
+            'Name of the virtual field the expression is exposed as. Letters, numbers, underscores and $ only, starting with a letter, underscore or $. Must not clash with an existing field on the table.'
         ),
     expression: zod
         .string()
+        .max(warehouseExpressionsPartialUpdateBodyExpressionMax)
         .optional()
         .describe(
             'HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email).'

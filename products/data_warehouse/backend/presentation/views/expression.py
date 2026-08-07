@@ -1,5 +1,6 @@
 from typing import Any, Optional, cast
 
+from django.core.validators import RegexValidator
 from django.db import IntegrityError, transaction
 
 from rest_framework import filters, response, serializers, viewsets
@@ -20,6 +21,17 @@ from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from products.data_tools.backend.facade.models import DataWarehouseExpression
+
+# Same simple-identifier shape as `escape_hogql_identifier`. A whitelist rather than a
+# blacklist: names outside it range from unqueryable to actively dangerous ("*" resolves
+# as a wildcard, so an injected "*" field would smuggle a bare star into every teammate's
+# SELECT * and expose hidden physical columns).
+FIELD_NAME_REGEX = r"^[A-Za-z_$][A-Za-z0-9_$]*$"
+
+# Every saved expression is fetched and parsed on every HogQL database build for the team,
+# so both per-expression size and total count have to stay bounded.
+MAX_EXPRESSION_LENGTH = 10_000
+MAX_EXPRESSIONS_PER_TEAM = 500
 
 
 class DataWarehouseExpressionSerializer(serializers.ModelSerializer):
@@ -42,10 +54,17 @@ class DataWarehouseExpressionSerializer(serializers.ModelSerializer):
             "deleted": {"help_text": "Whether this expression has been soft-deleted."},
             "table_name": {"help_text": "Name of the table the expression field is added to, for example events."},
             "field_name": {
-                "help_text": "Name of the virtual field the expression is exposed as. Must not clash with an existing field on the table."
+                "help_text": "Name of the virtual field the expression is exposed as. Letters, numbers, underscores and $ only, starting with a letter, underscore or $. Must not clash with an existing field on the table.",
+                "validators": [
+                    RegexValidator(
+                        regex=FIELD_NAME_REGEX,
+                        message="Field name can only contain letters, numbers, underscores and $, and can't start with a number.",
+                    )
+                ],
             },
             "expression": {
-                "help_text": "HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email)."
+                "help_text": "HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email).",
+                "max_length": MAX_EXPRESSION_LENGTH,
             },
             "connection_id": {
                 "help_text": "ExternalDataSource id to scope the expression to that connection's direct-query database. Null applies it to the default warehouse database."
@@ -65,10 +84,17 @@ class DataWarehouseExpressionSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"table_name": ["Table name must not be empty."]})
         if not field_name:
             raise serializers.ValidationError({"field_name": ["Field name must not be empty."]})
-        if "." in field_name:
-            raise serializers.ValidationError({"field_name": ["Field name must not contain a period: '.'"]})
         if not expression:
             raise serializers.ValidationError({"expression": ["Expression must not be empty."]})
+
+        if (
+            instance is None
+            and DataWarehouseExpression.objects.for_team(team_id).exclude(deleted=True).count()
+            >= MAX_EXPRESSIONS_PER_TEAM
+        ):
+            raise serializers.ValidationError(
+                f"This project has {MAX_EXPRESSIONS_PER_TEAM} saved expressions, the maximum. Delete one to add another."
+            )
 
         try:
             source, database = resolve_database_for_connection(

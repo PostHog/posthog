@@ -812,11 +812,15 @@ export interface DataWarehouseExpressionApi {
      */
     table_name: string
     /**
-     * Name of the virtual field the expression is exposed as. Must not clash with an existing field on the table.
+     * Name of the virtual field the expression is exposed as. Letters, numbers, underscores and $ only, starting with a letter, underscore or $. Must not clash with an existing field on the table.
      * @maxLength 400
+     * @pattern ^[A-Za-z_$][A-Za-z0-9_$]*$
      */
     field_name: string
-    /** HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email). */
+    /**
+     * HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email).
+     * @maxLength 10000
+     */
     expression: string
     /**
      * ExternalDataSource id to scope the expression to that connection's direct-query database. Null applies it to the default warehouse database.
@@ -849,11 +853,15 @@ export interface PatchedDataWarehouseExpressionApi {
      */
     table_name?: string
     /**
-     * Name of the virtual field the expression is exposed as. Must not clash with an existing field on the table.
+     * Name of the virtual field the expression is exposed as. Letters, numbers, underscores and $ only, starting with a letter, underscore or $. Must not clash with an existing field on the table.
      * @maxLength 400
+     * @pattern ^[A-Za-z_$][A-Za-z0-9_$]*$
      */
     field_name?: string
-    /** HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email). */
+    /**
+     * HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email).
+     * @maxLength 10000
+     */
     expression?: string
     /**
      * ExternalDataSource id to scope the expression to that connection's direct-query database. Null applies it to the default warehouse database.

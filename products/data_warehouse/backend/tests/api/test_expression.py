@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError as DRFValidationError
@@ -9,6 +10,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import ExpressionField
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 
@@ -16,7 +18,10 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
 
 from products.data_tools.backend.models.expression import DataWarehouseExpression
-from products.data_warehouse.backend.presentation.views.expression import DataWarehouseExpressionSerializer
+from products.data_warehouse.backend.presentation.views.expression import (
+    MAX_EXPRESSION_LENGTH,
+    DataWarehouseExpressionSerializer,
+)
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 
@@ -51,16 +56,45 @@ class TestExpressionApi(APIBaseTest):
         [
             ("override_existing_field", "events", "event", "properties.$browser"),
             ("field_name_with_period", "events", "my.field", "properties.$browser"),
+            # "*" resolves as a wildcard, so if it were saved it would smuggle a bare star
+            # into every teammate's SELECT * and expose hidden physical columns.
+            ("field_name_star", "events", "*", "properties.$browser"),
+            ("field_name_with_backtick", "events", "bro`wser", "properties.$browser"),
             ("unknown_table", "not_a_table", "browser", "properties.$browser"),
             ("syntax_error", "events", "browser", "properties.$browser +"),
             ("unknown_column", "events", "browser", "upper(nonexistent_column)"),
             ("empty_expression", "events", "browser", ""),
+            ("expression_too_long", "events", "browser", "1 + " + "1" * MAX_EXPRESSION_LENGTH),
         ]
     )
     def test_invalid_input_rejected(self, _name, table_name, field_name, expression):
         response = self._create(table_name=table_name, field_name=field_name, expression=expression)
         self.assertEqual(response.status_code, 400, response.content)
         self.assertEqual(DataWarehouseExpression.objects.for_team(self.team.pk).count(), 0)
+
+    def test_per_team_count_cap(self):
+        with patch(
+            "products.data_warehouse.backend.presentation.views.expression.MAX_EXPRESSIONS_PER_TEAM",
+            1,
+        ):
+            self.assertEqual(self._create().status_code, 201)
+            response = self._create(field_name="os", expression="properties.$os")
+            self.assertEqual(response.status_code, 400, response.content)
+
+    def test_mutually_recursive_expressions_fail_as_query_error(self):
+        # Bypasses API validation the way a concurrent-save race would: each expression was
+        # validated against a database that didn't yet contain the other.
+        with team_scope(self.team.pk):
+            DataWarehouseExpression.objects.create(
+                team=self.team, table_name="events", field_name="field_a", expression="field_b"
+            )
+            DataWarehouseExpression.objects.create(
+                team=self.team, table_name="events", field_name="field_b", expression="field_a"
+            )
+
+        context = HogQLContext(team_id=self.team.pk, database=self._database(), enable_select_queries=True)
+        with self.assertRaises(QueryError):
+            prepare_and_print_ast(parse_select("SELECT field_a FROM events"), context, "clickhouse")
 
     def test_duplicate_field_name_rejected(self):
         self.assertEqual(self._create().status_code, 201)
