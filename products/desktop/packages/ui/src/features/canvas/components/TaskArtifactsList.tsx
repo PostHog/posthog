@@ -361,20 +361,6 @@ export function TaskArtifactsList({
     );
   }
 
-  if (commentsQuery.isError) {
-    return (
-      <Empty className="h-full border-0">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <ChatCircleIcon />
-          </EmptyMedia>
-          <EmptyTitle>Couldn't load comment counts</EmptyTitle>
-          <EmptyDescription>Refresh the page to try again.</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    );
-  }
-
   return (
     <div className="flex flex-col gap-1.5 p-2">
       {rows.map((row) =>

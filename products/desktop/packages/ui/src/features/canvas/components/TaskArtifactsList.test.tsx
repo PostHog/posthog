@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   openArtifactTab: vi.fn(),
   openExternalUrl: vi.fn(),
   getCloudAttachmentPreviewUrl: vi.fn(),
+  commentsError: false,
 }));
 
 vi.mock("@posthog/ui/features/sessions/useCommentsEnabled", () => ({
@@ -55,6 +56,7 @@ vi.mock("@posthog/ui/features/pr-review/usePrReviewThreads", () => ({
 }));
 vi.mock("@posthog/ui/features/sessions/components/useComments", () => ({
   useCommentsForTargetsQuery: () => ({
+    isError: mocks.commentsError,
     data: [
       {
         id: "comment-1",
@@ -118,6 +120,7 @@ function outputFile(
 
 describe("TaskArtifactsList", () => {
   beforeEach(() => {
+    mocks.commentsError = false;
     mocks.runs = [run("run-1", { prNumber: 1 }), run("run-2", { prNumber: 2 })];
     mocks.openArtifactTab.mockReset();
     mocks.openExternalUrl.mockReset();
@@ -185,6 +188,18 @@ describe("TaskArtifactsList", () => {
     expect(row).not.toBeNull();
     expect(within(row as HTMLElement).getByText("2")).toBeTruthy();
     expect(within(row as HTMLElement).getByText("File · 17 KB")).toBeTruthy();
+  });
+
+  it("keeps artifacts visible when comment counts fail", () => {
+    mocks.commentsError = true;
+    mocks.runs = [
+      run("run-1", { artifacts: [outputFile({ id: "a", size: 16861 })] }),
+    ];
+
+    render(<TaskArtifactsList task={task} timeline={[]} />);
+
+    expect(screen.getByText("report.md")).toBeInTheDocument();
+    expect(screen.getByText("File · 17 KB")).toBeInTheDocument();
   });
 
   // The threads themselves live in the Comments tab now, so the pane must not
