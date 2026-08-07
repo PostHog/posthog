@@ -1,3 +1,4 @@
+import asyncio
 import datetime as dt
 from functools import partial
 
@@ -143,6 +144,14 @@ def _sweep_v3_queue_batches_swallowing_errors(
     # The stale-stranded reconcile sweep on the loader retries what this misses.
     try:
         _sweep_v3_queue_batches(job_id=job_id, status=status, logger=logger)
+    except asyncio.CancelledError:
+        # asyncio.CancelledError subclasses BaseException, so the `except Exception` below can't
+        # see it. Under a worker shutdown, psycopg's sync wait cancels the query and re-raises it
+        # straight through — record it so the counter and log fire, then re-raise to keep the
+        # activity's cancellation intact instead of masking a shutdown as a swept-clean finalize.
+        FINALIZE_QUEUE_SWEEP_ERRORS.inc()
+        logger.exception("dwh_finalize_queue_sweep_failed", job_id=job_id)
+        raise
     except Exception as e:
         FINALIZE_QUEUE_SWEEP_ERRORS.inc()
         logger.exception("dwh_finalize_queue_sweep_failed", job_id=job_id)
@@ -159,7 +168,9 @@ def _sweep_v3_queue_batches(*, job_id: str, status: ExternalDataJob.Status, logg
 
     from products.warehouse_sources.backend.facade.pipelines import BatchQueue
 
-    conn = psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True)
+    # Bounded connect: the queue is a separate Postgres, and this runs on the finalize path
+    # after a terminal status was committed — a hung connect must not block it indefinitely.
+    conn = psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True, connect_timeout=10)
     try:
         swept = BatchQueue.fail_batches_for_job_sync(
             conn,

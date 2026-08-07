@@ -1,11 +1,16 @@
 import uuid
+import asyncio
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.models import Organization, Team
 
-from products.data_warehouse.backend.logic.external_data_source.jobs import update_external_job_status
+from products.data_warehouse.backend.logic.external_data_source.jobs import (
+    FINALIZE_QUEUE_SWEEP_ERRORS,
+    _sweep_v3_queue_batches_swallowing_errors,
+    update_external_job_status,
+)
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.pipelines import LOCK_TAKEOVER_LATEST_ERROR
 
@@ -502,3 +507,21 @@ class TestFinalizeQueueSweep:
         db_job = ExternalDataJob.objects.get(id=job.id)
         assert db_job.status == ExternalDataJob.Status.FAILED
         assert db_job.finished_at is not None
+
+    def test_queue_sweep_cancellation_is_recorded_and_reraised(self):
+        # CancelledError subclasses BaseException, so an `except Exception` guard misses it and
+        # the sweep's cancellation on worker shutdown escapes unrecorded. Record it, then re-raise.
+        logger = MagicMock()
+        before = FINALIZE_QUEUE_SWEEP_ERRORS._value.get()
+
+        with patch(
+            "products.data_warehouse.backend.logic.external_data_source.jobs._sweep_v3_queue_batches",
+            side_effect=asyncio.CancelledError(),
+        ):
+            with pytest.raises(asyncio.CancelledError):
+                _sweep_v3_queue_batches_swallowing_errors(
+                    job_id="job-1", status=ExternalDataJob.Status.FAILED, logger=logger
+                )
+
+        assert FINALIZE_QUEUE_SWEEP_ERRORS._value.get() == before + 1
+        logger.exception.assert_called_once_with("dwh_finalize_queue_sweep_failed", job_id="job-1")
