@@ -35,7 +35,6 @@ from posthog.temporal.data_modeling.workflows.materialize_view import (
 from products.data_modeling.backend.facade.models import DataModelingJobEngine
 
 MAX_CONCURRENT_CHILDREN = 10
-PERSIST_SKIPPED_JOBS_PATCH = "persist-skipped-data-modeling-jobs-2026-08"
 
 
 class EmptyDAGOrCycleError(Exception):
@@ -409,7 +408,9 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 if not nr.success:
                     failed_node_set.add(nr.node_id)
 
-        if skipped_jobs and temporalio.workflow.patched(PERSIST_SKIPPED_JOBS_PATCH):
+        # Safe to add without a workflow patch: this is the last command before the workflow
+        # returns, so a replayed history either stops short of it or has already completed.
+        if skipped_jobs:
             await temporalio.workflow.execute_activity(
                 record_skipped_data_modeling_jobs_activity,
                 RecordSkippedDataModelingJobsInputs(
