@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -452,6 +453,44 @@ describe('experimentReplayTabLogic', () => {
                 ],
             },
         ])
+        pending.unmount()
+    })
+
+    it('reports the tab view once, after the linkability check has decided the tab is usable', async () => {
+        // Reported from `afterMount` instead, every view would carry the fail-open defaults, and an
+        // experiment whose exposure event can never match recordings would look like a healthy one.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        // Scoped to this experiment: the logic mounted in `beforeEach` reports its own view too.
+        const tabViews = (): any[] =>
+            captureSpy.mock.calls.filter(
+                ([event, properties]) =>
+                    event === 'experiment recordings tab viewed' && (properties as any)?.experiment_id === 51
+            )
+
+        let resolveSeenTogether!: (map: Record<string, boolean>) => void
+        seenTogetherSpy.mockReturnValue(new Promise((resolve) => (resolveSeenTogether = resolve)))
+        const pending = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 51 } as Experiment })
+        pending.mount()
+        expect(tabViews()).toHaveLength(0)
+
+        resolveSeenTogether({ ...ALL_LINKABLE, purchase: false })
+        await expectLogic(pending).toFinishAllListeners()
+
+        expect(tabViews()).toHaveLength(1)
+        expect(tabViews()[0][1]).toMatchObject({
+            experiment_id: 51,
+            exposure_unlinkable: false,
+            using_exposure_fallback: false,
+            variant_count: 2,
+            metric_count: 2,
+            linkable_metric_count: 1,
+        })
+
+        // The check is shared with the metrics tab and reloads when the experiment's metrics change,
+        // so a second result while this tab is open must not count as a second view.
+        pending.actions.loadSeenTogetherSuccess(ALL_LINKABLE)
+        await expectLogic(pending).toFinishAllListeners()
+        expect(tabViews()).toHaveLength(1)
         pending.unmount()
     })
 
