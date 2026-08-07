@@ -23,6 +23,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import { DateVariable, ListVariable, Variable } from '../../types'
+import { inlineListVariableSelectLogic } from './inlineListVariableSelectLogic'
 import { NewVariableModal } from './NewVariableModal'
 import { DateField, ListVariableSelect } from './VariableFields'
 import { variableModalLogic } from './variableModalLogic'
@@ -202,7 +203,6 @@ export const VariableInput = ({
                 {variable.type === 'List' && (
                     <ListVariableSelect
                         variable={variable}
-                        logicKey={`variable-input-${variable.id}`}
                         selectedValues={(Array.isArray(localInputValue) ? localInputValue : [localInputValue]).filter(
                             (value) => value !== ''
                         )}
@@ -332,6 +332,40 @@ interface VariableComponentProps {
     size?: 'small' | 'medium'
 }
 
+interface BufferedMultiListVariableSelectProps {
+    variable: ListVariable
+    disabledReason?: string | false
+    onChange: (variableId: string, value: string[], isNull: boolean) => void
+    size?: 'small' | 'medium'
+}
+
+const BufferedMultiListVariableSelect = ({
+    variable,
+    disabledReason,
+    onChange,
+    size,
+}: BufferedMultiListVariableSelectProps): JSX.Element => {
+    const selectedValues = variable.isNull ? [] : getListVariableSelectedValues(variable)
+    const logic = inlineListVariableSelectLogic({
+        variableId: variable.id,
+        selectedValues,
+        onChange: (values) => onChange(variable.id, values, values.length === 0),
+    })
+    const { selectedValues: bufferedValues } = useValues(logic)
+    const { commitSelectedValues, setSelectedValues } = useActions(logic)
+
+    return (
+        <ListVariableSelect
+            variable={variable}
+            disabledReason={disabledReason}
+            selectedValues={bufferedValues}
+            onChange={(value) => setSelectedValues(Array.isArray(value) ? value : value ? [value] : [])}
+            onBlur={commitSelectedValues}
+            size={size}
+        />
+    )
+}
+
 export const VariableComponent = ({
     variable,
     showEditingUI,
@@ -357,18 +391,25 @@ export const VariableComponent = ({
 
     // Don't show the popover overlay for list variables not in edit mode
     if (!showEditingUI && variable.type === 'List') {
+        const disabledReason = variableOverridesAreSet && 'Discard dashboard variables to change'
         return (
             <LemonField.Pure label={variable.name} className="gap-0" info={tooltip}>
-                <ListVariableSelect
-                    variable={variable as ListVariable}
-                    logicKey={`variable-inline-${variable.id}`}
-                    disabledReason={variableOverridesAreSet && 'Discard dashboard variables to change'}
-                    selectedValues={variable.isNull ? [] : getListVariableSelectedValues(variable)}
-                    onChange={(value) =>
-                        onChange(variable.id, value, Array.isArray(value) ? value.length === 0 : value === '')
-                    }
-                    size={size}
-                />
+                {variable.is_multi ? (
+                    <BufferedMultiListVariableSelect
+                        variable={variable}
+                        disabledReason={disabledReason}
+                        onChange={onChange}
+                        size={size}
+                    />
+                ) : (
+                    <ListVariableSelect
+                        variable={variable}
+                        disabledReason={disabledReason}
+                        selectedValues={variable.isNull ? [] : getListVariableSelectedValues(variable)}
+                        onChange={(value) => onChange(variable.id, value, value === '')}
+                        size={size}
+                    />
+                )}
             </LemonField.Pure>
         )
     }

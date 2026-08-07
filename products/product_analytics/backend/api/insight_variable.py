@@ -88,6 +88,8 @@ class InsightVariableSerializer(serializers.ModelSerializer):
             is_multi = attrs.get("is_multi", getattr(self.instance, "is_multi", False))
             if "is_multi" in attrs and "default_value" not in attrs and self.instance is not None:
                 attrs["default_value"] = self.instance.default_value
+            elif is_multi and "default_value" not in attrs and self.instance is None:
+                attrs["default_value"] = []
             # Only validate `values` when the payload provides it — instance data may hold
             # legacy shapes that shouldn't block unrelated updates (reads normalize them).
             if "values" in attrs:

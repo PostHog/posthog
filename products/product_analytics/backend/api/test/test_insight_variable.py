@@ -9,7 +9,11 @@ from rest_framework.exceptions import PermissionDenied
 
 from posthog.auth import SharingAccessTokenAuthentication
 
-from products.product_analytics.backend.api.insight_variable import InsightVariableViewSet, map_stale_to_latest
+from products.product_analytics.backend.api.insight_variable import (
+    InsightVariableSerializer,
+    InsightVariableViewSet,
+    map_stale_to_latest,
+)
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 
@@ -322,6 +326,14 @@ class TestInsightVariable(APIBaseTest):
         )
         assert response.status_code == 200
         assert response.json()["values"] == []
+
+
+class TestInsightVariableSerializer(TestCase):
+    def test_multiselect_create_without_default_uses_empty_list(self) -> None:
+        serializer = InsightVariableSerializer(data={"name": "Event names", "type": "List", "is_multi": True})
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["default_value"] == []
 
 
 class TestMapStaleToLatest(TestCase):

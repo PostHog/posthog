@@ -40,7 +40,7 @@ function VariableTypeFields(): JSX.Element {
         default_value: '',
         ...variableForm,
         type: variableType,
-        ...(variableType === 'List' && { values: variableForm.type === 'List' ? variableForm.values : [] }),
+        ...(variableType === 'List' && { values: 'values' in variableForm ? (variableForm.values ?? []) : [] }),
     } as Variable
 
     return (

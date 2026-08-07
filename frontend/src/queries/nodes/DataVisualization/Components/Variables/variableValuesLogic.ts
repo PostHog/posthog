@@ -8,7 +8,6 @@ import { ListVariable } from '../../types'
 import { getListVariableValues } from './variableUtils'
 
 export interface VariableValuesLogicProps {
-    key: string
     variable: ListVariable
     loadOnMount: boolean
 }
@@ -114,7 +113,7 @@ export type variableValuesLogicType = MakeLogicType<
 
 export const variableValuesLogic: LogicWrapper<variableValuesLogicType> = kea<variableValuesLogicType>([
     props({} as VariableValuesLogicProps),
-    key((props) => props.key),
+    key((props) => props.variable.id || 'new'),
     path((key) => ['queries', 'nodes', 'DataVisualization', 'Variables', 'variableValuesLogic', key]),
     loaders(({ props }) => ({
         variableOptions: [

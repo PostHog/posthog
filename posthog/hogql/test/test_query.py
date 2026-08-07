@@ -1732,7 +1732,17 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             "Variable variable_two is missing from query. Did you mean: variable_one?",
         )
 
-    def test_multiselect_list_variable_is_substituted_as_an_array(self):
+    @parameterized.expand(
+        [
+            ("array_value", ["pageview", "signup"], False, ["pageview", "signup"]),
+            ("legacy_scalar_value", "pageview", False, ["pageview"]),
+            ("missing_value", None, False, []),
+            ("explicit_null", ["pageview"], True, []),
+        ]
+    )
+    def test_multiselect_list_variable_is_substituted_as_an_array(
+        self, _name: str, value: object | None, is_null: bool, expected: list[str]
+    ) -> None:
         insight_variable = InsightVariable.objects.create(
             team=self.team,
             name="Event names",
@@ -1743,20 +1753,15 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         variables = {
             "event_names": HogQLVariable(
                 code_name="event_names",
-                value=["pageview", "signup"],
+                value=value,
+                isNull=is_null,
                 variableId=str(insight_variable.id),
             )
         }
 
         response = execute_hogql_query("SELECT {variables.event_names}", team=self.team, variables=variables)
 
-        self.assertEqual(response.results, [(["pageview", "signup"],)])
-
-        # A scalar value saved before the variable was toggled to multi still substitutes as an array
-        variables["event_names"].value = "pageview"
-        response = execute_hogql_query("SELECT {variables.event_names}", team=self.team, variables=variables)
-
-        self.assertEqual(response.results, [(["pageview"],)])
+        self.assertEqual(response.results, [(expected,)])
 
     @freeze_time("2026-08-06 12:00:00")
     def test_relative_date_variable_is_resolved_when_the_query_runs(self):

@@ -4,6 +4,7 @@ import {
     formatRelativeDateValue,
     getListVariableSelectedValues,
     isRelativeDateValue,
+    normalizeRelativeDateAmount,
     parseRelativeDateValue,
 } from './variableUtils'
 
@@ -67,5 +68,14 @@ describe('VariableFields', () => {
         expect(isRelativeDateValue(value)).toBe(isRelative)
         expect(parseRelativeDateValue(value)).toEqual(parsed)
         expect(formatRelativeDateValue(value)).toBe(formatted)
+    })
+
+    test.each([
+        ['whole number', 30, 30],
+        ['fractional number', 1.5, 2],
+        ['negative number', -5, 0],
+        ['empty number input', Number.NaN, 0],
+    ])('normalizeRelativeDateAmount: %s', (_name, amount, expected) => {
+        expect(normalizeRelativeDateAmount(amount)).toBe(expected)
     })
 })

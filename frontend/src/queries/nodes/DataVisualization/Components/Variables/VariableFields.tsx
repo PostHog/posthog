@@ -35,6 +35,7 @@ import {
     getListVariableSelectedValues,
     getListVariableValues,
     isRelativeDateValue,
+    normalizeRelativeDateAmount,
     parseRelativeDateValue,
 } from './variableUtils'
 import { getStaticVariableOptions, getValuesQueryKey, variableValuesLogic } from './variableValuesLogic'
@@ -121,9 +122,9 @@ export const ListValuesField = ({ variable, updateVariable }: DirectFieldProps<L
 
 interface ListVariableSelectProps {
     variable: ListVariable
-    logicKey: string
     disabledReason?: string | false
     loadOnMount?: boolean
+    onBlur?: () => void
     onChange: (value: string | string[]) => void
     selectedValues?: string[]
     size?: 'small' | 'medium'
@@ -131,14 +132,14 @@ interface ListVariableSelectProps {
 
 export const ListVariableSelect = ({
     variable,
-    logicKey,
     disabledReason,
     loadOnMount = true,
+    onBlur,
     onChange,
     selectedValues = getListVariableSelectedValues(variable),
     size,
 }: ListVariableSelectProps): JSX.Element => {
-    const logic = variableValuesLogic({ key: logicKey, variable, loadOnMount })
+    const logic = variableValuesLogic({ variable, loadOnMount })
     const { loadVariableOptions } = useActions(logic)
     const { requestedValuesQueryKey, variableOptions, variableOptionsError, variableOptionsLoading } = useValues(logic)
     const isCurrentQuery = requestedValuesQueryKey === getValuesQueryKey(variable)
@@ -152,6 +153,7 @@ export const ListVariableSelect = ({
             mode={variable.is_multi ? 'multiple' : 'single'}
             value={selectedValues}
             options={options.map((option) => ({ key: option.value, label: option.label }))}
+            onBlur={onBlur}
             onChange={(values) => onChange(variable.is_multi ? values : (values[0] ?? ''))}
             placeholder={variableOptionsLoading ? 'Loading options...' : 'Select a value'}
             emptyStateComponent={currentError ? "Couldn't load options. Check the query, then try again." : undefined}
@@ -187,7 +189,6 @@ export const ListVariableFields = ({
 }: DirectFieldProps<ListVariable> & { defaultValuesQueryConnectionId?: string | null }): JSX.Element => {
     const isQueryBacked = variable.values_query != null
     const logic = variableValuesLogic({
-        key: `variable-form-${variable.id || 'new'}`,
         variable,
         loadOnMount: isQueryBacked && Boolean(variable.values_query?.trim()),
     })
@@ -218,6 +219,7 @@ export const ListVariableFields = ({
                                 source === 'query'
                                     ? (variable.values_query_connection_id ?? defaultValuesQueryConnectionId ?? null)
                                     : null,
+                            default_value: variable.is_multi ? [] : '',
                         })
                     }
                     options={[
@@ -375,11 +377,12 @@ export const DateField = ({ variable, updateVariable }: DirectFieldProps<DateVar
                     <LemonInput
                         type="number"
                         min={0}
+                        step={1}
                         value={relativeValue.amount}
                         onChange={(amount) =>
                             updateVariable({
                                 ...variable,
-                                default_value: `-${Math.max(0, Number(amount ?? 0))}${relativeValue.unit}`,
+                                default_value: `-${normalizeRelativeDateAmount(amount)}${relativeValue.unit}`,
                             })
                         }
                     />

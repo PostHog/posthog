@@ -51,6 +51,11 @@ export const getListVariableSelectedValues = (variable: ListVariable): string[] 
     return variable.is_multi ? selectedValues : selectedValues.slice(0, 1)
 }
 
+export const normalizeRelativeDateAmount = (amount: unknown): number => {
+    const parsedAmount = Number(amount)
+    return Number.isFinite(parsedAmount) ? Math.max(0, Math.round(parsedAmount)) : 0
+}
+
 // Keep in sync with parseRelativeDateValue — the backend resolves a wider grammar
 // (see is_relative_date_value in posthog/hogql/variables.py), but values this UI
 // can't parse must not open the relative editor, which would rewrite them on edit.

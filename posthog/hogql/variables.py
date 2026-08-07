@@ -50,7 +50,10 @@ class ReplaceVariables(CloningVisitor):
             if not matching_insight_variable:
                 raise QueryError(f"Variable {variable_code_name} does not exist")
 
+            variable_definition = matching_insight_variable[0]
             if matching_variable.isNull:
+                if variable_definition.type == InsightVariable.Type.LIST and variable_definition.is_multi:
+                    return ast.Array(exprs=[])
                 return ast.Constant(value=None)
 
             value = (
@@ -59,12 +62,11 @@ class ReplaceVariables(CloningVisitor):
                 else matching_insight_variable[0].default_value
             )
 
-            variable_definition = matching_insight_variable[0]
             if variable_definition.type == InsightVariable.Type.LIST:
-                if variable_definition.is_multi and value is not None:
+                if variable_definition.is_multi:
                     # Saved insights keep the scalar value from before a variable was
                     # toggled to multi — wrap it so {variables.x} is always an array.
-                    items = value if isinstance(value, list) else [value]
+                    items = value if isinstance(value, list) else ([] if value is None else [value])
                     return ast.Array(exprs=[ast.Constant(value=item) for item in items])
                 if not variable_definition.is_multi and isinstance(value, list):
                     value = value[0] if value else None
