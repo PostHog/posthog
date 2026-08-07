@@ -1077,6 +1077,9 @@ class LoopGithubTriggerValidationAPITest(LoopsAPITestCase):
             ("too_many_path_segments", {"payload": [{"path": ".".join("abcdefghi"), "equals": "x"}]}),
             ("missing_equals", {"payload": [{"path": "requested_team.slug"}]}),
             ("empty_equals", {"payload": [{"path": "requested_team.slug", "equals": []}]}),
+            # Also saves fine and then never fires: no payload leaf is the empty string.
+            ("blank_equals_string", {"payload": [{"path": "requested_team.slug", "equals": "  "}]}),
+            ("blank_equals_among_values", {"payload": [{"path": "requested_team.slug", "equals": ["a", ""]}]}),
             ("non_string_equals", {"payload": [{"path": "pull_request.number", "equals": 7}]}),
             ("too_many_conditions", {"payload": [{"path": f"a{i}", "equals": "x"} for i in range(17)]}),
             # The allowlist is how an agent discovers the vocabulary after a failed call.
