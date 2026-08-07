@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
-import { IconDownload, IconGear, IconRevert } from '@posthog/icons'
+import { IconDownload, IconRevert } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -14,8 +14,6 @@ import { dayjs } from 'lib/dayjs'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -24,6 +22,7 @@ import { ClickmapSettings } from './ClickmapSettings'
 import { FilterPanel } from './FilterPanel'
 import { FixedReplayHeatmapBrowser } from './FixedReplayHeatmapBrowser'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
+import { HeatmapsWarnings } from './HeatmapsWarnings'
 import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
 import { recordingClickmapLogic } from './recordingClickmapLogic'
 
@@ -329,26 +328,6 @@ function InvalidURL(): JSX.Element {
     )
 }
 
-function Warnings(): JSX.Element | null {
-    const { currentTeam } = useValues(teamLogic)
-    const heatmapsEnabled = currentTeam?.heatmaps_opt_in
-
-    return !heatmapsEnabled ? (
-        <LemonBanner
-            type="warning"
-            action={{
-                type: 'secondary',
-                icon: <IconGear />,
-                to: urls.settings('environment-heatmaps', 'heatmaps'),
-                children: 'Configure',
-            }}
-            dismissKey="heatmaps-might-be-disabled-warning"
-        >
-            You aren't collecting heatmaps data. Enable heatmaps in your project.
-        </LemonBanner>
-    ) : null
-}
-
 export function HeatmapsBrowser(): JSX.Element {
     const iframeRef = useRef<HTMLIFrameElement | null>(null)
 
@@ -360,11 +339,12 @@ export function HeatmapsBrowser(): JSX.Element {
     const { displayUrl, isBrowserUrlAuthorized, hasValidReplayIframeData, isBrowserUrlValid, isHeightCapped } =
         useValues(logic)
     const { clickmapAvailable } = useValues(clickmapLogic)
+    const { heatmapElements } = useValues(heatmapDataLogic({ context: 'in-app' }))
 
     return (
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
             <SceneContent>
-                <Warnings />
+                <HeatmapsWarnings viewHasData={heatmapElements.length > 0} />
                 <div className="w-full">
                     <UrlSearchHeader iframeRef={iframeRef} />
                     <LemonDivider className="my-4" />

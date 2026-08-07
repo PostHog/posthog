@@ -3,6 +3,7 @@ import { useRef } from 'react'
 
 import { LemonBanner, LemonDivider, LemonInput, LemonLabel } from '@posthog/lemon-ui'
 
+import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -52,7 +53,12 @@ export function HeatmapRecording({ embedded = false }: { embedded?: boolean }): 
     const clickmapLogic = recordingClickmapLogic({ iframeRef })
 
     const { hasValidReplayIframeData } = useValues(logic)
-    const { clickmapAvailable } = useValues(clickmapLogic)
+    const { clickmapAvailable, clickmapBoxes } = useValues(clickmapLogic)
+    const { heatmapElements } = useValues(heatmapDataLogic({ context: 'in-app' }))
+
+    // The clickmap overlay comes from autocapture, and the $heatmap overlay from the capture
+    // setting; either can carry data on its own, so the view is empty only when both are.
+    const recordingHasData = heatmapElements.length > 0 || clickmapBoxes.length > 0
 
     if (!hasValidReplayIframeData) {
         return (
@@ -67,7 +73,7 @@ export function HeatmapRecording({ embedded = false }: { embedded?: boolean }): 
 
     const content = (
         <>
-            <HeatmapsWarnings />
+            <HeatmapsWarnings viewHasData={recordingHasData} />
             <div className="overflow-hidden w-full min-h-screen">
                 <UrlSearchHeader />
                 <LemonDivider className="my-4" />
