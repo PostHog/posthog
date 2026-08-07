@@ -14,6 +14,9 @@ LOGGER = get_logger(__name__)
 
 MAX_SUMMARY_LENGTH = 2000
 
+# Only bounds a degenerate period; a real one ends the walk by overshooting the gap.
+_MAX_PERIOD_MULTIPLE = 1000
+
 # Both LLM prompt templates tell the model to look for this prefix, so it is a cross-module contract.
 INCOMPLETE_PERIOD_NOTE_PREFIX = "(Excluding"
 
@@ -213,7 +216,6 @@ def _coverage(results: list[Any], *, query_ran_at: object, timezone: object) -> 
         elapsed_pct=_elapsed_pct(starts[complete], reference, period),
     )
     # Over-trimming is otherwise only visible as a wrong digest.
-    LOGGER.info("subscription_summary.coverage", excluded=coverage.excluded, total_buckets=coverage.total, unit=unit)
     return coverage
 
 
@@ -263,18 +265,20 @@ def _uniform_multiple(starts: list[datetime], period: Period) -> int:
 
 
 def _period_multiple(anchor: datetime, period: Period, gap: timedelta) -> int:
-    """How many of `period` fit `gap`, anchored to a real bucket start.
+    """How many of `period` fit `gap`, anchored to a real bucket start, or 1 when none does.
 
     A relativedelta has no length until it is applied to a date, so an "every 2 months" trend
-    cannot be measured by arithmetic on the gap alone.
+    cannot be measured by arithmetic on the gap alone. The walk ends when the span passes the gap,
+    so `intervalCount` needs no ceiling; the guard is only there to bound a degenerate period.
     """
     end = anchor
-    for count in range(1, 13):
+    for count in range(1, _MAX_PERIOD_MULTIPLE + 1):
         end = end + period
         if end - anchor == gap:
             return count
         if end - anchor > gap:
-            break
+            return 1
+    LOGGER.info("subscription_summary.period_multiple_exhausted", gap_days=gap.days)
     return 1
 
 

@@ -1,8 +1,10 @@
 import pytest
+from unittest.mock import patch
 
 import structlog
 from parameterized import parameterized_class
 
+from products.exports.backend.temporal.subscriptions import results_summarizer
 from products.exports.backend.temporal.subscriptions.results_summarizer import MAX_SUMMARY_LENGTH, build_results_summary
 
 
@@ -569,6 +571,39 @@ class TestBuildResultsSummaryIncompleteTrailingBuckets:
         assert summary == build_results_summary(
             "TrendsQuery", results, query_ran_at="2026-08-07T00:00:00+00:00", timezone="UTC"
         )
+
+    # An intervalCount above any fixed ceiling used to fall back to a one-unit period, which makes a
+    # still-collecting bucket look complete.
+    def test_a_large_interval_count_is_still_measured(self):
+        results = [
+            {
+                "label": "S",
+                "days": ["2026-01-01", "2026-01-21", "2026-02-10", "2026-03-02"],
+                "data": [100, 100, 100, 40],
+                "filter": {"interval": "day"},
+            }
+        ]
+        summary = build_results_summary(
+            "TrendsQuery", results, query_ran_at="2026-03-10T00:00:00+00:00", timezone="UTC"
+        )
+        assert summary.startswith("(Excluding 1 interval")
+
+    # The trim-health number is only usable if it counts trims, not coverage calculations.
+    @pytest.mark.parametrize(
+        "series,expected",
+        [
+            ({"data": [10, 12, 3]}, 1),
+            ({"data": [], "aggregated_value": 99}, 0),
+        ],
+    )
+    def test_coverage_is_logged_once_per_trim_and_never_without_one(self, series, expected):
+        results = [
+            {"label": "S", "days": ["2026-08-04", "2026-08-05", "2026-08-06"], "filter": self.DAILY_FILTER, **series}
+        ]
+        with patch.object(results_summarizer, "LOGGER") as logger:
+            build_results_summary("TrendsQuery", results, query_ran_at="2026-08-06T12:00:00+00:00", timezone="UTC")
+        logged = [c for c in logger.info.call_args_list if c[0] and c[0][0] == "subscription_summary.coverage"]
+        assert len(logged) == expected
 
     def test_series_without_bucket_starts_trims_nothing(self):
         results = [{"label": "Signups", "data": [10, 12, 11, 13, 15, 1]}]
