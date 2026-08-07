@@ -102,9 +102,9 @@ Denying `warehouse_objects` for a user filters every warehouse table and view ou
 
 ### Object-level: per-source, per-table, and per-view
 
-A whole source can be restricted — Stripe, Zendesk, and so on — by setting object access on the `external_data_source` resource.
+A whole source can be restricted (e.g. Stripe, Zendesk, ...) by setting object access on the `external_data_source` resource.
 Access can also be set on one specific table (`warehouse_table`) or view (`warehouse_view`).
-Both are in the SQL editor: open a table's or a source's "More" menu → "Access controls".
+There's UI for both in the SQL editor, under a table's or a source's "More" menu → "Access controls".
 
 A denied table or view is dropped from the schema entirely, and its name lands in `_denied_tables` so queries get "You don't have access to table" instead of "Unknown table".
 The deny checks are `_is_warehouse_table_denied` and `_is_warehouse_view_denied` in `posthog/hogql/database/database.py`.
@@ -123,7 +123,7 @@ A table can be part of a source, so rules can exist at both levels.
 So denying one source denies every table it syncs, but a rule on a specific table still beats it.
 Tables with no source (self-managed, S3, manually linked) skip tiers 2 and 4, and views never resolve through a source.
 
-The creator always keeps access: the object's `created_by` user resolves to the highest level regardless of explicit denies, ahead of every tier above.
+The creator always keeps access: the object's `created_by` user resolves to the highest level regardless of explicit denies.
 "Creator" here is the `created_by` on the object — for a view, whoever authored it; for a warehouse table, whoever created the row (for an externally synced source, the user who connected the source).
 
 ### Views vs materialized views
@@ -199,8 +199,7 @@ The cache key is derived from `get_cache_payload()`:
 Two things keep cache hit rates high:
 
 1. **Feature gate:** if the organization doesn't have `AvailableFeature.ACCESS_CONTROL`, no resource/object restrictions exist, so nothing is added and the cache isn't partitioned by user at all.
-2. **Scoped to queried tables:** `queried_access_controlled_resources()` (`posthog/hogql_queries/access_controlled_resources.py`) parses the query and returns only the access-controlled scopes it actually reads, so warehouse scopes are added to the payload only when the query references warehouse tables or views — a plain **events or persons query shares one cache entry across all users**.
-   `external_data_source` is folded in wherever `warehouse_table` is (`_with_fallback_parents`), since a table's access can come from its source.
+2. **Scoped to queried tables:** `queried_access_controlled_resources()` (`posthog/hogql_queries/access_controlled_resources.py`) parses the query and returns only the access-controlled scopes it actually reads, so warehouse scopes are added to the payload only when the query references warehouse tables or views — a plain **events or persons query shares one cache entry across all users**
 
 When a run has no user but does read access-controlled resources, the fingerprint uses `restricted_resources: ["*"]` so it can never collide with a real user's cache, and synthetic principals partition on their readable scopes so a narrow token can't reuse a broader token's cached rows.
 
