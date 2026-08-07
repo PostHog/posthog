@@ -280,20 +280,12 @@ export interface errorTrackingIssueSceneLogicActions {
         errorObject?: any
     }
     loadSummarySuccess: (
-        summary: {
-            aggregations: ErrorTrackingIssueAggregations
-            first_seen: string
-            last_seen: string
-        } | null,
+        summary: ErrorTrackingIssueSummary | null,
         payload?: {
             value: true
         }
     ) => {
-        summary: {
-            aggregations: ErrorTrackingIssueAggregations
-            first_seen: string
-            last_seen: string
-        } | null
+        summary: ErrorTrackingIssueSummary | null
         payload?: {
             value: true
         }
@@ -508,7 +500,7 @@ export interface errorTrackingIssueSceneLogicMeta {
         firstSeen: (issue: ErrorTrackingRelationalIssue | null) => Dayjs | null
         aggregations: (summary: ErrorTrackingIssueSummary | null) => ErrorTrackingIssueAggregations | undefined
         eventsQuery: (
-            issueFingerprints: ErrorTrackingFingerprint[],
+            issueId: string,
             filterTestAccounts: boolean,
             searchQuery: string,
             filterGroup: UniversalFiltersGroup,
@@ -717,23 +709,15 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         searchQuery: values.searchQuery,
                         volumeResolution: ERROR_TRACKING_DETAILS_RESOLUTION,
                         withAggregations: true,
-                        withFirstEvent: false,
-                        withLastEvent: false,
+                        withFirstEvent: true,
+                        withLastEvent: true,
                     }),
                     { refresh: 'blocking' }
                 )
                 if (!response.results.length) {
                     return null
                 }
-                const summary = response.results[0]
-                if (!summary.aggregations) {
-                    return null
-                }
-                return {
-                    first_seen: summary.first_seen,
-                    last_seen: summary.last_seen,
-                    aggregations: summary.aggregations,
-                }
+                return toErrorTrackingIssueSummary(response.results[0])
             },
         },
         issueFingerprints: [
@@ -816,24 +800,23 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         aggregations: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.aggregations],
 
         eventsQuery: [
-            (s) => [s.issueFingerprints, s.filterTestAccounts, s.searchQuery, s.filterGroup, s.dateRange],
+            (s) => [s.issueId, s.filterTestAccounts, s.searchQuery, s.filterGroup, s.dateRange],
             (
-                issueFingerprints: ErrorTrackingFingerprint[],
+                issueId: string,
                 filterTestAccounts: boolean,
                 searchQuery: string,
                 filterGroup: UniversalFiltersGroup,
                 dateRange: DateRange
             ) =>
                 errorTrackingIssueEventsQuery({
-                    fingerprints: issueFingerprints.map((f: ErrorTrackingFingerprint) => f.fingerprint),
+                    issueId,
                     filterTestAccounts,
                     filterGroup,
                     searchQuery,
                     dateRange,
                     columns: ['*', 'timestamp', 'person'],
                 }),
-            // Deep-equal recomputes (e.g. a fingerprints refetch returning the same list) must not
-            // produce a new query identity, or the key below remounts the whole events table.
+            // Preserve the query identity when selector inputs are deep-equal to avoid remounting the events table.
             { resultEqualityCheck: objectsEqual },
         ],
 
@@ -981,5 +964,23 @@ function getNarrowDateRange(timestamp: Dayjs | string): DateRange {
 export type ErrorTrackingIssueSummary = {
     last_seen?: string
     first_seen?: string
+    first_event_uuid?: string
+    last_event_uuid?: string
     aggregations: ErrorTrackingIssueAggregations
+}
+
+export function toErrorTrackingIssueSummary(
+    summary: Pick<ErrorTrackingIssue, 'first_seen' | 'last_seen' | 'first_event' | 'last_event' | 'aggregations'>
+): ErrorTrackingIssueSummary | null {
+    if (!summary.aggregations) {
+        return null
+    }
+
+    return {
+        first_seen: summary.first_seen,
+        last_seen: summary.last_seen,
+        first_event_uuid: summary.first_event?.uuid,
+        last_event_uuid: summary.last_event?.uuid,
+        aggregations: summary.aggregations,
+    }
 }
