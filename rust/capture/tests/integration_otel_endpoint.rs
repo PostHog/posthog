@@ -199,7 +199,7 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         options.ai_gateway_signing_secret,
-        false,            // ai_events_overflow_enabled
+        false,                             // ai_events_overflow_enabled
         options.ingestion_warning_emitter, // ingestion_warning_emitter
     );
 
