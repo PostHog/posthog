@@ -31,7 +31,6 @@ from .mailjet.template_mailjet import (
     template_create_contact as mailjet_create_contact,
     template_update_contact_list as mailjet_update_contact_list,
 )
-from .make.template_make import template as make
 from .meta_ads.template_meta_ads import template as meta_ads
 from .microsoft_teams.template_microsoft_teams import template as microsoft_teams
 from .onesignal.template_onesignal import template as onesignal
@@ -74,7 +73,6 @@ HOG_FUNCTION_TEMPLATES = [
     mailgun,
     mailjet_create_contact,
     mailjet_update_contact_list,
-    make,
     meta_ads,
     microsoft_teams,
     onesignal,
