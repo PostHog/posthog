@@ -132,7 +132,7 @@ procs:
             AI_BLOB_S3_REGION: us-east-1
             AI_BLOB_S3_ACCESS_KEY_ID: object_storage_root_user
             AI_BLOB_S3_SECRET_ACCESS_KEY: object_storage_root_password
-            AI_BLOB_OFFLOAD_TEAMS: '1'
+            AI_BLOB_OFFLOAD_TEAMS: '*'
 
     ingestion:
         sandbox: true
@@ -716,17 +716,6 @@ procs:
             python manage.py run_warehouse_sources_load
         autostart: false
         ready_pattern: 'batch_consumer_started'
-        groups:
-            layer: Tools
-            tech: Python
-        # no capability - manual start
-
-    warehouse-sources-duckgres-load:
-        shell: |-
-            bin/wait-for-docker && \
-            python manage.py run_warehouse_sources_duckgres_load --health-port 8092
-        autostart: false
-        ready_pattern: 'duckgres_batch_consumer_started'
         groups:
             layer: Tools
             tech: Python

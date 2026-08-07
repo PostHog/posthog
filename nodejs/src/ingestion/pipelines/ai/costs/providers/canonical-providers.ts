@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-06 10:52:10 UTC
+// Generated at: 2026-08-07 10:20:33 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -149,7 +149,6 @@ export type CanonicalProvider =
     | 'reka-fp8'
     | 'relace-bf16'
     | 'relace-fp8'
-    | 'sail-research-fp4'
     | 'sail-research-fp8'
     | 'sail-research-int4'
     | 'sakana'
