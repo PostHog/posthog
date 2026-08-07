@@ -117,6 +117,7 @@ class TestWritePath(_BackfillTestCase):
         summary = out.getvalue()
         assert "processed 1" in summary
         assert "found_no_ownership_status 1" in summary
+        assert "classified 0" in summary
         # The write skip only applies to OrganizationEnrichment.data/group properties — the
         # archive still happens, since it's a distinct, append-only store.
         assert OrganizationEnrichmentFetch.objects.filter(organization=record.organization).exists()
@@ -248,6 +249,9 @@ class TestSummary(_BackfillTestCase):
         assert "processed 5" in summary
         assert "fetch_failures 1" in summary
         assert "not_found 1" in summary
-        assert "acquired_or_merged 2 (40.0% of processed)" in summary
+        # The not-found and the failed fetch are unknowns, so they stay out of the rate's
+        # denominator: 2 of the 3 orgs Harmonic actually classified, not 2 of 5 attempted.
+        assert "classified 3 (60.0% of processed)" in summary
+        assert "acquired_or_merged 2 (66.7% of classified)" in summary
         assert "acquired_or_merged_with_parent 1 (50.0% of acquired_or_merged)" in summary
         capture_mock.assert_called_once()

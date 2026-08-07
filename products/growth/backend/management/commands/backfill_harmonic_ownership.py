@@ -87,6 +87,7 @@ class Command(BaseCommand):
             "not_found": 0,
             "found_no_ownership_status": 0,
             "errors": 0,
+            "classified": 0,
             "acquired_or_merged": 0,
             "acquired_or_merged_with_parent": 0,
         }
@@ -148,14 +149,15 @@ class Command(BaseCommand):
             return
 
         ownership_status = lookup.fields.ownership_status
+        if ownership_status is None:
+            counts["found_no_ownership_status"] += 1
+            return
+
+        counts["classified"] += 1
         if ownership_status == _ACQUIRED_OR_MERGED:
             counts["acquired_or_merged"] += 1
             if lookup.fields.parent_company:
                 counts["acquired_or_merged_with_parent"] += 1
-
-        if ownership_status is None:
-            counts["found_no_ownership_status"] += 1
-            return
 
         if dry_run or pha_client is None:
             return
@@ -175,15 +177,22 @@ class Command(BaseCommand):
 
     def _summary(self, counts: dict[str, int], last_id: str | None) -> str:
         processed = counts["processed"]
+        # Only orgs Harmonic returned an ownership_status for can carry a base rate. A no-domain,
+        # failed, not-found, or ownership-silent org is unknown rather than "not acquired" — the
+        # ownership fields are beta and silent on acquisitions we know happened, so counting those
+        # as negatives would understate the rate this backfill exists to measure.
+        classified = counts["classified"]
+        classified_pct = (classified / processed * 100) if processed else 0.0
         acquired = counts["acquired_or_merged"]
-        acquired_pct = (acquired / processed * 100) if processed else 0.0
+        acquired_pct = (acquired / classified * 100) if classified else 0.0
         with_parent = counts["acquired_or_merged_with_parent"]
         with_parent_pct = (with_parent / acquired * 100) if acquired else 0.0
         return (
             f"processed {processed}, fetch_failures {counts['fetch_failures']}, "
             f"not_found {counts['not_found']}, no_domain {counts['no_domain']}, "
             f"found_no_ownership_status {counts['found_no_ownership_status']}, errors {counts['errors']}, "
-            f"acquired_or_merged {acquired} ({acquired_pct:.1f}% of processed), "
+            f"classified {classified} ({classified_pct:.1f}% of processed), "
+            f"acquired_or_merged {acquired} ({acquired_pct:.1f}% of classified), "
             f"acquired_or_merged_with_parent {with_parent} ({with_parent_pct:.1f}% of acquired_or_merged), "
             f"last_id={last_id}"
         )
