@@ -1,8 +1,14 @@
 import pytest
 
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 
-from posthog.schema import ResultCustomizationByPosition, ResultCustomizationByValue
+from posthog.schema import (
+    EventsNode,
+    ResultCustomizationByPosition,
+    ResultCustomizationByValue,
+    TrendsFilter,
+    TrendsQuery,
+)
 
 
 @pytest.mark.parametrize("token", ["preset-1", "preset-15", "preset-16", "preset-100"])
@@ -20,13 +26,20 @@ def test_result_customization_rejects_non_preset_token(token: str) -> None:
         ResultCustomizationByValue(color=token)
 
 
-def test_result_customization_union_resolves_by_value_for_high_token() -> None:
-    # `resultCustomizations` is a union of by-value and by-position dicts. A by-value
-    # entry with a >15 token must resolve to the by-value variant, not fall through
-    # and surface a confusing `assignmentBy` error from the by-position variant.
-    adapter: TypeAdapter[dict[str, ResultCustomizationByValue] | dict[str, ResultCustomizationByPosition]] = (
-        TypeAdapter(dict[str, ResultCustomizationByValue] | dict[str, ResultCustomizationByPosition])
+def test_trends_query_accepts_recoloring_beyond_preset_15() -> None:
+    # Mirrors the save payload from the bug: recoloring a series with the 16th theme
+    # color writes `preset-16` into trendsFilter.resultCustomizations. The by-value
+    # entry must resolve to the by-value variant, not fall through to by-position and
+    # surface a confusing `assignmentBy` error.
+    query = TrendsQuery(
+        series=[EventsNode(event="$pageview")],
+        trendsFilter=TrendsFilter(
+            resultCustomizations={'{"series":0}': {"assignmentBy": "value", "color": "preset-16"}}
+        ),
     )
-    resolved = adapter.validate_python({"k": {"assignmentBy": "value", "color": "preset-16"}})["k"]
-    assert isinstance(resolved, ResultCustomizationByValue)
-    assert resolved.color == "preset-16"
+    assert query.trendsFilter is not None
+    customizations = query.trendsFilter.resultCustomizations
+    assert isinstance(customizations, dict)
+    customization = customizations['{"series":0}']
+    assert isinstance(customization, ResultCustomizationByValue)
+    assert customization.color == "preset-16"
