@@ -207,4 +207,6 @@ async def save_notebook_to_db(
 
 
 async def notebook_exists_for_artifact(team: Team, short_id: str) -> bool:
-    return await notebooks.anotebook_exists(team.id, short_id)
+    # A soft-deleted notebook must not report itself as saved: the viewset only serves deleted=False,
+    # so an "Open" link to a deleted one 404s on every attempt.
+    return await notebooks.anotebook_exists(team.id, short_id, include_deleted=False)

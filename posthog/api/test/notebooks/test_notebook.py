@@ -492,6 +492,37 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert len(response.json()["short_id"]) > 0
 
+    def test_create_notebook_with_duplicate_short_id_returns_existing(self):
+        first = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            {"title": "From Artifact", "short_id": "abcd"},
+            format="json",
+        )
+        assert first.status_code == status.HTTP_201_CREATED, first.json()
+
+        # The AI chat path reuses the artifact's short_id, so a resent answer or a double-click
+        # collides on (team, short_id). This must be idempotent, not an uncaught IntegrityError 500.
+        second = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            {"title": "Saved again", "short_id": "abcd"},
+            format="json",
+        )
+        assert second.status_code == status.HTTP_201_CREATED, second.json()
+        assert second.json()["short_id"] == "abcd"
+        assert Notebook.objects.filter(team=self.team, short_id="abcd").count() == 1
+        # The original notebook is returned unchanged rather than overwritten.
+        assert second.json()["title"] == "From Artifact"
+
+    def test_create_notebook_with_soft_deleted_short_id_conflicts(self):
+        Notebook.objects.create(team=self.team, short_id="abcd", title="gone", deleted=True)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            {"title": "Reuse", "short_id": "abcd"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+
     @parameterized.expand(
         [
             ("too long", "a" * 13),

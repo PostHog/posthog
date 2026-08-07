@@ -125,7 +125,9 @@ class NotebookHandler(ArtifactHandler[StoredNotebookArtifactContent, NotebookArt
 
         is_saved = False
         if context.artifact_id:
-            is_saved = await notebooks.anotebook_exists(context.team.id, context.artifact_id)
+            # A soft-deleted notebook must not report itself as saved: the viewset only serves
+            # deleted=False, so an "Open" link to a deleted one 404s on every attempt.
+            is_saved = await notebooks.anotebook_exists(context.team.id, context.artifact_id, include_deleted=False)
 
         return NotebookArtifactContent(
             blocks=enriched_blocks,

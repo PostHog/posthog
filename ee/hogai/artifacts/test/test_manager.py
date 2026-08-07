@@ -26,6 +26,7 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
+from products.notebooks.backend.models import Notebook
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
 from products.product_analytics.backend.models.insight import Insight
 
@@ -201,6 +202,36 @@ class TestArtifactManagerGetEnrichedMessage(BaseTest):
         assert enriched is not None
         assert isinstance(enriched.content, VisualizationArtifactContent)
         self.assertEqual(enriched.content.name, "Enriched")
+
+    @parameterized.expand(
+        [
+            ("live_notebook", False, True),
+            ("soft_deleted_notebook", True, False),
+        ]
+    )
+    async def test_notebook_is_saved_ignores_soft_deleted(self, _name, deleted, expected_is_saved):
+        artifact = await AgentArtifact.objects.acreate(
+            name="Saved Notebook",
+            type=AgentArtifact.Type.NOTEBOOK,
+            data={"blocks": [{"type": "markdown", "content": "Hello"}]},
+            conversation=self.conversation,
+            team=self.team,
+        )
+        # The client reuses the artifact's short_id as the notebook's short_id. A soft-deleted notebook
+        # must not report is_saved=True, since the viewset only serves deleted=False and the open link 404s.
+        await Notebook.objects.acreate(team=self.team, short_id=artifact.short_id, deleted=deleted)
+        message = ArtifactRefMessage(
+            id=str(uuid4()),
+            content_type=ArtifactContentType.NOTEBOOK,
+            artifact_id=artifact.short_id,
+            source=ArtifactSource.ARTIFACT,
+        )
+
+        enriched = await self.manager.aenrich_message(message)
+
+        assert enriched is not None
+        assert isinstance(enriched.content, NotebookArtifactContent)
+        assert enriched.content.is_saved is expected_is_saved
 
     async def test_enriches_state_source_message(self):
         viz_msg_id = str(uuid4())

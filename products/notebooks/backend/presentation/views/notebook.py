@@ -6,7 +6,7 @@ from typing import Any, cast
 from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Q, QuerySet
 from django.http import Http404, JsonResponse
 from django.utils.timezone import now
@@ -265,12 +265,32 @@ class NotebookSerializer(NotebookMinimalSerializer):
         content = validated_data.get("content")
         if isinstance(content, dict):
             validated_data["content"] = annotate_python_nodes(content)
-        notebook = Notebook.objects.create(
-            team=team,
-            created_by=created_by,
-            last_modified_by=request.user,
-            **validated_data,
-        )
+
+        requested_short_id = validated_data.get("short_id")
+        try:
+            # A savepoint so the IntegrityError below rolls back only this insert; without it the failed
+            # statement would poison an enclosing transaction and break the recovery query.
+            with transaction.atomic():
+                notebook = Notebook.objects.create(
+                    team=team,
+                    created_by=created_by,
+                    last_modified_by=request.user,
+                    **validated_data,
+                )
+        except IntegrityError:
+            # A notebook with this (team, short_id) already exists. This happens when the same
+            # AI artifact is saved twice (e.g. a double-click or a resent answer), since the client
+            # reuses the artifact's short_id. Return the existing notebook so the save is idempotent
+            # instead of surfacing an uncaught 500.
+            if not requested_short_id:
+                raise
+            existing = Notebook.objects.filter(team=team, short_id=requested_short_id).first()
+            if existing is None:
+                # The conflict wasn't the (team, short_id) collision we handle here; surface it.
+                raise
+            if existing.deleted:
+                raise Conflict("A notebook with this short_id already exists.")
+            return existing
 
         log_notebook_activity(
             activity="created",
@@ -523,6 +543,15 @@ class NotebookMarkdownSaveSerializer(serializers.Serializer):
         help_text="The author's caret in the saved markdown, broadcast with the update so other "
         "clients can move the author's remote caret together with the text change.",
     )
+
+    def validate_title(self, value: str) -> str:
+        # The title is derived from the document's first heading, not typed into a title field, so an
+        # overlong heading must not fail the whole save (Notebook.title is varchar(256)). Clamp it and
+        # keep the content intact instead of overflowing the column with a StringDataRightTruncation.
+        max_length = Notebook._meta.get_field("title").max_length
+        if max_length is not None and len(value) > max_length:
+            return value[:max_length]
+        return value
 
     def validate_content(self, value: Any) -> Any:
         if markdown_collab.get_markdown_notebook_markdown(value) is None:

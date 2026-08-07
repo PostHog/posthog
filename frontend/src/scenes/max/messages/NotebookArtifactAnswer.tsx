@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useActions } from 'kea'
+import { useAsyncActions } from 'kea'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCollapse, IconExpand, IconNotebook } from '@posthog/icons'
@@ -53,10 +53,11 @@ export function NotebookArtifactAnswer({
     status,
     artifactId,
 }: NotebookArtifactAnswerProps): JSX.Element | null {
-    const { createNotebook } = useActions(notebooksModel)
+    const { createNotebook } = useAsyncActions(notebooksModel)
     const [isExpanded, setIsExpanded] = useState(false)
     const [needsExpansion, setNeedsExpansion] = useState(false)
     const [localIsSaved, setLocalIsSaved] = useState(content.is_saved ?? false)
+    const [isCreating, setIsCreating] = useState(false)
     const contentRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -89,18 +90,28 @@ export function NotebookArtifactAnswer({
         )
     }
 
-    const handleCreateNotebook = (): void => {
+    const handleCreateNotebook = async (): Promise<void> => {
+        if (isCreating) {
+            return
+        }
+        setIsCreating(true)
         // Convert blocks to tiptap JSONContent[] format
         const tiptapContent = blocksToTiptapContent(content.blocks)
 
-        createNotebook(
-            NotebookTarget.Scene,
-            content.title || 'AI Generated Notebook',
-            tiptapContent,
-            undefined,
-            artifactId
-        )
-        setLocalIsSaved(true)
+        try {
+            // Flip to the "open" link only from the success callback, which fires once the notebook is
+            // actually created and opened — otherwise a failed create would strand the user on a link to
+            // a notebook that was never written.
+            await createNotebook(
+                NotebookTarget.Scene,
+                content.title || 'AI Generated Notebook',
+                tiptapContent,
+                () => setLocalIsSaved(true),
+                artifactId
+            )
+        } finally {
+            setIsCreating(false)
+        }
     }
 
     const handleExpandClick = (): void => {
@@ -152,7 +163,14 @@ export function NotebookArtifactAnswer({
                             type="primary"
                             size="small"
                             icon={<IconOpenInNew />}
-                            disabledReason={isStreaming ? 'Wait for notebook to finish generating' : null}
+                            loading={isCreating}
+                            disabledReason={
+                                isStreaming
+                                    ? 'Wait for notebook to finish generating'
+                                    : isCreating
+                                      ? 'Creating notebook…'
+                                      : null
+                            }
                         >
                             Create notebook
                         </LemonButton>
