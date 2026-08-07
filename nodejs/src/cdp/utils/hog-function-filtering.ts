@@ -18,7 +18,12 @@ import {
     MinimalAppMetric,
 } from '../types'
 import { execHog } from './hog-exec'
-import { bytecodePersonUpdatePropertyReads, trackPersonUpdatePropertyReads } from './person-update-properties'
+import {
+    bytecodePersonUpdatePropertyReads,
+    personUpdatePropertyPolyfillMode,
+    polyfilledEventProperties,
+    trackPersonUpdatePropertyReads,
+} from './person-update-properties'
 
 // Module-level constants for fixed regex patterns to avoid recompilation
 // These patterns are compiled once at module load and reused for all events
@@ -327,6 +332,25 @@ export function convertToHogFunctionFilterGlobal(
     return response
 }
 
+/**
+ * Swap in one field without touching the rest. Copying descriptors rather than spreading keeps the
+ * lazily-computed `elements_chain_*` accessors as accessors, so they are neither evaluated here nor
+ * dropped for being non-enumerable.
+ */
+function withEventProperties(
+    filterGlobals: HogFunctionFilterGlobals,
+    properties: Record<string, any>
+): HogFunctionFilterGlobals {
+    const derived = Object.defineProperties({}, Object.getOwnPropertyDescriptors(filterGlobals))
+    Object.defineProperty(derived, 'properties', {
+        value: properties,
+        enumerable: true,
+        configurable: true,
+        writable: true,
+    })
+    return derived as HogFunctionFilterGlobals
+}
+
 const HOG_FILTERING_TIMEOUT_MS = 100
 
 function preFilterResult(filters: HogFunctionType['filters'], filterGlobals: HogFunctionFilterGlobals): boolean {
@@ -354,7 +378,8 @@ export async function filterFunctionInstrumented(options: {
     /** Optional filters to use instead of those on the function */
     filters: HogFunctionType['filters']
 }): Promise<HogFilterResult> {
-    const { fn, filters, filterGlobals } = options
+    const { fn, filters } = options
+    let { filterGlobals } = options
     const type = 'type' in fn ? fn.type : 'hogflow'
     const fnKind = 'type' in fn ? 'HogFunction' : 'HogFlow'
     const logs: LogEntry[] = []
@@ -378,13 +403,25 @@ export async function filterFunctionInstrumented(options: {
             return result
         }
 
+        const reads = bytecodePersonUpdatePropertyReads(filters?.bytecode)
         trackPersonUpdatePropertyReads({
-            reads: bytecodePersonUpdatePropertyReads(filters?.bytecode),
+            reads,
             source: 'filters',
             functionType: type,
             eventProperties: filterGlobals.properties,
             personProperties: filterGlobals.person?.properties,
         })
+        // One filter globals object is shared across every function matching this event, so a
+        // per-function view has to be derived rather than written back onto it.
+        const polyfilled = polyfilledEventProperties({
+            mode: personUpdatePropertyPolyfillMode(fn),
+            reads,
+            eventProperties: filterGlobals.properties,
+            personProperties: filterGlobals.person?.properties,
+        })
+        if (polyfilled) {
+            filterGlobals = withEventProperties(filterGlobals, polyfilled)
+        }
 
         // check whether we have a match with our pre-filter
         // Only run if we have event filters and NO action filters (as actions are pre-saved event filters)

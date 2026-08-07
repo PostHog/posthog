@@ -8,7 +8,12 @@ import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs, H
 import { EncryptedFields } from '../utils/encryption-utils'
 import { execHog } from '../utils/hog-exec'
 import { LiquidRenderer } from '../utils/liquid'
-import { inputsPersonUpdatePropertyReads, trackPersonUpdatePropertyReads } from '../utils/person-update-properties'
+import {
+    inputsPersonUpdatePropertyReads,
+    personUpdatePropertyPolyfillMode,
+    polyfilledEventProperties,
+    trackPersonUpdatePropertyReads,
+} from '../utils/person-update-properties'
 import { getDevicePushSubscriptionToken } from '../utils/push-subscription-utils'
 import { IntegrationManagerService } from './managers/integration-manager.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
@@ -27,10 +32,17 @@ export class HogInputsService {
         globals: HogFunctionInvocationGlobals,
         additionalInputs?: Record<string, any>
     ): Promise<Record<string, any>> {
+        const reads = inputsPersonUpdatePropertyReads(hogFunction)
         trackPersonUpdatePropertyReads({
-            reads: inputsPersonUpdatePropertyReads(hogFunction),
+            reads,
             source: 'inputs',
             functionType: hogFunction.type,
+            eventProperties: globals.event?.properties,
+            personProperties: globals.person?.properties,
+        })
+        const polyfilled = polyfilledEventProperties({
+            mode: personUpdatePropertyPolyfillMode(hogFunction),
+            reads,
             eventProperties: globals.event?.properties,
             personProperties: globals.person?.properties,
         })
@@ -38,6 +50,7 @@ export class HogInputsService {
         // TODO: Load the values from the integrationManager
         const newGlobals: HogFunctionInvocationGlobalsWithInputs = {
             ...globals,
+            ...(polyfilled ? { event: { ...globals.event, properties: polyfilled } } : {}),
             inputs: {},
         }
         const inputs: HogFunctionType['inputs'] = {

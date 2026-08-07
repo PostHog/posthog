@@ -21,6 +21,8 @@ import { cdpTrackedFetch } from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
 import {
     LEGACY_PLUGIN_PERSON_UPDATE_PROPERTY_READS,
+    personUpdatePropertyPolyfillMode,
+    resolveLegacyPluginPersonUpdatePayload,
     trackPersonUpdatePropertyReads,
 } from '../utils/person-update-properties'
 
@@ -282,6 +284,15 @@ export class LegacyPluginExecutorService {
                 personProperties: globals.person?.properties,
             })
 
+            const polyfillMode = personUpdatePropertyPolyfillMode(invocation.hogFunction)
+            const legacyPayload = (key: '$set' | '$set_once') =>
+                resolveLegacyPluginPersonUpdatePayload(
+                    polyfillMode,
+                    key,
+                    globals.event.properties,
+                    globals.person?.properties
+                )
+
             const event = {
                 distinct_id: globals.event.distinct_id,
                 ip: globals.event.properties.$ip,
@@ -289,8 +300,8 @@ export class LegacyPluginExecutorService {
                 event: globals.event.event,
                 properties: globals.event.properties,
                 timestamp: globals.event.timestamp,
-                $set: globals.event.properties.$set,
-                $set_once: globals.event.properties.$set_once,
+                $set: legacyPayload('$set'),
+                $set_once: legacyPayload('$set_once'),
                 uuid: globals.event.uuid,
             }
 

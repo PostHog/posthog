@@ -7,7 +7,10 @@ import {
     bytecodePersonUpdatePropertyReads,
     findPersonUpdatePropertyReads,
     inputsPersonUpdatePropertyReads,
+    personUpdatePropertyPolyfillMode,
     personUpdatePropertyReadOutcome,
+    polyfilledEventProperties,
+    resolveLegacyPluginPersonUpdatePayload,
     trackPersonUpdatePropertyReads,
 } from './person-update-properties'
 
@@ -117,6 +120,185 @@ describe('person update properties', () => {
                     { profile: { name: 'Ada' } }
                 )
             ).toEqual('mappable')
+        })
+    })
+
+    describe('personUpdatePropertyPolyfillMode', () => {
+        beforeEach(() => {
+            process.env.CDP_PERSON_UPDATE_PROPERTY_POLYFILL_BEFORE = '2026-06-01'
+        })
+
+        afterEach(() => {
+            delete process.env.CDP_PERSON_UPDATE_PROPERTY_POLYFILL_BEFORE
+            delete process.env.CDP_PERSON_UPDATE_PROPERTY_POLYFILL_EXCLUDED_TEAMS
+        })
+
+        it.each([
+            ['map', '2026-01-01T00:00:00Z'],
+            ['hide', '2026-06-01T00:00:00Z'],
+            ['hide', '2026-09-01T00:00:00Z'],
+        ])('is %s for a function created at %s', (expected, created_at) => {
+            expect(personUpdatePropertyPolyfillMode({ team_id: 1, created_at })).toEqual(expected)
+        })
+
+        it('is off until a cutoff is configured', () => {
+            delete process.env.CDP_PERSON_UPDATE_PROPERTY_POLYFILL_BEFORE
+
+            expect(personUpdatePropertyPolyfillMode({ team_id: 1, created_at: '2026-01-01T00:00:00Z' })).toEqual('off')
+        })
+
+        it('is off for an excluded team', () => {
+            process.env.CDP_PERSON_UPDATE_PROPERTY_POLYFILL_EXCLUDED_TEAMS = ' 2, 7 '
+
+            expect(personUpdatePropertyPolyfillMode({ team_id: 7, created_at: '2026-01-01T00:00:00Z' })).toEqual('off')
+            expect(personUpdatePropertyPolyfillMode({ team_id: 3, created_at: '2026-01-01T00:00:00Z' })).toEqual('map')
+        })
+
+        it.each([['not a date'], ['']])('is off for an unusable cutoff of %p', (before) => {
+            process.env.CDP_PERSON_UPDATE_PROPERTY_POLYFILL_BEFORE = before
+
+            expect(personUpdatePropertyPolyfillMode({ team_id: 1, created_at: '2026-01-01T00:00:00Z' })).toEqual('off')
+        })
+
+        it('is off for a hog flow, which has no creation date', () => {
+            expect(personUpdatePropertyPolyfillMode({ team_id: 1 })).toEqual('off')
+        })
+    })
+
+    describe('polyfilledEventProperties', () => {
+        it('fills in only the paths the function reads', () => {
+            const properties = polyfilledEventProperties({
+                mode: 'map',
+                reads: [read(['email'])],
+                eventProperties: { $browser: 'Chrome' },
+                personProperties: { email: 'someone@example.com', plan: 'paid' },
+            })
+
+            expect(properties).toEqual({ $browser: 'Chrome', $set: { email: 'someone@example.com' } })
+        })
+
+        it('fills a nested path without dropping its siblings', () => {
+            const properties = polyfilledEventProperties({
+                mode: 'map',
+                reads: [read(['profile', 'name'])],
+                eventProperties: { $set: { profile: { id: 7 } } },
+                personProperties: { profile: { name: 'Ada', email: 'ada@example.com' } },
+            })
+
+            expect(properties!.$set).toEqual({ profile: { id: 7, name: 'Ada' } })
+        })
+
+        it('leaves the key absent when nothing can be filled', () => {
+            expect(
+                polyfilledEventProperties({
+                    mode: 'map',
+                    reads: [read(['email'])],
+                    eventProperties: { $browser: 'Chrome' },
+                    personProperties: { plan: 'paid' },
+                })
+            ).toBeUndefined()
+        })
+
+        it('keeps the value the event already carries', () => {
+            expect(
+                polyfilledEventProperties({
+                    mode: 'map',
+                    reads: [read(['email'])],
+                    eventProperties: { $set: { email: 'from-event@example.com' } },
+                    personProperties: { email: 'from-person@example.com' },
+                })
+            ).toBeUndefined()
+        })
+
+        it('does not answer a whole object read', () => {
+            expect(
+                polyfilledEventProperties({
+                    mode: 'map',
+                    reads: [read([])],
+                    eventProperties: { $browser: 'Chrome' },
+                    personProperties: { email: 'someone@example.com' },
+                })
+            ).toBeUndefined()
+        })
+
+        it('removes both keys for a function created after the cutoff', () => {
+            expect(
+                polyfilledEventProperties({
+                    mode: 'hide',
+                    reads: [read(['email'])],
+                    eventProperties: {
+                        $browser: 'Chrome',
+                        $set: { email: 'a@example.com' },
+                        $set_once: { plan: 'paid' },
+                    },
+                    personProperties: { email: 'a@example.com' },
+                })
+            ).toEqual({ $browser: 'Chrome' })
+        })
+
+        it('does not copy the event when there is nothing to hide', () => {
+            expect(
+                polyfilledEventProperties({
+                    mode: 'hide',
+                    reads: [],
+                    eventProperties: { $browser: 'Chrome' },
+                    personProperties: {},
+                })
+            ).toBeUndefined()
+        })
+
+        it('leaves the event alone when off', () => {
+            expect(
+                polyfilledEventProperties({
+                    mode: 'off',
+                    reads: [read(['email'])],
+                    eventProperties: { $set: { email: 'a@example.com' } },
+                    personProperties: { email: 'a@example.com' },
+                })
+            ).toBeUndefined()
+        })
+
+        it('does not mutate the event properties it was given', () => {
+            const eventProperties = { $set: { plan: 'paid' } }
+
+            polyfilledEventProperties({
+                mode: 'map',
+                reads: [read(['email'])],
+                eventProperties,
+                personProperties: { email: 'someone@example.com' },
+            })
+
+            expect(eventProperties).toEqual({ $set: { plan: 'paid' } })
+        })
+    })
+
+    describe('resolveLegacyPluginPersonUpdatePayload', () => {
+        it('gives a mapped plugin an enumerable copy of the person snapshot', () => {
+            const payload = resolveLegacyPluginPersonUpdatePayload('map', '$set', {}, { email: 'a@example.com' })
+
+            expect(Object.keys(payload!)).toEqual(['email'])
+        })
+
+        it.each([['map'], ['off']] as const)('prefers the payload the event carries when %s', (mode) => {
+            expect(
+                resolveLegacyPluginPersonUpdatePayload(
+                    mode,
+                    '$set',
+                    { $set: { email: 'from-event@example.com' } },
+                    { email: 'from-person@example.com' }
+                )
+            ).toEqual({ email: 'from-event@example.com' })
+        })
+
+        it('resolves nothing when hidden, even though the event carries it', () => {
+            expect(
+                resolveLegacyPluginPersonUpdatePayload(
+                    'hide',
+                    '$set',
+                    { $set: { email: 'a@example.com' } },
+                    { email: 'a@example.com' }
+                )
+            ).toBeUndefined()
         })
     })
 

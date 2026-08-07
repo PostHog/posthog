@@ -17,7 +17,13 @@ import { createAddLogFunction, sanitizeLogMessage } from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocationResult } from '../utils/invocation-utils'
-import { bytecodePersonUpdatePropertyReads, trackPersonUpdatePropertyReads } from '../utils/person-update-properties'
+import type { PersonUpdatePropertyRead } from '../utils/person-update-properties'
+import {
+    bytecodePersonUpdatePropertyReads,
+    personUpdatePropertyPolyfillMode,
+    polyfilledEventProperties,
+    trackPersonUpdatePropertyReads,
+} from '../utils/person-update-properties'
 import { HogInputsService } from './hog-inputs.service'
 
 export interface HogExecutorConfig {
@@ -138,6 +144,37 @@ export class HogExecutorService {
         return merged
     }
 
+    /**
+     * Count the reads this surface makes and, where the polyfill is on, fill them in.
+     *
+     * Mutating the invocation's own globals is safe: each invocation carries its own copy, and the
+     * inputs the function reads are resolved from these globals further down.
+     */
+    private applyPolyfill(
+        invocation: CyclotronJobInvocationHogFunction,
+        reads: PersonUpdatePropertyRead[],
+        source: 'hog'
+    ): void {
+        const globals = invocation.state.globals
+        trackPersonUpdatePropertyReads({
+            reads,
+            source,
+            functionType: invocation.hogFunction.type,
+            eventProperties: globals.event?.properties,
+            personProperties: globals.person?.properties,
+        })
+
+        const polyfilled = polyfilledEventProperties({
+            mode: personUpdatePropertyPolyfillMode(invocation.hogFunction),
+            reads,
+            eventProperties: globals.event?.properties,
+            personProperties: globals.person?.properties,
+        })
+        if (polyfilled) {
+            globals.event = { ...globals.event, properties: polyfilled }
+        }
+    }
+
     @instrumented({ key: 'hog-executor.execute', sendException: false })
     async execute(
         invocation: CyclotronJobInvocationHogFunction,
@@ -157,16 +194,9 @@ export class HogExecutorService {
         const addLog = createAddLogFunction(result.logs)
 
         try {
-            // Observation only. It cannot throw, and it sits inside the try so that even if that
-            // guarantee ever broke, the failure would surface as an invocation error rather than
-            // escaping `execute` uncaught.
-            trackPersonUpdatePropertyReads({
-                reads: bytecodePersonUpdatePropertyReads(invocation.hogFunction.bytecode),
-                source: 'hog',
-                functionType: invocation.hogFunction.type,
-                eventProperties: invocation.state.globals.event?.properties,
-                personProperties: invocation.state.globals.person?.properties,
-            })
+            // Sits inside the try so that a failure here surfaces as an invocation error rather
+            // than escaping `execute` uncaught. The tracking half cannot throw either way.
+            this.applyPolyfill(invocation, bytecodePersonUpdatePropertyReads(invocation.hogFunction.bytecode), 'hog')
 
             let globals: HogFunctionInvocationGlobalsWithInputs
             let execRes: ExecResult | undefined = undefined

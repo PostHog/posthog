@@ -310,3 +310,165 @@ export function trackPersonUpdatePropertyReads(options: {
         })
     }
 }
+
+/**
+ * The polyfill. Off unless `CDP_PERSON_UPDATE_PROPERTY_POLYFILL_BEFORE` is set to a date.
+ *
+ * Functions created before that date keep working: the reads they make are filled in from the
+ * person snapshot. Functions created on or after it never see these properties at all, even while
+ * stored events still carry them, so the deprecation is real for anything new rather than a grace
+ * period that never ends. `CDP_PERSON_UPDATE_PROPERTY_POLYFILL_EXCLUDED_TEAMS` opts a team out of
+ * both behaviours.
+ */
+export type PersonUpdatePropertyPolyfillMode =
+    /** Fill in the reads this function makes from the person snapshot. */
+    | 'map'
+    /** Resolve nothing, whatever the stored event carries. */
+    | 'hide'
+    /** Leave the event exactly as it arrived. */
+    | 'off'
+
+let excludedTeamsSource: string | undefined
+let excludedTeams = new Set<number>()
+
+function isExcludedTeam(teamId: number): boolean {
+    const source = process.env.CDP_PERSON_UPDATE_PROPERTY_POLYFILL_EXCLUDED_TEAMS ?? ''
+    if (source !== excludedTeamsSource) {
+        excludedTeamsSource = source
+        excludedTeams = new Set(
+            source
+                .split(',')
+                .map((id) => parseInt(id.trim(), 10))
+                .filter((id) => !isNaN(id))
+        )
+    }
+    return excludedTeams.has(teamId)
+}
+
+/**
+ * A hog flow carries no creation date, so the date rule cannot classify one and it is left alone.
+ * Its filters are still counted.
+ */
+export function personUpdatePropertyPolyfillMode(fn: {
+    team_id: number
+    created_at?: string
+}): PersonUpdatePropertyPolyfillMode {
+    // 'off' is the fallback for anything unexpected, so a failure leaves the event as it arrived.
+    return guarded('polyfill_mode', 'off', () => {
+        const before = process.env.CDP_PERSON_UPDATE_PROPERTY_POLYFILL_BEFORE
+        if (!before || !fn.created_at || isExcludedTeam(fn.team_id)) {
+            return 'off'
+        }
+        const cutoff = Date.parse(before)
+        const createdAt = Date.parse(fn.created_at)
+        if (isNaN(cutoff) || isNaN(createdAt)) {
+            return 'off'
+        }
+        return createdAt < cutoff ? 'map' : 'hide'
+    })
+}
+
+function setPath(root: Record<string, any>, path: string[], value: unknown): void {
+    let target = root
+    for (const segment of path.slice(0, -1)) {
+        const next = target[segment]
+        target[segment] = typeof next === 'object' && next !== null ? { ...next } : {}
+        target = target[segment]
+    }
+    target[path[path.length - 1]] = value
+}
+
+/**
+ * Build the event properties one function should run against, or nothing when they are unchanged.
+ *
+ * A `map` fills in only the paths the function reads, so a function that reads
+ * `properties.$set.email` gets that one key and nothing else. Substituting the whole snapshot would
+ * hand it every property the person has, which is not what the event updated. Filling nothing
+ * leaves the key absent rather than present and empty, so a filter on whether it is set still reads
+ * the way it will once storage drops the payload.
+ */
+export function polyfilledEventProperties(options: {
+    mode: PersonUpdatePropertyPolyfillMode
+    reads: PersonUpdatePropertyRead[]
+    eventProperties: Record<string, any> | undefined
+    personProperties: Record<string, any> | undefined
+}): Record<string, any> | undefined {
+    const { mode, reads, eventProperties, personProperties } = options
+    if (mode === 'off' || typeof eventProperties !== 'object' || eventProperties === null) {
+        return undefined
+    }
+    // Returning nothing leaves the event as it arrived, which is the safe outcome for a failure.
+    return guarded('polyfill', undefined, () =>
+        buildPolyfilledEventProperties(mode, reads, eventProperties, personProperties)
+    )
+}
+
+function buildPolyfilledEventProperties(
+    mode: PersonUpdatePropertyPolyfillMode,
+    reads: PersonUpdatePropertyRead[],
+    eventProperties: Record<string, any>,
+    personProperties: Record<string, any> | undefined
+): Record<string, any> | undefined {
+    if (mode === 'hide') {
+        const present = PERSON_UPDATE_PROPERTY_KEYS.filter((key) =>
+            Object.prototype.hasOwnProperty.call(eventProperties, key)
+        )
+        if (present.length === 0) {
+            return undefined
+        }
+        const hidden = { ...eventProperties }
+        present.forEach((key) => delete hidden[key])
+        return hidden
+    }
+
+    if (reads.length === 0 || !personProperties) {
+        return undefined
+    }
+
+    let mapped: Record<string, any> | undefined
+    for (const read of reads) {
+        if (read.path.length === 0) {
+            // A whole-object read has no per-key answer, so it keeps whatever the event carried.
+            continue
+        }
+        if (resolvePath(eventProperties[read.key], read.path) !== undefined) {
+            continue
+        }
+        const personValue = resolvePath(personProperties, read.path)
+        if (personValue === undefined) {
+            continue
+        }
+        mapped ??= { ...eventProperties }
+        const payload = mapped[read.key]
+        mapped[read.key] = typeof payload === 'object' && payload !== null ? { ...payload } : {}
+        setPath(mapped[read.key], read.path, personValue)
+    }
+    return mapped
+}
+
+/**
+ * Resolve one payload for a legacy plugin, which reads it whole from JavaScript.
+ *
+ * There is no per-key answer to give a consumer that enumerates the object, so a mapped plugin gets
+ * the person snapshot itself. That is broader than the subset one event updated, and it is the only
+ * substitute that works for a plugin syncing traits. A copy goes over so a plugin mutating it does
+ * not reach the snapshot the rest of the invocation reads.
+ */
+export function resolveLegacyPluginPersonUpdatePayload(
+    mode: PersonUpdatePropertyPolyfillMode,
+    key: PersonUpdatePropertyKey,
+    eventProperties: Record<string, any> | undefined,
+    personProperties: Record<string, any> | undefined
+): Record<string, any> | undefined {
+    // Falling back to the raw payload keeps a failure from changing what the plugin receives.
+    return guarded('legacy_payload', eventProperties?.[key], () => {
+        if (mode === 'hide') {
+            return undefined
+        }
+        const raw = eventProperties?.[key]
+        if (raw !== undefined || mode === 'off' || !personProperties) {
+            return raw
+        }
+        return { ...personProperties }
+    })
+}
