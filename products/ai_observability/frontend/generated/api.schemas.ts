@@ -196,7 +196,7 @@ export interface PersonalSpendAnalysisResponseApi {
     by_model: _ModelBreakdownApi
     /** Spend grouped by UTC day, ordered ascending. Scoped to `product`. Not subject to `limit`. */
     by_day: _DayBreakdownApi
-    /** Daily model spend for the scoped product, ordered by day and cost. Includes the ten highest-cost models in the selected window plus an `Other` row for the remaining models. */
+    /** Daily model spend for the scoped product, ordered by day and cost. Includes the six highest-cost models in the selected window plus an `Other` row for the remaining models. */
     by_day_model: _DayModelBreakdownRowApi[]
     /** Spend grouped by UTC time bucket with per-bucket cost/token components, ordered ascending. Scoped to `product`. Only present when the request set `bucket_minutes`. */
     by_bucket?: _BucketBreakdownApi

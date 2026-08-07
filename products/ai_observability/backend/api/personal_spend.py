@@ -479,7 +479,7 @@ class PersonalSpendAnalysisResponseSerializer(serializers.Serializer):
     by_day_model = _DayModelBreakdownRowSerializer(
         many=True,
         help_text=(
-            "Daily model spend for the scoped product, ordered by day and cost. Includes the ten highest-cost "
+            "Daily model spend for the scoped product, ordered by day and cost. Includes the six highest-cost "
             "models in the selected window plus an `Other` row for the remaining models."
         ),
     )
