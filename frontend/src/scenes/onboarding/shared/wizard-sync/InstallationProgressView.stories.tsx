@@ -228,6 +228,43 @@ export const LostContact: Story = {
     },
 }
 
+// GROW-?: a run whose tab was closed for its whole duration settles from the REST detail, which
+// carries no step history. `cloudProgress` renders no pipeline steps rather than a literal 'pending'
+// skeleton that would assert stages ran when we have no evidence either way (see
+// installationProgress.ts, cloudProgress). Kept alongside its pre-fix counterpart below so the two
+// render side by side for visual comparison.
+export const CompletedNoSteps: Story = {
+    args: {
+        progress: progress({
+            phase: 'completed',
+            steps: [],
+            prUrl: 'https://github.com/acme-co/web/pull/42',
+        }),
+        mode: 'cloud',
+    },
+}
+
+// Same fix, error branch: a failed run that never announced any progress steps.
+export const FailedNoSteps: Story = {
+    args: {
+        progress: progress({
+            phase: 'error',
+            steps: [],
+            error: { title: 'Installation failed', detail: 'The sandbox could not be provisioned.' },
+        }),
+        mode: 'cloud',
+    },
+}
+
+// Guard case: a run in flight that hasn't announced any progress steps yet renders the all-pending
+// skeleton either way — the terminal-only special case above must not touch this path.
+export const RunningNoStepsYet: Story = {
+    args: {
+        progress: progress({ phase: 'running', steps: steps(['pending', 'pending', 'pending', 'pending']) }),
+        mode: 'cloud',
+    },
+}
+
 export const FailedNoDetail: Story = {
     args: {
         progress: progress({
