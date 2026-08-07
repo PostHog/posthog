@@ -22,7 +22,7 @@ export interface QuotaProjection {
     /** Projected period-end spend as a rounded percentage of the limit; exceeds 100 on overshoot. */
     percentLabel: number
     resetsOn: string | null
-    /** Actual spend as a percentage of the limit; `QuotaMeterBar` clamps for display. */
+    /** Actual spend as a percentage of the limit; `QuotaMeterBar` rescales past 100 for display. */
     usedPct: number
     /** The slice of `usedPct` covered by non-billable credits, so the meter can shade it separately. */
     usedFreePct: number
