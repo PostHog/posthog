@@ -292,10 +292,11 @@ class _DayBreakdownRowSerializer(serializers.Serializer):
 class _DayModelBreakdownRowSerializer(serializers.Serializer):
     day = serializers.DateField(help_text="UTC calendar day the events fall on (`toDate(timestamp)`).")
     model = serializers.CharField(
+        allow_null=True,
         help_text=(
-            "Model name for one of the highest-cost models in the selected window. All remaining models, "
-            "including events without a model, are aggregated as `Other`."
-        )
+            "Model name for one of the highest-cost models in the selected window. Null is the aggregate "
+            "of all remaining models, including events without a model."
+        ),
     )
     cost_usd = serializers.FloatField(help_text="Total cost in USD for this model on this day.")
     input_tokens = serializers.IntegerField(help_text="Sum of `$ai_input_tokens` for this model on this day.")
@@ -481,7 +482,7 @@ class PersonalSpendAnalysisResponseSerializer(serializers.Serializer):
         many=True,
         help_text=(
             "Daily model spend for the scoped product, ordered by day and cost. Includes the six highest-cost "
-            "models in the selected window plus an `Other` row for the remaining models."
+            "models in the selected window plus a null-model row for the remaining models."
         ),
     )
     by_bucket = _BucketBreakdownSerializer(
@@ -823,9 +824,9 @@ def _fetch_by_day_model(
         query_type="PersonalSpendByDayModelTopModels",
     )
     top_models = [row[0] for row in (top_models_result.results or []) if row[0] is not None]
-    model_expression = "properties.$ai_model" if top_models else "'Other'"
+    model_expression = "NULL"
     if top_models:
-        model_expression = "if(properties.$ai_model IN {top_models}, properties.$ai_model, 'Other')"
+        model_expression = "if(properties.$ai_model IN {top_models}, properties.$ai_model, NULL)"
 
     query = parse_select(
         f"""
@@ -866,7 +867,7 @@ def _fetch_by_day_model(
     return [
         {
             "day": row[0],
-            "model": row[1],
+            "model": str(row[1]) if row[1] is not None else None,
             "cost_usd": float(row[2] or 0.0),
             "input_tokens": int(row[3] or 0),
             "output_tokens": int(row[4] or 0),

@@ -1,4 +1,3 @@
-// @ts-expect-error jsdom ships no bundled types; only the test harness needs it
 import { JSDOM } from "jsdom";
 import { describe, expect, it } from "vitest";
 import { injectArtifactHtmlCommentBridge } from "./artifactHtmlCommentBridge";
@@ -133,7 +132,7 @@ describe("artifactHtmlCommentBridge", () => {
           type: "theme",
           theme: "dark",
         },
-        source: dom.window,
+        source: dom.window as unknown as Window,
       }),
     );
     expect(

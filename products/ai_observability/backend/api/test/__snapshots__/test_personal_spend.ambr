@@ -251,7 +251,7 @@
   '''
   /* user_id:0 request:_snapshot_@me_spend_ */
   SELECT toDate(events.timestamp) AS day,
-         'Other' AS model,
+         NULL AS model,
          round(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 6) AS cost_usd,
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64')) AS input_tokens,
          sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64')) AS output_tokens,

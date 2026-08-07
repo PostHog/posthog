@@ -62,7 +62,7 @@
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [
       "biome check --write --unsafe --files-ignore-unknown=true --no-errors-on-unmatched",
-      "bash -c 'pnpm typecheck'"
+      "bash -c 'pnpm --dir \"$(git rev-parse --show-toplevel)/products/desktop\" typecheck'"
     ]
   }
 }

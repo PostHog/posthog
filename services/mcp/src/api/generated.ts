@@ -59655,8 +59655,11 @@ export namespace Schemas {
     export interface _DayModelBreakdownRow {
       /** UTC calendar day the events fall on (`toDate(timestamp)`). */
       day: string;
-      /** Model name for one of the highest-cost models in the selected window. All remaining models, including events without a model, are aggregated as `Other`. */
-      model: string;
+      /**
+         * Model name for one of the highest-cost models in the selected window. Null is the aggregate of all remaining models, including events without a model.
+         * @nullable
+         */
+      model: string | null;
       /** Total cost in USD for this model on this day. */
       cost_usd: number;
       /** Sum of `$ai_input_tokens` for this model on this day. */
@@ -59739,7 +59742,7 @@ export namespace Schemas {
       by_model: _ModelBreakdown;
       /** Spend grouped by UTC day, ordered ascending. Scoped to `product`. Not subject to `limit`. */
       by_day: _DayBreakdown;
-      /** Daily model spend for the scoped product, ordered by day and cost. Includes the six highest-cost models in the selected window plus an `Other` row for the remaining models. */
+      /** Daily model spend for the scoped product, ordered by day and cost. Includes the six highest-cost models in the selected window plus a null-model row for the remaining models. */
       by_day_model: _DayModelBreakdownRow[];
       /** Spend grouped by UTC time bucket with per-bucket cost/token components, ordered ascending. Scoped to `product`. Only present when the request set `bucket_minutes`. */
       by_bucket?: _BucketBreakdown;

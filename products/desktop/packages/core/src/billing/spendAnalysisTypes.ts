@@ -43,7 +43,7 @@ export interface SpendAnalysisDayRow extends SpendAnalysisTokenRow {
 
 export interface SpendAnalysisDayModelRow extends SpendAnalysisGenerationRow {
   day: string;
-  model: string;
+  model: string | null;
 }
 
 export interface SpendAnalysisFilledDay extends SpendAnalysisDayRow {

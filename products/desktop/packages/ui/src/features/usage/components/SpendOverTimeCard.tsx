@@ -19,6 +19,10 @@ interface SpendOverTimeCardProps {
   filledDays: SpendAnalysisFilledDay[];
 }
 
+function modelLabel(model: string | null): string {
+  return model ?? "Other models";
+}
+
 export function spendSeriesForDays(
   filledDays: SpendAnalysisFilledDay[],
 ): Series[] {
@@ -72,7 +76,7 @@ function SpendTooltip({
   context: TooltipContext;
   day: SpendAnalysisFilledDay | undefined;
   filledDays: SpendAnalysisFilledDay[];
-  modelColors: ReadonlyMap<string, string>;
+  modelColors: ReadonlyMap<string | null, string>;
 }) {
   const dailySpend = context.seriesData.find(
     (series) => series.series.key === "daily-spend",
@@ -109,7 +113,7 @@ function SpendTooltip({
           <TooltipSwatch
             color={modelColors.get(model.model) ?? "var(--data-color-1)"}
           />
-          <span className="flex-1 truncate">{model.model}</span>
+          <span className="flex-1 truncate">{modelLabel(model.model)}</span>
           <strong className="w-10 text-right tabular-nums">
             {formatUsd(model.cost_usd)}
           </strong>
@@ -144,12 +148,12 @@ function SpendTooltip({
 
 export function modelColorsForDays(
   filledDays: SpendAnalysisFilledDay[],
-): ReadonlyMap<string, string> {
+): ReadonlyMap<string | null, string> {
   const models = [
     ...new Set(
       filledDays.flatMap((day) => day.models.map((model) => model.model)),
     ),
-  ].sort();
+  ].sort((a, b) => modelLabel(a).localeCompare(modelLabel(b)));
 
   return new Map(
     models.map((model, index) => [model, `var(--data-color-${index + 1})`]),
