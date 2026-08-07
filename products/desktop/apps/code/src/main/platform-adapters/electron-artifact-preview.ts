@@ -1,10 +1,11 @@
 import path from "node:path";
 import type { BrowserWindow, WebContents, WebPreferences } from "electron";
-import { ARTIFACT_PREVIEW_ARG } from "../../shared/constants";
+import {
+  ARTIFACT_PREVIEW_ARG,
+  ARTIFACT_PREVIEW_DATA_URL_PREFIX,
+  ARTIFACT_PREVIEW_PARTITION_PREFIX,
+} from "../../shared/constants";
 import { logger } from "../utils/logger";
-
-export const ARTIFACT_PREVIEW_DATA_URL_PREFIX = "data:text/html;charset=utf-8,";
-export const ARTIFACT_PREVIEW_PARTITION_PREFIX = "artifact-preview-";
 
 const log = logger.scope("artifact-preview-webview");
 
@@ -32,6 +33,9 @@ export function hardenArtifactPreviewPreferences(
   preferences.allowRunningInsecureContent = false;
   preferences.webviewTag = false;
   preferences.disableDialogs = true;
+  preferences.experimentalFeatures = false;
+  preferences.enableBlinkFeatures = "";
+  preferences.plugins = false;
 }
 
 export function lockDownArtifactPreview(guest: WebContents): void {

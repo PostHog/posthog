@@ -1,8 +1,8 @@
 import { useServiceOptional } from "@posthog/di/react";
 import {
   type SyntheticEvent,
-  useCallback,
   useEffect,
+  useEffectEvent,
   useRef,
   useState,
 } from "react";
@@ -14,66 +14,57 @@ import {
 } from "./artifactHtmlFrameHost";
 
 function IframeArtifactHtmlFrame({
-  document,
+  document: htmlDocument,
   name,
   messages,
   onMessage,
   onOpenExternal,
 }: ArtifactHtmlFrameProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const onMessageRef = useRef(onMessage);
-  const onOpenExternalRef = useRef(onOpenExternal);
   const [documentUrl, setDocumentUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    const nextDocumentUrl = URL.createObjectURL(
-      new Blob([document], { type: "text/html" }),
-    );
-    setDocumentUrl(nextDocumentUrl);
-    return () => URL.revokeObjectURL(nextDocumentUrl);
-  }, [document]);
-
-  const sendMessages = useCallback(() => {
+  const sendMessages = useEffectEvent(() => {
     for (const message of messages) {
       iframeRef.current?.contentWindow?.postMessage(message, "*");
     }
-  }, [messages]);
-  const sendMessagesRef = useRef(sendMessages);
+  });
+  const receiveMessage = useEffectEvent(onMessage);
+  const openExternal = useEffectEvent(onOpenExternal);
 
   useEffect(() => {
-    sendMessagesRef.current = sendMessages;
+    const nextDocumentUrl = URL.createObjectURL(
+      new Blob([htmlDocument], { type: "text/html" }),
+    );
+    setDocumentUrl(nextDocumentUrl);
+    return () => URL.revokeObjectURL(nextDocumentUrl);
+  }, [htmlDocument]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sendMessages is an Effect Event and must not be a dependency.
+  useEffect(() => {
+    void messages;
     sendMessages();
-  }, [sendMessages]);
+  }, [messages]);
 
-  useEffect(() => {
-    onMessageRef.current = onMessage;
-    onOpenExternalRef.current = onOpenExternal;
-  }, [onMessage, onOpenExternal]);
-
+  // biome-ignore lint/correctness/useExhaustiveDependencies: callbacks are Effect Events and must not be dependencies.
   useEffect(() => {
     const receive = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) return;
       const data = event.data as Record<string, unknown> | null;
-      if (
-        data?.marker === ARTIFACT_HTML_BRIDGE_MARKER &&
-        data.type === "ready"
-      ) {
-        sendMessagesRef.current();
-      }
-      if (data?.type === "open-external" && typeof data.href === "string") {
-        onOpenExternalRef.current(data.href);
+      if (data?.marker !== ARTIFACT_HTML_BRIDGE_MARKER) return;
+      if (data.type === "ready") sendMessages();
+      if (data.type === "open-external" && typeof data.href === "string") {
+        openExternal(data.href);
         return;
       }
       const frameRect = iframeRef.current?.getBoundingClientRect();
       if (!frameRect) return;
-      onMessageRef.current(event.data, frameRect);
+      receiveMessage(data, frameRect);
     };
     window.addEventListener("message", receive);
     return () => window.removeEventListener("message", receive);
   }, []);
 
   const handleLoad = (_event: SyntheticEvent<HTMLIFrameElement>) =>
-    sendMessagesRef.current();
+    sendMessages();
 
   return (
     <iframe

@@ -1,11 +1,14 @@
-import type { WebContents, WebPreferences } from "electron";
+import type { BrowserWindow, WebContents, WebPreferences } from "electron";
 import { describe, expect, it, vi } from "vitest";
-import { ARTIFACT_PREVIEW_ARG } from "../../shared/constants";
 import {
+  ARTIFACT_PREVIEW_ARG,
   ARTIFACT_PREVIEW_DATA_URL_PREFIX,
+} from "../../shared/constants";
+import {
   hardenArtifactPreviewPreferences,
   isAllowedArtifactPreview,
   lockDownArtifactPreview,
+  setupArtifactPreviewWebviews,
 } from "./electron-artifact-preview";
 
 describe("artifact preview webviews", () => {
@@ -51,6 +54,9 @@ describe("artifact preview webviews", () => {
       allowRunningInsecureContent: false,
       webviewTag: false,
       disableDialogs: true,
+      experimentalFeatures: false,
+      enableBlinkFeatures: "",
+      plugins: false,
     });
   });
 
@@ -94,8 +100,88 @@ describe("artifact preview webviews", () => {
     );
     expect(preventNavigation).toHaveBeenCalledOnce();
 
+    const allowNavigation = vi.fn();
+    handlers.get("will-navigate")?.(
+      { preventDefault: allowNavigation } as never,
+      `${ARTIFACT_PREVIEW_DATA_URL_PREFIX}PGgxPlJlcG9ydDwvaDE+` as never,
+    );
+    handlers.get("will-navigate")?.(
+      { preventDefault: allowNavigation } as never,
+      "about:blank" as never,
+    );
+    expect(allowNavigation).not.toHaveBeenCalled();
+
+    const preventSubframeNavigation = vi.fn();
+    handlers.get("will-frame-navigate")?.({
+      isMainFrame: false,
+      preventDefault: preventSubframeNavigation,
+    } as never);
+    expect(preventSubframeNavigation).toHaveBeenCalledOnce();
+
+    const allowMainFrameNavigation = vi.fn();
+    handlers.get("will-frame-navigate")?.({
+      isMainFrame: true,
+      preventDefault: allowMainFrameNavigation,
+    } as never);
+    expect(allowMainFrameNavigation).not.toHaveBeenCalled();
+
     const preventDownload = vi.fn();
     download({ preventDefault: preventDownload });
     expect(preventDownload).toHaveBeenCalledOnce();
+  });
+
+  it("wires the attachment allowlist before locking down an allowed guest", () => {
+    const handlers = new Map<string, (...args: never[]) => void>();
+    const window = {
+      webContents: {
+        on: vi.fn((event: string, handler: (...args: never[]) => void) => {
+          handlers.set(event, handler);
+        }),
+      },
+    } as unknown as BrowserWindow;
+    setupArtifactPreviewWebviews(window);
+
+    const blockedPreferences = {} as WebPreferences;
+    const preventBlocked = vi.fn();
+    handlers.get("will-attach-webview")?.(
+      { preventDefault: preventBlocked } as never,
+      blockedPreferences as never,
+      {
+        src: "https://example.com",
+        partition: "artifact-preview-one",
+      } as never,
+    );
+    expect(preventBlocked).toHaveBeenCalledOnce();
+    expect(blockedPreferences.preload).toBeUndefined();
+
+    const allowedPreferences = {} as WebPreferences;
+    const preventAllowed = vi.fn();
+    handlers.get("will-attach-webview")?.(
+      { preventDefault: preventAllowed } as never,
+      allowedPreferences as never,
+      {
+        src: `${ARTIFACT_PREVIEW_DATA_URL_PREFIX}PGgxPlJlcG9ydDwvaDE+`,
+        partition: "artifact-preview-one",
+      } as never,
+    );
+    expect(preventAllowed).not.toHaveBeenCalled();
+    expect(allowedPreferences).toMatchObject({
+      preload: expect.stringMatching(/preload\.js$/),
+      additionalArguments: [ARTIFACT_PREVIEW_ARG],
+      sandbox: true,
+    });
+
+    const guest = {
+      setWindowOpenHandler: vi.fn(),
+      on: vi.fn(),
+      session: {
+        setPermissionCheckHandler: vi.fn(),
+        setPermissionRequestHandler: vi.fn(),
+        on: vi.fn(),
+        webRequest: { onBeforeRequest: vi.fn() },
+      },
+    } as unknown as WebContents;
+    handlers.get("did-attach-webview")?.({} as never, guest as never);
+    expect(guest.setWindowOpenHandler).toHaveBeenCalledOnce();
   });
 });

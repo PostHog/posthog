@@ -10,6 +10,7 @@ import {
   type MenuItemConstructorOptions,
   screen,
 } from "electron";
+import { APP_WINDOW_ARG } from "../shared/constants";
 import { container } from "./di/container";
 import { setupExternalLinkHandlers } from "./external-links";
 import { buildApplicationMenu } from "./menu";
@@ -260,6 +261,7 @@ export function createWindow(): void {
       enableBlinkFeatures: "GetDisplayMedia",
       partition: "persist:main",
       additionalArguments: [
+        APP_WINDOW_ARG,
         ...(isDev ? ["--posthog-code-dev"] : []),
         `${POSTHOG_SESSION_ID_ARG}${posthogNodeAnalytics.getOrCreateSessionId()}`,
         encodeDevFlagsForArg(readDevFlagsSync()),

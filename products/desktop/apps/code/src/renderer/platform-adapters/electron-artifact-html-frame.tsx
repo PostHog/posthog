@@ -10,11 +10,13 @@ import {
   useRef,
   useState,
 } from "react";
-import { ARTIFACT_OPEN_EXTERNAL_CHANNEL } from "../../shared/constants";
-
-const HOST_TO_ARTIFACT_CHANNEL = "posthog-artifact-host-message";
-const ARTIFACT_TO_HOST_CHANNEL = "posthog-artifact-message";
-const DATA_URL_PREFIX = "data:text/html;charset=utf-8,";
+import {
+  ARTIFACT_HOST_TO_PREVIEW_CHANNEL,
+  ARTIFACT_OPEN_EXTERNAL_CHANNEL,
+  ARTIFACT_PREVIEW_DATA_URL_PREFIX,
+  ARTIFACT_PREVIEW_PARTITION_PREFIX,
+  ARTIFACT_PREVIEW_TO_HOST_CHANNEL,
+} from "../../shared/constants";
 
 type ArtifactWebviewElement = HTMLElement & {
   send: (channel: string, ...args: unknown[]) => void;
@@ -25,7 +27,21 @@ type WebviewIpcMessageEvent = Event & {
   args: unknown[];
 };
 
+type WebviewLoadFailureEvent = Event & {
+  errorCode?: number;
+  isMainFrame?: boolean;
+};
+
 type PreviewState = "running" | "stopped" | "failed" | "unresponsive";
+
+export function artifactPreviewDataUrl(htmlDocument: string): string {
+  const bytes = new TextEncoder().encode(htmlDocument);
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 32_768) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 32_768));
+  }
+  return `${ARTIFACT_PREVIEW_DATA_URL_PREFIX}${btoa(binary)}`;
+}
 
 type RunningArtifactWebviewProps = ArtifactHtmlFrameProps & {
   onStateChange: (state: PreviewState) => void;
@@ -43,40 +59,35 @@ function RunningArtifactWebview({
   const webviewRef = useRef<ArtifactWebviewElement | null>(null);
   const readyRef = useRef(false);
   const messagesRef = useRef(messages);
-  const onMessageRef = useRef(onMessage);
 
   const sendMessages = useCallback(() => {
     if (!readyRef.current) return;
     for (const message of messagesRef.current) {
-      webviewRef.current?.send(HOST_TO_ARTIFACT_CHANNEL, message);
+      webviewRef.current?.send(ARTIFACT_HOST_TO_PREVIEW_CHANNEL, message);
     }
   }, []);
   const reportState = useEffectEvent(onStateChange);
   const openExternal = useEffectEvent(onOpenExternal);
+  const receiveMessage = useEffectEvent(onMessage);
 
   useEffect(() => {
     messagesRef.current = messages;
     sendMessages();
   }, [messages, sendMessages]);
 
-  useEffect(() => {
-    onMessageRef.current = onMessage;
-  }, [onMessage]);
-
   // biome-ignore lint/correctness/useExhaustiveDependencies: reportState is an Effect Event and must not be a dependency.
   useEffect(() => {
     const mount = mountRef.current;
-    if (!mount) throw new Error("Artifact preview mount is unavailable");
+    if (!mount) {
+      reportState("failed");
+      return;
+    }
 
     const webview = document.createElement("webview") as ArtifactWebviewElement;
-    const partition = `artifact-preview-${crypto.randomUUID()}`;
+    const partition = `${ARTIFACT_PREVIEW_PARTITION_PREFIX}${crypto.randomUUID()}`;
     webview.className = "size-full";
     webview.setAttribute("partition", partition);
-    webview.setAttribute(
-      "src",
-      `${DATA_URL_PREFIX}${encodeURIComponent(htmlDocument)}`,
-    );
-    webview.setAttribute("aria-label", `Preview of ${name}`);
+    webview.setAttribute("src", artifactPreviewDataUrl(htmlDocument));
 
     const onReady = () => {
       readyRef.current = true;
@@ -90,7 +101,7 @@ function RunningArtifactWebview({
         if (typeof href === "string") openExternal(href);
         return;
       }
-      if (ipcEvent.channel !== ARTIFACT_TO_HOST_CHANNEL) return;
+      if (ipcEvent.channel !== ARTIFACT_PREVIEW_TO_HOST_CHANNEL) return;
       const data = ipcEvent.args[0] as Record<string, unknown> | null;
       if (data?.type === "open-external") return;
       if (
@@ -99,9 +110,13 @@ function RunningArtifactWebview({
       ) {
         sendMessages();
       }
-      onMessageRef.current(data, webview.getBoundingClientRect());
+      receiveMessage(data, webview.getBoundingClientRect());
     };
-    const onFailed = () => reportState("failed");
+    const onFailed = (event: Event) => {
+      const failure = event as WebviewLoadFailureEvent;
+      if (failure.isMainFrame === false || failure.errorCode === -3) return;
+      reportState("failed");
+    };
     const onGone = () => reportState("failed");
     const onUnresponsive = () => reportState("unresponsive");
     const onResponsive = () => reportState("running");
@@ -126,7 +141,11 @@ function RunningArtifactWebview({
       webviewRef.current = null;
       webview.remove();
     };
-  }, [htmlDocument, name, sendMessages]);
+  }, [htmlDocument, sendMessages]);
+
+  useEffect(() => {
+    webviewRef.current?.setAttribute("aria-label", `Preview of ${name}`);
+  }, [name]);
 
   return <div ref={mountRef} className="size-full" />;
 }

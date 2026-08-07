@@ -815,6 +815,9 @@ describe("ArtifactPreview", () => {
     expect(document).toContain("new MutationObserver");
     expect(document).toContain("state.renderTimer");
     expect(document).toMatch(/script-src &#39;nonce-[^&]+&#39;/);
+    expect(document).not.toContain(
+      "script-src &#39;self&#39; &#39;unsafe-inline&#39;",
+    );
   });
 
   it("allows embedded scripts without allowing network access", () => {

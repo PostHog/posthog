@@ -64,7 +64,7 @@ export function AnnotatedArtifactHtml({
     null,
   );
   const [selection, setSelection] = useState<EditorSelection | null>(null);
-  const document = useMemo(
+  const previewDocument = useMemo(
     () =>
       scriptedArtifactHtmlDocument(
         html,
@@ -184,7 +184,7 @@ export function AnnotatedArtifactHtml({
   return (
     <div className="relative size-full">
       <ArtifactHtmlFrame
-        document={document}
+        document={previewDocument}
         fallbackDocument={fallbackDocument}
         name={name}
         messages={messages}
