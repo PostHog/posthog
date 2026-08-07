@@ -57,6 +57,7 @@ depends_on = [
     "products.ai_observability",
     "products.mcp_store",
     "products.notebooks",
+    "products.notifications",
     "products.posthog_ai",
     "products.product_analytics",
     "products.replay",
