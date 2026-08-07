@@ -1,12 +1,14 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   githubCommentComponents,
   isGitHubHostedImage,
 } from "../../editor/components/githubCommentImages";
 import { MarkdownRenderer } from "../../editor/components/MarkdownRenderer";
+import { CommentThreadCard } from "./CommentThreadCard";
 
-describe("GitHub comment images", () => {
+describe("CommentThreadCard", () => {
   it.each([
     "https://user-images.githubusercontent.com/1/example.png",
     "https://private-user-images.githubusercontent.com/1/example.png",
@@ -38,5 +40,37 @@ describe("GitHub comment images", () => {
 
     expect(html).toContain("user-images.githubusercontent.com/1/example.png");
     expect(html).not.toContain("example.com/tracking.png");
+  });
+
+  it("handles a rejected asynchronous resolve action", async () => {
+    const onResolve = vi.fn().mockRejectedValue(new Error("unavailable"));
+    render(
+      <CommentThreadCard
+        threadId="thread-1"
+        entries={[
+          {
+            id: "comment-1",
+            authorName: "Reviewer",
+            user: null,
+            avatarUrl: null,
+            createdAt: "2026-08-07T00:00:00Z",
+            body: "Please update this",
+            format: "mentions",
+          },
+        ]}
+        selected={false}
+        pulsing={false}
+        resolved={false}
+        members={[]}
+        busy={false}
+        onSelect={vi.fn()}
+        onReply={vi.fn()}
+        onResolve={onResolve}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Resolve"));
+
+    await waitFor(() => expect(onResolve).toHaveBeenCalledWith(true));
   });
 });

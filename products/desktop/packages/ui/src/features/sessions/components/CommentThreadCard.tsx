@@ -108,7 +108,7 @@ export function CommentThreadCard({
   viewHref?: string | null;
   onSelect: () => void;
   onReply: (content: string, mentions: number[]) => void | Promise<void>;
-  onResolve: (resolved: boolean) => void;
+  onResolve: (resolved: boolean) => void | Promise<void>;
 }) {
   const [replying, setReplying] = useState(false);
   const [reply, setReply] = useState("");
@@ -195,7 +195,11 @@ export function CommentThreadCard({
                 <Button
                   size="sm"
                   disabled={busy}
-                  onClick={() => onResolve(!resolved)}
+                  onClick={() => {
+                    Promise.resolve(onResolve(!resolved)).catch(
+                      () => undefined,
+                    );
+                  }}
                 >
                   {resolved ? <ArrowCounterClockwise /> : <CheckCircle />}
                   {resolved ? "Reopen" : "Resolve"}
