@@ -19,6 +19,7 @@ import { template as emailTemplate } from './_destinations/email/email.template'
 import { template as engageTemplate } from './_destinations/engage/engage.template'
 import { template as githubTemplate } from './_destinations/github/github.template'
 import { template as gitlabTemplate } from './_destinations/gitlab/gitlab.template'
+import { template as gleapTemplate } from './_destinations/gleap/gleap.template'
 import { template as googleTagManagerTemplate } from './_destinations/google-tag-manager/google-tag-manager.template'
 import { template as googleAdsTemplate } from './_destinations/google_ads/google.template'
 import { template as googleSheetsTemplate } from './_destinations/google_sheets/google_sheets.template'
@@ -122,6 +123,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     clearbitTemplate,
     discordTemplate,
     engageTemplate,
+    gleapTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [

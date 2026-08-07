@@ -8,7 +8,6 @@ from .avo.template_avo import (
     TemplateAvoMigrator,
     template as avo,
 )
-from .gleap.template_gleap import template as gleap
 from .google_cloud_storage.template_google_cloud_storage import (
     TemplateGoogleCloudStorageMigrator,
     template as google_cloud_storage,
@@ -75,7 +74,6 @@ HOG_FUNCTION_TEMPLATES = [
     blank_site_destination,
     blank_site_app,
     avo,
-    gleap,
     google_cloud_storage,
     google_pubsub,
     hubspot,
