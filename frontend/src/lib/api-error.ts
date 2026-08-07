@@ -6,6 +6,25 @@ export function isAccessDeniedError(error: { status?: number; code?: string | nu
     return error.status === 403 && error.code === 'permission_denied'
 }
 
+// A fetch that never completed (offline, VPN drop, tab closing mid-request) throws a TypeError
+// whose message varies by browser:
+//   Chrome/Edge: "Failed to fetch"
+//   Firefox:     "NetworkError when attempting to fetch resource."
+//   Safari:      "Load failed"
+// handleFetch (lib/api.ts) rewraps such failures into an ApiError with no status: both the raw
+// fetch throw and a body-stream drop / garbled 2xx body (see getJSONFromSuccessResponse) land here.
+// A `status`-less ApiError is therefore treated as network-like; a genuine bug surfaces with a
+// status or a different error type (e.g. a raw SyntaxError from response.json()), which we still capture.
+export function isNetworkError(error: unknown): boolean {
+    if (error instanceof TypeError) {
+        return true
+    }
+    if (error instanceof ApiError && error.status === undefined) {
+        return true
+    }
+    return error instanceof Error && /failed to fetch|network\s*error|load failed/i.test(error.message)
+}
+
 export class ApiError extends Error {
     /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null

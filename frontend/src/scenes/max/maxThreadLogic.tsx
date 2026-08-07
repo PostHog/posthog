@@ -20,6 +20,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
+import { isNetworkError } from 'lib/api-error'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -1485,16 +1486,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() }
                     const offlineMessage = 'You appear to be offline. Please check your internet connection.'
 
-                    // Network errors surface differently across browsers and may be wrapped by handleFetch:
-                    //   Chrome/Edge: "Failed to fetch"
-                    //   Firefox:     "NetworkError when attempting to fetch resource."
-                    //   Safari:      "Load failed"
-                    //   handleFetch: ApiError with status === undefined (fetch itself threw)
-                    const isNetworkError =
-                        (e instanceof Error && /failed to fetch|network\s*error|load failed/i.test(e.message)) ||
-                        (e instanceof ApiError && !e.status)
+                    const isNetworkFailure = isNetworkError(e)
 
-                    if (isNetworkError) {
+                    if (isNetworkFailure) {
                         if (values.conversation?.status === ConversationStatus.InProgress) {
                             if (generationAttempt > 15) {
                                 relevantErrorMessage.content = offlineMessage
@@ -1578,7 +1572,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             agent_mode: agentMode,
                             generation_attempt: generationAttempt,
                             error_status_code: e instanceof ApiError ? e.status : undefined,
-                            error_type: isNetworkError
+                            error_type: isNetworkFailure
                                 ? 'network_error'
                                 : e instanceof ApiError
                                   ? 'api_error'

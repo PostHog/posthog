@@ -8,7 +8,7 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
-import { isAccessDeniedError } from 'lib/api-error'
+import { isAccessDeniedError, isNetworkError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
@@ -141,6 +141,16 @@ export function initKea({
                 // distinct codes (`read_only_blocked`, `impersonation_read_only`) and still toasts.
                 const isAccessDenied =
                     isAccessDeniedError(error) && (isLoadAction || ACCESS_DENIED_SELF_HANDLED.has(String(actionKey)))
+                // A fetch that never completed carries no `status`, so it falls through the toast
+                // block below and the write is dropped silently. Tell the user their action didn't
+                // land. Scoped to write actions — load failures render their own scene state, and a
+                // toast per background loader while offline would be a storm.
+                const isNetworkFailure = isNetworkError(error)
+                if (isNetworkFailure && !isLoadAction && !ERROR_FILTER_ALLOW_LIST.includes(actionKey)) {
+                    lemonToast.error(
+                        `${identifierToHuman(actionKey)} failed: Couldn't reach the server. Check your connection and try again.`
+                    )
+                }
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     error?.status !== undefined &&
@@ -189,7 +199,9 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status)) {
+                // Genuine network failures are transient and outside our control (offline, VPN drop,
+                // ad blockers); toasting the user is enough, capturing them just floods error tracking.
+                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status) && !isNetworkFailure) {
                     posthog.captureException(error)
                 }
             },
