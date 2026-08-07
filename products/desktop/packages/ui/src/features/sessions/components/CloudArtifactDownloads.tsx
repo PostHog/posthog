@@ -40,7 +40,7 @@ import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { toast } from "@posthog/ui/primitives/toast";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 
 type ArtifactGroup = RunArtifactVersions<TaskRunArtifact>;
@@ -64,7 +64,6 @@ export function CloudArtifactDownloads({
   task: Task | undefined;
 }) {
   const sessionService = useService<SessionService>(SESSION_SERVICE);
-  const queryClient = useQueryClient();
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
   const sessionArtifacts = useSessionSelector(
     taskId,
@@ -81,11 +80,13 @@ export function CloudArtifactDownloads({
   const [selectedVersionByName, setSelectedVersionByName] = useState<
     Record<string, string>
   >({});
+  const [dismissalOverrides, setDismissalOverrides] = useState<
+    Record<string, string | null>
+  >({});
   const [showDismissed, setShowDismissed] = useState(false);
   const runId = task?.latest_run?.id;
-  const artifactsQueryKey = ["cloudRunArtifacts", authIdentity, taskId, runId];
   const { data: fetchedArtifacts } = useQuery({
-    queryKey: artifactsQueryKey,
+    queryKey: ["cloudRunArtifacts", authIdentity, taskId, runId],
     queryFn: () =>
       sessionService.getCloudRunArtifacts(taskId ?? "", runId ?? ""),
     enabled:
@@ -104,9 +105,20 @@ export function CloudArtifactDownloads({
           sessionArtifacts ??
           task?.latest_run?.artifacts ??
           []
-        ).filter((artifact) => artifact.type === "output"),
+        )
+          .filter((artifact) => artifact.type === "output")
+          .map((artifact) =>
+            artifact.id && artifact.id in dismissalOverrides
+              ? { ...artifact, dismissed_at: dismissalOverrides[artifact.id] }
+              : artifact,
+          ),
       ),
-    [fetchedArtifacts, sessionArtifacts, task?.latest_run?.artifacts],
+    [
+      dismissalOverrides,
+      fetchedArtifacts,
+      sessionArtifacts,
+      task?.latest_run?.artifacts,
+    ],
   );
   const visibleGroups = groups.filter((group) => !group.dismissed);
   const dismissedGroups = groups.filter((group) => group.dismissed);
@@ -125,10 +137,19 @@ export function CloudArtifactDownloads({
         group.versions.flatMap((version) => version.id ?? []),
         dismissed,
       ),
-    // The response carries the whole manifest, so the rows re-render from it
-    // even while the query itself is disabled for a run that is still going.
+    // Overlay just the dismissal stamps from the response. Writing the whole manifest into the
+    // query cache would define `fetchedArtifacts` mid-run, and since the query stays disabled
+    // until the run is terminal, that snapshot would then mask the live session store for good —
+    // hiding every file the agent uploads after a dismissal.
     onSuccess: (manifest) =>
-      queryClient.setQueryData(artifactsQueryKey, manifest),
+      setDismissalOverrides((current) => ({
+        ...current,
+        ...Object.fromEntries(
+          manifest.flatMap((entry) =>
+            entry.id ? [[entry.id, entry.dismissed_at ?? null]] : [],
+          ),
+        ),
+      })),
     onError: () => toast.error("Couldn't update this file"),
   });
 

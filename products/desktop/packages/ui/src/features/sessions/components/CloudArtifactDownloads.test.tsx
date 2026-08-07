@@ -6,8 +6,8 @@ import { CloudArtifactDownloads } from "./CloudArtifactDownloads";
 const getCloudAttachmentPreviewUrl = vi.fn();
 const setCloudRunArtifactsDismissed = vi.fn();
 const openArtifactTab = vi.fn();
-const setQueryData = vi.fn();
-let fetchedArtifacts: unknown[] = [];
+let fetchedArtifacts: unknown[] | undefined = [];
+let session: { cloudArtifacts?: unknown[]; cloudStatus?: string } = {};
 
 vi.mock("@posthog/core/sessions/sessionService", () => ({
   SESSION_SERVICE: Symbol("SESSION_SERVICE"),
@@ -21,7 +21,8 @@ vi.mock("@posthog/di/react", () => ({
 }));
 
 vi.mock("@posthog/ui/features/sessions/sessionStore", () => ({
-  useSessionSelector: () => undefined,
+  useSessionSelector: (_taskId: string, select: (s: unknown) => unknown) =>
+    select(session),
 }));
 
 vi.mock("@posthog/ui/features/auth/store", () => ({
@@ -31,7 +32,6 @@ vi.mock("@posthog/ui/features/auth/store", () => ({
 
 vi.mock("@tanstack/react-query", () => ({
   useQuery: () => ({ data: fetchedArtifacts }),
-  useQueryClient: () => ({ setQueryData }),
   useMutation: ({
     mutationFn,
     onSuccess,
@@ -82,10 +82,10 @@ describe("CloudArtifactDownloads", () => {
         storage_path: "tasks/run-1/handoff.pack",
       },
     ];
+    session = {};
     getCloudAttachmentPreviewUrl.mockReset();
     setCloudRunArtifactsDismissed.mockReset();
     openArtifactTab.mockReset();
-    setQueryData.mockReset();
     vi.restoreAllMocks();
   });
 
@@ -207,10 +207,61 @@ describe("CloudArtifactDownloads", () => {
         true,
       ),
     );
-    expect(setQueryData).toHaveBeenCalledWith(
-      expect.anything(),
-      dismissedManifest,
+    await waitFor(() =>
+      expect(screen.getByText("Show 1 dismissed")).toBeInTheDocument(),
     );
+    expect(screen.queryByText("report.pdf")).not.toBeInTheDocument();
+  });
+
+  // The artifact query is disabled until the run is terminal, so a dismissal mid-run must not
+  // park a snapshot anywhere that outranks the live session store.
+  it("still shows files uploaded after a mid-run dismissal", async () => {
+    fetchedArtifacts = undefined;
+    session = {
+      cloudStatus: "in_progress",
+      cloudArtifacts: [
+        {
+          id: "output-1",
+          name: "report.pdf",
+          type: "output",
+          uploaded_at: "2026-07-27T08:00:00+00:00",
+        },
+      ],
+    };
+    setCloudRunArtifactsDismissed.mockResolvedValue([
+      {
+        id: "output-1",
+        name: "report.pdf",
+        type: "output",
+        uploaded_at: "2026-07-27T08:00:00+00:00",
+        dismissed_at: "2026-07-27T09:00:00+00:00",
+      },
+    ]);
+
+    const { rerender } = renderDownloads();
+
+    fireEvent.click(screen.getByLabelText("Dismiss report.pdf"));
+    await waitFor(() =>
+      expect(screen.queryByText("report.pdf")).not.toBeInTheDocument(),
+    );
+
+    session.cloudArtifacts = [
+      ...(session.cloudArtifacts as unknown[]),
+      {
+        id: "output-2",
+        name: "notes.md",
+        type: "output",
+        uploaded_at: "2026-07-27T10:00:00+00:00",
+      },
+    ];
+    rerender(
+      <Theme>
+        <CloudArtifactDownloads taskId="task-1" task={task} />
+      </Theme>,
+    );
+
+    expect(screen.getByText("notes.md")).toBeInTheDocument();
+    expect(screen.queryByText("report.pdf")).not.toBeInTheDocument();
   });
 
   it("hides a dismissed file until the toggle brings it back", () => {
