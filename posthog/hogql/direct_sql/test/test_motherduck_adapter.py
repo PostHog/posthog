@@ -213,7 +213,7 @@ class TestMotherDuckAdapterExecute(BaseTest):
             team=self.team,
             source_type="Motherduck",
             access_method=ExternalDataSource.AccessMethod.DIRECT,
-            job_inputs={"motherduck_token": "test-token", "database": "memory"},
+            job_inputs={"access_token": "test-token", "database": "memory"},
             source_id="motherduck-test",
             connection_id="motherduck-test",
         )

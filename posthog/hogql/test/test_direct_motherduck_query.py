@@ -50,7 +50,7 @@ class TestDirectMotherDuckQuery(APIBaseTest):
             access_method=ExternalDataSource.AccessMethod.DIRECT,
             prefix="md",
             connection_metadata={"engine": "motherduck", "database": "memory"},
-            job_inputs={"motherduck_token": "test-token", "database": "memory"},
+            job_inputs={"access_token": "test-token", "database": "memory"},
         )
 
     def _create_direct_table(self, source: ExternalDataSource) -> DataWarehouseTable:

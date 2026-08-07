@@ -59,7 +59,7 @@ class TestBuildDirectTableForSchema(APIBaseTest):
             source_type=ExternalDataSourceType.MOTHERDUCK,
             access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
             direct_query_enabled=True,
-            job_inputs={"motherduck_token": "t", "database": "my_db"},
+            job_inputs={"access_token": "t", "database": "my_db"},
         )
         schema = ExternalDataSchema.objects.create(
             name="nyc.taxi",

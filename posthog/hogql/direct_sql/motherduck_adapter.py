@@ -183,7 +183,7 @@ class MotherDuckAdapter:
 
         # No host/SSH-tunnel config to validate: the driver always dials MotherDuck's fixed
         # SaaS endpoint, so there is no SSRF surface equivalent to the Postgres/MySQL hosts.
-        if not (config.motherduck_token or "").strip():
+        if not (config.access_token or "").strip():
             raise ExposedHogQLError("This MotherDuck connection has no access token configured.")
 
         return motherduck_source, config
@@ -223,7 +223,7 @@ class MotherDuckAdapter:
                 # Reuse a per-thread connection across queries — the extension load + WebSocket
                 # handshake is the dominant cost for interactive use.
                 with cached_motherduck_connection(
-                    source_config.motherduck_token, MotherduckSource.normalized_database(source_config)
+                    source_config.access_token, MotherduckSource.normalized_database(source_config)
                 ) as connection:
                     with _InterruptWatchdog(connection, statement_timeout_seconds) as watchdog:
                         try:

@@ -1,7 +1,5 @@
 import {
     KAFKA_APP_METRICS_2,
-    KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
-    KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
     KAFKA_EVENTS_JSON,
     KAFKA_HOG_INVOCATION_RESULTS,
     KAFKA_LOG_ENTRIES,
@@ -14,7 +12,6 @@ import { ClickhouseConfig, getDefaultClickhouseConfig } from '../common/clickhou
 import {
     CdpProducerName,
     WAREHOUSE_PRODUCER,
-    WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from './outputs/producers'
@@ -112,10 +109,6 @@ export type CdpConfig = ClickhouseConfig & {
     // How many rerun wrapper jobs the worker dequeues per cyclotron-v2 poll.
     // Kept small by default — each job runs a full ClickHouse query per page.
     CDP_RERUN_WORKER_BATCH_SIZE: number
-    CDP_PREFILTERED_EVENTS_TOPIC: string
-    CDP_PREFILTERED_EVENTS_PRODUCER: CdpProducerName
-    CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC: string
-    CDP_PRECALCULATED_PERSON_PROPERTIES_PRODUCER: CdpProducerName
     CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC: string
     CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER: CdpProducerName
 
@@ -282,10 +275,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Small by default — rerun jobs are heavy (a full ClickHouse query per
         // page), so a replica drains one wrapper job at a time unless tuned up.
         CDP_RERUN_WORKER_BATCH_SIZE: 1,
-        CDP_PREFILTERED_EVENTS_TOPIC: KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
-        CDP_PREFILTERED_EVENTS_PRODUCER: WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
-        CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC: KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
-        CDP_PRECALCULATED_PERSON_PROPERTIES_PRODUCER: WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
         CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC: KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
         CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER: WAREHOUSE_PRODUCER,
 
