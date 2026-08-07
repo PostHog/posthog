@@ -2,7 +2,7 @@ import { ApiRequest } from 'lib/api'
 
 import { TeamType } from '~/types'
 
-import { personsEmailsList } from 'products/persons/frontend/generated/api'
+import { personsEmailsList, personsPushNotificationsList } from 'products/persons/frontend/generated/api'
 import { MessageAssetApi } from 'products/persons/frontend/generated/api.schemas'
 
 import { HogFlow } from './hogflows/types'
@@ -64,6 +64,20 @@ export async function getPersonMessageAssets(
     // only sees the numeric case, so the generated helper types `id: number`. Cast at the call
     // boundary rather than at every consumer.
     const rows: MessageAssetApi[] = await personsEmailsList(String(teamId), personId as unknown as number, params)
+    return rows as MessageAsset[]
+}
+
+export async function getPersonPushNotifications(
+    teamId: TeamType['id'],
+    personId: string,
+    params: PersonMessageAssetsParams = {}
+): Promise<MessageAsset[]> {
+    // Same UUID-vs-numeric-PK cast as getPersonMessageAssets above.
+    const rows: MessageAssetApi[] = await personsPushNotificationsList(
+        String(teamId),
+        personId as unknown as number,
+        params
+    )
     return rows as MessageAsset[]
 }
 

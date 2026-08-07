@@ -5,7 +5,7 @@ import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
-import { IconFilter, IconList, IconRefresh, IconRewindPlay, IconSearch, IconX } from '@posthog/icons'
+import { IconFilter, IconList, IconRewindPlay, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -16,8 +16,6 @@ import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { IconRobot } from 'lib/lemon-ui/icons'
-import { Button, Separator, Tooltip, TooltipContent, TooltipTrigger } from 'lib/ui/quill'
 import {
     TabsPrimitive,
     TabsPrimitiveContent,
@@ -40,19 +38,15 @@ import { BreakdownsChart } from '../../components/Breakdowns/BreakdownsChart'
 import { BreakdownsSearchBar } from '../../components/Breakdowns/BreakdownsSearchBar'
 import { MiniBreakdowns } from '../../components/Breakdowns/MiniBreakdowns'
 import { miniBreakdownsLogic } from '../../components/Breakdowns/miniBreakdownsLogic'
-import { eventsSourceLogic } from '../../components/EventsTable/eventsSourceLogic'
-import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { StackTraceActions } from '../../components/ExceptionCard/Tabs/StackTraceTab/StackTraceActions'
 import { StatusIndicator } from '../../components/Indicators'
-import { ErrorFilters } from '../../components/IssueFilters'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
-import { Metadata } from '../../components/IssueMetadata'
 import { IssueStatusButton } from '../../components/IssueStatusButton'
-import { IssueTasks } from '../../components/IssueTasks'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
+import { getIssueReplayDateRange } from '../../utils'
 import {
     ErrorTrackingIssueSceneCategory,
     errorTrackingIssueSceneConfigurationLogic,
@@ -62,9 +56,9 @@ import {
     ErrorTrackingIssueSceneLogicProps,
     errorTrackingIssueSceneLogic,
 } from './errorTrackingIssueSceneLogic'
+import { IssueEventsPanel } from './IssueEventsPanel'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
-import { SimilarIssuesList } from './ScenePanel/SimilarIssuesList'
 
 export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
     component: ErrorTrackingIssueScene,
@@ -127,8 +121,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                             <SceneMenuBarItem
                                                 onClick={() => {
                                                     const url = urls.replay(ReplayTabs.Home, {
-                                                        date_from: issue.first_seen ?? '-30d',
-                                                        date_to: lastSeen ? lastSeen.toISOString() : null,
+                                                        ...getIssueReplayDateRange(issue.first_seen, lastSeen),
                                                         filter_group: {
                                                             type: FilterLogicalOperator.And,
                                                             values: [
@@ -179,8 +172,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                 />
                                                 <ViewRecordingsPlaylistButton
                                                     filters={{
-                                                        date_from: issue.first_seen ?? '-30d',
-                                                        date_to: lastSeen ? lastSeen.toISOString() : null,
+                                                        ...getIssueReplayDateRange(issue.first_seen, lastSeen),
                                                         filter_group: {
                                                             type: FilterLogicalOperator.And,
                                                             values: [
@@ -305,6 +297,7 @@ const RightHandColumn = ({
 const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
     const { category } = useValues(errorTrackingIssueSceneConfigurationLogic)
     const { setCategory } = useActions(errorTrackingIssueSceneConfigurationLogic)
+    const { issueId } = useValues(errorTrackingIssueSceneLogic)
 
     const ref = useRef<HTMLDivElement>(null)
     const resizerLogicProps: ResizerLogicProps = {
@@ -315,8 +308,6 @@ const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
         persistPrefix: 'error-tracking-issue-view-columns-ratio',
     }
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
-    const hasTasks = useFeatureFlag('TASKS')
-    const hasSimilarIssues = useFeatureFlag('ERROR_TRACKING_RELATED_ISSUES')
 
     return (
         <div
@@ -334,7 +325,10 @@ const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
         >
             <TabsPrimitive
                 value={category}
-                onValueChange={(value) => setCategory(value as ErrorTrackingIssueSceneCategory)}
+                onValueChange={(value) => {
+                    setCategory(value as ErrorTrackingIssueSceneCategory)
+                    posthog.capture('error_tracking_issue_tab_viewed', { issue_id: issueId, tab: value })
+                }}
                 className="flex flex-col flex-1 min-h-0"
             >
                 <div>
@@ -348,39 +342,15 @@ const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
                                 <IconFilter className="mr-1" />
                                 <span className="text-nowrap">Breakdowns</span>
                             </TabsPrimitiveTrigger>
-                            {hasTasks && (
-                                <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="autofix">
-                                    <IconRobot className="mr-1" />
-                                    <span className="text-nowrap">Autofix</span>
-                                </TabsPrimitiveTrigger>
-                            )}
-                            {hasSimilarIssues && (
-                                <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="similar_issues">
-                                    <IconSearch className="mr-1" />
-                                    <span className="text-nowrap">Similar issues</span>
-                                </TabsPrimitiveTrigger>
-                            )}
                         </TabsPrimitiveList>
                     </ScrollableShadows>
                 </div>
                 <TabsPrimitiveContent value="exceptions" className="h-full min-h-0">
-                    <ExceptionsTab />
+                    <IssueEventsPanel />
                 </TabsPrimitiveContent>
                 <TabsPrimitiveContent value="breakdowns" className="flex-1 min-h-0">
                     <BreakdownsTab />
                 </TabsPrimitiveContent>
-                {hasTasks && (
-                    <TabsPrimitiveContent value="autofix">
-                        <div className="p-2">
-                            <IssueTasks />
-                        </div>
-                    </TabsPrimitiveContent>
-                )}
-                {hasSimilarIssues && (
-                    <TabsPrimitiveContent value="similar_issues" className="flex-1 min-h-0">
-                        <SimilarIssuesList />
-                    </TabsPrimitiveContent>
-                )}
             </TabsPrimitive>
 
             {!isMobile && <Resizer {...resizerLogicProps} />}
@@ -388,73 +358,6 @@ const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
     )
 }
 
-const ExceptionsTab = (): JSX.Element => {
-    const { eventsQuery, eventsQueryKey, selectedEvent, issueFingerprints, issueFingerprintsLoading } =
-        useValues(errorTrackingIssueSceneLogic)
-    const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
-    const eventsDataSource = eventsSourceLogic({ query: eventsQuery, queryKey: eventsQueryKey })
-    const { itemsLoading } = useValues(eventsDataSource)
-    const { loadData } = useActions(eventsDataSource)
-
-    return (
-        <div className="flex flex-col h-full min-h-0">
-            <div className="shrink-0 px-2 py-2">
-                <ErrorFilters.Root>
-                    <div className="flex w-full flex-col gap-1">
-                        <div className="flex w-full flex-wrap items-center gap-1">
-                            <Tooltip>
-                                <TooltipTrigger
-                                    render={
-                                        <Button
-                                            variant="outline"
-                                            size="icon"
-                                            loading={itemsLoading}
-                                            aria-label="Reload exceptions"
-                                            onClick={() => loadData()}
-                                        />
-                                    }
-                                >
-                                    <IconRefresh />
-                                </TooltipTrigger>
-                                <TooltipContent>Reload exceptions</TooltipContent>
-                            </Tooltip>
-                            <ErrorFilters.DateRange />
-                            <div className="ml-auto shrink-0">
-                                <ErrorFilters.InternalAccounts />
-                            </div>
-                        </div>
-                        <div className="flex w-full flex-wrap items-center gap-1">
-                            <ErrorFilters.Search
-                                className="ErrorTrackingIssue__search w-auto min-w-40 flex-1 shrink"
-                                placeholder="Search exceptions"
-                            />
-                            <ErrorFilters.FilterGroup />
-                        </div>
-                    </div>
-                </ErrorFilters.Root>
-            </div>
-            <Separator className="shrink-0" />
-            <Metadata className="flex flex-col flex-1 min-h-0">
-                {issueFingerprintsLoading ? (
-                    <div className="text-muted text-sm px-2 py-3">Loading exceptions...</div>
-                ) : issueFingerprints.length === 0 ? (
-                    <div className="text-muted text-sm px-2 py-3">No exceptions found for this issue.</div>
-                ) : (
-                    <EventsTable
-                        query={eventsQuery}
-                        queryKey={eventsQueryKey}
-                        selectedEvent={selectedEvent}
-                        onEventSelect={(selectedEvent) => {
-                            if (selectedEvent) {
-                                selectEvent(selectedEvent)
-                            }
-                        }}
-                    />
-                )}
-            </Metadata>
-        </div>
-    )
-}
 const BreakdownsTab = (): JSX.Element => {
     return (
         <div className="flex flex-col h-full">

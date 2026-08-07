@@ -17,6 +17,13 @@ use property_defs_rs::{
     update_cache::Cache,
 };
 
+// process_batch beats a lifecycle heartbeat as chunk writes complete. Tests don't run
+// the lifecycle monitor, so report_healthy() is just an atomic store on this handle.
+fn test_lifecycle_handle() -> lifecycle::Handle {
+    let mut manager = lifecycle::Manager::builder("test").build();
+    manager.register("consumer", lifecycle::ComponentOptions::new())
+}
+
 // -- mock server --------------------------------------------------------
 
 struct MockPersonHogService {
@@ -411,7 +418,6 @@ fn make_config(addr: &str) -> property_defs_rs::config::Config {
     config.personhog_max_retries = 2;
     config.personhog_initial_backoff_ms = 1;
     config.personhog_max_backoff_ms = 10;
-    config.skip_writes = true;
     config.skip_reads = false;
     config
 }
@@ -425,9 +431,6 @@ fn make_group_update(team_id: i32, group_name: &str) -> Update {
         property_type: None,
         event_type: PropertyParentType::Group,
         group_type_index: Some(GroupType::Unresolved(group_name.to_string())),
-        property_type_format: None,
-        volume_30_day: None,
-        query_usage_30_day: None,
     })
 }
 
@@ -866,7 +869,6 @@ async fn test_end_to_end_poisoned_group_def_recovers_and_persists(db: PgPool) {
 
     let addr = start_mock_server(mock).await;
     let mut config = make_config(&format!("http://{addr}"));
-    config.skip_writes = false;
     // TTL 0 makes round 1's negative-cache entry immediately stale, so round 2 re-drives personhog.
     // This is the deterministic stand-in for "the TTL lapsed" between the two sparse events.
     config.group_type_negative_ttl_secs = 0;
@@ -893,7 +895,14 @@ async fn test_end_to_end_poisoned_group_def_recovers_and_persists(db: PgPool) {
         Some(GroupType::Unresolved("Organization".to_string()))
     );
 
-    process_batch(&config, cache.clone(), &db, round1).await;
+    process_batch(
+        &config,
+        cache.clone(),
+        &db,
+        round1,
+        &test_lifecycle_handle(),
+    )
+    .await;
 
     assert_eq!(
         group_prop_def_count(&db).await,
@@ -916,7 +925,14 @@ async fn test_end_to_end_poisoned_group_def_recovers_and_persists(db: PgPool) {
     // The negative entry has expired (TTL 0), so personhog is re-driven and now resolves to 5.
     assert_eq!(get_resolved_index(&round2[0]), Some(5));
 
-    process_batch(&config, cache.clone(), &db, round2).await;
+    process_batch(
+        &config,
+        cache.clone(),
+        &db,
+        round2,
+        &test_lifecycle_handle(),
+    )
+    .await;
 
     assert_eq!(
         group_prop_def_count(&db).await,

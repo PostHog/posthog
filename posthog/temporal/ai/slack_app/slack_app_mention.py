@@ -10,6 +10,7 @@ from posthog.temporal.ai.slack_app import (
     derive_mention_workflow_id,
     mark_slack_app_message_processing_activity,
     mark_slack_app_message_queued_activity,
+    post_posthog_code_internal_error_activity,
 )
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
 from posthog.temporal.ai.slack_app.types import (
@@ -32,6 +33,16 @@ SLACK_APP_MENTION_MAX_PROCESSED_KEYS = 200
 # be deleted once no pre-patch executions remain, which takes minutes because these
 # workflows complete after a 30 second idle timeout.
 SLACK_APP_MENTION_SEED_IN_INIT_PATCH = "slack-app-mention-seed-in-init"
+
+# The queue awaits each child serially, so a child that never completes stalls every
+# later message in the conversation and the user sees nothing but an :eyes: reaction
+# that never resolves. The ceiling sits above any healthy run: the child's own waits
+# (15 minutes for the repo picker, 15 more for authorship confirmation) plus its
+# 10-minute activity timeouts stay well inside an hour.
+SLACK_APP_MENTION_CHILD_EXECUTION_TIMEOUT = timedelta(hours=1)
+# Bounding the child and telling the user when it dies both add workflow commands, so
+# executions started before this shipped keep replaying the unbounded, silent path.
+SLACK_APP_MENTION_CHILD_TIMEOUT_PATCH = "slack-app-mention-child-timeout"
 
 
 def derive_slack_app_mention_workflow_id(inputs: PostHogCodeSlackMentionWorkflowInputs) -> str | None:
@@ -142,6 +153,29 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
             # timeout. Cosmetic either way — never stall the queue for it.
             workflow.logger.warning("slack_app_reaction_activity_failed")
 
+    async def _notify_child_failed(self, message: PostHogCodeSlackMentionWorkflowInputs) -> None:
+        """Tell the thread the message won't be answered.
+
+        The child normally posts its own internal-error reply, but it cannot when it
+        is killed from the outside (execution timeout, termination), which is exactly
+        the case where the user has been staring at an unanswered mention. Untagged
+        followups stay silent for the same reason they get no reactions: they were
+        never addressed to the bot.
+        """
+        channel = message.event.get("channel")
+        thread_ts = message.event.get("thread_ts") or message.event.get("ts")
+        if message.untagged_followup or not channel or not thread_ts:
+            return
+        try:
+            await workflow.execute_activity(
+                post_posthog_code_internal_error_activity,
+                args=[message, channel, thread_ts],
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+        except exceptions.ActivityError:
+            workflow.logger.warning("slack_app_mention_child_failure_notice_failed")
+
     async def _process(self, message: PostHogCodeSlackMentionWorkflowInputs) -> None:
         """Run one message to completion as a child workflow.
 
@@ -151,6 +185,7 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
         ALLOW_DUPLICATE mirrors the standalone dispatch's reuse policy for
         retries that outlive this instance's dedup keys.
         """
+        bounded = workflow.patched(SLACK_APP_MENTION_CHILD_TIMEOUT_PATCH)
         try:
             # The default parent close policy (terminate) is deliberate: an
             # operator killing this queue means "stop this conversation", so
@@ -162,6 +197,7 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
                 message,
                 id=derive_mention_workflow_id(message),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                execution_timeout=SLACK_APP_MENTION_CHILD_EXECUTION_TIMEOUT if bounded else None,
             )
         except exceptions.WorkflowAlreadyStartedError:
             # A standalone execution for this exact message is already
@@ -173,6 +209,8 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
             # expected to fail; this backstop keeps one poisoned message from
             # wedging the conversation's queue.
             workflow.logger.exception("slack_app_mention_child_failed")
+            if bounded:
+                await self._notify_child_failed(message)
 
     @workflow.run
     async def run(self, inputs: SlackAppMentionWorkflowInputs) -> None:

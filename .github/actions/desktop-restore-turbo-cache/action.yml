@@ -1,0 +1,13 @@
+name: Restore desktop turbo cache
+description: Restore-only turbo cache for products/desktop. desktop-warm-caches.yml seeds it on master pushes; PR workflows never save, so per-PR entries don't pollute the cache store.
+
+runs:
+    using: composite
+    steps:
+        - name: Restore turbo cache
+          uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+          with:
+              path: products/desktop/.turbo/cache
+              key: desktop-turbo-${{ github.sha }}
+              restore-keys: |
+                  desktop-turbo-

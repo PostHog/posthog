@@ -10,10 +10,6 @@ function sectionDomId(id: string): string {
     return `ea-section-${id}`
 }
 
-export function scrollToSection(id: string): void {
-    document.getElementById(sectionDomId(id))?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-}
-
 export function Section({
     id,
     title,

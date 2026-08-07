@@ -69,6 +69,7 @@ class SandboxTemplate(str, Enum):
     # sandboxes like stamphog that never run the agent server. See
     # Dockerfile.sandbox-slim and modal_sandbox.py's SLIM_BASE image definition.
     SLIM_BASE = "slim_base"
+    CANVAS_BUILD = "canvas_build"
 
 
 class ExecutionResult(BaseModel):
@@ -119,6 +120,9 @@ class SandboxConfig(BaseModel):
     vm_runtime: bool = False
     # gVisor only — Modal rejects this under vm_runtime.
     outbound_domain_allowlist: list[str] | None = None
+    # gVisor only. An empty domain allowlist means unrestricted network in
+    # Modal, so callers that require no egress must state it explicitly.
+    block_network: bool = False
     # VM runtime only — custom images layer on the VM base; snapshot restores take precedence.
     custom_image_name: str | None = None
     # Set by the provider when the sandbox could not be created from the intended image and a
