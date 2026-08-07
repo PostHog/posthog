@@ -36,10 +36,7 @@ export function SpendAnalysisSection() {
 
   return (
     <Flex direction="column" gap="3">
-      <Flex align="center" justify="between">
-        <Text className="font-medium text-(--gray-9) text-sm">
-          Personal spend analysis
-        </Text>
+      <Flex justify="end">
         <Flex align="center" gap="4">
           <WindowSelector value={spendWindow} onChange={setSpendWindow} />
           <Button
