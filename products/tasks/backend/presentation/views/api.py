@@ -876,6 +876,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self.team_id,
             user_id,
             repository=request.validated_data.get("repository"),
+            repositories=request.validated_data.get("repositories"),
             github_integration_id=github_integration_id,
             branch=request.validated_data.get("branch"),
             runtime_adapter=request.validated_data.get("runtime_adapter"),
