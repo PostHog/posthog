@@ -48,7 +48,7 @@ export function FlagCleanupRepository(): JSX.Element {
                 type="primary"
                 onClick={save}
                 loading={experimentsConfigUpdating}
-                disabledReason={restrictionReason || (unchanged ? 'No changes to save' : undefined)}
+                disabledReason={restrictionReason || (unchanged ? 'No changes to save' : null)}
             >
                 Save
             </LemonButton>
@@ -57,7 +57,7 @@ export function FlagCleanupRepository(): JSX.Element {
                     type="secondary"
                     onClick={() => updateExperimentsConfig({ flag_cleanup_repository: null })}
                     loading={experimentsConfigUpdating}
-                    disabledReason={restrictionReason ?? undefined}
+                    disabledReason={restrictionReason}
                 >
                     Clear
                 </LemonButton>
