@@ -393,12 +393,12 @@ class _StrandedQueryConn:
 @contextmanager
 def _patched_terminalize_collaborators():
     with (
+        # These tests run without the django_db mark, but close_old_connections probes any
+        # connection a neighboring test left initialized, tripping pytest-django's DB blocker.
+        patch("django.db.close_old_connections"),
         patch("products.warehouse_sources.backend.facade.pipelines.BatchQueue") as batch_queue,
         patch("products.warehouse_sources.backend.facade.pipelines.mark_job_failed_if_not_terminal") as mark_failed,
         patch("products.warehouse_sources.backend.facade.pipelines.release_v3_pipeline_lock") as release_lock,
-        # The real close_old_connections trips pytest-django's DB blocker when an
-        # earlier test on the same xdist worker left an initialized connection.
-        patch("django.db.close_old_connections"),
     ):
         batch_queue.fail_batches_for_job_sync.return_value = 2
         yield batch_queue, mark_failed, release_lock

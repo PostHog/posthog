@@ -71,7 +71,7 @@ describe('queries', () => {
             })
 
             const where = (actual.where ?? []).join(' ')
-            expect(where).toContain("issue_id_v2 = toUUID('01936e7f-d7ff-7314-b2d4-7627981e34f0')")
+            expect(where).toContain("issue_id = toUUID('01936e7f-d7ff-7314-b2d4-7627981e34f0')")
             expect(where).not.toContain('$exception_fingerprint')
             expect(where).toContain("'%O\\'Brien%'")
         })

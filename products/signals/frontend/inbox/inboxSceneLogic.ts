@@ -7,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -14,6 +15,7 @@ import { Breadcrumb } from '~/types'
 import type { UserType } from '~/types'
 
 import { OriginProduct, Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
+import { signalsReportsViewedCreate } from 'products/signals/frontend/generated/api'
 
 import {
     captureInboxReportClosed,
@@ -23,6 +25,7 @@ import {
 } from './inboxAnalytics'
 import { inboxFiltersLogic } from './logics/inboxFiltersLogic'
 import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from './logics/reportListLogic'
+import type { ScoutCreateInitialValues } from './logics/scoutCreateModalLogic'
 import { scratchpadLogic } from './logics/scratchpadLogic'
 import { signalSourcesLogic } from './signalSourcesLogic'
 import {
@@ -35,12 +38,34 @@ import {
     SignalScoutRunStatus,
     SignalScoutRunSummary,
 } from './types'
+import { decodeScoutCreateTemplate } from './utils/scoutTemplateDeepLink'
 
 // Newest-first scout runs to pull for the Runs tab. The scout-runs endpoint caps at 100 server-side.
 const SCOUT_RUNS_LIMIT = 100
+
 // Signal-pipeline tasks to pull. Bounded symmetrically with the scout side (the tasks endpoint caps
 // at 100); passed explicitly so the cap is visible rather than relying on the server default.
 const SIGNAL_TASKS_LIMIT = 100
+
+/** Strips `#createScout=` from the URL so a refresh can't re-trigger it, then opens the modal. */
+function consumeScoutTemplateHash(
+    actions: { setScoutTemplateDraft: (draft: ScoutCreateInitialValues | null) => void },
+    hashParams: Record<string, any> | undefined
+): void {
+    const raw = hashParams?.['createScout']
+    if (raw === undefined) {
+        return
+    }
+    const { createScout: _consumed, ...remainingHashParams } = hashParams ?? {}
+    router.actions.replace(router.values.location.pathname, router.values.searchParams, remainingHashParams)
+    const draft = decodeScoutCreateTemplate(raw)
+    if (draft) {
+        actions.setScoutTemplateDraft(draft)
+    } else {
+        lemonToast.error("Couldn't read the scout template from this link")
+    }
+}
+
 // How often the Runs tab refetches while it's open, so live runs update in place.
 const RUNS_POLL_INTERVAL_MS = 5000
 
@@ -196,6 +221,7 @@ export interface inboxSceneLogicValues {
     isRunningSessionAnalysis: boolean
     isScratchpadOpen: boolean
     isStaff: boolean
+    scoutTemplateDraft: ScoutCreateInitialValues | null
     selectedReport: SignalReport | null
     selectedReportId: string | null
     selectedReportLoading: boolean
@@ -265,6 +291,9 @@ export interface inboxSceneLogicActions {
     }
     setFindingsOpen: (open: boolean) => {
         open: boolean
+    }
+    setScoutTemplateDraft: (draft: ScoutCreateInitialValues | null) => {
+        draft: ScoutCreateInitialValues | null
     }
     setScratchpadOpen: (open: boolean) => {
         open: boolean
@@ -344,6 +373,8 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         runSessionAnalysis: true,
         runSessionAnalysisSuccess: true,
         runSessionAnalysisFailure: (error: string) => ({ error }),
+        // A decoded `#createScout=` payload, prefilling the create modal. The user still submits it.
+        setScoutTemplateDraft: (draft: ScoutCreateInitialValues | null) => ({ draft }),
     }),
 
     loaders(() => ({
@@ -433,6 +464,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 setSelectedReportId: (state, { id }) => (id ? false : state),
                 setSelectedScoutSkillName: (state, { skillName }) => (skillName ? false : state),
                 setScratchpadOpen: (state, { open }) => (open ? false : state),
+            },
+        ],
+        scoutTemplateDraft: [
+            null as ScoutCreateInitialValues | null,
+            {
+                setScoutTemplateDraft: (_, { draft }) => draft,
             },
         ],
         // The finding deep-linked within the selected scout, if any. Cleared whenever a scout is
@@ -556,6 +593,10 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             })
             cache.openTracking = { report, openedAt: Date.now() }
             cache.pendingOpenMethod = undefined
+            // Best-effort server-side view record: consumption evidence that keeps the authoring
+            // scout from being auto-paused as ignored. The analytics event above stays the rich
+            // record (rank, open method, dwell), so a failure here is swallowed.
+            void signalsReportsViewedCreate(String(teamLogic.values.currentTeamId), report.id).catch(() => {})
         },
         setSelectedScoutSkillName: ({ skillName }) => {
             if (skillName !== null) {
@@ -679,8 +720,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 actions.setFindingsOpen(true)
             }
         },
-        [urls.inbox()]: () => {
+        [urls.inbox()]: (_, __, hashParams) => {
             cache.inboxListVisited = true
+            consumeScoutTemplateHash(actions, hashParams)
             if (values.selectedReportId !== null) {
                 actions.setSelectedReportId(null)
             }
@@ -694,7 +736,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 actions.setFindingsOpen(false)
             }
         },
-        [urls.inbox(':tab')]: ({ tab }: { tab?: string }) => {
+        [urls.inbox(':tab')]: ({ tab }: { tab?: string }, _, hashParams) => {
             // A bare report deep-link `/inbox/<reportId>`  redirected to report form. Mark the list as
             // visited only when we're actually staying on a list view — otherwise the redirected report
             // would be misclassified as an in-app click instead of a deep-link.
@@ -707,6 +749,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 return
             }
             cache.inboxListVisited = true
+            consumeScoutTemplateHash(actions, hashParams)
             // Staff-only tabs (Not actionable): bounce non-staff to the default tab.
             if (isStaffOnlyTab(tab) && userLogic.values.user != null && !values.isStaff) {
                 actions.setActiveTab('pulls')
