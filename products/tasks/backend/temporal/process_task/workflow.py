@@ -1359,24 +1359,31 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             launch_ms = launch_output.launch_ms if launch_output else None
 
         clone_ms: int | None = None
+        repo_ready_marked = False
         if will_clone:
             await self._emit_progress("clone", "in_progress", "Cloning repository", "setup")
-            clone_outputs = await asyncio.gather(
-                *(
-                    workflow.execute_activity(
-                        clone_repository_in_sandbox,
-                        CloneRepositoryInSandboxInput(
-                            context=self.context,
-                            sandbox_id=created.sandbox_id,
-                            repository=repository,
-                            github_token=prepared.github_token,
-                            shallow_clone=prepared.shallow_clone,
-                        ),
-                        start_to_close_timeout=timedelta(minutes=5),
-                        retry_policy=RetryPolicy(maximum_attempts=3),
-                    )
-                    for repository in repositories_to_clone
+
+            async def clone_repository(repository: str):
+                nonlocal repo_ready_marked
+                clone_output = await workflow.execute_activity(
+                    clone_repository_in_sandbox,
+                    CloneRepositoryInSandboxInput(
+                        context=self.context,
+                        sandbox_id=created.sandbox_id,
+                        repository=repository,
+                        github_token=prepared.github_token,
+                        shallow_clone=prepared.shallow_clone,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
                 )
+                if overlap and len(repositories_to_clone) > 1 and repository == repositories_to_clone[0]:
+                    await self._mark_repo_ready(created.sandbox_id)
+                    repo_ready_marked = True
+                return clone_output
+
+            clone_outputs = await asyncio.gather(
+                *(clone_repository(repository) for repository in repositories_to_clone)
             )
             clone_durations: list[int] = []
             for clone_output in clone_outputs:
@@ -1413,7 +1420,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             checkout_ms = getattr(checkout_output, "checkout_ms", None)
             await self._emit_progress("checkout", "completed", branch_label_done, "setup")
 
-        if overlap:
+        if overlap and not repo_ready_marked:
             await self._mark_repo_ready(created.sandbox_id)
 
         return GetSandboxForRepositoryOutput(
