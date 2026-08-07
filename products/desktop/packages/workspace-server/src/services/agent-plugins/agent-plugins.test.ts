@@ -697,6 +697,37 @@ describe("Agent Plugins skills support", () => {
     },
   );
 
+  it("leaves installation state and managed data intact for a parent ID", async () => {
+    const appDataPath = path.join(root, "app-data");
+    const pluginDirectory = path.join(root, "plugin");
+    await writePlugin(pluginDirectory);
+    const service = createService(appDataPath, [pluginDirectory]);
+    const installation = await registerSelectedPlugin(service);
+    const dataDirectory = path.join(
+      appDataPath,
+      "agent-plugins",
+      "data",
+      installation.id,
+    );
+    await fs.promises.mkdir(dataDirectory, { recursive: true });
+    const sentinelPath = path.join(dataDirectory, "sentinel.json");
+    await fs.promises.writeFile(sentinelPath, "{}", "utf8");
+
+    await expect(service.unregister("..")).rejects.toThrow(
+      "Invalid Agent Plugin installation ID",
+    );
+
+    expect((await service.list()).map((plugin) => plugin.id)).toContain(
+      installation.id,
+    );
+    await expect(fs.promises.readFile(sentinelPath, "utf8")).resolves.toBe(
+      "{}",
+    );
+    await expect(
+      fs.promises.stat(path.join(appDataPath, "agent-plugins")),
+    ).resolves.toBeDefined();
+  });
+
   it("rejects removal of a missing installation", async () => {
     const service = createService(path.join(root, "app-data"));
 
@@ -949,7 +980,11 @@ describe("Agent Plugins skills support", () => {
     );
     const installation = await registerSelectedPlugin(service);
 
-    const activation = service.prepareRuntimeMcpServers("run-1", new Set());
+    const activation = service.prepareRuntimeMcpServers(
+      "task-1",
+      "run-1",
+      new Set(),
+    );
     await deferredProxy.registrationStarted;
     const disable = service.setEnabled(installation.id, false);
     expect(deferredProxy.proxy.unregisterInstallation).not.toHaveBeenCalled();
@@ -963,7 +998,7 @@ describe("Agent Plugins skills support", () => {
       installation.id,
     );
     await expect(
-      service.prepareRuntimeMcpServers("run-2", new Set()),
+      service.prepareRuntimeMcpServers("task-1", "run-2", new Set()),
     ).resolves.toEqual([]);
     expect(deferredProxy.proxy.register).toHaveBeenCalledTimes(1);
   });
@@ -985,7 +1020,11 @@ describe("Agent Plugins skills support", () => {
     );
     const installation = await registerSelectedPlugin(service);
 
-    const activation = service.prepareRuntimeMcpServers("run-1", new Set());
+    const activation = service.prepareRuntimeMcpServers(
+      "task-1",
+      "run-1",
+      new Set(),
+    );
     await deferredProxy.registrationStarted;
     const removal = service.unregister(installation.id);
     expect(deferredProxy.proxy.unregisterInstallation).not.toHaveBeenCalled();
@@ -1018,9 +1057,17 @@ describe("Agent Plugins skills support", () => {
     );
     await registerSelectedPlugin(service);
 
-    const first = service.prepareRuntimeMcpServers("run-1", new Set());
+    const first = service.prepareRuntimeMcpServers(
+      "task-1",
+      "run-1",
+      new Set(),
+    );
     await deferredProxy.registrationStarted;
-    const second = service.prepareRuntimeMcpServers("run-1", new Set());
+    const second = service.prepareRuntimeMcpServers(
+      "task-1",
+      "run-1",
+      new Set(),
+    );
     expect(deferredProxy.proxy.register).toHaveBeenCalledTimes(1);
 
     deferredProxy.releaseRegistration();
@@ -1028,6 +1075,8 @@ describe("Agent Plugins skills support", () => {
 
     expect(deferredProxy.proxy.register).toHaveBeenCalledTimes(2);
     expect(deferredProxy.active.size).toBe(1);
+  });
+
   it("requires fresh approval when stdio definitions change", async () => {
     const pluginDirectory = path.join(root, "plugin-consent");
     const appDataPath = path.join(root, "app-data-consent");

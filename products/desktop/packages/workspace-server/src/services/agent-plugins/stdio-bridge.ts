@@ -50,10 +50,16 @@ interface BridgeConnection {
   close: () => Promise<void>;
 }
 
+interface PendingLaunch {
+  abortController: AbortController;
+  promise: Promise<BridgeConnection>;
+}
+
 interface BridgeTarget extends AgentPluginStdioBridgeRegistration {
   routeToken: string;
   connection?: BridgeConnection;
   connectionPromise?: Promise<BridgeConnection>;
+  launches: Set<PendingLaunch>;
   failureReported: boolean;
   active: boolean;
 }
@@ -105,6 +111,7 @@ export class AgentPluginStdioBridgeService implements AgentPluginStdioBridge {
     const target: BridgeTarget = {
       ...registration,
       routeToken,
+      launches: new Set(),
       failureReported: false,
       active: true,
     };
@@ -177,6 +184,22 @@ export class AgentPluginStdioBridgeService implements AgentPluginStdioBridge {
     if (this.routeByRegistration.get(target.id) === routeToken) {
       this.routeByRegistration.delete(target.id);
     }
+
+    const launches = [...target.launches];
+    for (const launch of launches) {
+      launch.abortController.abort(
+        new Error("Agent Plugin stdio target was removed."),
+      );
+    }
+    const launchedConnections = await Promise.allSettled(
+      launches.map((launch) => launch.promise),
+    );
+    await Promise.allSettled(
+      launchedConnections.flatMap((result) =>
+        result.status === "fulfilled" ? [result.value.close()] : [],
+      ),
+    );
+    target.launches.clear();
     await this.closeTarget(target);
   }
 
@@ -186,7 +209,7 @@ export class AgentPluginStdioBridgeService implements AgentPluginStdioBridge {
       try {
         connection = await target.connectionPromise;
       } catch {
-        return;
+        connection = undefined;
       }
     }
     target.connection = undefined;
@@ -278,16 +301,25 @@ export class AgentPluginStdioBridgeService implements AgentPluginStdioBridge {
     }
 
     const isProbe = request.headers[STDIO_BRIDGE_PROBE_HEADER] === "1";
-    const connection = isProbe
-      ? await this.startConnection(target)
-      : await this.getOrStartConnection(target);
+    if (isProbe) {
+      const launch = this.beginConnection(target);
+      let connection: BridgeConnection | undefined;
+      try {
+        connection = await launch.promise;
+        await connection.http.handleRequest(request, response, parsedBody);
+      } finally {
+        await connection?.close();
+        target.launches.delete(launch);
+      }
+      return;
+    }
+
+    const connection = await this.getOrStartConnection(target);
     try {
       await connection.http.handleRequest(request, response, parsedBody);
     } catch (error) {
-      if (!isProbe) this.invalidateConnection(target, connection, error);
+      this.invalidateConnection(target, connection, error);
       throw error;
-    } finally {
-      if (isProbe) await connection.close();
     }
   }
 
@@ -322,18 +354,18 @@ export class AgentPluginStdioBridgeService implements AgentPluginStdioBridge {
     if (target.connection) return Promise.resolve(target.connection);
     if (target.connectionPromise) return target.connectionPromise;
 
-    const startPromise = this.startConnection(target)
+    const launch = this.beginConnection(target);
+    const startPromise = launch.promise
       .then(async (connection) => {
-        if (!target.active) {
-          await connection.close();
-          throw new Error("Agent Plugin stdio target was removed.");
-        }
+        this.assertLaunchActive(target, launch.abortController.signal);
         target.connection = connection;
         target.connectionPromise = undefined;
+        target.launches.delete(launch);
         target.failureReported = false;
         return connection;
       })
       .catch((error) => {
+        target.launches.delete(launch);
         if (target.connectionPromise === startPromise) {
           target.connectionPromise = undefined;
         }
@@ -344,13 +376,33 @@ export class AgentPluginStdioBridgeService implements AgentPluginStdioBridge {
     return startPromise;
   }
 
+  private beginConnection(target: BridgeTarget): PendingLaunch {
+    const abortController = new AbortController();
+    const launch = {
+      abortController,
+      promise: Promise.resolve().then(() =>
+        this.startConnection(target, abortController.signal),
+      ),
+    };
+    target.launches.add(launch);
+    return launch;
+  }
+
+  private assertLaunchActive(target: BridgeTarget, signal: AbortSignal): void {
+    if (!target.active || signal.aborted) {
+      throw (
+        signal.reason ?? new Error("Agent Plugin stdio target was removed.")
+      );
+    }
+  }
+
   private async startConnection(
     target: BridgeTarget,
+    signal: AbortSignal,
   ): Promise<BridgeConnection> {
+    this.assertLaunchActive(target, signal);
     const config = await target.prepare();
-    if (!target.active) {
-      throw new Error("Agent Plugin stdio target was removed.");
-    }
+    this.assertLaunchActive(target, signal);
     const stdio = this.createStdioTransport(config);
     const httpTransport = this.createHttpTransport();
     let connection: BridgeConnection | undefined;
@@ -393,50 +445,61 @@ export class AgentPluginStdioBridgeService implements AgentPluginStdioBridge {
       fail(new Error("The stdio MCP server stopped unexpectedly."));
     };
 
-    await httpTransport.start();
-    try {
-      await stdio.start();
-    } catch (error) {
-      await httpTransport.close();
-      this.reportFailure(target, error);
-      throw error;
-    }
-    const pid = stdio.pid;
-    if (pid === null) {
-      await Promise.allSettled([stdio.close(), httpTransport.close()]);
-      throw new Error("Agent Plugin stdio server did not start.");
-    }
-
-    stdio.stderr?.on("data", () => undefined);
-    this.processTracking.register(
-      pid,
-      "child",
-      `agent-plugin:${target.runtimeName}`,
-      {
-        taskId: target.taskId,
-        taskRunId: target.runId,
-        installationId: target.installationId,
-        server: target.runtimeName,
-      },
-      target.taskId,
-    );
-
-    let closed = false;
-    connection = {
-      stdio,
-      http: httpTransport,
-      pid,
-      close: async () => {
-        if (closed) return;
-        closed = true;
-        intentionallyClosing = true;
-        if (target.connection === connection) target.connection = undefined;
-        this.processTracking.unregister(pid, "mcp-closed");
-        this.processTracking.kill(pid);
-        await Promise.allSettled([httpTransport.close(), stdio.close()]);
-      },
+    const abortStartup = (): void => {
+      intentionallyClosing = true;
+      void Promise.allSettled([httpTransport.close(), stdio.close()]);
     };
-    return connection;
+    signal.addEventListener("abort", abortStartup, { once: true });
+
+    try {
+      await httpTransport.start();
+      this.assertLaunchActive(target, signal);
+      await stdio.start();
+      this.assertLaunchActive(target, signal);
+
+      const pid = stdio.pid;
+      if (pid === null) {
+        throw new Error("Agent Plugin stdio server did not start.");
+      }
+
+      stdio.stderr?.on("data", () => undefined);
+      this.processTracking.register(
+        pid,
+        "child",
+        `agent-plugin:${target.runtimeName}`,
+        {
+          taskId: target.taskId,
+          taskRunId: target.runId,
+          installationId: target.installationId,
+          server: target.runtimeName,
+        },
+        target.taskId,
+      );
+
+      let closed = false;
+      connection = {
+        stdio,
+        http: httpTransport,
+        pid,
+        close: async () => {
+          if (closed) return;
+          closed = true;
+          intentionallyClosing = true;
+          if (target.connection === connection) target.connection = undefined;
+          this.processTracking.unregister(pid, "mcp-closed");
+          this.processTracking.kill(pid);
+          await Promise.allSettled([httpTransport.close(), stdio.close()]);
+        },
+      };
+      return connection;
+    } catch (error) {
+      intentionallyClosing = true;
+      await Promise.allSettled([stdio.close(), httpTransport.close()]);
+      if (!signal.aborted) this.reportFailure(target, error);
+      throw error;
+    } finally {
+      signal.removeEventListener("abort", abortStartup);
+    }
   }
 
   private invalidateConnection(
@@ -450,7 +513,7 @@ export class AgentPluginStdioBridgeService implements AgentPluginStdioBridge {
   }
 
   private reportFailure(target: BridgeTarget, error: unknown): void {
-    if (target.failureReported) return;
+    if (!target.active || target.failureReported) return;
     target.failureReported = true;
     target.onFailure(errorMessage(error));
   }

@@ -6,6 +6,7 @@ import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import type { RootLogger } from "@posthog/di/logger";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProcessTrackingService } from "../process-tracking/process-tracking";
+import { probeMcpInitialize } from "./mcp-probe";
 import {
   type AgentPluginStdioBridgeRegistration,
   AgentPluginStdioBridgeService,
@@ -25,17 +26,33 @@ const rootLogger: RootLogger = {
   scope: () => scopedLogger,
 };
 
+class Deferred<T> {
+  readonly promise: Promise<T>;
+  resolve!: (value: T) => void;
+
+  constructor() {
+    this.promise = new Promise<T>((resolve) => {
+      this.resolve = resolve;
+    });
+  }
+}
+
 class FakeStdioTransport {
   onclose?: () => void;
   onerror?: (error: Error) => void;
   onmessage?: (message: JSONRPCMessage) => void;
   readonly stderr = null;
   readonly pid: number;
+  readonly started = new Deferred<void>();
+  private readonly closed = new Deferred<void>();
   readonly close = vi.fn(async () => {
+    this.closed.resolve();
     this.onclose?.();
   });
   readonly start = vi.fn(async () => {
+    this.started.resolve();
     if (this.failStart) throw new Error("spawn failed");
+    if (this.deferStart) await this.closed.promise;
   });
   readonly send = vi.fn(async (message: JSONRPCMessage) => {
     if (!("id" in message)) return;
@@ -58,6 +75,7 @@ class FakeStdioTransport {
   constructor(
     pid: number,
     private readonly failStart: boolean,
+    private readonly deferStart: boolean,
   ) {
     this.pid = pid;
   }
@@ -73,6 +91,7 @@ class TestBridge extends AgentPluginStdioBridgeService {
     const transport = new FakeStdioTransport(
       this.nextPid++,
       config.command === "fail",
+      config.command === "defer",
     );
     this.transports.push(transport);
     return transport as unknown as StdioClientTransport;
@@ -182,6 +201,95 @@ describe("Agent Plugin stdio bridge", () => {
     expect(service.transports[0].close).toHaveBeenCalledOnce();
     expect(service.transports[1].close).not.toHaveBeenCalled();
     expect(processTracking.kill).toHaveBeenCalledWith(1000);
+  });
+
+  it("waits for a disposable probe preparation before completing removal", async () => {
+    const { service, processTracking } = createBridge();
+    const prepareStarted = new Deferred<void>();
+    const releasePrepare = new Deferred<void>();
+    const url = await service.register(
+      registration("deferred-prepare", {
+        prepare: async () => {
+          prepareStarted.resolve();
+          await releasePrepare.promise;
+          return { command: "node", args: [], env: {}, cwd: "/plugin" };
+        },
+      }),
+    );
+
+    const probe = initialize(url, true);
+    await prepareStarted.promise;
+    let removalSettled = false;
+    const removal = service
+      .unregisterInstallation("installation-1")
+      .then(() => {
+        removalSettled = true;
+      });
+    await Promise.resolve();
+    expect(removalSettled).toBe(false);
+
+    releasePrepare.resolve();
+    await removal;
+    expect((await probe).status).toBe(502);
+    expect(service.transports).toHaveLength(0);
+    expect(processTracking.register).not.toHaveBeenCalled();
+  });
+
+  it("waits for an in-flight probe before replacing its target", async () => {
+    const { service, processTracking } = createBridge();
+    const prepareStarted = new Deferred<void>();
+    const releasePrepare = new Deferred<void>();
+    const firstUrl = await service.register(
+      registration("replace-target", {
+        prepare: async () => {
+          prepareStarted.resolve();
+          await releasePrepare.promise;
+          return { command: "node", args: [], env: {}, cwd: "/plugin" };
+        },
+      }),
+    );
+
+    const probe = initialize(firstUrl, true);
+    await prepareStarted.promise;
+    let replacementSettled = false;
+    const replacement = service
+      .register(registration("replace-target", { runId: "run-2" }))
+      .then((url) => {
+        replacementSettled = true;
+        return url;
+      });
+    await Promise.resolve();
+    expect(replacementSettled).toBe(false);
+
+    releasePrepare.resolve();
+    const replacementUrl = await replacement;
+    expect((await probe).status).toBe(502);
+    expect(replacementUrl).not.toBe(firstUrl);
+    expect(service.transports).toHaveLength(0);
+    expect(processTracking.register).not.toHaveBeenCalled();
+  });
+
+  it("aborts a disposable probe during transport startup", async () => {
+    const { service, processTracking } = createBridge();
+    const url = await service.register(
+      registration("deferred-start", {
+        prepare: async () => ({
+          command: "defer",
+          args: [],
+          env: {},
+          cwd: "/plugin",
+        }),
+      }),
+    );
+
+    const probe = initialize(url, true);
+    await vi.waitFor(() => expect(service.transports).toHaveLength(1));
+    await service.transports[0].started.promise;
+    await service.unregisterRun("run-1");
+
+    expect((await probe).status).toBe(502);
+    expect(service.transports[0].close).toHaveBeenCalled();
+    expect(processTracking.register).not.toHaveBeenCalled();
   });
 
   it("isolates one spawn failure from a sibling stdio server", async () => {
@@ -305,8 +413,17 @@ describe("Agent Plugin stdio bridge", () => {
       }),
     );
 
-    const initializeResponse = await initialize(url);
+    await expect(
+      probeMcpInitialize(
+        url,
+        [{ name: STDIO_BRIDGE_MARKER_HEADER, value: "1" }],
+        STDIO_BRIDGE_MARKER_HEADER,
+        STDIO_BRIDGE_PROBE_HEADER,
+      ),
+    ).resolves.toBe(true);
+    expect(processTracking.getByTaskId("task-1")).toEqual([]);
 
+    const initializeResponse = await initialize(url);
     expect(initializeResponse.status).toBe(200);
     expect(await initializeResponse.text()).toContain('"protocolVersion"');
     expect(processTracking.getByTaskId("task-1")).toHaveLength(1);

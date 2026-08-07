@@ -661,10 +661,9 @@ describe("AgentService", () => {
       const pluginProbe = fetchMock.mock.calls.find(([input]) =>
         String(input).includes("127.0.0.1:4567"),
       );
-      expect(pluginProbe?.[1]?.headers).toMatchObject({
-        "x-posthog-agent-plugin-stdio-bridge": "1",
-        "x-posthog-agent-plugin-stdio-probe": "1",
-      });
+      const probeHeaders = new Headers(pluginProbe?.[1]?.headers);
+      expect(probeHeaders.get("x-posthog-agent-plugin-stdio-bridge")).toBe("1");
+      expect(probeHeaders.get("x-posthog-agent-plugin-stdio-probe")).toBe("1");
       expect(mockNewSession.mock.calls[0][0].mcpServers).toEqual(
         expect.arrayContaining([
           expect.objectContaining({

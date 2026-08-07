@@ -9,6 +9,7 @@ const mockClient = vi.hoisted<AgentPluginsClient>(() => ({
   select: vi.fn(),
   register: vi.fn(),
   setEnabled: vi.fn(),
+  approveStdio: vi.fn(),
   unregister: vi.fn(),
 }));
 
@@ -44,6 +45,7 @@ describe("useAgentPlugins", () => {
       skills: [],
       mcpServers: [],
       diagnostics: [],
+      stdioApprovalRequired: false,
     });
     const wrapper = ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
