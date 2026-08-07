@@ -198,7 +198,7 @@ class ReplayScannerBackfillViewSet(
         window_end = min(data["window_end"], scanner.last_swept_at)
         window_start = data["window_start"]
         if window_start >= window_end:
-            raise ValidationError("The requested window is entirely covered by the scanner's live sweep.")
+            raise ValidationError("All recordings in this range have already been scanned. Pick an earlier range.")
         return window_start, window_end
 
     def _enumerate(self, scanner: ReplayScanner, window_start: datetime, window_end: datetime) -> int:
