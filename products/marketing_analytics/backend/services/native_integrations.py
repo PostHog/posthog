@@ -67,11 +67,8 @@ DISPLAY_NAMES: dict[NativeMarketingSource, str] = {
 }
 
 
-# The `kind` each platform's OAuth flow is registered under, i.e. what
-# `api/integrations/authorize?kind=` expects and what `OauthIntegration.supported_kinds`
-# lists. Spelled out rather than derived: a PascalCase-to-kebab rule gets Snapchat
-# ("snapchat", not "snapchat-ads") and TikTok ("tiktok-ads", not "tik-tok-ads") wrong,
-# and a wrong kind here means a Connect/Reconnect button that 400s.
+# What `api/integrations/authorize?kind=` expects. Spelled out because no kebab-case rule gets
+# both Snapchat ("snapchat") and TikTok ("tiktok-ads") right; pinned by a test to `supported_kinds`.
 OAUTH_KIND_BY_NATIVE: dict[NativeMarketingSource, str] = {
     NativeMarketingSource.GOOGLE_ADS: "google-ads",
     NativeMarketingSource.META_ADS: "meta-ads",

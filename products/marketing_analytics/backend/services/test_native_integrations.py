@@ -132,10 +132,8 @@ class TestStructuralInvariants:
             assert isinstance(source_type, str)
 
     def test_every_oauth_kind_is_one_the_authorize_endpoint_accepts(self):
-        # This table is spelled out because it can't be derived — snapchat registers as "snapchat"
-        # and tiktok as "tiktok-ads", so no PascalCase rule produces both. Spelled out means it can
-        # drift, and a kind the endpoint rejects is a Connect button that 400s with nothing in the
-        # plan to explain it. `supported_kinds` is the list `authorize` validates against.
+        # Spelled out means it can drift, and a kind `authorize` rejects is a Connect button
+        # that 400s. `supported_kinds` is what that endpoint validates against.
         unknown = set(OAUTH_KIND_BY_NATIVE.values()) - set(OauthIntegration.supported_kinds)
 
         assert not unknown, f"{sorted(unknown)} are not kinds the authorize endpoint accepts"

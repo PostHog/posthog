@@ -1,12 +1,11 @@
 """Vocabulary for the marketing analytics setup plan.
 
-`setup_plan`, `setup_ai_enrichment` and `apply_setup_ops` all share these types, the last
-validating incoming ops against the same union it emits — which is why ops are Pydantic models
-and not dataclasses like the sibling services use. One definition for both emit and validate is
-what keeps a hallucinated op out of the config.
+`setup_plan`, `setup_ai_enrichment` and `apply_setup_ops` share these types, the last validating
+incoming ops against the same union it emits — which is why ops are Pydantic models rather than
+dataclasses like the sibling services use. One definition for both emit and validate is what keeps
+a hallucinated op out of the config.
 
-`APPLICABLE_OPS` mutate config server-side; `NAVIGATE_OPS` need a browser or are advice with no
-automatic fix. The apply endpoint rejects the latter.
+`APPLICABLE_OPS` mutate config server-side; `NAVIGATE_OPS` need a browser or are advice only.
 """
 
 from enum import StrEnum
@@ -58,9 +57,8 @@ class Severity(StrEnum):
     INFO = "info"
 
 
-# A mapping is a band-aid over a tagging bug in the ad platform, so every one of these has to
-# carry `fix_platform_urls` alongside it — the actual cure. Enforced by the validator on
-# `Suggestion` rather than at each builder, so a new mapping kind can't be added without it.
+# A mapping is a band-aid over a tagging bug, so each must carry `fix_platform_urls` — the cure.
+# Enforced by the validator below, not at each builder, so a new mapping kind can't skip it.
 MAPPING_KINDS = frozenset({SuggestionKind.ADD_SOURCE_MAPPING, SuggestionKind.ADD_CAMPAIGN_NAME_MAPPING})
 
 
@@ -125,7 +123,6 @@ class _Op(BaseModel):
 
 class AddCustomSourceMapping(_Op):
     op: Literal["add_custom_source_mapping"] = "add_custom_source_mapping"
-    # PascalCase `NativeMarketingSource` value, e.g. "GoogleAds".
     integration: str
     raw_utm_source: str
 
@@ -145,9 +142,7 @@ class AddCampaignNameMapping(_Op):
 
 class CreateConversionGoal(_Op):
     op: Literal["create_conversion_goal"] = "create_conversion_goal"
-    # Validated against `ConversionGoalFilter` by the apply endpoint, which already
-    # owns that adapter — duplicating the goal schema here would be a second copy
-    # to keep in sync.
+    # Validated against `ConversionGoalFilter` by the apply endpoint, which owns that adapter.
     goal: dict[str, Any]
 
 
@@ -191,8 +186,7 @@ class OpenOauth(_Op):
 
 class OpenSourceWizard(_Op):
     op: Literal["open_source_wizard"] = "open_source_wizard"
-    # `ExternalDataSource.source_type`, e.g. "GoogleAds" — what
-    # `urls.dataWarehouseSourceNew` matches on.
+    # `ExternalDataSource.source_type` — what `urls.dataWarehouseSourceNew` matches on.
     kind: str
 
 
@@ -262,7 +256,6 @@ class Suggestion(BaseModel):
     severity: Severity
     confidence: float = Field(ge=0.0, le=1.0)
     title: str
-    # Concrete numbers from the team's own data, so the user can check it.
     evidence: str
     unlocks: list[Capability] = Field(default_factory=list)
     apply: ApplyOp | None = None
@@ -295,7 +288,6 @@ class CapabilityReadiness(BaseModel):
 class SetupPlan(BaseModel):
     suggestions: list[Suggestion] = Field(default_factory=list)
     readiness: list[CapabilityReadiness] = Field(default_factory=list)
-    # Failed sub-services: the UI must not present the plan as complete.
     degraded: list[str] = Field(default_factory=list)
     # Rates are over the queries' top-N rows, so a percentage is a subtotal.
     truncated: bool = False
@@ -305,9 +297,8 @@ class SetupPlan(BaseModel):
 def rank_score(suggestion: Suggestion, present_kinds: set[SuggestionKind], max_impact: float) -> float:
     """Unblocking-first, then severity, then impact.
 
-    An action that unblocks others outranks one that doesn't, however big the latter's number:
-    marking a goal as revenue is noise while no ad platform is connected. `max_impact` normalises
-    so the impact term can't outweigh the two structural ones.
+    An action that unblocks others outranks one that doesn't, however big the latter's number.
+    `max_impact` normalises so impact can't outweigh the two structural terms.
     """
     unblocked = len(UNBLOCKS.get(suggestion.kind, frozenset()) & present_kinds)
     impact = suggestion.spend_at_risk or float(suggestion.event_volume)

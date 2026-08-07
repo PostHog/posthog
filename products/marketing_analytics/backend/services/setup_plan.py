@@ -98,12 +98,10 @@ from products.marketing_analytics.backend.services.utm_matching import load_team
 
 logger = structlog.get_logger(__name__)
 
-# Wide enough to catch typo'd and one-off values worth mapping; matches
-# `suggest_utm_mappings`' own default so the injected attribution fits.
+# Matches `suggest_utm_mappings`' own default so the injected attribution fits.
 ATTRIBUTION_LOOKBACK_DAYS = 90
 
-# The catalogue and campaign queries cap at these; every rate derived from them is a
-# top-N subtotal, which the response flags so the UI doesn't present it as exact.
+# Every rate derived from these is a top-N subtotal, which the response flags as `truncated`.
 UTM_CATALOGUE_LIMIT = 5000
 CAMPAIGN_LIMIT = 500
 
@@ -145,12 +143,10 @@ async def get_setup_plan(
     ) = results
 
     if isinstance(diagnostic_result, BaseException):
-        # Nothing useful to say without it, and the caller should see a real error
-        # rather than an empty plan that reads as "you're all set".
+        # An empty plan reads as "you're all set", which is worse than an error.
         logger.exception("setup_plan.diagnostic_failed", team_id=team.pk)
         raise diagnostic_result
-    # `gather` over heterogeneous coroutines collapses to a union, so narrow by
-    # position — same as `marketing_diagnostic` does with its own gather.
+    # `gather` over heterogeneous coroutines collapses to a union, so narrow by position.
     diagnostic = cast(MarketingDiagnosticResponse, diagnostic_result)
 
     degraded: list[str] = []
@@ -164,13 +160,11 @@ async def get_setup_plan(
     suggestions: list[Suggestion] = []
     suggestions.extend(_integration_suggestions(diagnostic))
 
-    # Ahead of the mapping suggester so its proposals can be injected there. Order is otherwise
-    # irrelevant — `sort_suggestions` imposes a total order on the result.
+    # Ahead of the mapping suggester so its proposals can be injected there.
     campaign_mappings: CampaignMappingSuggestions | None = None
     if campaigns and mappings is not None:
-        # Wrapped like the gathered leaves even though these three are pure functions: they read
-        # the same rows, so a bad row takes all three down together, and an unwrapped raise here
-        # would lose the diagnostic and attribution results already in hand.
+        # Wrapped like the gathered leaves: an unwrapped raise here would lose the diagnostic
+        # and attribution results already in hand. All three together, since they read one set of rows.
         try:
             audit = build_audit(campaigns, utm_events, mappings)
             suggestions.extend(
@@ -290,8 +284,7 @@ def _integration_suggestion(integration: IntegrationDiagnostic) -> Suggestion | 
     volume = integration.attribution.events_unmatched_likely_yours_last_7d if integration.attribution else 0
 
     if status == "events_only":
-        # Traffic that looks like this platform is arriving but there's no spend
-        # data, so cost, ROAS and CAC are all unavailable for it.
+        # Traffic arrives but no spend data, so cost, ROAS and CAC are all unavailable.
         return Suggestion(
             id=f"connect_source:{key}",
             kind=SuggestionKind.CONNECT_SOURCE,
@@ -390,7 +383,6 @@ def _source_mapping_suggestions(utm_mappings: UtmMappingSuggestionsResponse) -> 
 def _source_mapping_suggestion(suggestion: SourceMappingSuggestion) -> Suggestion:
     native = KEY_TO_NATIVE[suggestion.suggested_target]
     display = display_name_for_key(suggestion.suggested_target)
-    # Passed at construction, not attached after: `Suggestion` rejects a mapping kind without it.
     fix = FixPlatformUrls(
         integration=native.value,
         campaign_name="",
@@ -443,8 +435,6 @@ def _field_preference_suggestions(field_suggestions: list[FieldPreferenceSuggest
 def _campaign_mapping_suggestions(result: CampaignMappingSuggestions) -> list[Suggestion]:
     suggestions = [_campaign_mapping_suggestion(p) for p in result.proposals]
 
-    # Orphans nothing matched are still worth surfacing — as advice, not an action.
-    # These are also the AI layer's input once it lands.
     for unresolved in result.unresolved[:5]:
         suggestions.append(
             Suggestion(
@@ -499,8 +489,7 @@ def _conversion_goal_suggestions(
     candidates: EventSuggestionsResponse | None,
     goal_flags: dict[str, dict[str, Any]],
 ) -> list[Suggestion]:
-    # `_missing_flag_suggestion` returns None when no goal is worth pointing the flag at, so this
-    # list holds Optionals and the return comprehension drops them.
+    # `_missing_flag_suggestion` returns None when no goal is worth it; the comprehension drops those.
     suggestions: list[Suggestion | None] = []
 
     if goals is None or not goals.goals:
@@ -537,9 +526,8 @@ def _create_goal_suggestions(candidates: EventSuggestionsResponse | None) -> lis
             )
         ]
 
-    # Deterministically: name the best candidate and link out. Choosing the right
-    # math/revenue property from the event's actual properties is a semantic call,
-    # and belongs to the AI layer (AI-3) rather than a volume ranking.
+    # Name the best candidate and link out. Picking the revenue property is a semantic call the
+    # AI layer makes, not a volume ranking.
     top: CandidateEvent = candidates.candidates[0]
     return [
         Suggestion(
@@ -607,8 +595,7 @@ def _missing_flag_suggestion(
             f"({candidate.last_30d_count:,} in 30 days)."
         ),
         unlocks=[Capability.ROAS if revenue else Capability.CAC],
-        # Deliberately not pre-filled: which goal counts as revenue is a business
-        # decision, not a config fix, so it is never batch-applied.
+        # Which goal counts as revenue is a business decision, not a config fix.
         apply=UpdateConversionGoal(conversion_goal_id=candidate.id, patch={flag: True}),
         safe_to_batch=False,
         event_volume=candidate.last_30d_count,

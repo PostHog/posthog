@@ -226,8 +226,8 @@ class TestInvariants(SetupPlanTestCase):
         assert [p.raw_utm_campaign for p in proposals.proposals] == ["sprng_sale_2024"]
 
     def test_a_mapping_kind_cannot_be_built_without_the_url_fix(self):
-        # The invariant used to live in a helper the builders had to remember to call, and in this
-        # test's own hardcoded copy of the kind set — so a new mapping kind bypassed both.
+        # This used to live in a helper the builders had to remember, plus a hardcoded copy of
+        # the kind set here — so a new mapping kind bypassed both.
         with pytest.raises(ValidationError) as error:
             Suggestion(
                 id="add_source_mapping:x",
@@ -242,8 +242,7 @@ class TestInvariants(SetupPlanTestCase):
 
     @pytest.mark.asyncio
     async def test_a_failing_campaign_suggester_degrades_only_its_own_section(self):
-        # These three run outside the gather, so an unwrapped raise here took the whole plan down
-        # — losing the diagnostic and attribution results already in hand.
+        # These run outside the gather, so an unwrapped raise took the whole plan down.
         self.campaigns = [Campaign("spring_sale_2024", "1", "google", 8200.0, 0, 0)]
         self.utm_events = {("sprng_sale_2024", "google"): 1340}
 
@@ -343,14 +342,12 @@ class TestDegradation(SetupPlanTestCase):
 
         assert "attribution_health" in plan.degraded
         assert any(s.kind == SuggestionKind.FIX_SYNC for s in plan.suggestions)
-        # And the summary says so, so the UI can't present it as complete.
         assert "Incomplete" in plan.summary
 
     @pytest.mark.asyncio
     async def test_campaign_query_failure_skips_only_campaign_suggestions(self):
-        # The fixture has to be one that *would* produce campaign suggestions, or the second
-        # assertion proves nothing: `self.campaigns` defaults to empty, and the plan skips the
-        # campaign suggesters on empty input anyway, so the absence would hold either way.
+        # A fixture that *would* produce campaign suggestions, or the absence proves nothing:
+        # the plan skips the suggesters on empty input anyway.
         self.campaigns = [
             Campaign("spring_sale_2024", "1", "google", 8200.0, 0, 0),
             *[Campaign(f"c{i}", str(i), "google", 100.0, 0, 0) for i in range(9)],
@@ -397,8 +394,7 @@ class TestReadiness(SetupPlanTestCase):
 
     @pytest.mark.asyncio
     async def test_roas_blocked_without_a_revenue_flagged_goal(self):
-        # The goals exist and spend is fine, but ROAS stays empty and nothing on the
-        # dashboard explains why — that's exactly what readiness is for.
+        # Goals exist and spend is fine, yet ROAS stays empty — what readiness is for.
         self.goal_flags = {"g1": {"counts_as_customer": True}}
 
         plan = await get_setup_plan(self.team)
@@ -414,9 +410,8 @@ class TestReadiness(SetupPlanTestCase):
 
         plan = await get_setup_plan(self.team)
 
-        # Pinned as an exact set: "non-empty and a subset of every suggestion" also passes when
-        # `_blockers` ignores the capability and returns everything, which is the one thing this
-        # test exists to rule out. Both suggestions are present here — only one unlocks ROAS.
+        # An exact set: "non-empty and a subset" also passes when `_blockers` ignores the
+        # capability and returns everything. Both are present here; only one unlocks ROAS.
         roas = self._readiness(plan, Capability.ROAS)
         assert {s.id for s in plan.suggestions} == {"mark_goal_as_revenue:any", "mark_goal_as_customer:any"}
         assert set(roas.blocked_by) == {"mark_goal_as_revenue:any"}
@@ -424,9 +419,8 @@ class TestReadiness(SetupPlanTestCase):
 
     @pytest.mark.asyncio
     async def test_roas_names_both_gaps_when_spend_is_missing_too(self):
-        # Three of the five readiness branches differ only in their explanation, so a regression
-        # that swapped two would change what the user is told to do next while every status stayed
-        # correct. One test per branch, asserting the distinguishing phrase.
+        # Three of the five branches differ only in their explanation, so a swap would change
+        # what the user is told next while every status stayed correct.
         self.diagnostic = MarketingDiagnosticResponse(
             integrations=[_integration("google_ads", "GoogleAds", status="not_connected")],
             overall_status="no_sources",
@@ -518,7 +512,6 @@ class TestConversionGoals(SetupPlanTestCase):
         plan = await get_setup_plan(self.team)
 
         create = next(s for s in plan.suggestions if s.kind == SuggestionKind.CREATE_CONVERSION_GOAL)
-        # Evidence has to be checkable at a glance, so it names the event and numbers.
         assert "purchase_completed" in create.evidence
         assert "4,200" in create.evidence
 
@@ -538,7 +531,6 @@ class TestConversionGoals(SetupPlanTestCase):
 
     @pytest.mark.asyncio
     async def test_goal_flag_suggestions_are_never_batch_applied(self):
-        # Which goal counts as revenue is a business decision, not a config fix.
         self.goal_flags = {"g1": {}}
 
         plan = await get_setup_plan(self.team)
@@ -563,11 +555,8 @@ class TestIntegrationSuggestions(SetupPlanTestCase):
         plan = await get_setup_plan(self.team)
 
         reconnect = next(s for s in plan.suggestions if s.kind == SuggestionKind.RECONNECT_OAUTH)
-        # Narrowed rather than indexed: `apply` is the whole ApplyOp union, and only OpenOauth
-        # carries `kind`. This also pins that a reconnect emits that op and not another.
+        # Narrowed, not indexed: only OpenOauth carries `kind`, so this also pins the op type.
         assert isinstance(reconnect.apply, OpenOauth)
-        # Snapchat registers as "snapchat", not "snapchat-ads" — a derived kebab-case
-        # kind would 400 on authorize.
         assert reconnect.apply.kind == "snapchat"
 
     @pytest.mark.asyncio
