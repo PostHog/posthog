@@ -10,10 +10,16 @@ import {
 import {
   currentHeadBuildFailure,
   hasActiveCanvasBuild,
+  historicalCanvasBuild,
   latestFinishedCanvasBuild,
   publishedCanvasBuild,
 } from "@posthog/core/canvas/canvasBuildSchemas";
-import type { CanvasAnalyticsConfig } from "@posthog/core/canvas/freeformSchemas";
+import {
+  type CanvasAnalyticsConfig,
+  type CanvasCommentHighlight,
+  type CanvasTextSelection,
+  limitCanvasCommentHighlights,
+} from "@posthog/core/canvas/freeformSchemas";
 import { useHostTRPC } from "@posthog/host-router/react";
 import {
   Button,
@@ -44,6 +50,12 @@ import {
   useFreeformThread,
 } from "@posthog/ui/features/canvas/stores/freeformChatStore";
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
+import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import {
+  buildCommentThreads,
+  readCommentContext,
+} from "@posthog/ui/features/sessions/components/commentViewTypes";
+import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useComments";
 import { useSessionForTask } from "@posthog/ui/features/sessions/useSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
@@ -65,7 +77,9 @@ import { CanvasBuildStatus } from "./CanvasBuildStatus";
 import { CanvasFramePlaceholder } from "./CanvasFramePlaceholder";
 import { CanvasGenerateHero } from "./CanvasGenerateHero";
 import { CanvasPermissionDialog } from "./CanvasPermissionDialog";
+import { CanvasSelectionCommentAction } from "./CanvasSelectionCommentAction";
 import { CanvasSidePanel } from "./CanvasSidePanel";
+import { canvasCommentTaskId } from "./canvasCommentTask";
 import {
   canvasVersionNavigation,
   shouldClearCanvasBrowse,
@@ -75,7 +89,7 @@ import { useCanvasNavigation } from "./useCanvasNavigation";
 import { usePinnedArtifact } from "./usePinnedArtifact";
 
 // A freeform (React-in-iframe) canvas. The rendered output is, in priority
-// order: a historical version being browsed (edit mode), the published build's
+// order: a historical version being browsed, the published build's
 // artifact, or — before the first build lands — the head source client-rendered
 // through the warm-frame pool when it's a single-file project. Edit mode adds
 // the chat panel, version navigation (browse/revert over the server-side
@@ -98,7 +112,15 @@ export function FreeformCanvasView({
   // local bridge so the composer floats to the side immediately on submit,
   // before the canvas record's polled generationTaskId catches up.
   const [startedTaskId, setStartedTaskId] = useState<string | null>(null);
+  const [textSelection, setTextSelection] =
+    useState<CanvasTextSelection | null>(null);
+  const [clearTextSelectionKey, setClearTextSelectionKey] = useState(0);
+  const dismissTextSelection = useCallback(() => {
+    setTextSelection(null);
+    setClearTextSelectionKey((key) => key + 1);
+  }, []);
   const collapsed = useCanvasChatPanelStore((s) => s.collapsed);
+  const panelTab = useCanvasChatPanelStore((s) => s.tab);
   const setCollapsed = useCanvasChatPanelStore((s) => s.setCollapsed);
   const panelWidth = useCanvasChatPanelStore((s) => s.width);
   const setPanelWidth = useCanvasChatPanelStore((s) => s.setWidth);
@@ -124,15 +146,9 @@ export function FreeformCanvasView({
   const genTaskId = dashboard?.generationTaskId ?? null;
   const channelId = dashboard?.channelId ?? "";
 
-  // Reconcile the optimistic bridge against the polled record during render
-  // (not via an effect, which would flash a stale frame): once the record
-  // reports its own generationTaskId, drop the bridge so the panel reverts to
-  // the composer when the run later clears the association.
-  const [prevGenTaskId, setPrevGenTaskId] = useState(genTaskId);
-  if (genTaskId !== prevGenTaskId) {
-    setPrevGenTaskId(genTaskId);
+  useEffect(() => {
     if (genTaskId) setStartedTaskId(null);
-  }
+  }, [genTaskId]);
 
   // The run whose chat the panel shows: the record's id, or the optimistic
   // bridge until the poll catches up.
@@ -203,17 +219,24 @@ export function FreeformCanvasView({
   // Build lifecycle, polled while a build is active or a generation is in
   // flight (the agent's publish queues the build server-side — without the
   // `generating` signal the client would never observe it start).
+  const browsing = !!browseVersionId;
   const {
     lifecycle,
     isLoading: buildsLoading,
     dataUpdatedAt: buildsUpdatedAt,
-  } = useCanvasBuilds(dashboardId, { generating: isSyncing });
+  } = useCanvasBuilds(dashboardId, {
+    generating: isSyncing,
+    versionId: browsing ? (browseVersionId ?? undefined) : undefined,
+  });
   const publishedBuild = lifecycle ? publishedCanvasBuild(lifecycle) : null;
+  const historicalBuild =
+    lifecycle && browseVersionId
+      ? historicalCanvasBuild(lifecycle, browseVersionId)
+      : null;
 
   // The published build's artifact, pinned to one signed URL per build (so the
   // 2s builds poll can't reload the iframe), with expired-URL recovery via the
   // refresh-key remount. The whole lifecycle machine lives in the hook.
-  const browsing = interactive && !!browseVersionId;
   const {
     artifact: pinnedArtifact,
     refreshKey: artifactRefreshKey,
@@ -225,11 +248,22 @@ export function FreeformCanvasView({
     mintedAt: buildsUpdatedAt,
     suspended: browsing,
   });
+  const {
+    artifact: pinnedHistoricalArtifact,
+    refreshKey: historicalArtifactRefreshKey,
+    onReady: onHistoricalArtifactReady,
+  } = usePinnedArtifact({
+    dashboardId,
+    publishedBuild: historicalBuild,
+    lifecycle,
+    mintedAt: buildsUpdatedAt,
+    suspended: !browsing,
+  });
 
   // Server-side version history (newest first), for the undo/redo navigation.
-  const { versions, isLoading: versionsLoading } = useCanvasVersions(
-    interactive ? dashboardId : undefined,
-  );
+  const { versions, isLoading: versionsLoading } =
+    useCanvasVersions(dashboardId);
+  const commentTaskId = canvasCommentTaskId(genTaskId, versions);
 
   // Clear a browse that points at a version the history no longer contains
   // (e.g. it was pruned server-side while this canvas was open).
@@ -291,6 +325,66 @@ export function FreeformCanvasView({
   // Migrated single-file canvases have no version pointer, but the source
   // endpoint exposes their stored code as a synthetic project.
   const headVersionId = dashboard?.currentVersionId ?? null;
+  const displayedVersionId = browsing
+    ? browseVersionId
+    : (publishedBuild?.sourceVersionId ?? headVersionId);
+  const commentTarget = useMemo(
+    () => ({ scope: "desktop_canvas" as const, itemId: dashboardId }),
+    [dashboardId],
+  );
+  const commentsQuery = useCommentsQuery(
+    commentTaskId ? commentTarget : null,
+    commentTaskId ?? "",
+  );
+  const focusedCommentId = useCommentNavigationStore(
+    (state) => state.focusByTask[commentTaskId ?? ""]?.threadId ?? null,
+  );
+  const activateComment = useCallback(
+    (id: string) => {
+      if (!commentTaskId) return;
+      useCanvasChatPanelStore.getState().openComments();
+      useCommentNavigationStore
+        .getState()
+        .requestCommentFocus(commentTaskId, commentTarget, id);
+    },
+    [commentTaskId, commentTarget],
+  );
+  const commentHighlights = useMemo<CanvasCommentHighlight[]>(() => {
+    const threads = buildCommentThreads(commentsQuery.data ?? []);
+    return limitCanvasCommentHighlights(
+      threads.flatMap((thread) => {
+        if (thread.resolved) return [];
+        const context = readCommentContext(thread.root);
+        if (
+          context?.anchor.kind !== "text" ||
+          (context.canvasVersionId &&
+            context.canvasVersionId !== displayedVersionId)
+        ) {
+          return [];
+        }
+        return [
+          {
+            id: thread.root.id,
+            active: thread.root.id === focusedCommentId,
+            anchor: context.anchor,
+          },
+        ];
+      }),
+    );
+  }, [commentsQuery.data, displayedVersionId, focusedCommentId]);
+  const selectionVersionRef = useRef(displayedVersionId);
+  useEffect(() => {
+    if (selectionVersionRef.current === displayedVersionId) return;
+    selectionVersionRef.current = displayedVersionId;
+    dismissTextSelection();
+  }, [displayedVersionId, dismissTextSelection]);
+  const commentVersionLabel = useCallback(
+    (versionId: string) => {
+      const index = versions.findIndex((version) => version.id === versionId);
+      return index === -1 ? null : `V${versions.length - index}`;
+    },
+    [versions],
+  );
   const wantHeadSource =
     !!dashboard && lifecycle !== undefined && !publishedBuild;
   const { source: headSource, isLoading: headSourceLoading } = useCanvasSource({
@@ -298,14 +392,6 @@ export function FreeformCanvasView({
     versionId: headVersionId ?? undefined,
   });
   const headCode = headSource?.project.files[CANVAS_COMPONENT_PATH];
-
-  // The browsed version's source (edit mode only).
-  const { source: browseSource, isLoading: browseSourceLoading } =
-    useCanvasSource({
-      id: browsing ? dashboardId : undefined,
-      versionId: browseVersionId ?? undefined,
-    });
-  const browseCode = browseSource?.project.files[CANVAS_COMPONENT_PATH];
 
   const trpcCapture = trpc.canvasData.captureConfig.queryOptions(undefined, {
     staleTime: 5 * 60_000,
@@ -345,6 +431,10 @@ export function FreeformCanvasView({
     onArtifactReady();
     setRuntimeError(threadId, null);
   }, [threadId, setRuntimeError, onArtifactReady]);
+  const clearHistoricalArtifactError = useCallback(() => {
+    onHistoricalArtifactReady();
+    setRuntimeError(threadId, null);
+  }, [threadId, setRuntimeError, onHistoricalArtifactReady]);
 
   // Routes the canvas's allowlisted nav intents within this channel.
   const onNavigate = useCanvasNavigation(channelId);
@@ -393,13 +483,9 @@ export function FreeformCanvasView({
   // always starts open, while a minimize still sticks for this visit.
   const [generatingPanelDismissed, setGeneratingPanelDismissed] =
     useState(false);
-  // A dismissal is per-run: a later run on this same mounted canvas opens the
-  // panel again. Reconciled during render, like the genTaskId bridge above.
-  const [dismissedForTaskId, setDismissedForTaskId] = useState(effectiveTaskId);
-  if (effectiveTaskId !== dismissedForTaskId) {
-    setDismissedForTaskId(effectiveTaskId);
+  useEffect(() => {
     if (effectiveTaskId) setGeneratingPanelDismissed(false);
-  }
+  }, [effectiveTaskId]);
   const generatingPanelOpen =
     isGenerating &&
     !!effectiveTaskId &&
@@ -410,6 +496,8 @@ export function FreeformCanvasView({
   // or while the generating default holds (any mode).
   const showPanel =
     (interactive && (hasContent || !!effectiveTaskId)) || generatingPanelOpen;
+  const showCommentsPanel =
+    panelTab === "comments" && !collapsed && !!commentTaskId;
   // Build failures/progress surface in view mode too — the toolbar renders
   // there only while it has something to say.
   const hasBuildSignal =
@@ -485,6 +573,7 @@ export function FreeformCanvasView({
             <Flex align="center" gap="2">
               <CanvasBuildStatus
                 dashboardId={dashboardId}
+                lifecycle={lifecycle}
                 onAskAgentToFix={interactive ? prefillComposer : undefined}
               />
               {interactive &&
@@ -555,11 +644,7 @@ export function FreeformCanvasView({
             }
           />
           {browsing ? (
-            browseSourceLoading ? (
-              <ScrollArea className="h-full">
-                <LoadingState />
-              </ScrollArea>
-            ) : browseCode ? (
+            pinnedHistoricalArtifact ? (
               <Flex direction="column" className="h-full">
                 <Flex
                   align="center"
@@ -568,32 +653,49 @@ export function FreeformCanvasView({
                 >
                   <Flex align="center" gap="1" className="text-accent-11">
                     <ClockCounterClockwiseIcon size={14} />
-                    <Text size="1">
-                      Viewing version — revert to make it live
-                    </Text>
+                    <Text size="1">Viewing a previous version</Text>
                   </Flex>
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    disabled={isReverting}
-                    onClick={() => void onRevert()}
-                  >
-                    {isReverting ? "Reverting…" : "Revert"}
-                  </Button>
+                  <Flex align="center" gap="2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setBrowseVersion(threadId, null)}
+                    >
+                      Back to latest
+                    </Button>
+                    {interactive && (
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        disabled={isReverting}
+                        onClick={() => void onRevert()}
+                      >
+                        {isReverting ? "Reverting…" : "Revert"}
+                      </Button>
+                    )}
+                  </Flex>
                 </Flex>
                 <Box className="min-h-0 flex-1">
-                  {/* Reuses the canvas's warm frame with the browsed code. */}
-                  <CanvasFramePlaceholder
-                    dashboardId={dashboardId}
-                    code={browseCode}
-                    analytics={analytics}
+                  <BuiltCanvas
+                    key={`${pinnedHistoricalArtifact.buildId}:${historicalArtifactRefreshKey}`}
+                    artifactUrl={pinnedHistoricalArtifact.url}
+                    capabilities={historicalBuild?.manifest?.capabilities}
                     onDataRequest={onDataRequest}
                     onError={onError}
-                    onRendered={onRendered}
+                    onReady={clearHistoricalArtifactError}
+                    onRendered={clearHistoricalArtifactError}
                     onNavigate={onNavigate}
+                    onTextSelection={setTextSelection}
+                    onCommentActivate={activateComment}
+                    commentHighlights={commentHighlights}
+                    clearTextSelectionKey={clearTextSelectionKey}
                   />
                 </Box>
               </Flex>
+            ) : buildsLoading ? (
+              <ScrollArea className="h-full">
+                <LoadingState />
+              </ScrollArea>
             ) : (
               <ScrollArea className="h-full">
                 <Empty className="h-full border-0">
@@ -601,22 +703,27 @@ export function FreeformCanvasView({
                     <EmptyMedia variant="icon">
                       <ClockCounterClockwiseIcon size={24} />
                     </EmptyMedia>
-                    <EmptyTitle>Multi-file version</EmptyTitle>
+                    <EmptyTitle>Preview unavailable</EmptyTitle>
                     <EmptyDescription>
-                      This version has multiple source files, which render only
-                      after a build — revert to make it live and rebuild it.
+                      {interactive
+                        ? "This version does not have a saved preview. Revert to rebuild and view it."
+                        : "This version does not have a saved preview. Go back to the latest version to continue."}
                     </EmptyDescription>
                   </EmptyHeader>
                   <EmptyContent>
                     <Flex align="center" gap="2">
-                      <Button
-                        variant="primary"
-                        size="default"
-                        disabled={isReverting}
-                        onClick={() => void onRevert()}
-                      >
-                        {isReverting ? "Reverting…" : "Revert to this version"}
-                      </Button>
+                      {interactive && (
+                        <Button
+                          variant="primary"
+                          size="default"
+                          disabled={isReverting}
+                          onClick={() => void onRevert()}
+                        >
+                          {isReverting
+                            ? "Reverting…"
+                            : "Revert to this version"}
+                        </Button>
+                      )}
                       <Button
                         variant="outline"
                         size="default"
@@ -640,6 +747,10 @@ export function FreeformCanvasView({
                 onReady={onArtifactReady}
                 onRendered={onRendered}
                 onNavigate={onNavigate}
+                onTextSelection={setTextSelection}
+                onCommentActivate={activateComment}
+                commentHighlights={commentHighlights}
+                clearTextSelectionKey={clearTextSelectionKey}
               />
             </Box>
           ) : headCode ? (
@@ -656,6 +767,10 @@ export function FreeformCanvasView({
                 onError={onError}
                 onRendered={onRendered}
                 onNavigate={onNavigate}
+                onTextSelection={setTextSelection}
+                onCommentActivate={activateComment}
+                commentHighlights={commentHighlights}
+                clearTextSelectionKey={clearTextSelectionKey}
               />
             </Box>
           ) : (
@@ -701,7 +816,7 @@ export function FreeformCanvasView({
         </Box>
       </Flex>
 
-      {showPanel && (
+      {(showPanel || showCommentsPanel) && (
         <ResizableSidebar
           open={(!collapsed || generatingPanelOpen) && !waitingForHeroExit}
           width={panelWidth}
@@ -715,6 +830,7 @@ export function FreeformCanvasView({
               heartbeat — stays alive and chat scroll survives a minimize. */}
           <CanvasSidePanel
             effectiveTaskId={effectiveTaskId}
+            commentTaskId={commentTaskId}
             onMinimize={() => {
               setCollapsed(true);
               setGeneratingPanelDismissed(true);
@@ -723,6 +839,14 @@ export function FreeformCanvasView({
             channelId={channelId}
             channelName={channelName}
             name={dashboard?.name ?? "Canvas"}
+            displayedVersionId={displayedVersionId}
+            commentVersionLabel={commentVersionLabel}
+            onCommentOpen={(versionId) => {
+              setBrowseVersion(
+                threadId,
+                versionId && versionId !== headVersionId ? versionId : null,
+              );
+            }}
             templateId={dashboard?.templateId}
             isEdit={hasSource}
             editorRef={editorRef}
@@ -730,6 +854,15 @@ export function FreeformCanvasView({
           />
         </ResizableSidebar>
       )}
+
+      <CanvasSelectionCommentAction
+        selection={textSelection}
+        taskId={commentTaskId}
+        dashboardId={dashboardId}
+        canvasName={dashboard?.name ?? "Canvas"}
+        versionId={displayedVersionId}
+        onDismiss={dismissTextSelection}
+      />
 
       {/* The empty-canvas landing: a centered composer with suggestions,
           overlaying the canvas area. On submit it slides down; once it's gone
