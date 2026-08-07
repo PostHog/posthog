@@ -857,9 +857,12 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             actions.loadSessionBucket()
         }
 
-        // The linkability check is shared with the metrics tab, so it can already have resolved
-        // before this tab is opened, in which case no load action follows to report the view off.
-        if (values.linkabilityLoaded) {
+        // The linkability check is shared with the metrics tab, so it can already have settled —
+        // loaded, or failed with no reload coming — before this tab is opened, in which case no
+        // load action follows to report the view off. A check started by this mount is already
+        // loading here, so it reports from the load listeners instead; a prior failure reports
+        // the fail-open defaults, the same posture as a failure that lands while the tab is open.
+        if (values.linkabilityLoaded || !values.seenTogetherMapLoading) {
             actions.reportTabViewed()
         }
 

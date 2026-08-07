@@ -328,9 +328,11 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
             }
         },
     })),
-    listeners(({ actions, sharedListeners, values }) => ({
-        setActiveTabKey: ({ activeTabKey }) => {
-            if (values.experimentId !== 'new') {
+    listeners(({ actions, selectors, sharedListeners, values }) => ({
+        // LemonTabs fires onChange on every tab click, including the already-active tab, so a
+        // dispatch that doesn't change the tab is not a view.
+        setActiveTabKey: ({ activeTabKey }, _breakpoint, _action, previousState) => {
+            if (values.experimentId !== 'new' && selectors.activeTabKey(previousState) !== activeTabKey) {
                 actions.reportExperimentTabViewed(values.experimentId, activeTabKey)
             }
         },

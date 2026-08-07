@@ -26,7 +26,7 @@ import {
     FUNNEL_SERVER_SIDE_COMPLETION_REASON,
     getViewRecordingFiltersForVariant,
 } from '../utils'
-import { RETENTION_UNLINKABLE_REASON } from '../viewRecordingsLinkabilityLogic'
+import { RETENTION_UNLINKABLE_REASON, viewRecordingsLinkabilityLogic } from '../viewRecordingsLinkabilityLogic'
 import { experimentReplayTabLogic } from './experimentReplayTabLogic'
 
 jest.mock('lib/utils/product-intents', () => ({
@@ -492,6 +492,41 @@ describe('experimentReplayTabLogic', () => {
         await expectLogic(pending).toFinishAllListeners()
         expect(tabViews()).toHaveLength(1)
         pending.unmount()
+    })
+
+    it('reports the tab view when the linkability check had already failed before the tab opened', async () => {
+        // The shared check can settle as a failure while the user is still on the metrics tab.
+        // No load action follows once this tab mounts, so the view must be reported from
+        // `afterMount` — with the fail-open defaults, the same posture as a failure that lands
+        // while the tab is open.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        const tabViews = (): any[] =>
+            captureSpy.mock.calls.filter(
+                ([event, properties]) =>
+                    event === 'experiment recordings tab viewed' && (properties as any)?.experiment_id === 52
+            )
+
+        seenTogetherSpy.mockRejectedValue(new Error('network error'))
+        const experiment = { ...EXPERIMENT, id: 52 } as Experiment
+        // Stands in for the metrics tab, which holds the shared logic mounted across tab switches.
+        const linkability = viewRecordingsLinkabilityLogic({ experiment })
+        linkability.mount()
+        await expectLogic(linkability).toFinishAllListeners()
+        expect(tabViews()).toHaveLength(0)
+
+        const opened = experimentReplayTabLogic({ experiment })
+        opened.mount()
+        await expectLogic(opened).toFinishAllListeners()
+
+        expect(tabViews()).toHaveLength(1)
+        expect(tabViews()[0][1]).toMatchObject({
+            experiment_id: 52,
+            exposure_unlinkable: false,
+            using_exposure_fallback: false,
+            linkable_metric_count: 2,
+        })
+        opened.unmount()
+        linkability.unmount()
     })
 
     it('applies metric filters when the linkability check fails — fail open, not permanently gated', async () => {
