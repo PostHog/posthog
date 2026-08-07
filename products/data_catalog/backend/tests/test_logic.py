@@ -17,7 +17,7 @@ from products.data_catalog.backend.logic.metrics import (
     update_metric,
     upsert_metric,
 )
-from products.data_catalog.backend.logic.validation import validate_metric_definition
+from products.data_catalog.backend.logic.validation import MAX_DESCRIPTION_LENGTH, validate_metric_definition
 from products.data_catalog.backend.models import Metric
 from products.product_analytics.backend.models.insight import Insight
 
@@ -74,6 +74,12 @@ class TestMetricUpsert(BaseTest):
         with self.assertRaises(ValidationError):
             self._upsert(name)
 
+    def test_description_capped_at_max_length(self) -> None:
+        self._upsert("mrr", description="x" * MAX_DESCRIPTION_LENGTH)
+        with self.assertRaises(ValidationError) as ctx:
+            self._upsert("arr", description="x" * (MAX_DESCRIPTION_LENGTH + 1))
+        assert "description" in ctx.exception.detail
+
     def test_concurrent_create_retries_to_single_row(self) -> None:
         # Simulate the race: the pre-check misses, create hits the unique constraint (IntegrityError),
         # and the retry finds and refines the row the other writer created. Guards the except branch.
@@ -101,6 +107,12 @@ class TestMetricUpdate(BaseTest):
         metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="v1")
         with self.assertRaises(ValidationError):
             update_metric(metric, team=self.team, user=self.user, name="arr")
+
+    def test_update_rejects_overlong_description(self) -> None:
+        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="v1")
+        with self.assertRaises(ValidationError) as ctx:
+            update_metric(metric, team=self.team, user=self.user, description="x" * (MAX_DESCRIPTION_LENGTH + 1))
+        assert "description" in ctx.exception.detail
 
     def test_update_definition_reextracts_tables(self) -> None:
         metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="v1")

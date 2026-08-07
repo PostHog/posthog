@@ -342,6 +342,10 @@ async fn process_events_inner(
     let raw_events = events;
     let mut events: Vec<ProcessedEvent> = Vec::with_capacity(raw_events.len());
     for mut raw in raw_events {
+        if raw.event.starts_with("$ai_") {
+            raw.properties
+                .retain(|key, _| !key.starts_with(crate::gateway_provenance::GATEWAY_PREFIX));
+        }
         if raw.event == "$$heatmap" || !has_heatmap_data(&raw) {
             events.push(process_single_event(
                 &raw,

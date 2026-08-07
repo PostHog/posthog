@@ -224,7 +224,7 @@ export interface SubscriptionApi {
      */
     interval: number
     /**
-     * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+     * Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
      * @nullable
      */
     byweekday?: SubscriptionApiByweekdayItem[] | null
@@ -372,7 +372,7 @@ export interface PatchedSubscriptionApi {
      */
     interval?: number
     /**
-     * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+     * Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
      * @nullable
      */
     byweekday?: PatchedSubscriptionApiByweekdayItem[] | null

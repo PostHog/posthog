@@ -31,7 +31,7 @@ DEFAULT_VERSION_PAGE_SIZE = 50
 _LIST_EXCLUDED_FIELDS = ("body", "body_total_length", "body_next_offset", "files")
 MAX_SKILL_BODY_BYTES = 1_000_000
 MAX_SKILL_FILE_BYTES = 1_000_000
-MAX_SKILL_FILE_COUNT = 50
+MAX_SKILL_FILE_COUNT = 200
 # Ownership is a short routing list, not an ACL — cap it so a create/update can't resolve membership,
 # clear the owner set, and insert an owner row per entry for an oversized input before being rejected.
 MAX_SKILL_OWNERS = 25

@@ -115,7 +115,6 @@ from products.experiments.backend.temporal.models import (
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.access import has_tasks_access
 
 tracer = trace.get_tracer(__name__)
 
@@ -443,13 +442,6 @@ class EnterpriseExperimentsViewSet(
             return scopes
         return None
 
-    def _check_cleanup_pr_access(self, request: Request) -> None:
-        """Opening a cleanup PR starts a Desktop task on the user's behalf. The task:write
-        scope only gates token auth (see dangerously_get_required_scopes); session auth
-        has no scopes, so gate every caller on PostHog Desktop product access instead."""
-        if not has_tasks_access(cast(User, request.user)):
-            raise PermissionDenied("Opening a flag cleanup PR requires access to PostHog Desktop.")
-
     def _check_team_default_repository_access(self, request: Request) -> None:
         """The team default cleanup repository is environment-wide configuration; writing it via
         experiments_config requires project admin (TeamMemberStrictManagementPermission), so the
@@ -582,8 +574,6 @@ class EnterpriseExperimentsViewSet(
         experiment: Experiment = self.get_object()
         request_serializer = EndExperimentSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
-        if request_serializer.validated_data["open_cleanup_pr"]:
-            self._check_cleanup_pr_access(request)
         if request_serializer.validated_data["set_repository_as_team_default"]:
             self._check_team_default_repository_access(request)
         service = ExperimentService(team=self.team, user=request.user)
@@ -631,8 +621,6 @@ class EnterpriseExperimentsViewSet(
         experiment: Experiment = self.get_object()
         request_serializer = ShipVariantSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
-        if request_serializer.validated_data["open_cleanup_pr"]:
-            self._check_cleanup_pr_access(request)
         if request_serializer.validated_data["set_repository_as_team_default"]:
             self._check_team_default_repository_access(request)
         service = ExperimentService(team=self.team, user=request.user)
@@ -708,12 +696,9 @@ class EnterpriseExperimentsViewSet(
         Resolution order: the experiment's saved repository, else the environment's default
         cleanup repository, else the team's only connected GitHub repository. When the team
         has several repositories and none is saved (source=ambiguous), pass one via
-        `repository` on end/ship_variant. Requires access to PostHog Desktop, like
-        open_cleanup_pr (403 otherwise).
+        `repository` on end/ship_variant.
         """
         experiment: Experiment = self.get_object()
-        # The repository list mirrors what the cleanup checkbox needs, so gate it the same way.
-        self._check_cleanup_pr_access(request)
         service = ExperimentService(team=self.team, user=request.user)
         target = service.get_cleanup_repository_target(experiment)
         return Response(ExperimentFlagCleanupTargetSerializer(target).data)

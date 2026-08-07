@@ -14,6 +14,7 @@ import { logger } from "../../../shell/logger";
 import { useArchiveTask } from "../../archive/useArchiveTask";
 import { ChannelBreadcrumb } from "../../canvas/components/ChannelBreadcrumb";
 import { CopyThreadLinkButton } from "../../canvas/components/CopyThreadLinkButton";
+import { useMarkTaskActivityRead } from "../../canvas/hooks/useMarkTaskActivityRead";
 import {
   LazyCloudReviewPage as CloudReviewPage,
   LazyReviewPage as ReviewPage,
@@ -128,6 +129,19 @@ export function TaskDetail({
       disableScope("taskDetail");
     };
   }, [enableScope, disableScope]);
+
+  // Mounting TaskDetail means the task was actually rendered in front of the
+  // user — that, not any API fetch of the task, is what clears the unread
+  // activity flag ("the agent is waiting for your reply"). Now-based rather
+  // than row-versioned since everything up to mount has been seen; a waiting
+  // flag landing after mount re-flags unread. Marking client-side rather than
+  // in the retrieve endpoint: a task fetch (list refresh, poll, prefetch)
+  // isn't a view.
+
+  const { mutate: markTasksRead } = useMarkTaskActivityRead();
+  useEffect(() => {
+    markTasksRead([{ task_id: taskId, seen_before: new Date().toISOString() }]);
+  }, [markTasksRead, taskId]);
 
   useHotkeys("mod+p", () => openFilePicker(), {
     enableOnContentEditable: true,

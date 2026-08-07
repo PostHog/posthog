@@ -322,7 +322,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 ),
             },
             "byweekday": {
-                "help_text": "Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday."
+                "help_text": "Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday."
             },
             "bysetpos": {
                 "help_text": "Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last)."

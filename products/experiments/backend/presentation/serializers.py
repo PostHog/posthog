@@ -15,7 +15,7 @@ from drf_spectacular.utils import extend_schema_field
 from opentelemetry import trace
 from pydantic import RootModel as PydanticRootModel
 from rest_framework import serializers
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ExperimentApiExposureCriteria,
@@ -577,22 +577,12 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         return value
 
     def validate_repository(self, value: str | None) -> str | None:
-        # Keeps the tasks product's access module off the experiments import path.
-        from products.tasks.backend.facade.access import has_tasks_access  # noqa: PLC0415
-
         if not value:
             return None
         parts = value.split("/")
         if len(parts) != 2 or not parts[0] or not parts[1]:
             raise serializers.ValidationError("Repository must be in the format organization/repository")
-        value = value.lower()
-        # The field steers where the cleanup PR is opened, so pointing it somewhere new
-        # needs the same PostHog Desktop access as opening one (mirrors open_cleanup_pr).
-        if self.instance is None or value != self.instance.repository:
-            request = self.context.get("request")
-            if request is None or not has_tasks_access(request.user):
-                raise PermissionDenied("Setting a cleanup repository requires access to PostHog Desktop.")
-        return value
+        return value.lower()
 
     def validate(self, data):
         ExperimentService.validate_experiment_date_range(data.get("start_date"), data.get("end_date"))

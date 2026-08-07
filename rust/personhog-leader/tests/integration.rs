@@ -187,6 +187,7 @@ async fn unowned_partition_returns_failed_precondition() {
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
         None,
+        None,
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
 
@@ -266,6 +267,7 @@ async fn missing_partition_metadata_returns_invalid_argument() {
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        None,
         None,
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
@@ -349,6 +351,7 @@ async fn mismatched_partition_metadata_returns_invalid_argument() {
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        None,
         None,
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
@@ -439,6 +442,7 @@ async fn writes_fenced_after_drain_reads_still_served() {
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
         None,
+        None,
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
     // The handler shares the cache, inflight tracker, dirty index, and
@@ -455,6 +459,7 @@ async fn writes_fenced_after_drain_reads_still_served() {
         Arc::clone(&dirty_index),
         warming,
         pools,
+        None,
         None,
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
@@ -561,6 +566,7 @@ async fn drain_fences_before_waiting_on_inflight() {
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
         None,
+        None,
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
     let warming = test_warming_config("fence-race-pod", KAFKA_BOOTSTRAP);
@@ -575,6 +581,7 @@ async fn drain_fences_before_waiting_on_inflight() {
         Arc::clone(&dirty_index),
         warming,
         pools,
+        None,
         None,
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     ));
@@ -881,6 +888,7 @@ async fn update_produces_person_state_to_kafka() {
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
         None,
+        None,
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
 
@@ -992,6 +1000,7 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        None,
         None,
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
@@ -1114,6 +1123,7 @@ async fn e2e_update_produces_to_local_kafka() {
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        None,
         None,
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
@@ -1447,6 +1457,7 @@ async fn evicted_dirty_person_recovers_from_changelog() {
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
         None,
+        None,
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
 
@@ -1546,6 +1557,7 @@ async fn dirty_person_with_failed_recovery_is_unavailable_not_stale() {
         Arc::clone(&recovery),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        None,
         None,
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
@@ -1653,6 +1665,7 @@ async fn writes_shed_when_dirty_index_is_full() {
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
         None,
+        None,
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
 
@@ -1749,6 +1762,7 @@ async fn recovery_fails_when_record_version_disagrees_with_the_mark() {
         Arc::clone(&recovery),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        None,
         None,
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
@@ -1856,6 +1870,7 @@ async fn recovery_reuses_the_partition_consumer_across_fetches() {
         Arc::clone(&recovery),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        None,
         None,
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
@@ -2074,6 +2089,7 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
             "clickhouse_ingestion_warnings".to_string(),
             WarningThrottle::new(DEFAULT_THROTTLE_PERIOD, NonZeroU32::new(2).unwrap()),
         ),
+        None,
         None,
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
@@ -2509,6 +2525,7 @@ async fn an_unresolved_version_is_never_reused() {
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
         None,
+        None,
         Arc::clone(&emitted_versions),
     );
 
@@ -2587,6 +2604,7 @@ async fn a_fenced_write_that_bounces_does_not_hand_its_version_back() {
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
         Some(Arc::clone(&fenced)),
+        None,
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
 
@@ -2703,6 +2721,7 @@ async fn an_unknown_outcome_keeps_its_version(
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
         Some(Arc::clone(&fenced)),
+        None,
         Arc::clone(&emitted_versions),
     );
 

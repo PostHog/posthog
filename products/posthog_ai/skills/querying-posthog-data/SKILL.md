@@ -69,6 +69,7 @@ Schema reference for PostHog's core system models, organized by domain:
 - [AI observability events (`posthog.ai_events`)](./references/models-ai-observability-events.md)
 - [AI observability evaluations](./references/models-ai-observability-evaluations.md)
 - [AI observability reviews](./references/models-ai-observability-reviews.md)
+- [AI observability datasets](./references/models-datasets.md)
 - [Logs (`logs` data plane + saved views and alerts)](./references/models-logs.md)
 - [MCP analytics (`$mcp_tool_call` events)](./references/models-mcp.md)
 - [Messaging opt-outs (`system.message_recipient_preferences`, `system.message_categories`)](./references/models-messaging-opt-outs.md)

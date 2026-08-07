@@ -1467,8 +1467,11 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 status=Status.OPEN,
                 widget_session_id=str(uuid.uuid4()),
                 email_config=email_config,
-                email_from=data["recipient_email"],
+                email_from=recipient_email,
                 email_subject=data.get("email_subject", ""),
+                # Ticket search, the person display and restore-by-email all read the
+                # customer's address from traits, so outbound tickets must carry it too.
+                anonymous_traits={"email": recipient_email},
                 # The recipient hasn't proven control of this address — a team member just typed it —
                 # so leave identity unknown. It's promoted to verified if/when they reply and authenticate.
                 identity_verified=None,

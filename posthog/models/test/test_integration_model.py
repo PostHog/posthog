@@ -49,6 +49,7 @@ from posthog.models.integration import (
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
     Integration,
+    JiraIntegration,
     LinearIntegration,
     OauthIntegration,
     PostgreSQLIntegration,
@@ -80,11 +81,15 @@ def update_db_field_value(field, model_id, value):
     cursor.execute(f"update posthog_integration set {field}='{value}' where id='{model_id}';")
 
 
-def test_slack_oauth_scope_includes_canvas_scope_for_local_installs():
+def test_slack_oauth_requests_the_recently_approved_scopes_on_every_instance():
+    # These waited on Slack app-directory review and were only requested on DEV/local. They're
+    # approved now, so every instance asks for them — the features behind them (DM assistant,
+    # canvas and file artifact delivery, inbox channel creation) are dark without them.
     from posthog.models.integration import POSTHOG_SLACK_SCOPE
 
-    assert "canvases:write" in set(POSTHOG_SLACK_SCOPE.split(","))
-    assert "files:write" in set(POSTHOG_SLACK_SCOPE.split(","))
+    requested = set(POSTHOG_SLACK_SCOPE.split(","))
+
+    assert {"assistant:write", "im:history", "canvases:write", "files:write", "channels:manage"} <= requested
 
 
 class TestIntegrationModel(BaseTest):
@@ -227,6 +232,70 @@ class TestLinearIntegrationModel(BaseTest):
         assert attachment_variables["issueId"] == "LIN-123"
         assert attachment_variables["title"] == "PostHog issue"
         assert attachment_variables["url"].endswith(f'/project/{self.team.id}/error_tracking/issue-id" }} mutation {{')
+
+
+class TestJiraIntegrationModel:
+    @staticmethod
+    def integration() -> MagicMock:
+        return MagicMock(
+            id=123,
+            team_id=456,
+            kind=Integration.IntegrationKind.JIRA,
+            config={"cloud_id": "cloud-id"},
+            sensitive_config={"access_token": "access-token"},
+        )
+
+    @patch("posthog.models.integration.capture_exception")
+    @patch("posthog.models.integration.requests.post")
+    def test_create_issue_captures_structured_error_details(self, mock_post, mock_capture_exception):
+        mock_post.return_value.status_code = 400
+        mock_post.return_value.headers = {"Content-Type": "application/json"}
+        mock_post.return_value.json.return_value = {
+            "errorMessages": ["Issue type is not available"],
+            "errors": {"summary": "Summary is required"},
+        }
+
+        with pytest.raises(ValidationError) as error:
+            JiraIntegration(self.integration()).create_issue(
+                {"project_key": "ENG", "title": "Checkout failed", "description": "Details"}
+            )
+
+        assert error.value.args[0] == (
+            "Could not create the Jira issue. Check the project's issue settings and try again."
+        )
+        captured_error = mock_capture_exception.call_args.args[0]
+        assert str(captured_error) == "Jira issue creation failed"
+        assert mock_capture_exception.call_args.kwargs["additional_properties"] == {
+            "jira_status_code": 400,
+            "jira_response_content_type": "application/json",
+            "integration_id": 123,
+            "team_id": 456,
+            "jira_error_messages": ["Issue type is not available"],
+            "jira_field_errors": {"summary": "Summary is required"},
+            "jira_response_keys": ["errorMessages", "errors"],
+        }
+
+    @patch("posthog.models.integration.capture_exception")
+    @patch("posthog.models.integration.requests.post")
+    def test_create_issue_captures_non_json_response_metadata(self, mock_post, mock_capture_exception):
+        mock_post.return_value.status_code = 502
+        mock_post.return_value.headers = {"Content-Type": "text/html"}
+        mock_post.return_value.json.side_effect = ValueError
+
+        with pytest.raises(ValidationError) as error:
+            JiraIntegration(self.integration()).create_issue(
+                {"project_key": "ENG", "title": "Checkout failed", "description": "Details"}
+            )
+
+        assert error.value.args[0] == (
+            "Could not create the Jira issue. Check the project's issue settings and try again."
+        )
+        assert mock_capture_exception.call_args.kwargs["additional_properties"] == {
+            "jira_status_code": 502,
+            "jira_response_content_type": "text/html",
+            "integration_id": 123,
+            "team_id": 456,
+        }
 
 
 class TestOauthIntegrationModel(BaseTest):
@@ -1618,7 +1687,13 @@ class TestGitHubIntegrationModel(BaseTest):
         )
 
     def mock_github_client_request(
-        self, status_code=201, token="ACCESS_TOKEN", repository_selection="all", expires_in_hours=1, error_text=None
+        self,
+        status_code=201,
+        token="ACCESS_TOKEN",
+        repository_selection="all",
+        expires_in_hours=1,
+        error_text=None,
+        permissions=None,
     ):
         def _client_request(endpoint, method="GET"):
             mock_response = MagicMock()
@@ -1632,13 +1707,17 @@ class TestGitHubIntegrationModel(BaseTest):
                         "token": token,
                         "repository_selection": repository_selection,
                         "expires_at": iso_time,
+                        **({"permissions": permissions} if permissions is not None else {}),
                     }
                 else:
                     mock_response.text = error_text or "error"
                     mock_response.json.return_value = {}
             else:
                 mock_response.status_code = 200
-                mock_response.json.return_value = {"account": {"type": "Organization", "login": "PostHog"}}
+                mock_response.json.return_value = {
+                    "account": {"type": "Organization", "login": "PostHog"},
+                    **({"permissions": permissions} if permissions is not None else {}),
+                }
             return mock_response
 
         return _client_request
@@ -2232,6 +2311,25 @@ class TestGitHubIntegrationModel(BaseTest):
         assert integration.sensitive_config == {
             "access_token": "ACCESS_TOKEN",
         }
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_github_integration_persists_installation_permissions(self, mock_client_request):
+        # The warehouse schema picker reads config["permissions"] to mark tables the installation
+        # can't sync. Dropping this on connect or refresh silently returns the picker to offering
+        # tables whose every sync 403s.
+        mock_client_request.side_effect = self.mock_github_client_request(
+            permissions={"contents": "read", "metadata": "read"}
+        )
+        integration = GitHubIntegration.integration_from_installation_id("INSTALLATION_ID", self.team.id, self.user)
+        assert integration.config["permissions"] == {"contents": "read", "metadata": "read"}
+
+        # A permission update to the App shows up on the next hourly token refresh, including for
+        # integrations connected before this key was persisted at all.
+        mock_client_request.side_effect = self.mock_github_client_request(
+            permissions={"contents": "read", "metadata": "read", "deployments": "read"}
+        )
+        GitHubIntegration(integration).refresh_access_token()
+        assert integration.config["permissions"] == {"contents": "read", "metadata": "read", "deployments": "read"}
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")

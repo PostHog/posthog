@@ -22,6 +22,10 @@
     --markdown-notebook-content-offset: calc(
         var(--markdown-notebook-inline-control-width) + var(--markdown-notebook-inline-control-gap)
     );
+
+    // The hover controls (comment button, then drag handle) hang left of every row. Without a
+    // reserved strip they land outside the canvas, where the scene's left toolbar clips them.
+    --markdown-notebook-gutter-reserve: calc(var(--markdown-notebook-inline-control-width) + 0.5rem);
     --markdown-notebook-canvas-max-width: 56rem;
     --markdown-notebook-comment-gutter: 19rem;
 
@@ -266,6 +270,8 @@
     gap: 0;
     width: 100%;
     max-width: var(--markdown-notebook-canvas-max-width);
+    padding-right: var(--markdown-notebook-gutter-reserve);
+    padding-left: var(--markdown-notebook-gutter-reserve);
     margin: 0 auto;
 }
 
@@ -2059,7 +2065,10 @@ button.MarkdownNotebook__component-title:focus-visible {
 /* With comment threads present and enough room, the canvas reserves a right gutter wide
    enough for the whole thread column, pushing the text content left. */
 .MarkdownNotebook--comments-margin .MarkdownNotebook__canvas {
-    max-width: calc(var(--markdown-notebook-canvas-max-width) + var(--markdown-notebook-comment-gutter));
+    max-width: calc(
+        var(--markdown-notebook-canvas-max-width) + var(--markdown-notebook-comment-gutter) +
+            var(--markdown-notebook-gutter-reserve)
+    );
     padding-right: var(--markdown-notebook-comment-gutter);
 }
 
