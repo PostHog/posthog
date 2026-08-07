@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
 function makeFailingLogic(error: unknown): ReturnType<typeof kea> {
@@ -28,9 +29,12 @@ describe('initKea loader failure handling', () => {
 
     beforeEach(() => {
         errorToast = jest.spyOn(lemonToast, 'error').mockImplementation((() => '') as any)
+        // The handler console.errors every failure it processes; keep that expected noise out of the log.
+        silenceKeaLoadersErrors()
     })
 
     afterEach(() => {
+        resumeKeaLoadersErrors()
         jest.restoreAllMocks()
     })
 
