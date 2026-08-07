@@ -18,6 +18,7 @@ import {
     MinimalAppMetric,
 } from '../types'
 import { execHog } from './hog-exec'
+import { bytecodePersonUpdatePropertyReads, trackPersonUpdatePropertyReads } from './person-update-properties'
 
 // Module-level constants for fixed regex patterns to avoid recompilation
 // These patterns are compiled once at module load and reused for all events
@@ -376,6 +377,14 @@ export async function filterFunctionInstrumented(options: {
             result.match = true
             return result
         }
+
+        trackPersonUpdatePropertyReads({
+            reads: bytecodePersonUpdatePropertyReads(filters?.bytecode),
+            source: 'filters',
+            functionType: type,
+            eventProperties: filterGlobals.properties,
+            personProperties: filterGlobals.person?.properties,
+        })
 
         // check whether we have a match with our pre-filter
         // Only run if we have event filters and NO action filters (as actions are pre-saved event filters)

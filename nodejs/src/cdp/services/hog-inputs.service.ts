@@ -8,6 +8,7 @@ import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs, H
 import { EncryptedFields } from '../utils/encryption-utils'
 import { execHog } from '../utils/hog-exec'
 import { LiquidRenderer } from '../utils/liquid'
+import { inputsPersonUpdatePropertyReads, trackPersonUpdatePropertyReads } from '../utils/person-update-properties'
 import { getDevicePushSubscriptionToken } from '../utils/push-subscription-utils'
 import { IntegrationManagerService } from './managers/integration-manager.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
@@ -26,6 +27,14 @@ export class HogInputsService {
         globals: HogFunctionInvocationGlobals,
         additionalInputs?: Record<string, any>
     ): Promise<Record<string, any>> {
+        trackPersonUpdatePropertyReads({
+            reads: inputsPersonUpdatePropertyReads(hogFunction),
+            source: 'inputs',
+            functionType: hogFunction.type,
+            eventProperties: globals.event?.properties,
+            personProperties: globals.person?.properties,
+        })
+
         // TODO: Load the values from the integrationManager
         const newGlobals: HogFunctionInvocationGlobalsWithInputs = {
             ...globals,

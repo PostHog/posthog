@@ -17,6 +17,7 @@ import { createAddLogFunction, sanitizeLogMessage } from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocationResult } from '../utils/invocation-utils'
+import { bytecodePersonUpdatePropertyReads, trackPersonUpdatePropertyReads } from '../utils/person-update-properties'
 import { HogInputsService } from './hog-inputs.service'
 
 export interface HogExecutorConfig {
@@ -156,6 +157,17 @@ export class HogExecutorService {
         const addLog = createAddLogFunction(result.logs)
 
         try {
+            // Observation only. It cannot throw, and it sits inside the try so that even if that
+            // guarantee ever broke, the failure would surface as an invocation error rather than
+            // escaping `execute` uncaught.
+            trackPersonUpdatePropertyReads({
+                reads: bytecodePersonUpdatePropertyReads(invocation.hogFunction.bytecode),
+                source: 'hog',
+                functionType: invocation.hogFunction.type,
+                eventProperties: invocation.state.globals.event?.properties,
+                personProperties: invocation.state.globals.person?.properties,
+            })
+
             let globals: HogFunctionInvocationGlobalsWithInputs
             let execRes: ExecResult | undefined = undefined
 

@@ -19,6 +19,10 @@ import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from 
 import { CDP_TEST_ID, createAddLogFunction, destinationE2eLagMsSummary, isLegacyPluginHogFunction } from '../utils'
 import { cdpTrackedFetch } from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
+import {
+    LEGACY_PLUGIN_PERSON_UPDATE_PROPERTY_READS,
+    trackPersonUpdatePropertyReads,
+} from '../utils/person-update-properties'
 
 const pluginExecutionDuration = new Histogram({
     name: 'cdp_plugin_execution_duration_ms',
@@ -268,6 +272,15 @@ export class LegacyPluginExecutorService {
 
             const start = performance.now()
             const globals = invocation.state.globals
+
+            // A legacy plugin reads both payloads whole from JavaScript, so no bytecode names them.
+            trackPersonUpdatePropertyReads({
+                reads: LEGACY_PLUGIN_PERSON_UPDATE_PROPERTY_READS,
+                source: 'legacy_plugin',
+                functionType: invocation.hogFunction.type,
+                eventProperties: globals.event?.properties,
+                personProperties: globals.person?.properties,
+            })
 
             const event = {
                 distinct_id: globals.event.distinct_id,
