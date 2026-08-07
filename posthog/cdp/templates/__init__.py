@@ -8,10 +8,6 @@ from .avo.template_avo import (
     TemplateAvoMigrator,
     template as avo,
 )
-from .engage.template_engage import (
-    TemplateEngageMigrator,
-    template as engage,
-)
 from .gleap.template_gleap import template as gleap
 from .google_cloud_storage.template_google_cloud_storage import (
     TemplateGoogleCloudStorageMigrator,
@@ -79,7 +75,6 @@ HOG_FUNCTION_TEMPLATES = [
     blank_site_destination,
     blank_site_app,
     avo,
-    engage,
     gleap,
     google_cloud_storage,
     google_pubsub,
@@ -125,7 +120,6 @@ HOG_FUNCTION_MIGRATORS = {
     TemplateSendGridMigrator.plugin_url: TemplateSendGridMigrator,
     TemplateGooglePubSubMigrator.plugin_url: TemplateGooglePubSubMigrator,
     TemplateGoogleCloudStorageMigrator.plugin_url: TemplateGoogleCloudStorageMigrator,
-    TemplateEngageMigrator.plugin_url: TemplateEngageMigrator,
     TemplatePostHogMigrator.plugin_url: TemplatePostHogMigrator,
     TemplateHubspotMigrator.plugin_url: TemplateHubspotMigrator,
     TemplateRudderstackMigrator.plugin_url: TemplateRudderstackMigrator,
