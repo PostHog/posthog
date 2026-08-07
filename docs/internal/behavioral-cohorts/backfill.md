@@ -2,8 +2,6 @@
 
 How historical state gets injected into a running streaming pipeline without double counting, and how a cohort becomes safe to serve from.
 
-**Audience:** engineers with no prior context. **Prerequisite:** [realtime-pipeline.md](./realtime-pipeline.md), end to end. This document leans on its condition hashes and leaf state keys (§2.1), the reverse index (§6), the RocksDB column families (§7.3), the eviction sweep (§10.1), register rows (§10.2), and the merge tombstone (§11).
-
 ---
 
 ## 1. Why backfill exists
@@ -42,7 +40,7 @@ The backfill finalizer is the only writer of those columns, and a cohort edit is
 
 ## 3. Day tiles
 
-The chosen unit is a **day tile**: one message saying "on calendar day D, person P matched condition C exactly N times".
+We chose the **day tile** as the unit: one message saying "on calendar day D, person P matched condition C exactly N times".
 
 ```jsonc
 {
@@ -126,7 +124,7 @@ Every run pins a **boundary instant `B`**, and the two domains meet at a day edg
 
 Django creates the run with `boundary_at = NULL` and status `awaiting_boundary`; the seeder sets it on first discovery with a compare-and-swap (CAS) that also moves the run to `seeding`. The exception is disaster recovery, where the operator supplies the boundary explicitly, because after a store wipe the processor resumes from old committed offsets and "now" would be a lie about where live coverage actually restarts.
 
-Two residual gaps are accepted rather than fixed:
+We accept two residual gaps rather than fixing them:
 
 - **The boundary day itself under-counts.** Events on `day(B)` that arrived before `B` are in neither domain. The error decays as that day exits the window.
 - **Future-dated events** (client clock skew) with an event day after `day(B)` but an arrival before `B` fall in neither domain. Seeding future days is not an option: a tile for a future day would slide live windows forward and zero live buckets.

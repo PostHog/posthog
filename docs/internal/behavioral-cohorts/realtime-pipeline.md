@@ -1,10 +1,6 @@
 # Realtime behavioral cohorts: the streaming pipeline
 
-How PostHog computes behavioral cohort membership incrementally, from live events, instead of recomputing it on a schedule.
-
-**Audience:** engineers with no prior context on this system. **Scope:** the two Rust services on the live path (`cohort-event-shuffler` and `cohort-stream-processor`), the Kafka topics between them, and the RocksDB store that makes it work. Getting _historical_ state into this pipeline is a separate problem with its own service and its own document: [backfill.md](./backfill.md).
-
-**Status:** this pipeline runs in production, but it writes to a shadow output topic rather than to the topic product consumers read. Several gates below are off by default for that reason, and §13 lists what still has to close before it serves traffic.
+How we compute behavioral cohort membership incrementally, from live events, instead of recomputing it on a schedule.
 
 ---
 
@@ -16,7 +12,7 @@ Structurally it is a Boolean tree, stored as JSON on `posthog_cohort.filters`. T
 
 Cohorts matter beyond the UI because **feature flags can target them**. The flags service evaluates flags without querying ClickHouse, so it needs a cohort's membership available to it locally and fresh. That is the demand this pipeline exists to meet.
 
-The obvious implementation is to periodically re-run each cohort's query. That is what PostHog did first, and it has three costs that grow with adoption rather than with change:
+The obvious implementation is to periodically re-run each cohort's query. That is what we did first, and it has three costs that grow with adoption rather than with change:
 
 - **Cost scales with `cohorts x persons`, not with what changed.** Every cycle re-evaluates every person for every cohort, even when nothing happened. A person who signed up two years ago and never returned is re-examined forever.
 - **Freshness is bounded by the schedule.** Expensive cohorts get moved to a less frequent recompute schedule, so an event that qualifies someone for a flag-gating cohort does not matter until that cohort's next run.
@@ -52,7 +48,7 @@ Two things fall out of this:
 
 These two identifiers are not the same thing, and the difference is load-bearing.
 
-- A **condition hash** identifies the leaf's _matching predicate_. Django compiles the predicate to bytecode for **HogVM**, PostHog's stack machine for filter expressions, and the condition hash is the first 16 hex characters of a SHA-256 over that compiled bytecode. It answers "does this event match?" and nothing else. It does **not** include the window or the threshold.
+- A **condition hash** identifies the leaf's _matching predicate_. Django compiles the predicate to bytecode for **HogVM**, our stack machine for filter expressions, and the condition hash is the first 16 hex characters of a SHA-256 over that compiled bytecode. It answers "does this event match?" and nothing else. It does **not** include the window or the threshold.
 - A **leaf state key** (LSK) is the state identity: condition hash, the behavioral value (`performed_event` vs `performed_event_multiple`), the window, the operator and threshold, and explicit date bounds (a leaf can pin an absolute start and end date instead of a rolling window). It answers "which stored value does this leaf read?". It deliberately excludes negation, because state is invariant to it: "did X" and "did not do X" read the same counter and disagree only at evaluation time.
 
 So one condition hash can fan out to several leaf state keys. "Performed `$signup` in the last 7 days" and "performed `$signup` at least 3 times in the last 30 days" share a predicate, so an event is matched once and applied to both. Ten cohorts that all say "performed `$signup` in the last 30 days" share a single stored value and a single evaluation. Deduplication is structural, not an optimization pass.
