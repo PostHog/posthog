@@ -63,8 +63,8 @@ export function ActivityHoverCard({
     }
   }, [fetchNextPage, hasNextPage, loadMoreInView]);
 
-  const markRead = (taskId: string, activityAt: string) => {
-    markTasksRead([{ task_id: taskId, seen_before: activityAt }]);
+  const markRead = (item: (typeof items)[number]) => {
+    markTasksRead(activityReadPayload([item]));
   };
 
   const markAllRead = () => {
@@ -117,12 +117,8 @@ export function ActivityHoverCard({
                 key={item.id}
                 item={item}
                 channelId={item.channelId}
-                onOpen={(activity) =>
-                  markRead(activity.taskId, activity.activityAt)
-                }
-                onMarkRead={(activity) =>
-                  markRead(activity.taskId, activity.activityAt)
-                }
+                onOpen={markRead}
+                onMarkRead={markRead}
                 currentUser={currentUser}
                 surface="activity_panel"
                 onNavigate={onClose}
