@@ -74,6 +74,19 @@ pub struct ResolverConfig {
     #[envconfig(default = "300")]
     pub symbol_set_negative_cache_ttl_seconds: u64,
 
+    // TTL for the (team, symbol-set refs) -> latest-release-id cache in the resolution
+    // service. Kept short because a release (re)bound to already-cached refs only becomes
+    // visible after expiry; new releases usually ship new refs, which miss naturally.
+    #[envconfig(default = "60")]
+    pub release_id_cache_ttl_seconds: u64,
+
+    // Byte budget for that cache, weighed by the ref bytes each entry holds. Refs are
+    // event-controlled (frame source URLs, chunk ids), so an entry-count bound would let a
+    // flood of unique long refs grow the cache without limit. 32 MiB comfortably holds the
+    // working set of a 60s TTL at typical ref-set sizes.
+    #[envconfig(default = "33554432")]
+    pub release_id_cache_max_bytes: u64,
+
     // Maximum number of lines of pre and post context to get per frame
     #[envconfig(default = "15")]
     pub context_line_count: usize,

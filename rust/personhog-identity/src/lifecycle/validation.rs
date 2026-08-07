@@ -10,7 +10,8 @@ pub const MAX_DELETE_BATCH_SIZE: usize = 250;
 // tonic Status is a large Err variant; boxing here would diverge from the
 // tonic handler signatures these feed into.
 #[allow(clippy::result_large_err)]
-pub fn validate_delete_persons(request: &DeletePersonsRequest) -> Result<(), Status> {
+/// Validates the request and returns the parsed op_id.
+pub fn validate_delete_persons(request: &DeletePersonsRequest) -> Result<Uuid, Status> {
     // The persons DB stores team_id as int4 and the storage layer narrows
     // with `as i32` — an unchecked value above i32::MAX would wrap and read
     // or write another tenant's rows.
@@ -33,8 +34,6 @@ pub fn validate_delete_persons(request: &DeletePersonsRequest) -> Result<(), Sta
             "person_ids must be positive integers",
         ));
     }
-    if Uuid::parse_str(&request.op_id).is_err() {
-        return Err(Status::invalid_argument("op_id must be a valid UUID"));
-    }
-    Ok(())
+    Uuid::parse_str(&request.op_id)
+        .map_err(|_| Status::invalid_argument("op_id must be a valid UUID"))
 }

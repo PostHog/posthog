@@ -1118,6 +1118,38 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
             expect(logic.values.matchingEventsMatchType.matchType).toBe('backend')
         })
+
+        it('does not classify a bare visited_page filter as backend', () => {
+            // visited_page is sent to the backend as a recording-type property (matched against
+            // the session's all_urls array), which `matching_events` can't highlight against -
+            // it only matches event uuids. Classifying it as 'backend' made the player call an
+            // endpoint that 400s on every request with no event/action/event-property filter.
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: 'match-type-tests-visited-page',
+                filters: {
+                    ...DEFAULT_RECORDING_FILTERS,
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        key: 'visited_page',
+                                        type: PropertyFilterType.Recording,
+                                        value: ['https://example-url.com'],
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            })
+            logic.mount()
+
+            expect(logic.values.matchingEventsMatchType.matchType).toBe('none')
+        })
     })
 
     describe('resetting filters', () => {

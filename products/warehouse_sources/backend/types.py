@@ -1323,6 +1323,7 @@ class ExternalDataSourceType(models.TextChoices):
     WINDSORAI = "WindsorAi", "WindsorAi"
     WIX = "Wix", "Wix"
     SEVALLA = "Sevalla", "Sevalla"
+    MOTION = "Motion", "Motion"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only

@@ -1,5 +1,10 @@
+use std::sync::Arc;
+use std::time::Duration;
+
+use sqlx::postgres::PgPoolOptions;
 use tonic::{Code, Request};
 
+use personhog_identity::lifecycle::engine::{Engine, EngineConfig};
 use personhog_identity::lifecycle::validation::MAX_DELETE_BATCH_SIZE;
 use personhog_identity::lifecycle::PersonHogLifecycleService;
 use personhog_proto::personhog::lifecycle::v1::person_hog_lifecycle_server::PersonHogLifecycle;
@@ -13,12 +18,26 @@ fn valid_request() -> DeletePersonsRequest {
     }
 }
 
+/// Validation rejects before the engine touches storage, so a lazy pool that
+/// never connects is enough to construct the service.
 async fn delete_status(request: DeletePersonsRequest) -> Code {
-    let service = PersonHogLifecycleService::new();
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgres://unused:unused@localhost:1/unused")
+        .expect("lazy pool never connects");
+    let engine = Arc::new(Engine::new(
+        pool,
+        EngineConfig {
+            lease: Duration::from_secs(1),
+            execute_timeout: Duration::from_secs(1),
+            poll_interval: Duration::from_millis(10),
+            attempt_alert_threshold: 5,
+        },
+    ));
+    let service = PersonHogLifecycleService::new(engine);
     service
         .delete_persons(Request::new(request))
         .await
-        .expect_err("skeleton service never returns Ok")
+        .expect_err("invalid requests are rejected")
         .code()
 }
 
@@ -76,9 +95,4 @@ async fn invalid_requests_are_rejected_before_the_saga() {
             "case: {name}"
         );
     }
-}
-
-#[tokio::test]
-async fn valid_request_reports_unimplemented_until_the_engine_lands() {
-    assert_eq!(delete_status(valid_request()).await, Code::Unimplemented);
 }

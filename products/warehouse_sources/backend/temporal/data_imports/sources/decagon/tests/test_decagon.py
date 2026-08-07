@@ -89,21 +89,44 @@ class TestGetRows:
         manager.can_resume.return_value = False
         return manager
 
-    def test_paginates_with_cursor_and_saves_state_after_each_yield(self) -> None:
+    # Decagon's docs name the next-page field three different ways (reference prose,
+    # example code, example response); the connector must paginate with whichever one
+    # the API returns, else a full refresh silently truncates to the first 100 rows.
+    @parameterized.expand(
+        [
+            ("prose_name", "next_page_cursor", "cur-1", "cur-2"),
+            ("example_code_name", "next_cursor", "cur-1", "cur-2"),
+            ("example_response_name_int_watermark", "next_page_updated_after", 1704067200, 1704153600),
+        ]
+    )
+    def test_paginates_with_each_documented_cursor_key_and_saves_state_after_each_yield(
+        self, _name: str, cursor_key: str, cursor_1: Any, cursor_2: Any
+    ) -> None:
         manager = self._fresh_manager()
         responses = [
-            _make_response({"conversations": [_conversation("c1")], "next_page_cursor": "cur-1"}),
-            _make_response({"conversations": [_conversation("c2")], "next_page_cursor": "cur-2"}),
-            _make_response({"conversations": [_conversation("c3")], "next_page_cursor": None}),
+            _make_response({"conversations": [_conversation("c1")], cursor_key: cursor_1}),
+            _make_response({"conversations": [_conversation("c2")], cursor_key: cursor_2}),
+            _make_response({"conversations": [_conversation("c3")], cursor_key: None}),
         ]
         sent_params, yielded_ids = self._drive(manager, responses)
 
         # First request omits the cursor (starts at the oldest conversations).
-        assert sent_params == [{}, {"cursor": "cur-1"}, {"cursor": "cur-2"}]
+        assert sent_params == [{}, {"cursor": str(cursor_1)}, {"cursor": str(cursor_2)}]
         assert yielded_ids == [["c1"], ["c2"], ["c3"]]
 
         saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [DecagonResumeConfig(cursor="cur-1"), DecagonResumeConfig(cursor="cur-2")]
+        assert saved == [DecagonResumeConfig(cursor=str(cursor_1)), DecagonResumeConfig(cursor=str(cursor_2))]
+
+    def test_null_prose_cursor_key_does_not_mask_a_populated_alias(self) -> None:
+        manager = self._fresh_manager()
+        responses = [
+            _make_response({"conversations": [_conversation("c1")], "next_page_cursor": None, "next_cursor": "cur-1"}),
+            _make_response({"conversations": [_conversation("c2")], "next_page_cursor": None, "next_cursor": None}),
+        ]
+        sent_params, yielded_ids = self._drive(manager, responses)
+
+        assert sent_params == [{}, {"cursor": "cur-1"}]
+        assert yielded_ids == [["c1"], ["c2"]]
 
     def test_resume_seeds_cursor_from_saved_state(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
