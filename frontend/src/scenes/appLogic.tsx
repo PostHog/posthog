@@ -92,10 +92,17 @@ export const appLogic = kea<appLogicType>([
                 const timerId = window.setTimeout(() => actions.enableDelayedSpinner(), 1000)
                 return () => clearTimeout(timerId)
             }, 'spinnerTimeout')
-            cache.disposables.add(() => {
-                const timerId = window.setTimeout(() => actions.ignoreFeatureFlags(), 3000)
-                return () => clearTimeout(timerId)
-            }, 'featureFlagTimeout')
+            // Gates showApp: once it fires, the app renders even if feature flags never resolve.
+            // Opt out of pause-on-hidden, because otherwise a background tab clears and restarts the
+            // timer on every visibility toggle, so a failed flag fetch plus tab churn hangs the loader.
+            cache.disposables.add(
+                () => {
+                    const timerId = window.setTimeout(() => actions.ignoreFeatureFlags(), 3000)
+                    return () => clearTimeout(timerId)
+                },
+                'featureFlagTimeout',
+                { pauseOnPageHidden: false }
+            )
         },
     })),
     urlToAction(({ actions }) => ({
