@@ -48,6 +48,24 @@ const createGithubMock = (resources) => ({
     rest: { rateLimit: { get: () => Promise.resolve({ data: { resources } }) } },
 })
 
+// rateLimit.get() throws `failures` times before resolving with `resources`.
+const createFlakyGithubMock = (resources, failures, makeError) => {
+    let calls = 0
+    return {
+        rest: {
+            rateLimit: {
+                get: () => {
+                    if (calls++ < failures) {return Promise.reject(makeError())}
+                    return Promise.resolve({ data: { resources } })
+                },
+            },
+        },
+    }
+}
+
+const httpError = (status) => Object.assign(new Error(`HTTP ${status}`), { status })
+const noSleep = () => Promise.resolve()
+
 const createCore = () => ({ info: recordingFn(), warning: recordingFn(), setOutput: recordingFn() })
 
 const fetchOk = () => Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve('ok') })
@@ -252,6 +270,59 @@ describe('monitor-github-rate-limit', () => {
             distinct_id: 'PostHog/posthog',
             properties: { repo: 'PostHog/posthog', source: 'posthog-paths-filter' },
         })
+    })
+
+    it('retries a transient rateLimit.get() failure and then emits', async () => {
+        process.env.POSTHOG_DEVEX_PROJECT_API_TOKEN = 'devex-key'
+        const fetchMock = recordingFn(fetchOk)
+        // A not-yet-warm App token hands back a 403 before the poll succeeds.
+        const github = createFlakyGithubMock({ core: snapshot({ remaining: 3000, limit: 15000 }) }, 1, () =>
+            httpError(403)
+        )
+        const core = createCore()
+
+        await monitor({ github, context, core }, { now: () => T_BASE, fetch: fetchMock, sleep: noSleep })
+
+        assert.ok(calledWith(core.setOutput, 'emitted', '1'))
+        assert.ok(calledWith(core.setOutput, 'failures', '0'))
+    })
+
+    it('degrades to a warning instead of throwing when rateLimit.get() keeps failing', async () => {
+        process.env.POSTHOG_DEVEX_PROJECT_API_TOKEN = 'devex-key'
+        const fetchMock = recordingFn(fetchOk)
+        const github = createFlakyGithubMock({ core: snapshot({ remaining: 3000, limit: 15000 }) }, Infinity, () =>
+            httpError(500)
+        )
+        const core = createCore()
+
+        await monitor({ github, context, core }, { now: () => T_BASE, fetch: fetchMock, sleep: noSleep })
+
+        // No throw: the step stays green so buckets queued after it still poll.
+        assert.equal(fetchMock.calls.length, 0)
+        assert.ok(calledWith(core.setOutput, 'emitted', '0'))
+        assert.ok(calledWith(core.setOutput, 'failures', '1'))
+        assert.ok(calledWithStringContaining(core.warning, 'rateLimit.get() failed after retries'))
+    })
+
+    it('does not retry a non-transient rateLimit.get() failure', async () => {
+        const attempts = []
+        const github = {
+            rest: {
+                rateLimit: {
+                    get: () => {
+                        attempts.push(1)
+                        return Promise.reject(httpError(404))
+                    },
+                },
+            },
+        }
+        const core = createCore()
+
+        await assert.rejects(
+            monitor.getRateLimitWithRetry({ github, core, source: 'github_token' }, { sleep: noSleep }),
+            /HTTP 404/
+        )
+        assert.equal(attempts.length, 1)
     })
 
     it('skips emission when devex token is not configured', async () => {

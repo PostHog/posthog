@@ -13,6 +13,40 @@ const EVENT_NAME = 'github_rate_limit_observed'
 const MINT_FAILURE_EVENT_NAME = 'github_app_token_mint_failed'
 const DEFAULT_SOURCE = 'github_token'
 
+// App-token polls call /rate_limit through a token minted seconds earlier, so a
+// not-yet-warm credential can hand back a transient 401/403; GitHub itself can
+// blip with a 5xx or drop the socket. Left unguarded, any of these throws, fails
+// the step, and skips every bucket queued after it in the job. Bound the delays
+// so the whole retry sequence stays well inside the workflow's timeout-minutes: 3.
+const TRANSIENT_RETRY_DELAYS_MS = [500, 1000, 2000]
+
+function isTransientRateLimitError(err) {
+    const status = err?.status ?? err?.response?.status
+    if (typeof status === 'number') {
+        return status === 401 || status === 403 || status >= 500
+    }
+    // No status means a network/DNS/socket error — retry those too.
+    return true
+}
+
+// Retries `rateLimit.get()` on transient failures, then rethrows so the caller
+// can degrade to a warning rather than the whole job going red on a blip.
+async function getRateLimitWithRetry({ github, core, source }, { sleep, delays = TRANSIENT_RETRY_DELAYS_MS } = {}) {
+    const wait = sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
+    let lastErr
+    for (let attempt = 0; attempt <= delays.length; attempt++) {
+        try {
+            return await github.rest.rateLimit.get()
+        } catch (err) {
+            lastErr = err
+            if (attempt >= delays.length || !isTransientRateLimitError(err)) {break}
+            core.info(`[${source}] rateLimit.get() failed (${err?.status ?? 'network'}); retrying in ${delays[attempt]}ms`)
+            await wait(delays[attempt])
+        }
+    }
+    throw lastErr
+}
+
 async function captureEvent({ fetchImpl, posthogToken, event, distinctId, properties, timestamp }) {
     const res = await fetchImpl(`${POSTHOG_HOST}/capture/`, {
         method: 'POST',
@@ -125,7 +159,7 @@ async function reportMintFailures({ context, core }, { mints, now: _now, fetch: 
     return failed.map(({ source }) => source)
 }
 
-module.exports = async ({ github, context, core }, { now: _now, fetch: _fetch, source: _source } = {}) => {
+module.exports = async ({ github, context, core }, { now: _now, fetch: _fetch, source: _source, sleep: _sleep } = {}) => {
     const source = _source || DEFAULT_SOURCE
     const fetchImpl = _fetch || fetch
     const observedAtDate = _now ? _now() : new Date()
@@ -143,7 +177,18 @@ module.exports = async ({ github, context, core }, { now: _now, fetch: _fetch, s
         return
     }
 
-    const { data } = await github.rest.rateLimit.get()
+    let data
+    try {
+        ;({ data } = await getRateLimitWithRetry({ github, core, source }, { sleep: _sleep }))
+    } catch (err) {
+        // Degrade rather than throw: a green step lets the buckets queued after
+        // this one in the job still get polled, matching the capture path's
+        // count-and-continue convention below.
+        core.warning(`[${source}] rateLimit.get() failed after retries: ${err.message}`)
+        core.setOutput('emitted', '0')
+        core.setOutput('failures', '1')
+        return
+    }
     const resources = data?.resources || {}
 
     let emitted = 0
@@ -176,4 +221,5 @@ module.exports = async ({ github, context, core }, { now: _now, fetch: _fetch, s
 module.exports.buildProperties = buildProperties
 module.exports.buildTrigger = buildTrigger
 module.exports.captureEvent = captureEvent
+module.exports.getRateLimitWithRetry = getRateLimitWithRetry
 module.exports.reportMintFailures = reportMintFailures
