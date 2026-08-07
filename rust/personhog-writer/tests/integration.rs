@@ -9,7 +9,6 @@ use common::{
     KAFKA_BOOTSTRAP, TARGET_TABLE, TOPIC,
 };
 use personhog_proto::personhog::types::v1::Person;
-use personhog_writer::buffer::PersonBuffer;
 use personhog_writer::consumer::{ConsumerTask, FlushBatch};
 use personhog_writer::kafka::PersonConsumer;
 use personhog_writer::pg::PgStore;
@@ -243,8 +242,8 @@ async fn consumer_flushes_on_buffer_size_threshold() {
     // Start consumer with flush_buffer_size=3 (flushes at exactly 3 and 6)
     let consumer_task = ConsumerTask::new(
         kafka_consumer,
-        PersonBuffer::new(100),
-        flush_tx,
+        vec![flush_tx],
+        100,
         Duration::from_secs(60), // long timer so only size triggers flush
         3,                       // flush at 3 messages
         consumer_handle,
@@ -338,8 +337,8 @@ async fn consumer_flushes_on_timer() {
     // Start consumer with high size threshold but short timer (500ms)
     let consumer_task = ConsumerTask::new(
         kafka_consumer,
-        PersonBuffer::new(100),
-        flush_tx,
+        vec![flush_tx],
+        100,
         Duration::from_millis(500), // short timer triggers flush
         1000,                       // high threshold so only timer triggers
         consumer_handle,
@@ -434,8 +433,8 @@ async fn consumer_deduplicates_multiple_updates_for_same_person() {
     // Start consumer with high size threshold, short timer
     let consumer_task = ConsumerTask::new(
         kafka_consumer,
-        PersonBuffer::new(100),
-        flush_tx,
+        vec![flush_tx],
+        100,
         Duration::from_millis(500),
         1000,
         consumer_handle,
@@ -477,6 +476,130 @@ async fn consumer_deduplicates_multiple_updates_for_same_person() {
     assert_eq!(count.0, 1, "expected 1 row after dedup, not 5");
 
     cleanup_team(&pool, team_id).await;
+}
+
+// ============================================================
+// Consumer: multi-lane routing, lane-local dedup, independent flush
+// ============================================================
+
+/// With two lanes over a two-partition topic, each lane must receive only
+/// its own partition's persons and offsets (routing + disjoint commits),
+/// dedup within its own buffer, and flush on size without draining the
+/// other lane. Asserted on the lane channels directly — the consumer's
+/// public output — so no writer or PG is involved.
+#[tokio::test]
+async fn multi_lane_consumer_routes_partitions_and_flushes_independently() {
+    let (mock_cluster, producer) = common::create_mock_kafka_with_partitions(2).await;
+    let team_id: i64 = 99_060;
+
+    let (tx0, mut rx0) = mpsc::channel::<FlushBatch>(2);
+    let (tx1, mut rx1) = mpsc::channel::<FlushBatch>(2);
+
+    let client_config = ClientConfig::new()
+        .set("bootstrap.servers", mock_cluster.bootstrap_servers())
+        .set("group.id", "test-multi-lane")
+        .set("auto.offset.reset", "earliest")
+        .set("enable.auto.commit", "false")
+        .set("enable.auto.offset.store", "false")
+        .clone();
+    let kafka_consumer = Arc::new(PersonConsumer::new(&client_config, TOPIC.to_string()).unwrap());
+
+    let mut manager = lifecycle::Manager::builder("test")
+        .with_trap_signals(false)
+        .build();
+    let consumer_handle = manager.register(
+        "consumer",
+        lifecycle::ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
+    );
+    let _monitor = manager.monitor_background();
+
+    // Partition 0: person 1 twice (dedup) plus persons 2 and 3 — four
+    // messages but three unique persons, hitting the size threshold of 3.
+    // Partition 1: person 4 only, staying below the threshold.
+    let mut to_produce = vec![
+        (0, make_person(team_id, 1, 1)),
+        (0, make_person(team_id, 1, 2)),
+        (0, make_person(team_id, 2, 1)),
+        (0, make_person(team_id, 3, 1)),
+        (1, make_person(team_id, 4, 1)),
+    ];
+    for (partition, person) in to_produce.drain(..) {
+        let payload = person.encode_to_vec();
+        let key = format!("{}:{}", team_id, person.id);
+        let record = FutureRecord::to(TOPIC)
+            .partition(partition)
+            .key(&key)
+            .payload(&payload);
+        producer
+            .send_result(record)
+            .unwrap()
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    let consumer_task = ConsumerTask::new(
+        kafka_consumer,
+        vec![tx0, tx1],
+        100,
+        Duration::from_secs(60), // long timer so only size triggers flush
+        3,
+        consumer_handle,
+    );
+    tokio::spawn(async move { consumer_task.run().await });
+
+    // Lane 0 flushes on size with only partition 0's persons and offsets,
+    // person 1 deduped to its latest version.
+    let batch0 = tokio::time::timeout(Duration::from_secs(15), rx0.recv())
+        .await
+        .expect("lane 0 should flush on size")
+        .expect("lane 0 channel should be open");
+    assert_eq!(batch0.offsets.keys().copied().collect::<Vec<_>>(), vec![0]);
+    assert_eq!(batch0.offsets[&0], 3); // four messages, offsets 0..=3
+    let mut persons0 = batch0.persons;
+    persons0.sort_by_key(|p| p.id);
+    assert_eq!(
+        persons0.iter().map(|p| p.id).collect::<Vec<_>>(),
+        vec![1, 2, 3]
+    );
+    assert_eq!(persons0[0].version, 2, "dedup must keep the latest version");
+
+    // Lane 1 is below its size threshold and the timer is far away, so a
+    // lane-0 flush must not have drained it.
+    assert!(
+        tokio::time::timeout(Duration::from_millis(500), rx1.recv())
+            .await
+            .is_err(),
+        "lane 1 must not flush before reaching its own threshold"
+    );
+
+    // Two more persons on partition 1 push lane 1 to its threshold; its
+    // batch carries only partition 1's persons and offsets.
+    for id in [5, 6] {
+        let person = make_person(team_id, id, 1);
+        let payload = person.encode_to_vec();
+        let key = format!("{team_id}:{id}");
+        let record = FutureRecord::to(TOPIC)
+            .partition(1)
+            .key(&key)
+            .payload(&payload);
+        producer
+            .send_result(record)
+            .unwrap()
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    let batch1 = tokio::time::timeout(Duration::from_secs(15), rx1.recv())
+        .await
+        .expect("lane 1 should flush on size")
+        .expect("lane 1 channel should be open");
+    assert_eq!(batch1.offsets.keys().copied().collect::<Vec<_>>(), vec![1]);
+    assert_eq!(batch1.offsets[&1], 2); // three messages, offsets 0..=2
+    let mut ids1: Vec<i64> = batch1.persons.iter().map(|p| p.id).collect();
+    ids1.sort_unstable();
+    assert_eq!(ids1, vec![4, 5, 6]);
 }
 
 // ============================================================
@@ -937,8 +1060,8 @@ async fn e2e_produce_to_kafka_and_verify_pg_write() {
 
     let consumer_task = ConsumerTask::new(
         kafka_consumer,
-        PersonBuffer::new(50000),
-        flush_tx,
+        vec![flush_tx],
+        50000,
         Duration::from_millis(500), // fast flush for test
         1,                          // flush after every message
         consumer_handle,
