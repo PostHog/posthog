@@ -3023,6 +3023,7 @@ export class PostHogAPIClient {
 
   async warmTask(options: {
     repository?: string | null;
+    repositories?: string[];
     github_integration?: number | null;
     branch?: string | null;
     runtime_adapter?: string | null;
@@ -3043,6 +3044,7 @@ export class PostHogAPIClient {
       overrides: {
         body: JSON.stringify({
           repository: options.repository,
+          repositories: options.repositories,
           github_integration: options.github_integration,
           branch: options.branch ?? null,
           runtime_adapter: options.runtime_adapter ?? null,
