@@ -1,5 +1,6 @@
 import { X } from "@phosphor-icons/react";
 import { useHostTRPC } from "@posthog/host-router/react";
+import { useBlockingAnnouncementVisible } from "@posthog/ui/features/announcements/useAnnouncementVisible";
 import { ReleaseNotesSections } from "@posthog/ui/features/updates/ReleaseNotesSections";
 import { parseReleaseNotes } from "@posthog/ui/features/updates/releaseNotes";
 import { useUpdateModalStore } from "@posthog/ui/features/updates/updateModalStore";
@@ -49,6 +50,9 @@ function ReleaseNotesSkeleton() {
 export function UpdateAvailableModal() {
   const isOpen = useUpdateModalStore((state) => state.isOpen);
   const close = useUpdateModalStore((state) => state.close);
+  // The blocking required-update announcement subsumes this dialog — never
+  // stack the two update prompts.
+  const blockingAnnouncementVisible = useBlockingAnnouncementVisible();
   const {
     status,
     version,
@@ -91,7 +95,7 @@ export function UpdateAvailableModal() {
 
   return (
     <Dialog.Root
-      open={isOpen}
+      open={isOpen && !blockingAnnouncementVisible}
       onOpenChange={(open) => {
         if (!open) close();
       }}

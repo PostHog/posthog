@@ -81,7 +81,12 @@ from products.replay_vision.backend.quota import (
     current_period_bounds,
     sum_enabled_scanner_estimated_credits,
 )
-from products.replay_vision.backend.scanner_config import scanner_config_error
+from products.replay_vision.backend.scanner_config import (
+    MAX_PROMPT_LENGTH,
+    MAX_TAG_LENGTH,
+    acting_user,
+    scanner_config_error,
+)
 from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN, run_inline_scan, scan_existing_scanner
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
@@ -90,9 +95,6 @@ from products.replay_vision.backend.tag_suggestions import SuggestionError, sugg
 _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
 
 # Size caps enforced at the write boundary; scanner_config is copied into every observation's snapshot.
-_MAX_PROMPT_LENGTH = 20_000
-_MAX_TAGS = 100
-_MAX_TAG_LENGTH = 100
 _MAX_DESCRIPTION_LENGTH = 1_000
 
 logger = structlog.get_logger(__name__)
@@ -425,7 +427,7 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
 
     def create(self, validated_data: dict[str, Any]) -> ReplayScanner:
         team = self.context["get_team"]()
-        user = cast(User, self.context["request"].user)
+        user = acting_user(self.context)
         if not team.organization.is_ai_data_processing_approved:
             raise serializers.ValidationError(
                 "Your organization needs to allow AI analysis before you can create a Replay Vision scanner."
@@ -445,7 +447,7 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             "replay_vision_scanner_created",
             _scanner_lifecycle_properties(scanner),
             team=team,
-            request=self.context["request"],
+            request=self.context.get("request"),
         )
         return scanner
 
@@ -465,8 +467,8 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         if needs_refresh:
             _refresh_estimate_fail_soft(scanner)
         changed_fields = sorted(field for field, value in before.items() if getattr(scanner, field) != value)
-        request = self.context["request"]
-        user = cast(User, request.user)
+        request = self.context.get("request")
+        user = acting_user(self.context)
         team = self.context["get_team"]()
         if scanner.enabled != was_enabled:
             report_user_action(
@@ -635,7 +637,6 @@ class ObserveResponseSerializer(serializers.Serializer):
 # One request can start at most this many scans. Bounds the fan-out of a single bulk trigger well
 # under the in-flight caps; the frontend selects from one loaded page, so this is rarely the binding
 # limit — the concurrency headroom usually is.
-BULK_OBSERVE_MAX_SESSIONS = MAX_SESSIONS_PER_SCAN
 
 
 class BulkObserveRequestSerializer(serializers.Serializer):
@@ -644,9 +645,9 @@ class BulkObserveRequestSerializer(serializers.Serializer):
     session_ids = serializers.ListField(
         child=serializers.CharField(max_length=MAX_SESSION_ID_LENGTH),
         allow_empty=False,
-        max_length=BULK_OBSERVE_MAX_SESSIONS,
+        max_length=MAX_SESSIONS_PER_SCAN,
         help_text=(
-            f"Session recording IDs to scan on demand, at most {BULK_OBSERVE_MAX_SESSIONS} per request. "
+            f"Session recording IDs to scan on demand, at most {MAX_SESSIONS_PER_SCAN} per request. "
             "Scans start until the in-flight limit or monthly credit quota is reached; the rest are "
             "reported as skipped rather than failing the whole batch. Already-running sessions are a no-op."
         ),
@@ -707,15 +708,15 @@ class InlineScanRequestSerializer(serializers.Serializer):
     session_ids = serializers.ListField(
         child=serializers.CharField(max_length=MAX_SESSION_ID_LENGTH),
         allow_empty=False,
-        max_length=BULK_OBSERVE_MAX_SESSIONS,
+        max_length=MAX_SESSIONS_PER_SCAN,
         help_text=(
-            f"Session recording IDs to scan, at most {BULK_OBSERVE_MAX_SESSIONS} per request. Scans start "
+            f"Session recording IDs to scan, at most {MAX_SESSIONS_PER_SCAN} per request. Scans start "
             "until the in-flight limit or monthly credit quota is reached; the rest are reported as "
             "skipped rather than failing the whole batch."
         ),
     )
     prompt = serializers.CharField(
-        max_length=_MAX_PROMPT_LENGTH,
+        max_length=MAX_PROMPT_LENGTH,
         help_text="What to look for in these sessions, in plain language. The same instruction a saved scanner carries.",
     )
     scanner_type = serializers.ChoiceField(
@@ -995,7 +996,7 @@ class _ImpactQualifiersSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         default=None,
-        max_length=_MAX_TAG_LENGTH,
+        max_length=MAX_TAG_LENGTH,
         help_text=(
             "Classifier scanners only, required for them: count sessions carrying this tag "
             "(fixed or freeform). Not applicable to other scanner types."
@@ -1193,6 +1194,12 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # Observation output exposes recording contents, so observe requires session_recording read.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Triggering an on-demand observation requires session_recording read access.")
+        # Every scan entrypoint gates this: create_observation fails closed on consent once the workflow
+        # is already running, so without the check the caller gets a 202 for a scan that never happens.
+        if not self.team.organization.is_ai_data_processing_approved:
+            raise ValidationError(
+                "Your organization needs to allow AI analysis before you can run a Replay Vision scan."
+            )
 
         try:
             check_observation_quota(self.team.organization_id, observation_credits_for_model(scanner.model))
@@ -1262,6 +1269,13 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # Observation output exposes recording contents, so this requires session_recording read.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Triggering on-demand observations requires session_recording read access.")
+        # The scan sends recordings to an LLM, the same reason observe, inline_scan and retry gate on
+        # this. Without it a batch was accepted and then silently scanned nothing, because
+        # create_observation fails closed on consent once the workflow is already running.
+        if not self.team.organization.is_ai_data_processing_approved:
+            raise ValidationError(
+                "Your organization needs to allow AI analysis before you can run a Replay Vision scan."
+            )
 
         body = BulkObserveRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
