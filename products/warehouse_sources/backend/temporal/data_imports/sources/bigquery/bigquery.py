@@ -675,10 +675,10 @@ def _get_primary_keys_for_table(table: bigquery.Table, client: bigquery.Client) 
     """
 
     job_config = QueryJobConfig()
-    job = client.query(query, job_config=job_config, project=table.project, retry=BIGQUERY_QUERY_CREATE_RETRY)
+    rows = _query_result_with_job_retry(client, query, job_config=job_config, project=table.project)
 
     primary_keys = []
-    for row in job.result(job_retry=BIGQUERY_QUERY_JOB_RETRY):
+    for row in rows:
         field_name = row["column_name"].removeprefix(f"{table.table_id}.")
 
         if field_name not in existing_fields:

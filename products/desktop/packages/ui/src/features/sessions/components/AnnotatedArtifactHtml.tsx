@@ -8,26 +8,23 @@ import type { EditorSelection } from "@posthog/ui/features/code-editor/component
 import { SelectionCommentOverlay } from "@posthog/ui/features/code-editor/components/SelectionCommentOverlay";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { parseHttpsUrl } from "@posthog/ui/utils/posthogLinks";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { artifactHtmlDocument } from "./artifactPreviewDocument";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { ArtifactHtmlFrame } from "./artifactHtmlFrame";
+import {
+  ARTIFACT_HTML_BRIDGE_MARKER,
+  type ArtifactHtmlFrameRect,
+} from "./artifactHtmlFrameHost";
+import {
+  artifactHtmlDocument,
+  scriptedArtifactHtmlDocument,
+} from "./artifactPreviewDocument";
 import {
   type CommentLocateRequest,
   type HighlightResolution,
   readCommentContext,
 } from "./commentViewTypes";
 
-const BRIDGE_MARKER = "__POSTHOG_ARTIFACT_COMMENT_BRIDGE__";
-
-type FrameRect = {
-  top: number;
-  left: number;
-  right: number;
-  bottom: number;
-  width: number;
-  height: number;
-};
-
-function isFrameRect(value: unknown): value is FrameRect {
+function isFrameRect(value: unknown): value is ArtifactHtmlFrameRect {
   if (!value || typeof value !== "object") return false;
   return ["top", "left", "right", "bottom", "width", "height"].every((key) => {
     const field = (value as Record<string, unknown>)[key];
@@ -62,25 +59,27 @@ export function AnnotatedArtifactHtml({
   ) => void | Promise<void>;
   onResolutionsChange: (resolutions: Map<string, HighlightResolution>) => void;
 }) {
-  const iframeRef = useRef<HTMLIFrameElement>(null);
   const channelRef = useRef(`artifact-comments-${crypto.randomUUID()}`);
   const [pendingAnchor, setPendingAnchor] = useState<TextCommentAnchor | null>(
     null,
   );
   const [selection, setSelection] = useState<EditorSelection | null>(null);
-  const [documentUrl, setDocumentUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    const document = artifactHtmlDocument(
-      html,
-      commentsEnabled ? channelRef.current : undefined,
-    );
-    const nextDocumentUrl = URL.createObjectURL(
-      new Blob([document], { type: "text/html" }),
-    );
-    setDocumentUrl(nextDocumentUrl);
-    return () => URL.revokeObjectURL(nextDocumentUrl);
-  }, [commentsEnabled, html]);
+  const previewDocument = useMemo(
+    () =>
+      scriptedArtifactHtmlDocument(
+        html,
+        commentsEnabled ? channelRef.current : undefined,
+      ),
+    [commentsEnabled, html],
+  );
+  const fallbackDocument = useMemo(
+    () =>
+      artifactHtmlDocument(
+        html,
+        commentsEnabled ? channelRef.current : undefined,
+      ),
+    [commentsEnabled, html],
+  );
 
   const bridgeItems = useMemo(
     () =>
@@ -100,74 +99,39 @@ export function AnnotatedArtifactHtml({
     [activeThreadId, comments],
   );
 
-  const sendComments = useCallback(() => {
-    iframeRef.current?.contentWindow?.postMessage(
+  const messages = useMemo(() => {
+    if (!commentsEnabled) return [];
+    const next: Record<string, unknown>[] = [
       {
-        marker: BRIDGE_MARKER,
+        marker: ARTIFACT_HTML_BRIDGE_MARKER,
         channel: channelRef.current,
         type: "comments",
         items: bridgeItems,
       },
-      "*",
-    );
-  }, [bridgeItems]);
-
-  useEffect(() => {
-    sendComments();
-  }, [sendComments]);
-
-  const sendLocate = useCallback(() => {
-    if (!locateRequest) return;
-    iframeRef.current?.contentWindow?.postMessage(
-      {
-        marker: BRIDGE_MARKER,
+    ];
+    if (locateRequest) {
+      next.push({
+        marker: ARTIFACT_HTML_BRIDGE_MARKER,
         channel: channelRef.current,
         type: "locate",
         id: locateRequest.id,
-      },
-      "*",
-    );
-  }, [locateRequest]);
+      });
+    }
+    return next;
+  }, [bridgeItems, commentsEnabled, locateRequest]);
 
-  useEffect(() => {
-    sendLocate();
-  }, [sendLocate]);
-
-  const activateThreadRef = useRef(onActivateThread);
-  const resolutionsChangeRef = useRef(onResolutionsChange);
-  const sendCommentsRef = useRef(sendComments);
-  const sendLocateRef = useRef(sendLocate);
-
-  useEffect(() => {
-    activateThreadRef.current = onActivateThread;
-    resolutionsChangeRef.current = onResolutionsChange;
-    sendCommentsRef.current = sendComments;
-    sendLocateRef.current = sendLocate;
-  }, [onActivateThread, onResolutionsChange, sendComments, sendLocate]);
-
-  useEffect(() => {
-    const receive = (event: MessageEvent) => {
-      if (event.source !== iframeRef.current?.contentWindow) return;
-      const data = event.data as Record<string, unknown> | null;
+  const receive = useCallback(
+    (value: unknown, frameBox: ArtifactHtmlFrameRect) => {
+      const data = value as Record<string, unknown> | null;
       if (
         !data ||
-        data.marker !== BRIDGE_MARKER ||
+        data.marker !== ARTIFACT_HTML_BRIDGE_MARKER ||
         data.channel !== channelRef.current
       ) {
         return;
       }
-      if (data.type === "ready") {
-        sendCommentsRef.current();
-        sendLocateRef.current();
-        return;
-      }
-      if (data.type === "open-external" && typeof data.href === "string") {
-        const url = parseHttpsUrl(data.href);
-        if (url) openExternalUrl(url.href);
-        return;
-      }
       if (data.type === "activate" && typeof data.id === "string") {
-        activateThreadRef.current(data.id);
+        onActivateThread(data.id);
         return;
       }
       if (data.type === "resolutions" && Array.isArray(data.items)) {
@@ -184,14 +148,12 @@ export function AnnotatedArtifactHtml({
             resolutions.set(id, status);
           }
         }
-        resolutionsChangeRef.current(resolutions);
+        onResolutionsChange(resolutions);
         return;
       }
       if (data.type !== "selection" || !isFrameRect(data.triggerRect)) return;
       const parsed = commentAnchorSchema.safeParse(data.anchor);
       if (!parsed.success || parsed.data.kind !== "text") return;
-      const frameBox = iframeRef.current?.getBoundingClientRect();
-      if (!frameBox) return;
       setPendingAnchor(parsed.data);
       setSelection({
         text: parsed.data.quote,
@@ -205,9 +167,13 @@ export function AnnotatedArtifactHtml({
           ),
         },
       });
-    };
-    window.addEventListener("message", receive);
-    return () => window.removeEventListener("message", receive);
+    },
+    [onActivateThread, onResolutionsChange],
+  );
+
+  const openExternal = useCallback((href: string) => {
+    const url = parseHttpsUrl(href);
+    if (url) openExternalUrl(url.href);
   }, []);
 
   const dismiss = () => {
@@ -217,14 +183,13 @@ export function AnnotatedArtifactHtml({
 
   return (
     <div className="relative size-full">
-      <iframe
-        ref={iframeRef}
-        className="size-full border-0 bg-white"
-        sandbox="allow-scripts"
-        referrerPolicy="no-referrer"
-        src={documentUrl ?? "about:blank"}
-        title={`Preview of ${name}`}
-        onLoad={sendComments}
+      <ArtifactHtmlFrame
+        document={previewDocument}
+        fallbackDocument={fallbackDocument}
+        name={name}
+        messages={messages}
+        onMessage={receive}
+        onOpenExternal={openExternal}
       />
       <SelectionCommentOverlay
         selection={selection}
