@@ -255,6 +255,9 @@ describe('signupLogic — name handling', () => {
 
         expect(logic.values.signupPanelOnboardingManualErrors.name).toBe('This field may not be blank.')
         expect(logic.values.signupPanelOnboardingManualErrors.generic).toBeUndefined()
+        // The display-level selector fields read from — the error must remain visible after the
+        // failed submit (a successful submit resets showErrors and would hide it)
+        expect(logic.values.signupPanelOnboardingErrors.name).toBe('This field may not be blank.')
         expect(logic.values.panel).toBe(2)
     })
 })

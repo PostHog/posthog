@@ -560,11 +560,13 @@ export const signupLogic = kea<signupLogicType>([
 
                     // The `name` input is split into first_name/last_name for the API — surface
                     // errors on those attributes next to the field the user actually sees.
+                    // Must throw (not return) so kea-forms marks the submit as failed and keeps
+                    // showing errors — on a successful submit it hides them again.
                     if (error.attr === 'first_name' || error.attr === 'last_name') {
                         actions.setSignupPanelOnboardingManualErrors({
                             name: String(error.detail || 'Please enter your name'),
                         })
-                        return
+                        throw e
                     }
 
                     if (error.code === 'throttled') {
