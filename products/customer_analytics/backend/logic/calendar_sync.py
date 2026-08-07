@@ -281,7 +281,13 @@ def _match_accounts_for_emails(team: Team, emails: list[str]) -> dict[str, Accou
     group_type_index = team.customer_analytics_config.account_group_type_index
     if group_type_index is not None:
         unresolved = [email for email in emails if email not in matched]
-        email_to_group_key = _group_keys_via_persons(team, unresolved, group_type_index) if unresolved else {}
+        email_to_group_key: dict[str, str] = {}
+        if unresolved:
+            try:
+                email_to_group_key = _group_keys_via_persons(team, unresolved, group_type_index)
+            except Exception:
+                # Group matching is an optional enrichment; a failure here must not abort the sync.
+                logger.exception("calendar_sync_group_matching_failed", team_id=team.id)
         if email_to_group_key:
             accounts = {
                 account.external_id: account
@@ -351,7 +357,8 @@ def _group_keys_via_persons(team: Team, emails: list[str], group_type_index: int
     if not distinct_id_to_email:
         return {}
 
-    query = GROUP_KEY_BY_DISTINCT_ID_QUERY.format(group_col=f"`$group_{group_type_index}`")
+    # Substitute the column only; `{distinct_ids}` stays intact as a HogQL placeholder bound below.
+    query = GROUP_KEY_BY_DISTINCT_ID_QUERY.replace("{group_col}", f"`$group_{group_type_index}`")
     with tags_context(product=Product.CUSTOMER_ANALYTICS, feature=Feature.QUERY):
         response = execute_hogql_query(
             query,
