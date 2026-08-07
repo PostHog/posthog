@@ -372,16 +372,18 @@ export async function getJSONOrNull(response: Response): Promise<any> {
     }
 }
 
+const NUMERIC_ID_RE = /^\d+$/
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 /**
  * Collapse per-resource identifiers (environment/project ids, UUIDs) in a request path to a
  * stable `:id` placeholder. Error-tracking fingerprints off the exception message, so baking a
  * live id into the message shatters one server condition into a separate issue per resource.
  */
 function normalizeApiPathname(pathname: string): string {
-    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     return pathname
         .split('/')
-        .map((segment) => (/^\d+$/.test(segment) || UUID_RE.test(segment) ? ':id' : segment))
+        .map((segment) => (NUMERIC_ID_RE.test(segment) || UUID_RE.test(segment) ? ':id' : segment))
         .join('/')
 }
 
