@@ -36,6 +36,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
+from posthog.constants import EXPERIMENTS_RETENTION_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -52,12 +53,14 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.base_query_utils import (
+    conversion_window_to_seconds,
     experiment_window,
     experiment_window_end,
     is_session_property_metric,
 )
 from products.experiments.backend.hogql_queries.cuped_config import get_cuped_config
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
+from products.experiments.backend.hogql_queries.experiment_metric_values import get_conversion_window_seconds
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
     ExperimentQueryBuilder,
     get_exposure_config_params_for_builder,
@@ -104,6 +107,12 @@ DEFAULT_EXPOSURE_TTL_SECONDS = {
 # chunks. Completed chunks persist, so a wide backfill converges across runs
 # instead of failing atomically on every attempt.
 PRECOMPUTE_MAX_WINDOW_DAYS = 7
+
+# Upper bound on how far past the experiment end a metric-events build may scan.
+# retention_window_end is an unrestricted user-supplied integer; without a cap, a huge
+# window would stretch the precompute horizon into thousands of daily jobs before the
+# executor's timeout check. Past the cap the metric falls back to the direct scan.
+METRIC_EVENTS_MAX_WINDOW_EXTENSION_SECONDS = 90 * 24 * 60 * 60  # 90 days
 
 
 def experiment_precompute_ttl_schedule(team_timezone: str) -> TtlSchedule:
@@ -370,10 +379,13 @@ class ExperimentQueryRunner(QueryRunner):
         date_from = self.experiment.start_date
         date_to = experiment_window_end(self.experiment, self.as_of)
 
-        # Extend time range by conversion window — metric events can occur after experiment end
-        conversion_window_seconds = builder._get_conversion_window_seconds()
-        if conversion_window_seconds > 0:
-            date_to = date_to + timedelta(seconds=conversion_window_seconds)
+        # Extend time range past experiment end — metric events can occur after it: within
+        # the conversion window, plus for retention the retention window (a completion can
+        # land up to retention_window_end after a start event that itself lands up to
+        # conversion_window after the last exposure).
+        extension_seconds = builder.get_metric_events_window_extension_seconds()
+        if extension_seconds > 0:
+            date_to = date_to + timedelta(seconds=extension_seconds)
 
         return ensure_precomputed(
             team=self.team,
@@ -430,10 +442,33 @@ class ExperimentQueryRunner(QueryRunner):
             return "group_aggregation"
         return None  # precompute was attempted; a direct path means the build failed / wasn't ready
 
+    def _retention_metric_events_precomputation_enabled(self) -> bool:
+        """Kill switch for retention metric-events pre-aggregation, independent of funnel/mean.
+
+        Default-off and fail-safe: returns False unless the flag is explicitly enabled, so a
+        flag-eval failure (or the flag not existing yet) leaves retention metric events on the
+        direct-scan path while funnel/mean metric events and exposures keep using their
+        precomputed tables.
+        """
+        return bool(
+            posthoganalytics.feature_enabled(
+                EXPERIMENTS_RETENTION_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY,
+                str(self.team.uuid),
+                groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
+                group_properties={
+                    "organization": {"id": str(self.team.organization_id)},
+                    "project": {"id": str(self.team.id), "uuid": str(self.team.uuid)},
+                },
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        )
+
     def _metric_events_precompute_applicable(self) -> bool:
         """
-        Metric-events precompute supports ordered funnels and count/sum-style mean
-        metrics, in both cases without breakdowns, CUPED, or data warehouse sources.
+        Metric-events precompute supports ordered funnels, count/sum-style mean
+        metrics, and retention metrics, in all cases without breakdowns, CUPED,
+        or data warehouse sources.
         """
         if self._get_breakdowns_for_builder() or self.cuped_config.enabled or self.is_data_warehouse_query:
             return False
@@ -450,6 +485,17 @@ class ExperimentQueryRunner(QueryRunner):
                 return False
             math_type = getattr(source, "math", None) or ExperimentMetricMathType.TOTAL
             return math_type in (ExperimentMetricMathType.TOTAL, ExperimentMetricMathType.SUM)
+        if isinstance(self.metric, ExperimentRetentionMetric):
+            if not isinstance(self.metric.start_event, (EventsNode, ActionsNode)) or not isinstance(
+                self.metric.completion_event, (EventsNode, ActionsNode)
+            ):
+                return False
+            extension_seconds = get_conversion_window_seconds(self.metric) + conversion_window_to_seconds(
+                self.metric.retention_window_end, self.metric.retention_window_unit
+            )
+            if extension_seconds > METRIC_EVENTS_MAX_WINDOW_EXTENSION_SECONDS:
+                return False
+            return self._retention_metric_events_precomputation_enabled()
         return False
 
     def _get_experiment_query(self) -> ast.SelectQuery:
