@@ -30,6 +30,7 @@ import { template as intercomEventTemplate } from './_destinations/intercom/inte
 import { template as intercomTemplate } from './_destinations/intercom/intercom.template'
 import { template as klimeTemplate } from './_destinations/klime/klime.template'
 import { template as knockTemplate } from './_destinations/knock/knock.template'
+import { template as kudosityTemplate } from './_destinations/kudosity/kudosity.template'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
 import { template as linkedinAdsTemplate } from './_destinations/linkedin_ads/linkedin.template'
 import { template as makeTemplate } from './_destinations/make/make.template'
@@ -142,6 +143,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     teamsTemplate,
     onesignalTemplate,
     knockTemplate,
+    kudosityTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [

@@ -18,7 +18,6 @@ from .klaviyo.template_klaviyo import (
     template_event as klaviyo_event,
     template_user as klaviyo_user,
 )
-from .kudosity.template_kudosity import template as kudosity
 from .loops.template_loops import (
     TemplateLoopsMigrator,
     template as loops,
@@ -62,7 +61,6 @@ HOG_FUNCTION_TEMPLATES = [
     june,
     klaviyo_event,
     klaviyo_user,
-    kudosity,
     loops,
     loops_send_event,
     mailchimp,
