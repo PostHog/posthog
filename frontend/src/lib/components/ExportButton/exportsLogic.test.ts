@@ -18,6 +18,7 @@ jest.mock('lib/lemon-ui/LemonToast', () => ({
         error: jest.fn(),
         dismiss: jest.fn(),
         promise: jest.fn((p) => p),
+        updatePendingMessage: jest.fn(),
         updateToSuccess: jest.fn(),
         isActive: jest.fn(() => true),
     },
@@ -221,6 +222,7 @@ describe('exportsLogic', () => {
                 // Only a nudge earns a toast that sits there until answered; everything else keeps
                 // the settled toast react-toastify raised, which closes on its own.
                 expect(lemonToast.updateToSuccess).not.toHaveBeenCalled()
+                expect(lemonToast.updatePendingMessage).not.toHaveBeenCalled()
                 expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toEqual(freshIds)
                 // selectedTab is persisted across kea contexts, so assert the open+tab combination.
                 expect(
@@ -269,6 +271,40 @@ describe('exportsLogic', () => {
             })
         })
 
+        it('carries the nudge on the pending frame and again once the export completes', async () => {
+            // A render takes seconds, and the nudge is meant to use them: a check that answers first
+            // rewrites the frame the user is already looking at, rather than waiting for the export.
+            jest.mocked(resolveExportNudgeEligibility).mockResolvedValue({ dashboardId: 7 })
+            jest.mocked(claimExportNudgeMessage).mockReturnValue(NUDGE_RENDERER)
+            let finishExport: (asset: ExportedAssetType) => void = () => {}
+            jest.spyOn(api.exports, 'create').mockReturnValue(
+                new Promise<ExportedAssetType>((resolve) => {
+                    finishExport = resolve
+                })
+            )
+
+            logic.actions.createExport({ exportData: { export_format: ExporterFormat.PNG, dashboard: 7 } })
+            await flush()
+
+            const exportToastId = jest.mocked(lemonToast.promise).mock.calls[0][2]?.toastId
+            expect(lemonToast.updatePendingMessage).toHaveBeenCalledWith(
+                exportToastId,
+                'nudge:Preparing export… +View exports'
+            )
+
+            finishExport(asset({ id: 26, export_format: ExporterFormat.PNG, has_content: true, dashboard: 7 }))
+            await flush()
+
+            // The nudge has to survive the pending → settled transition, and count as one claim
+            // even though it rendered into both frames.
+            expect(lemonToast.updateToSuccess).toHaveBeenCalledWith(
+                exportToastId,
+                'nudge:Export complete! +View exports',
+                { autoClose: false }
+            )
+            expect(claimExportNudgeMessage).toHaveBeenCalledTimes(1)
+        })
+
         it('settles the export toast before the nudge check answers', async () => {
             // The file is already on disk once the create call returns, so a check that takes its
             // full timeout must not leave the exporter watching a spinner. Both variants pay this,
@@ -299,6 +335,9 @@ describe('exportsLogic', () => {
 
             expect(claimExportNudgeMessage).toHaveBeenCalledTimes(1)
             expect(lemonToast.info).not.toHaveBeenCalled()
+            // The pending frame is long gone, and a rewrite of it would put the export back on
+            // "Preparing export…" after it finished.
+            expect(lemonToast.updatePendingMessage).not.toHaveBeenCalled()
             expect(lemonToast.updateToSuccess).toHaveBeenCalledWith(
                 jest.mocked(lemonToast.promise).mock.calls[0][2]?.toastId,
                 'nudge:Export complete! +View exports',

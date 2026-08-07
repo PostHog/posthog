@@ -257,6 +257,17 @@ export const lemonToast = {
             options
         )
     },
+    /** Only safe while the toast is pending: updates apply 100ms late and would overwrite a settled state. */
+    updatePendingMessage(
+        id: number | string,
+        message: string | JSX.Element,
+        { button, ...toastOptions }: ToastOptionsWithButton = {}
+    ): void {
+        toast.update(id, {
+            render: <ToastContent type="info" message={message} button={button} id={id} />,
+            ...toastOptions,
+        } as UpdateOptions)
+    },
     /** Restates the whole success frame: react-toastify defers updates 100ms and re-dispatches the pending content when given no render. */
     updateToSuccess(
         id: number | string,
