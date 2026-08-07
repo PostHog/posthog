@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     is_transient_delta_maintenance_error,
     is_transient_maintenance_error,
     is_transient_object_store_error,
+    is_unrecoverable_delta_log_error,
 )
 
 
@@ -177,3 +178,33 @@ class TestIsOffsetOverflowCompactionError:
     )
     def test_classifies_offset_overflow_errors(self, _name: str, error: Exception, expected: bool):
         assert is_offset_overflow_compaction_error(error) is expected
+
+
+class TestIsUnrecoverableDeltaLogError:
+    @parameterized.expand(
+        [
+            # A `_delta_log` left over from an interrupted purge, a repartition swap, or a zombie
+            # attempt, opened via create(mode="ignore"): delta-rs can't resolve commit 0 on it. This
+            # is the signature the self-heal previously missed, so the sync retried into it forever.
+            ("invalid_table_version", deltalake.exceptions.DeltaError("Invalid table version: 0"), True),
+            (
+                "orphaned_log",
+                deltalake.exceptions.DeltaError("No table metadata or protocol found in delta log."),
+                True,
+            ),
+            (
+                "empty_log_segment",
+                deltalake.exceptions.DeltaError("Generic delta kernel error: No files in log segment"),
+                True,
+            ),
+            ("bugged_decimal", deltalake.exceptions.DeltaError("parse decimal overflow at column x"), True),
+            # A healthy-table failure that must stay a hard error, not trigger a destructive wipe.
+            (
+                "unrelated_delta_error",
+                deltalake.exceptions.DeltaError("Generic error: something else went wrong"),
+                False,
+            ),
+        ]
+    )
+    def test_classifies_unrecoverable_log_errors(self, _name: str, error: Exception, expected: bool):
+        assert is_unrecoverable_delta_log_error(error) is expected

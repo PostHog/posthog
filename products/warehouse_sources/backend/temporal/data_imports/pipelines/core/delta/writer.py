@@ -21,6 +21,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     realign_decimal_buffers,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    is_unrecoverable_delta_log_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.evolution import evolve_delta_schema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
     delta_merge_spill_kwargs,
@@ -456,21 +459,7 @@ class DeltaWriter:
             await self._logger.adebug(f"write: mode = {mode}")
 
             if delta_table is None:
-                storage_options = self._table.get_storage_options()
-                delta_uri = await self._table.get_table_uri()
-                # mode="ignore": a zombie Temporal attempt (heartbeat-timed-out but still running
-                # while its retry starts — see this package's README) or a stale get_delta_table()
-                # check can race another writer that already created this table. "ignore" opens
-                # the winner's table instead of erroring; the write below then applies our data on
-                # top of it, so the race can only change who created the table, never the outcome.
-                delta_table = await asyncio.to_thread(
-                    deltalake.DeltaTable.create,
-                    table_uri=delta_uri,
-                    schema=data.schema,
-                    storage_options=storage_options,
-                    partition_by=PARTITION_KEY if use_partitioning else None,
-                    mode="ignore",
-                )
+                delta_table = await self._create_first_sync_table(data.schema, use_partitioning)
 
             try:
                 await asyncio.to_thread(
@@ -497,17 +486,7 @@ class DeltaWriter:
                 )
         elif write_type == "append":
             if delta_table is None:
-                storage_options = self._table.get_storage_options()
-                delta_uri = await self._table.get_table_uri()
-                # See the full_refresh branch above for why mode="ignore" is required here.
-                delta_table = await asyncio.to_thread(
-                    deltalake.DeltaTable.create,
-                    table_uri=delta_uri,
-                    schema=data.schema,
-                    storage_options=storage_options,
-                    partition_by=PARTITION_KEY if use_partitioning else None,
-                    mode="ignore",
-                )
+                delta_table = await self._create_first_sync_table(data.schema, use_partitioning)
             else:
                 # An append re-casts each source column to its stored type, same as a merge. A decimal
                 # column that outgrew decimal128 arrives here as text (decimal256 renders to string),
@@ -531,6 +510,45 @@ class DeltaWriter:
         delta_table = await self._table.get_delta_table()
         assert delta_table is not None
 
+        return delta_table
+
+    async def _create_first_sync_table(self, schema: pa.Schema, use_partitioning: bool) -> deltalake.DeltaTable:
+        """Create the Delta table for a first sync / full refresh, self-healing an orphaned `_delta_log`.
+
+        mode="ignore": a zombie Temporal attempt (heartbeat-timed-out but still running while its retry
+        starts — see this package's README) or a stale get_delta_table() check can race another writer
+        that already created this table. "ignore" opens the winner's table instead of erroring, so the
+        race can only change who created the table, never the outcome.
+
+        But "ignore" also opens a `_delta_log` left behind by an interrupted purge, a repartition swap,
+        or a dead attempt — a log delta-rs can't resolve commit 0 on, which surfaces as `Invalid table
+        version` either here or on the write that follows. get_delta_table() returned None, so we
+        believed no table existed at this prefix: anything there is orphaned corruption, safe to wipe.
+        Purge the prefix and rebuild once from scratch — the same self-heal get_delta_table() does.
+        """
+        try:
+            return await self._create_and_verify_table(schema, use_partitioning)
+        except deltalake.exceptions.DeltaError as e:
+            if not is_unrecoverable_delta_log_error(e):
+                raise
+            await self._logger.awarning(f"write: orphaned delta log at first-sync prefix, rebuilding: {e}")
+            await self._table.reset_table()
+            return await self._create_and_verify_table(schema, use_partitioning)
+
+    async def _create_and_verify_table(self, schema: pa.Schema, use_partitioning: bool) -> deltalake.DeltaTable:
+        storage_options = self._table.get_storage_options()
+        delta_uri = await self._table.get_table_uri()
+        delta_table = await asyncio.to_thread(
+            deltalake.DeltaTable.create,
+            table_uri=delta_uri,
+            schema=schema,
+            storage_options=storage_options,
+            partition_by=PARTITION_KEY if use_partitioning else None,
+            mode="ignore",
+        )
+        # create(mode="ignore") can hand back a lazily-resolved handle to a pre-existing log; force
+        # resolution now so an orphaned log surfaces here, where we can heal, not deep in the write.
+        await asyncio.to_thread(delta_table.version)
         return delta_table
 
     async def has_commit_with_metadata(self, match: dict[str, str], *, scan_limit: int = 50) -> bool:

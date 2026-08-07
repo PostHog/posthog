@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
     is_transient_object_store_error,
+    is_unrecoverable_delta_log_error,
 )
 
 # _purge_s3_prefix is idempotent (every step is existence-gated), so retrying it whole after a brief
@@ -200,17 +201,10 @@ class DeltaTableRef:
             except Exception as e:
                 await self._capture_unless_transient(e)
                 error_text = "".join(str(arg) for arg in e.args)
-                # Unrecoverable tables (bugged decimals, or an orphaned _delta_log missing its
-                # metadata action or containing no commit files at all, which can't happen on a
-                # healthy table since `is_deltatable` above already confirmed the log directory
-                # exists): wipe so the sync starts fresh. "No files in log segment" is delta-rs's
-                # own kernel raising `DeltaTableError::NotATable` because the log directory has
-                # zero usable commit files, e.g. a stray marker left by an interrupted purge/write.
-                if (
-                    "parse decimal overflow" in error_text
-                    or "No table metadata or protocol found" in error_text
-                    or "No files in log segment" in error_text
-                ):
+                # Unrecoverable tables — a `_delta_log` that exists (is_deltatable above confirmed the
+                # directory) but can't be resolved into a loadable table, which never happens on a
+                # healthy one — get wiped so the sync starts fresh (see UNRECOVERABLE_DELTA_LOG_ERRORS).
+                if is_unrecoverable_delta_log_error(e):
                     await self._logger.aerror(
                         f"get_delta_table: deleting unrecoverable delta table for a fresh sync: {error_text}"
                     )

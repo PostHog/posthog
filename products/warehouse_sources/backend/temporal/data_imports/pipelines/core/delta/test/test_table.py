@@ -90,6 +90,9 @@ class TestGetDeltaTableUnrecoverableErrors:
             True,
         ),
         ("bugged_decimal_data", "parse decimal overflow at column x", True),
+        # A `_delta_log` delta-rs can't resolve commit 0 on — left by an interrupted purge, a
+        # repartition swap, or a zombie attempt. Same self-heal as the siblings above.
+        ("invalid_table_version", "Invalid table version: 0", True),
         ("other_errors_reraise", "Generic DeltaTable error: something else went wrong", False),
     ]
 

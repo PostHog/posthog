@@ -31,6 +31,33 @@ class TransientObjectStoreError(NonReportableError):
     unaffected either way, since NonReportableError only suppresses reporting, not retries."""
 
 
+# delta-rs raises one of these when a `_delta_log` is present but can't be resolved into a loadable
+# table — none of which can happen on a healthy table, so the only recovery is to wipe the prefix and
+# rebuild from scratch:
+# - "parse decimal overflow": a committed decimal value delta-rs can no longer parse back
+# - "No table metadata or protocol found": an orphaned log missing its metadata/protocol action
+# - "No files in log segment": the kernel's `DeltaTableError::NotATable` — a log directory with zero
+#   usable commit files (e.g. a stray marker left by an interrupted purge/write)
+# - "Invalid table version": commit 0 can't be resolved on the handle — a log left behind by an
+#   interrupted purge, a repartition swap, or a zombie attempt, opened via `create(mode="ignore")`
+UNRECOVERABLE_DELTA_LOG_ERRORS = (
+    "parse decimal overflow",
+    "No table metadata or protocol found",
+    "No files in log segment",
+    "Invalid table version",
+)
+
+
+def is_unrecoverable_delta_log_error(error: BaseException) -> bool:
+    """True for a `_delta_log` that exists but can't be loaded (see UNRECOVERABLE_DELTA_LOG_ERRORS).
+
+    Matched on the error text rather than the exception class: delta-rs surfaces these from several
+    entry points — `DeltaTable(...)`, `DeltaTable.create(mode="ignore")`, `write_deltalake` — and
+    doesn't always wrap them in the same type.
+    """
+    return any(needle in "".join(str(arg) for arg in error.args) for needle in UNRECOVERABLE_DELTA_LOG_ERRORS)
+
+
 def is_transient_object_store_error(error: BaseException) -> bool:
     """True for a transient object-store error, however it happened to surface.
 

@@ -551,6 +551,48 @@ class TestCreateRaceWithExistingTable:
         assert set(result.to_pyarrow_table().column("id").to_pylist()) == expected_ids
 
 
+class TestFirstSyncHealsOrphanedDeltaLog:
+    """get_delta_table() reports "no table yet", but create(mode="ignore") opens an orphaned
+    `_delta_log` (left by an interrupted purge, a repartition swap, or a zombie attempt) that
+    delta-rs can't resolve commit 0 on, raising "Invalid table version". write() must wipe the
+    prefix and rebuild once instead of propagating the error and retrying into it forever.
+    """
+
+    @pytest.mark.parametrize("write_type", ["full_refresh", "append"])
+    @pytest.mark.asyncio
+    async def test_write_heals_invalid_table_version(self, write_type: str, tmp_path: Path):
+        delta_path = str(tmp_path / "table")
+        helper = make_local_table_ref(delta_path)
+
+        real_create = deltalake.DeltaTable.create
+        calls = {"n": 0}
+
+        def flaky_create(*args: Any, **kwargs: Any):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise deltalake.exceptions.DeltaError("Invalid table version: 0")
+            return real_create(*args, **kwargs)
+
+        batch = pa.table({"id": [2, 3]})
+
+        # reset_table's real recovery is an S3 prefix purge (covered by table.py's tests); here we
+        # only need it to fire as the heal action, so the retried create builds a fresh table.
+        with (
+            patch.object(helper, "reset_table", AsyncMock()) as mock_reset,
+            patch(f"{_WRITER_MODULE}.deltalake.DeltaTable.create", side_effect=flaky_create),
+        ):
+            result = await DeltaWriter(helper).write(
+                data=batch,
+                write_type=write_type,  # type: ignore[arg-type]
+                should_overwrite_table=write_type == "full_refresh",
+                primary_keys=None,
+            )
+
+        mock_reset.assert_awaited_once()
+        assert calls["n"] == 2
+        assert set(result.to_pyarrow_table().column("id").to_pylist()) == {2, 3}
+
+
 class TestUnpartitionedTableWithPartitionKeyColumn:
     """A Delta table can carry `_ph_partition_key` in its schema while its
     partition_columns metadata is empty `[]` — e.g. the SchemaMismatchError fallback in
