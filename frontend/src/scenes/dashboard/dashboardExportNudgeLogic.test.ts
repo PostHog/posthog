@@ -47,7 +47,6 @@ describe('dashboardExportNudgeLogic', () => {
     let logic: ReturnType<typeof dashboardExportNudgeLogic.build>
     let storeLogic: ReturnType<typeof dashboardSubscribeNudgeStoreLogic.build>
 
-    /** Resolves the dashboard-scoped check and the team-wide free-tier count independently. */
     function mockSubscriptionCounts({
         dashboardCount,
         teamCount = 0,
@@ -82,7 +81,6 @@ describe('dashboardExportNudgeLogic', () => {
         window.localStorage.clear()
     })
 
-    /** Runs both halves of the check the way an export does, and reports whether it nudges. */
     async function considerNudge(dashboardId: number = DASHBOARD_ID): Promise<boolean> {
         const candidate = await resolveExportNudgeEligibility(dashboardId)
         return !!candidate && claimExportNudge(candidate.dashboardId)

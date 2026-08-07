@@ -19,24 +19,9 @@ export function onDashboardExportNudgeToastCta(dashboardId: number, toastId: str
     })
 }
 
-/**
- * Renders the nudge under whichever headline the toast is currently showing.
- *
- * `secondaryAction` is the button the toast would otherwise have put in ToastContent's slot. The
- * nudge takes it into its own row so both buttons sit on one baseline; pass it, and leave the
- * toast's `button` option unset.
- */
 export type ExportNudgeRenderer = (headline: string, secondaryAction?: ToastButton) => JSX.Element
 
-/**
- * Claims the nudge for this export and hands back a renderer for its body, so an eligible exporter
- * gets one toast rather than a second one landing on top of the first. Returns null when this
- * exporter isn't in the treatment, leaving the caller its plain message.
- *
- * Claiming happens once, here, while rendering can happen repeatedly: a single export shows the
- * nudge under "Preparing export…" and again under "Export complete!", and it must not count as two
- * nudges.
- */
+/** Claims the nudge once; the returned renderer may be called for each toast state. */
 export function claimExportNudgeMessage(
     candidate: ExportNudgeCandidate | null,
     toastId: string

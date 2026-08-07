@@ -256,13 +256,7 @@ export const lemonToast = {
             options
         )
     },
-    /**
-     * Replaces the body of a toast that is still pending, leaving its spinner and timing alone.
-     *
-     * Only safe to call while the toast really is pending. react-toastify applies updates 100ms
-     * late, so an update issued after the toast settles would land on top of its settled state and
-     * put the spinner back.
-     */
+    /** Only safe while the toast is pending: updates apply 100ms late and would overwrite a settled state. */
     updatePendingMessage(
         id: number | string,
         message: string | JSX.Element,
@@ -273,14 +267,7 @@ export const lemonToast = {
             ...toastOptions,
         } as UpdateOptions)
     },
-    /**
-     * Rewrites a toast that is already on screen into its success state.
-     *
-     * Always restates the whole success frame, because react-toastify defers every update by 100ms
-     * and, given no `render`, re-dispatches whatever content the toast held when `update` was
-     * called. Just after `promise()` settles that is still the pending spinner, so a bare update
-     * lands after the library's own success update and pins the toast at "pending" forever.
-     */
+    /** Restates the whole success frame: react-toastify defers updates 100ms and re-dispatches the pending content when given no render. */
     updateToSuccess(
         id: number | string,
         message: string | JSX.Element,
