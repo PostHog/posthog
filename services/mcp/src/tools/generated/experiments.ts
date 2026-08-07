@@ -678,18 +678,22 @@ const ExperimentMetricsRecalculationLatestRetrieveSchema = ExperimentsMetricsRec
 const experimentMetricsRecalculationLatestRetrieve = (): ToolBase<
     typeof ExperimentMetricsRecalculationLatestRetrieveSchema,
     WithPostHogUrl<Schemas.ExperimentMetricsRecalculation>
-> => ({
-    name: 'experiment-metrics-recalculation-latest-retrieve',
-    schema: ExperimentMetricsRecalculationLatestRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentMetricsRecalculationLatestRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/latest/`,
-        })
-        return await withPostHogUrl(context, result, `/experiments/${params.id}`)
-    },
-})
+> =>
+    withUiApp('experiment-results', {
+        name: 'experiment-metrics-recalculation-latest-retrieve',
+        schema: ExperimentMetricsRecalculationLatestRetrieveSchema,
+        handler: async (
+            context: Context,
+            params: z.infer<typeof ExperimentMetricsRecalculationLatestRetrieveSchema>
+        ) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/latest/`,
+            })
+            return await withPostHogUrl(context, result, `/experiments/${params.id}`)
+        },
+    })
 
 const ExperimentMetricsRecalculationRetrieveSchema = ExperimentsMetricsRecalculationRetrieveParams.omit({
     project_id: true,
@@ -959,23 +963,22 @@ const ExperimentTimeseriesResultsSchema = ExperimentsTimeseriesResultsRetrievePa
     .extend(ExperimentsTimeseriesResultsRetrieveQueryParams.shape)
     .extend({ id: z.preprocess(castStringToInt, ExperimentsTimeseriesResultsRetrieveParams.shape['id']) })
 
-const experimentTimeseriesResults = (): ToolBase<typeof ExperimentTimeseriesResultsSchema, unknown> =>
-    withUiApp('experiment-results', {
-        name: 'experiment-timeseries-results',
-        schema: ExperimentTimeseriesResultsSchema,
-        handler: async (context: Context, params: z.infer<typeof ExperimentTimeseriesResultsSchema>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<unknown>({
-                method: 'GET',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/timeseries_results/`,
-                query: {
-                    fingerprint: params.fingerprint,
-                    metric_uuid: params.metric_uuid,
-                },
-            })
-            return result
-        },
-    })
+const experimentTimeseriesResults = (): ToolBase<typeof ExperimentTimeseriesResultsSchema, unknown> => ({
+    name: 'experiment-timeseries-results',
+    schema: ExperimentTimeseriesResultsSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentTimeseriesResultsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/timeseries_results/`,
+            query: {
+                fingerprint: params.fingerprint,
+                metric_uuid: params.metric_uuid,
+            },
+        })
+        return result
+    },
+})
 
 const ExperimentUnarchiveSchema = ExperimentsUnarchiveCreateParams.omit({ project_id: true }).extend({
     id: z.preprocess(castStringToInt, ExperimentsUnarchiveCreateParams.shape['id']),

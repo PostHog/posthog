@@ -722,6 +722,7 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+        ui_app: experiment-results
     experiment-metrics-recalculation-retrieve:
         operation: experiments_metrics_recalculation_retrieve
         enabled: true
@@ -1063,7 +1064,6 @@ tools:
         param_overrides:
             id:
                 cast: string-int
-        ui_app: experiment-results
     experiment-unarchive:
         operation: experiments_unarchive_create
         enabled: true
