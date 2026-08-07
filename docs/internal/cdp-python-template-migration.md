@@ -29,7 +29,7 @@ place to add a template.
 
 Both sides feed the same Postgres table. Neither serves templates at request time.
 
-```
+```text
 posthog/cdp/templates/**/template_*.py   nodejs/src/cdp/templates/**/*.template.ts
    (52 HogFunctionTemplateDC)                    (57 HogFunctionTemplate)
               │                                             │
@@ -106,7 +106,7 @@ Land these before porting anything.
 `HogFunctionMappingTemplateSerializer` declares those fields `required=False, allow_null=True`, so the two
 paths produce different `validated_data` and therefore different `sha` for the same logical template:
 
-```
+```text
 python(asdict) -> {'name': 'Order Completed', 'include_by_default': True, 'use_all_events_by_default': None,
                    'filters': {...}, 'inputs': None, 'inputs_schema': [...]}
 node(json)     -> {'name': 'Order Completed', 'include_by_default': True,
