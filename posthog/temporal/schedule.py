@@ -91,6 +91,7 @@ from products.error_tracking.backend.facade.temporal import (
     RecommendationsRefreshInputs,
     create_error_tracking_spike_event_cleanup_schedule,
     create_error_tracking_symbol_set_cleanup_schedule,
+    create_error_tracking_weekly_digest_schedule,
 )
 from products.experiments.backend.temporal.schedule import create_experiment_precompute_canary_schedule
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
@@ -862,6 +863,7 @@ schedules = [
     create_business_knowledge_refresh_coordinator_schedule,
     create_error_tracking_symbol_set_cleanup_schedule,
     create_error_tracking_spike_event_cleanup_schedule,
+    create_error_tracking_weekly_digest_schedule,
     create_wa_weekly_digest_schedule,
     create_wa_digest_notification_schedule,
     create_logs_alert_check_schedule,

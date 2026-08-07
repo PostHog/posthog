@@ -17,7 +17,7 @@ import posthog from 'posthog-js'
 
 import {
     appendExceptionToMessage,
-    captureSupportTicketFailed,
+    captureSupportTicketBlocked,
     captureSupportWidgetLoadFailed,
     SUPPORT_WIDGET_UNAVAILABLE_MESSAGE,
     supportLogic,
@@ -563,7 +563,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             // Bailing quietly here left the button un-loaded and the typed message sitting in the box
             // with no explanation, which is the worst version of this now conversations is the only channel
             if (!posthog.conversations) {
-                captureSupportTicketFailed({
+                captureSupportTicketBlocked({
                     surface: 'side_panel_composer',
                     reason: 'widget_unavailable',
                     message: content,
@@ -573,7 +573,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 return
             }
             if (warnIfMessageTooLong(content)) {
-                captureSupportTicketFailed({
+                captureSupportTicketBlocked({
                     surface: 'side_panel_composer',
                     reason: 'message_too_long',
                     message: content,
@@ -607,10 +607,10 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     onSuccess()
                 } else {
                     // A null response means nothing was sent, so surface it instead of silently
-                    // resetting. The widget endpoint reports its own rejections under the same event
-                    // name, but it can't see a send the extension declined to make — and only the
-                    // client still holds the draft, which is the part a responder needs.
-                    captureSupportTicketFailed({
+                    // resetting. The widget endpoint reports the rejections it sees itself, but it
+                    // can't see a send the extension declined to make — and only the client still
+                    // holds the draft, which is the part a responder needs.
+                    captureSupportTicketBlocked({
                         surface: 'side_panel_composer',
                         reason: 'widget_declined',
                         message: content,
@@ -622,7 +622,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 }
             } catch (e) {
                 console.error('Failed to send message:', e)
-                captureSupportTicketFailed({
+                captureSupportTicketBlocked({
                     surface: 'side_panel_composer',
                     reason: 'send_failed',
                     message: content,
@@ -668,7 +668,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 // before any composer is on screen, so nothing has been typed yet. Every CTA that
                 // reaches here passes no message either. What's lost is the customer's intent to
                 // reach us, which is what the event records.
-                captureSupportTicketFailed({
+                captureSupportTicketBlocked({
                     surface: 'support_form',
                     reason: 'not_entitled',
                     kind: values.sendSupportRequest?.kind,
