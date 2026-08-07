@@ -91,7 +91,7 @@ export interface ExecCommandMeta {
     exec_verb: string
     /** The raw search query. Already bounded to MAX_SEARCH_PATTERN_LENGTH by the handler. */
     exec_search_query?: string
-    /** How many tools matched — 0 is the interesting case. */
+    /** How many tools matched, before the response is truncated — 0 is the interesting case. */
     exec_search_match_count?: number
     /** How many of those matches came from a connected third-party server. */
     exec_search_gateway_match_count?: number
@@ -682,12 +682,17 @@ export function createExecTool(
                     // predicate; plain words — including multi-word, natural-
                     // language queries — use forgiving token ranking.
                     const searchableTools = await resolveTools()
+                    // `matches` is the page the agent sees; `matchedNames` is every match,
+                    // which is what the counts report — a truncated page would make a broad
+                    // query look as narrow as a precise one.
+                    let matchedNames: string[]
                     let matches: string[]
                     let gatedMatches: ScopeGatedTool[]
                     let truncatedFrom = 0
                     if (isRegexPattern(rest)) {
                         try {
-                            matches = searchToolsRegex(searchableTools, rest).map((t) => t.name)
+                            matchedNames = searchToolsRegex(searchableTools, rest).map((t) => t.name)
+                            matches = matchedNames
                             gatedMatches = searchToolsRegex(scopeGatedTools, rest)
                         } catch {
                             throw new ExecCommandError(`Invalid regex pattern: "${rest}"`, 'invalid_regex')
@@ -695,7 +700,8 @@ export function createExecTool(
                     } else {
                         const ranked = searchToolsRanked(searchableTools, rest)
                         truncatedFrom = ranked.length > MAX_RANKED_SEARCH_RESULTS ? ranked.length : 0
-                        matches = ranked.slice(0, MAX_RANKED_SEARCH_RESULTS).map((r) => r.name)
+                        matchedNames = ranked.map((r) => r.name)
+                        matches = matchedNames.slice(0, MAX_RANKED_SEARCH_RESULTS)
                         // Preserve ranked order for gated matches too, then map
                         // each name back to its ScopeGatedTool (for missingScopes).
                         const gatedByName = new Map(scopeGatedTools.map((t) => [t.name, t]))
@@ -707,8 +713,8 @@ export function createExecTool(
                     options.trackCommand?.({
                         exec_verb: verb,
                         exec_search_query: rest,
-                        exec_search_match_count: matches.length,
-                        exec_search_gateway_match_count: matches.filter(isGatewayToolName).length,
+                        exec_search_match_count: matchedNames.length,
+                        exec_search_gateway_match_count: matchedNames.filter(isGatewayToolName).length,
                     })
 
                     if (gatedMatches.length > 0) {

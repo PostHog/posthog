@@ -207,9 +207,12 @@ describe('gateway tools', () => {
     })
 
     describe('command tracking', () => {
-        function createTrackedExec(): { exec: Tool<any>; tracked: ExecCommandMeta[] } {
+        function createTrackedExec(gatewayPayload: Schemas.AvailableToolsResponse = payload()): {
+            exec: Tool<any>
+            tracked: ExecCommandMeta[]
+        } {
             const tracked: ExecCommandMeta[] = []
-            const gatewayTools = buildGatewayTools(payload(), mockContext(), '1')
+            const gatewayTools = buildGatewayTools(gatewayPayload, mockContext(), '1')
             const exec = createExecTool(
                 [posthogTool()],
                 mockContext(),
@@ -243,6 +246,40 @@ describe('gateway tools', () => {
                 exec_search_query: query,
                 exec_search_match_count: matchCount,
                 exec_search_gateway_match_count: gatewayMatchCount,
+            })
+        })
+
+        it('counts every match, not just the page a truncated search returns', async () => {
+            // A ranked search returns only its top page, so counting what was returned
+            // would make a query matching far more tools look as narrow as one that
+            // matched exactly a page — flattening the demand signal this exists to measure.
+            const manyTools = {
+                servers: [
+                    {
+                        installation_id: 'inst-1',
+                        name: 'Linear',
+                        slug: 'linear',
+                        tools: Array.from({ length: 30 }, (_, i) => ({
+                            name: `issue_action_${i}`,
+                            description: 'Act on an issue',
+                            input_schema: INPUT_SCHEMA,
+                            annotations: {},
+                            approval_state: 'approved',
+                        })),
+                    },
+                ],
+            } as Schemas.AvailableToolsResponse
+            const { exec, tracked } = createTrackedExec(manyTools)
+
+            const result = JSON.parse((await exec.handler(mockContext(), { command: 'search issue' })) as string)
+
+            expect(result.truncated).toBe(true)
+            expect(result.matches.length).toBeLessThan(30)
+            expect(tracked.at(-1)).toEqual({
+                exec_verb: 'search',
+                exec_search_query: 'issue',
+                exec_search_match_count: 30,
+                exec_search_gateway_match_count: 30,
             })
         })
 
