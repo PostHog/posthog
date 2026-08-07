@@ -2,18 +2,31 @@ import { getImageMimeType, isAllowedImageMimeType } from "@posthog/shared";
 import { applyCspToHtml } from "../../mcp-apps/utils/mcp-app-csp";
 import { injectArtifactHtmlCommentBridge } from "./artifactHtmlCommentBridge";
 
+function removeAutomaticRedirects(html: string): string {
+  const document = new DOMParser().parseFromString(html, "text/html");
+  const refreshElements = Array.from(
+    document.querySelectorAll<HTMLMetaElement>("meta[http-equiv]"),
+  ).filter((element) => element.httpEquiv.trim().toLowerCase() === "refresh");
+  if (refreshElements.length === 0) return html;
+
+  for (const element of refreshElements) element.remove();
+  const doctype = html.match(/^\s*<!doctype[^>]*>/i)?.[0] ?? "";
+  return doctype + document.documentElement.outerHTML;
+}
+
 export function artifactHtmlDocument(
   html: string,
   commentBridgeChannel?: string,
 ): string {
   // HTML artifacts are document previews, not apps. Canvases are the supported
   // surface for authored JavaScript; only this trusted annotation bridge runs here.
+  const safeHtml = removeAutomaticRedirects(html);
   if (!commentBridgeChannel) {
-    return applyCspToHtml(html, undefined, null);
+    return applyCspToHtml(safeHtml, undefined, null);
   }
   const nonce = crypto.randomUUID();
   return applyCspToHtml(
-    injectArtifactHtmlCommentBridge(html, commentBridgeChannel, nonce),
+    injectArtifactHtmlCommentBridge(safeHtml, commentBridgeChannel, nonce),
     undefined,
     nonce,
   );

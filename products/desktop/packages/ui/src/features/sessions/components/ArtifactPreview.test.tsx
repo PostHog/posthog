@@ -764,4 +764,18 @@ describe("ArtifactPreview", () => {
       "script-src &#39;self&#39; &#39;unsafe-inline&#39;",
     );
   });
+
+  it.each([
+    '<meta http-equiv="refresh" content="0;url=https://example.com">',
+    '<META content="5; https://example.com" HTTP-EQUIV=" Refresh ">',
+  ])("removes automatic redirects from HTML artifacts", (refreshElement) => {
+    const document = artifactHtmlDocument(
+      `<!doctype html><html><head>${refreshElement}<title>Report</title></head><body><a href="https://example.com">Open report</a></body></html>`,
+      "test-channel",
+    );
+
+    expect(document.toLowerCase()).not.toContain('http-equiv="refresh"');
+    expect(document).toContain('<a href="https://example.com">Open report</a>');
+    expect(document).toContain("__POSTHOG_ARTIFACT_COMMENT_BRIDGE__");
+  });
 });
