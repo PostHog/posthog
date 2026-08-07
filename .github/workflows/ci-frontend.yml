@@ -700,10 +700,10 @@ jobs:
     jest:
         runs-on: ubuntu-latest
         # Draft PRs run the selective mode as a single unsharded job over every
-        # test reachable from the changed files. A PR touching shared components
-        # can pull in enough suites to exceed 20 minutes. The ready-for-review
-        # fanout shards the same tests well below this limit.
-        timeout-minutes: 30
+        # test reachable from the changed files. A PR touching a scene component
+        # can pull in ~700 suites, which does not fit in 15 minutes. 20 covers it;
+        # the ready-for-review fanout shards well below either limit.
+        timeout-minutes: 20
         needs: [changes, select-jest-tests]
         # A status function is required because select-jest-tests is skipped on ready
         # PRs and master pushes, and a skipped need would otherwise cascade a skip here.
