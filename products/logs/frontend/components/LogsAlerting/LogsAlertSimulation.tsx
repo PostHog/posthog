@@ -22,8 +22,6 @@ const SIMULATION_RANGE_OPTIONS = [
     { value: '-7d', label: 'Last 7 days' },
 ]
 
-/** The extra bucket detail the tooltip shows below the count — simulated alert state and whether a
- *  notification would have gone out. */
 function BucketTooltipDetails({ bucket }: { bucket: LogsAlertSimulateBucketApi | undefined }): JSX.Element | null {
     if (!bucket) {
         return null
@@ -93,11 +91,7 @@ function SimulationChart({ result }: { result: LogsAlertSimulateResponseApi }): 
                 theme={theme}
                 config={config}
                 tooltip={(ctx) => (
-                    <DefaultTooltip
-                        {...ctx}
-                        valueFormatter={(value) => value.toLocaleString()}
-                        footer={<BucketTooltipDetails bucket={result.buckets[ctx.dataIndex]} />}
-                    />
+                    <DefaultTooltip {...ctx} footer={<BucketTooltipDetails bucket={result.buckets[ctx.dataIndex]} />} />
                 )}
             />
         </div>
