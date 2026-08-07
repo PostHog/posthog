@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
     updated_at: string;
   }[],
   totals: {} as Record<string, number>,
+  unreadSessions: {} as Record<string, number>,
   channelsLayout: true,
   navigate: vi.fn(),
 }));
@@ -40,6 +41,12 @@ vi.mock("@posthog/ui/features/canvas/hooks/useDashboards", () => ({
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useUnreadChannels", () => ({
   useIsChannelUnread: () => () => false,
+}));
+// Reads the task list and the viewed timestamps, and the timestamps come over
+// tRPC — which this file renders without, like the other data hooks it stubs.
+vi.mock("@posthog/ui/features/canvas/hooks/useUnreadSessionCount", () => ({
+  useUnreadSessionCount: () => (channelId: string | undefined) =>
+    mocks.unreadSessions[channelId ?? ""] ?? 0,
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useRecentSpaceTasks", () => ({
   NO_TASKS: { items: [], total: 0 },
@@ -142,6 +149,7 @@ describe("ChannelsList", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.channels = [ME, ENG, DESIGN];
+    mocks.unreadSessions = {};
     mocks.channelsLayout = true;
     // The pane store is module state: reset to its resting value so a test that
     // slides the slider can't hand the next one a pre-focused search box.
@@ -323,24 +331,9 @@ describe("ChannelsList", () => {
       renderList();
 
       await user.click(screen.getByLabelText("Search spaces"));
-      await user.keyboard("{ArrowDown}{Enter}");
-
-      expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
-      expect(mocks.navigate).not.toHaveBeenCalled();
-    });
-
-    // Base UI resets the highlight when the pointer leaves a row, and
-    // `autoHighlight="always"` then snaps it back to the top — so drifting the
-    // mouse across the gap between two rows threw the keyboard back to #me.
-    it("keeps the highlight when the pointer leaves a row", async () => {
-      const user = userEvent.setup();
-      renderList();
-
-      await user.click(screen.getByLabelText("Search spaces"));
-      const row = screen.getByText("engineering");
-      await user.hover(row);
-      await user.unhover(row);
-      await user.keyboard("{Enter}");
+      // Nothing is highlighted until a key moves it, so the first press lands
+      // on #me and the second steps onto the space below it.
+      await user.keyboard("{ArrowDown}{ArrowDown}{Enter}");
 
       expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
       expect(mocks.navigate).not.toHaveBeenCalled();
@@ -367,8 +360,9 @@ describe("ChannelsList", () => {
       renderList();
 
       await user.click(screen.getByLabelText("Search spaces"));
-      // #me is highlighted to begin with, so one press down is "engineering".
-      await user.keyboard("{ArrowDown}{ArrowRight}");
+      // Nothing is highlighted to begin with: one press down reaches #me, two
+      // reaches "engineering".
+      await user.keyboard("{ArrowDown}{ArrowDown}{ArrowRight}");
 
       expect(screen.getByText("Ship the tree")).toBeTruthy();
       expect(screen.getByText("Write the tests")).toBeTruthy();
@@ -383,7 +377,9 @@ describe("ChannelsList", () => {
       renderList();
 
       await user.click(screen.getByLabelText("Search spaces"));
-      await user.keyboard("{ArrowDown}{ArrowRight}{ArrowDown}{ArrowDown}");
+      await user.keyboard(
+        "{ArrowDown}{ArrowDown}{ArrowRight}{ArrowDown}{ArrowDown}",
+      );
       // On the second task, two rows below its space.
       await user.keyboard("{ArrowLeft}");
 
@@ -439,7 +435,7 @@ describe("ChannelsList", () => {
       renderList();
 
       await user.click(screen.getByLabelText("Search spaces"));
-      await user.keyboard("{ArrowDown}{ArrowRight}");
+      await user.keyboard("{ArrowDown}{ArrowDown}{ArrowRight}");
       expect(screen.getByText("View all")).toBeTruthy();
 
       // Past both sessions and onto the row below them.

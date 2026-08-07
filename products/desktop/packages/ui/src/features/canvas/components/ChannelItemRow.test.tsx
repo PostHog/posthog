@@ -173,9 +173,28 @@ describe("ChannelItemRow", () => {
 
     renderRow(item());
 
-    expect(screen.getByRole("img", { name: "Cloud" })).not.toBeNull();
     expect(screen.getByRole("img", { name: "Merged" })).not.toBeNull();
     expect(screen.queryByText(formatRelativeTimeShort(item().ts))).toBeNull();
+  });
+
+  // Running in the cloud is the default, so it gets no badge of its own — and a
+  // row with nothing else to say carries no stack at all rather than a laptop
+  // that would claim the opposite of where it ran.
+  it("leaves a cloud task with nothing else to say unbadged", () => {
+    mocks.status = { workspaceMode: "cloud" };
+
+    renderRow(item());
+
+    expect(screen.queryByRole("img", { name: "Cloud" })).toBeNull();
+    expect(screen.queryByRole("img", { name: "Local" })).toBeNull();
+  });
+
+  it("marks a local task with the laptop badge", () => {
+    mocks.status = { workspaceMode: "local" };
+
+    renderRow(item());
+
+    expect(screen.getByRole("img", { name: "Local" })).not.toBeNull();
   });
 
   it("renders a canvas like a quiet task with its glyph in the badge stack", () => {
@@ -195,12 +214,12 @@ describe("ChannelItemRow", () => {
   });
 
   it("marks a pinned row with the pin badge, alongside its status badges", () => {
-    mocks.status = { workspaceMode: "cloud" };
+    mocks.status = { workspaceMode: "cloud", prState: "merged" };
 
     renderRow(item({ pinned: true }));
 
     expect(screen.getByRole("img", { name: "Pinned" })).not.toBeNull();
-    expect(screen.getByRole("img", { name: "Cloud" })).not.toBeNull();
+    expect(screen.getByRole("img", { name: "Merged" })).not.toBeNull();
   });
 
   it("leaves an unpinned row without one", () => {

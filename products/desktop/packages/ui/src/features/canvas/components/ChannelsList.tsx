@@ -3,10 +3,8 @@ import {
   CaretDownIcon,
   CaretRightIcon,
   ChartBarIcon,
-  CubeFocusIcon,
   DotsThreeIcon,
   FileTextIcon,
-  HashIcon,
   LinkIcon,
   PencilSimpleIcon,
   PlusIcon,
@@ -81,6 +79,7 @@ import {
 import { useStarredChannelSlots } from "@posthog/ui/features/canvas/hooks/useStarredChannelSlots";
 import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useIsChannelUnread } from "@posthog/ui/features/canvas/hooks/useUnreadChannels";
+import { useUnreadSessionCount } from "@posthog/ui/features/canvas/hooks/useUnreadSessionCount";
 import {
   keepListForNextRoute,
   showChannelPane,
@@ -156,7 +155,7 @@ function SpaceRowSurface({
         size="default"
         left
         className={cn(
-          "w-full min-w-0 justify-start gap-2 data-selected:bg-fill-selected data-selected:text-foreground",
+          "w-full min-w-0 justify-start gap-2 data-selected:text-foreground",
           className,
         )}
         {...rest}
@@ -169,7 +168,7 @@ function SpaceRowSurface({
     <AutocompleteItem
       value={optionValue}
       className={cn(
-        "w-full min-w-0 pr-1 data-selected:bg-fill-selected data-selected:text-foreground",
+        "w-full min-w-0 pr-1 data-selected:text-foreground",
         // quill wraps an option's children in its own flex row; widening it is
         // what keeps the shortcut hint at the row's right edge and lets the
         // name truncate, exactly as they do in the button above. Its `truncate`
@@ -258,6 +257,36 @@ function moveHighlight(
 }
 
 /**
+ * There are sessions in this space that want something from you. Sits after the
+ * name, and is the same 8px yellow the session rows' own dots are: it stands for
+ * those rows, so it has to look like one of them rather than a badge about them.
+ *
+ * One dot however many sessions, because the row's job here is to say "there is
+ * something in here", and a count you can't act on without opening the space is
+ * a number for its own sake. Nothing at all when the space is quiet — the only
+ * mark on the row allowed to be absent, which is what makes it worth a glance.
+ */
+function SpaceAttentionDot({
+  count,
+  className,
+}: {
+  count: number;
+  /** The row's hover margin, when the dot is what ends its content. */
+  className?: string;
+}) {
+  if (count === 0) return null;
+  return (
+    <span
+      // The dot is one mark whatever the number, but the number is still the
+      // useful fact for anyone who can't see it.
+      aria-label={`${count} ${count === 1 ? "session" : "sessions"} waiting`}
+      role="img"
+      className={cn("size-2 shrink-0 rounded-full bg-primary", className)}
+    />
+  );
+}
+
+/**
  * The tree's disclosure caret, in its own fixed slot ahead of the space glyph.
  * Always drawn: a control that only appears on hover moves the row's contents
  * as the pointer crosses the list, and leaves the tree invisible to anyone who
@@ -300,17 +329,17 @@ function SpaceDisclosure({
       }}
       className={cn(
         "relative flex size-3.5 shrink-0 items-center justify-center",
-        // Half-lit at rest, open or closed, because a column of carets down the
-        // list would out-draw the names beside it. It brightens for its own
-        // hover only, which is what says it opens the tree rather than the row's
-        // space.
+        // Barely lit while closed, because a column of carets down the list
+        // would out-draw the names beside it. Open, it comes up to full: it is
+        // the only thing saying this space is the one the rows below belong to.
         //
         // Forced, and aimed at the glyph's descendants, because quill repaints
         // a highlighted option's contents (see `ROW_LABEL_TONE`) and that rule's
         // `*` reaches the icon's `<path>`, which is what `fill: currentColor`
         // resolves against, so a colour on this span or on the `<svg>` still
         // leaves the mark drawn in the row's colour.
-        "**:text-muted-foreground/50! hover:**:text-foreground!",
+        expanded ? "**:text-foreground!" : "**:text-muted-foreground/30!",
+        "hover:**:text-foreground!",
         // A 24px hit target on a 14px mark, hung off the caret's left so it
         // reaches the row's edge and stops before the name. Absolute rather than
         // padding, so the caret keeps its slot and nothing in the row moves.
@@ -776,6 +805,7 @@ const ChannelSection = memo(
   function ChannelSection({
     channel,
     isUnread,
+    unreadSessions = 0,
     hotkeySlot,
     expanded = false,
     tasks,
@@ -784,6 +814,8 @@ const ChannelSection = memo(
     channel: Channel;
     /** Bolds the name: activity here the viewer hasn't seen. */
     isUnread?: boolean;
+    /** How many sessions inside are unread. A number, so the memo can compare it. */
+    unreadSessions?: number;
     /** ⌘1-9 slot, shown as a hint while the row isn't hovered. */
     hotkeySlot?: number;
     expanded?: boolean;
@@ -809,6 +841,7 @@ const ChannelSection = memo(
     // while open.
     const [newMenuOpen, setNewMenuOpen] = useState(false);
     const { reveal, hoverProps, focusProps } = useOverflowTickerReveal();
+    const hasAttention = unreadSessions > 0;
     const prefetchSessions = usePrefetchSpaceTasks();
     const prefetchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
       undefined,
@@ -877,7 +910,7 @@ const ChannelSection = memo(
                   data-selected={(isActive && !expanded) || undefined}
                   onClick={() => openChannel(channel)}
                   {...focusProps}
-                  className={spacesLayout ? "pl-4" : undefined}
+                  className={spacesLayout ? "pl-2" : undefined}
                 >
                   {onToggleExpanded && (
                     <SpaceDisclosure
@@ -892,19 +925,27 @@ const ChannelSection = memo(
                     className={cn(
                       "text-[13px]",
                       // mr-11 clears the two icon-xs hover buttons pinned at
-                      // right-1. With a count beside it, that margin moves to
-                      // the count, which is the one nearer the buttons.
-                      "group-hover/chan:mr-11",
+                      // right-1. It belongs on whatever ends the row's content —
+                      // put it on the name while the dot is there and the gap
+                      // opens between them, carrying the dot off to the buttons.
+                      !hasAttention && "group-hover/chan:mr-11",
                       // Bold is unread's alone; full contrast is shared with the
                       // channel you're in. Either way there's no hover brighten
                       // left to do, so those rows skip it.
                       isUnread ? "font-bold" : "font-medium",
                       isUnread || isActive ? "text-foreground" : ROW_LABEL_TONE,
-                      menuOpen && "mr-11",
+                      menuOpen && !hasAttention && "mr-11",
                     )}
                   >
                     {channel.name}
                   </OverflowTickerText>
+                  <SpaceAttentionDot
+                    count={unreadSessions}
+                    className={cn(
+                      "group-hover/chan:mr-11",
+                      menuOpen && "mr-11",
+                    )}
+                  />
                   {/* `!mr-0` undoes quill's `.quill-button kbd { margin-right: -4px }`,
                   which is meant to let a shortcut hang into a button's own
                   padding. Here `ml-auto` takes every pixel of slack, so the
@@ -1070,6 +1111,7 @@ const ChannelSection = memo(
   (prev, next) =>
     prev.expanded === next.expanded &&
     prev.isUnread === next.isUnread &&
+    prev.unreadSessions === next.unreadSessions &&
     prev.hotkeySlot === next.hotkeySlot &&
     prev.tasks === next.tasks &&
     prev.onToggleExpanded === next.onToggleExpanded &&
@@ -1171,6 +1213,7 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
   // is fetched; `undefined` just means the list hasn't loaded it yet.
   const meChannel = channels.find((c) => c.channelType === "personal");
   const isUnread = useIsChannelUnread()(meChannel?.id);
+  const unreadSessions = useUnreadSessionCount()(meChannel?.id);
   const createAndOpenCanvas = useCreateAndOpenDashboard(meChannel?.id);
   const isActive =
     !!meChannel &&
@@ -1230,7 +1273,7 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
           onClick={openPersonalChannel}
           // "me" is a starred space among the others now, so it takes the same
           // inset rather than sitting out at the heading's margin.
-          className={spacesLayout ? "pl-4" : undefined}
+          className={spacesLayout ? "pl-2" : undefined}
         >
           {onToggleExpanded && meChannel && (
             <SpaceDisclosure
@@ -1249,6 +1292,7 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
           >
             {PERSONAL_CHANNEL_NAME}
           </span>
+          <SpaceAttentionDot count={unreadSessions} />
           {hotkeySlot != null && (
             <Kbd className="!mr-0 ml-auto shrink-0 opacity-50 group-hover/chan:opacity-0">
               {formatHotkey(`mod+${hotkeySlot}`)}
@@ -1322,16 +1366,15 @@ const CHANNELS_SECTION_ID = "channels:all";
 // the label styling) and animates the panel height (which janked on a list this
 // long). Unstyled parts give a plain label row that snaps.
 //
-// The whole header row is the trigger. Its section glyph swaps to a down/right
-// disclosure caret on hover or keyboard focus while keeping Starred and Spaces
-// distinct at rest.
+// The whole header row is the trigger, and the label is all of it: the headings
+// are two, named, and always in the same order, so a glyph beside each was
+// decoration rather than a way of telling them apart.
 function ChannelGroup({
   sectionId,
   label,
   className,
   flat,
   keepMounted = true,
-  icon,
   children,
 }: {
   sectionId: string;
@@ -1345,7 +1388,6 @@ function ChannelGroup({
    * rebuild on expand is better than highlighting a row nobody can see.
    */
   keepMounted?: boolean;
-  icon: ReactNode;
   children: ReactNode;
 }) {
   const collapsedSections = useSidebarStore((s) => s.collapsedSections);
@@ -1369,22 +1411,6 @@ function ChannelGroup({
         className="group/group-trigger flex w-full items-center gap-2"
         render={<MenuLabel render={<button type="button" />} />}
       >
-        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-          <span className="group-hover/group-trigger:hidden group-focus-visible/group-trigger:hidden">
-            {icon}
-          </span>
-          {isOpen ? (
-            <CaretDownIcon
-              size={14}
-              className="hidden group-hover/group-trigger:block group-focus-visible/group-trigger:block"
-            />
-          ) : (
-            <CaretRightIcon
-              size={14}
-              className="hidden group-hover/group-trigger:block group-focus-visible/group-trigger:block"
-            />
-          )}
-        </span>
         {label}
       </Collapsible.Trigger>
       {/* Stay mounted while collapsed. Every row builds a context menu, a
@@ -1415,6 +1441,7 @@ export function ChannelsList() {
   const channelsLayout = useChannelsLayout();
 
   const isUnread = useIsChannelUnread();
+  const unreadSessions = useUnreadSessionCount();
 
   const [query, setQuery] = useState("");
   const normalizedQuery = channelsLayout ? query.trim().toLowerCase() : "";
@@ -1615,6 +1642,7 @@ export function ChannelsList() {
           key={channel.id}
           channel={channel}
           isUnread={isUnread(channel.id)}
+          unreadSessions={unreadSessions(channel.id)}
         />
       ))}
       {noMatches && (
@@ -1633,7 +1661,6 @@ export function ChannelsList() {
         label="Starred"
         flat={channelsLayout}
         keepMounted={!channelsLayout}
-        icon={<StarIcon size={14} />}
       >
         <PersonalChannelRow
           hotkeySlot={channelsLayout && me ? slotFor(me) : undefined}
@@ -1646,6 +1673,7 @@ export function ChannelsList() {
             key={channel.id}
             channel={channel}
             isUnread={isUnread(channel.id)}
+            unreadSessions={unreadSessions(channel.id)}
             hotkeySlot={channelsLayout ? slotFor(channel) : undefined}
             expanded={isExpanded(channel.id)}
             tasks={tasksOf(channel.id)}
@@ -1659,9 +1687,6 @@ export function ChannelsList() {
         label={channelsLayout ? "Spaces" : "Channels"}
         flat={channelsLayout}
         keepMounted={!channelsLayout}
-        icon={
-          channelsLayout ? <CubeFocusIcon size={14} /> : <HashIcon size={14} />
-        }
       >
         {!isLoading && channels.length === 0 && (
           <Empty className="px-2 py-1 text-subtle-foreground text-xs">
@@ -1675,6 +1700,7 @@ export function ChannelsList() {
             key={channel.id}
             channel={channel}
             isUnread={isUnread(channel.id)}
+            unreadSessions={unreadSessions(channel.id)}
             expanded={isExpanded(channel.id)}
             tasks={tasksOf(channel.id)}
             onToggleExpanded={toggleSpace}
@@ -1707,7 +1733,7 @@ export function ChannelsList() {
             placeholder="Search spaces…"
             aria-label="Search spaces"
             showSearchIcon={false}
-            className="h-7 text-[13px]"
+            className="h-7 text-[13px] hover:bg-fill-hover"
             onKeyDown={(event) => {
               onTreeKeyDown(event);
               // Base UI's clear is a tabIndex=-1 decoration, so Escape is the
@@ -1724,7 +1750,7 @@ export function ChannelsList() {
                 It gives way to the clear button once there's a query — by then
                 you are in the box and clearing is the useful action. */}
             {query === "" ? (
-              <Kbd className="!mr-0 shrink-0 opacity-50">
+              <Kbd className="-mr-0.5 shrink-0">
                 {formatHotkey(SHORTCUTS.FOCUS_SPACE_SEARCH)}
               </Kbd>
             ) : (
@@ -1773,11 +1799,6 @@ export function ChannelsList() {
             items={optionValues}
             filter={null}
             value={query}
-            autoHighlight="always"
-            // Without this the highlight resets on pointer-leave, and "always"
-            // then snaps it back to the first row — so drifting the mouse across
-            // the gap between two rows threw the keyboard back to the top.
-            keepHighlight
             // ArrowRight / ArrowLeft act on the row the keyboard is on, and this
             // is the only way to know which one that is.
             onItemHighlighted={(value, eventDetails) => {
