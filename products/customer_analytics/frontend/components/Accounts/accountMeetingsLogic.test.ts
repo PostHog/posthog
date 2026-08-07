@@ -64,6 +64,23 @@ describe('accountMeetingsLogic', () => {
         expect(posthog.captureException).toHaveBeenCalledTimes(1)
     })
 
+    it('filters meetings by title or attendee, case-insensitively', async () => {
+        const meetings = [
+            { id: 'm-1', title: 'Quarterly review', participants: [{ email: 'jane@acme.com', display_name: 'Jane' }] },
+            { id: 'm-2', title: 'Kickoff', participants: [{ email: 'bob@other.com', display_name: 'Bob' }] },
+        ] as unknown as MeetingApi[]
+        mockList.mockResolvedValue(meetings)
+
+        await mount()
+
+        logic.actions.setSearchTerm('JANE')
+        expect(logic.values.filteredMeetings.map((m) => m.id)).toEqual(['m-1'])
+        logic.actions.setSearchTerm('kickoff')
+        expect(logic.values.filteredMeetings.map((m) => m.id)).toEqual(['m-2'])
+        logic.actions.setSearchTerm('')
+        expect(logic.values.filteredMeetings).toHaveLength(2)
+    })
+
     it('saves normalized matching values without clobbering other account properties', async () => {
         mockList.mockResolvedValue([])
         mockRetrieve.mockResolvedValue({

@@ -390,11 +390,14 @@ class MeetingParticipantSerializer(DataclassSerializer):
         help_text="The attendee's RSVP: 'needs_action', 'accepted', 'declined', or 'tentative'.",
     )
     is_organizer = serializers.BooleanField(read_only=True, help_text="Whether this attendee organized the meeting.")
+    person_id = serializers.UUIDField(
+        read_only=True, allow_null=True, help_text="UUID of the PostHog person resolved for this attendee, if any."
+    )
 
     class Meta:
         dataclass = MeetingParticipantView
         ref_name = "MeetingParticipant"
-        fields = ["email", "display_name", "response_status", "is_organizer"]
+        fields = ["email", "display_name", "response_status", "is_organizer", "person_id"]
 
 
 class MeetingSerializer(DataclassSerializer):

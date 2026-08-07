@@ -2690,5 +2690,13 @@ class TestAccountMeetingViewSet(APIBaseTest):
         self.assertEqual([m["id"] for m in data], [str(newer.id), str(older.id)])
         self.assertEqual(
             data[0]["participants"],
-            [{"email": "jane@acme.com", "display_name": "", "response_status": "accepted", "is_organizer": False}],
+            [
+                {
+                    "email": "jane@acme.com",
+                    "display_name": "",
+                    "response_status": "accepted",
+                    "is_organizer": False,
+                    "person_id": None,
+                }
+            ],
         )
