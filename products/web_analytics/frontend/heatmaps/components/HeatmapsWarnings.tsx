@@ -6,14 +6,17 @@ import { LemonBanner } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+// The setting only governs $heatmap capture, so it being off doesn't mean the view is empty:
+// autocapture clickmaps and the SDK enable_heatmaps override both put data on screen without it.
+// Warn only when collection is off and this view genuinely came back with nothing to show.
+export function shouldWarnHeatmapsOff(heatmapsOptIn: boolean | undefined, viewHasData: boolean | undefined): boolean {
+    return !heatmapsOptIn && !viewHasData
+}
+
 export function HeatmapsWarnings({ viewHasData }: { viewHasData?: boolean }): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
-    const heatmapsEnabled = !!currentTeam?.heatmaps_opt_in
 
-    // The setting only governs $heatmap capture, so it being off doesn't mean the view is empty:
-    // autocapture clickmaps and the SDK enable_heatmaps override both put data on screen without it.
-    // Warn only when collection is off and this view genuinely came back with nothing to show.
-    if (heatmapsEnabled || viewHasData) {
+    if (!shouldWarnHeatmapsOff(currentTeam?.heatmaps_opt_in, viewHasData)) {
         return null
     }
 
