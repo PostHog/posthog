@@ -83,11 +83,7 @@ async def aget_s3_client(*, fresh_instance: bool = False, endpoint_url: Optional
         # __aexit__ closes everything it opened either way (see s3fs's own close_session, which does
         # the same). Never close the shared cached instance — other callers hold references to it.
         with contextlib.suppress(Exception):
-            s3creator = getattr(s3, "_s3creator", None)
-            if s3creator is not None:
-                await s3creator.__aexit__(None, None, None)
-            elif s3._s3 is not None:
-                await s3._s3.close()
+            await s3._s3creator.__aexit__(None, None, None)
 
 
 def get_size_of_folder(path: str) -> float:
