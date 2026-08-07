@@ -10,6 +10,7 @@ import {
   TableRow,
   Text,
 } from "@posthog/quill";
+import { ArtifactRefChip } from "@posthog/ui/features/editor/components/ArtifactRefChip";
 import {
   parseOpenFence,
   splitMarkdownBlocks,
@@ -22,6 +23,7 @@ import {
 } from "@posthog/ui/features/sessions/components/session-update/fileLinkChips";
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
+import { parseArtifactLink } from "@posthog/ui/utils/artifactLinks";
 import { IconButton } from "@radix-ui/themes";
 import { memo, type ReactNode, useMemo } from "react";
 import Markdown, { type Components } from "react-markdown";
@@ -66,16 +68,25 @@ const components: Components = {
   p: ({ children }) => (
     <Text className="text-sm leading-[1.5]">{children}</Text>
   ),
-  a: ({ children, href }) => (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      className="text-primary underline underline-offset-2"
-    >
-      {children}
-    </a>
-  ),
+  a: ({ children, href }) => {
+    const link = (
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        className="text-primary underline underline-offset-2"
+      >
+        {children}
+      </a>
+    );
+    const artifactTarget = parseArtifactLink(href);
+    if (!artifactTarget || !href) return link;
+    return (
+      <ArtifactRefChip target={artifactTarget} href={href} fallback={link}>
+        {children}
+      </ArtifactRefChip>
+    );
+  },
   img: ({ alt }) => (
     <Text className="text-muted-foreground text-sm">
       Remote image blocked{alt ? `: ${alt}` : ""}
