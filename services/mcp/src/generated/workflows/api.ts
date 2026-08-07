@@ -121,7 +121,15 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                         actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                                         events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                                         data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                                        properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                        properties: zod
+                                            .union([
+                                                zod.array(zod.record(zod.string(), zod.unknown())),
+                                                zod.object({
+                                                    type: zod.enum(['AND', 'OR']),
+                                                    values: zod.array(zod.record(zod.string(), zod.unknown())),
+                                                }),
+                                            ])
+                                            .optional(),
                                         bytecode: zod.unknown().optional(),
                                         transpiled: zod.unknown().optional(),
                                         filter_test_accounts: zod.boolean().optional(),
@@ -225,7 +233,15 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                 actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                                 events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                                 data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                                properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                properties: zod
+                                    .union([
+                                        zod.array(zod.record(zod.string(), zod.unknown())),
+                                        zod.object({
+                                            type: zod.enum(['AND', 'OR']),
+                                            values: zod.array(zod.record(zod.string(), zod.unknown())),
+                                        }),
+                                    ])
+                                    .optional(),
                                 bytecode: zod.unknown().optional(),
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
@@ -292,7 +308,15 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                                             .array(zod.record(zod.string(), zod.unknown()))
                                                             .optional(),
                                                         properties: zod
-                                                            .array(zod.record(zod.string(), zod.unknown()))
+                                                            .union([
+                                                                zod.array(zod.record(zod.string(), zod.unknown())),
+                                                                zod.object({
+                                                                    type: zod.enum(['AND', 'OR']),
+                                                                    values: zod.array(
+                                                                        zod.record(zod.string(), zod.unknown())
+                                                                    ),
+                                                                }),
+                                                            ])
                                                             .optional(),
                                                         bytecode: zod.unknown().optional(),
                                                         transpiled: zod.unknown().optional(),
@@ -340,7 +364,15 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                                                 .array(zod.record(zod.string(), zod.unknown()))
                                                                 .optional(),
                                                             properties: zod
-                                                                .array(zod.record(zod.string(), zod.unknown()))
+                                                                .union([
+                                                                    zod.array(zod.record(zod.string(), zod.unknown())),
+                                                                    zod.object({
+                                                                        type: zod.enum(['AND', 'OR']),
+                                                                        values: zod.array(
+                                                                            zod.record(zod.string(), zod.unknown())
+                                                                        ),
+                                                                    }),
+                                                                ])
                                                                 .optional(),
                                                             bytecode: zod.unknown().optional(),
                                                             transpiled: zod.unknown().optional(),
@@ -480,7 +512,15 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                                         actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                                         events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                                         data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                                        properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                        properties: zod
+                                            .union([
+                                                zod.array(zod.record(zod.string(), zod.unknown())),
+                                                zod.object({
+                                                    type: zod.enum(['AND', 'OR']),
+                                                    values: zod.array(zod.record(zod.string(), zod.unknown())),
+                                                }),
+                                            ])
+                                            .optional(),
                                         bytecode: zod.unknown().optional(),
                                         transpiled: zod.unknown().optional(),
                                         filter_test_accounts: zod.boolean().optional(),
