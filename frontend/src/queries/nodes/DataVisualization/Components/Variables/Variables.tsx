@@ -9,6 +9,7 @@ import {
     LemonDivider,
     LemonInput,
     LemonSegmentedButton,
+    LemonSelect,
     LemonSwitch,
     Popover,
     lemonToast,
@@ -29,6 +30,7 @@ import { DateField, ListVariableSelect } from './VariableFields'
 import { variableModalLogic } from './variableModalLogic'
 import { variablesLogic } from './variablesLogic'
 import { formatRelativeDateValue, getListVariableSelectedValues, isRelativeDateValue } from './variableUtils'
+import { getStaticVariableOptions } from './variableValuesLogic'
 
 const getVariableDisplayValue = (variable: Variable): string => {
     const value = variable.value ?? variable.default_value
@@ -401,13 +403,27 @@ export const VariableComponent = ({
                         onChange={onChange}
                         size={size}
                     />
-                ) : (
+                ) : variable.values_query != null ? (
+                    // Query-backed single-select: keep the searchable combobox so options can load and be filtered
                     <ListVariableSelect
                         variable={variable}
                         disabledReason={disabledReason}
                         selectedValues={variable.isNull ? [] : getListVariableSelectedValues(variable)}
                         onChange={(value) => onChange(variable.id, value, value === '')}
                         size={size}
+                    />
+                ) : (
+                    // Static single-select: a dropdown button, not an editable combobox
+                    <LemonSelect
+                        disabledReason={disabledReason || undefined}
+                        value={variable.isNull ? null : (getListVariableSelectedValues(variable)[0] ?? null)}
+                        onChange={(value) => onChange(variable.id, value, !value)}
+                        options={getStaticVariableOptions(variable).map((option) => ({
+                            label: option.label,
+                            value: option.value,
+                        }))}
+                        size={size}
+                        allowClear
                     />
                 )}
             </LemonField.Pure>
