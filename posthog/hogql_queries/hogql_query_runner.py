@@ -188,3 +188,9 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
         if dashboard_filter.properties:
             self.query.filters.properties = (self.query.filters.properties or []) + dashboard_filter.properties
+
+        if dashboard_filter.interval is not None:
+            self.query.filters.interval = dashboard_filter.interval
+
+        if dashboard_filter.breakdown_filter is not None:
+            self.query.filters.breakdownFilter = dashboard_filter.breakdown_filter

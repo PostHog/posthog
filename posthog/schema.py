@@ -16767,8 +16767,20 @@ class HogQLFilters(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    breakdownFilter: BreakdownFilter | None = Field(
+        default=None,
+        description=(
+            "Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown."
+        ),
+    )
     dateRange: DateRange | None = None
     filterTestAccounts: bool | None = None
+    interval: IntervalType | None = Field(
+        default=None,
+        description=(
+            "Time granularity consumed by the {filters.interval} placeholder. Set from the dashboard-level interval."
+        ),
+    )
     properties: list[AnyPropertyFilterDiscriminated] | None = None
 
 

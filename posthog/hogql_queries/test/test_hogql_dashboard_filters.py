@@ -2,7 +2,15 @@ from typing import Optional
 
 from posthog.test.base import BaseTest
 
-from posthog.schema import DashboardFilter, DateRange, EventPropertyFilter, HogQLFilters, HogQLQuery
+from posthog.schema import (
+    BreakdownFilter,
+    DashboardFilter,
+    DateRange,
+    EventPropertyFilter,
+    HogQLFilters,
+    HogQLQuery,
+    IntervalType,
+)
 
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
@@ -59,3 +67,16 @@ class TestHogQLDashboardFilters(BaseTest):
                 EventPropertyFilter(key="xyz", value="bar", operator="regex"),
             ]
         )
+
+    def test_interval_is_copied_for_the_interval_placeholder(self):
+        query_runner = self._create_hogql_runner()
+        query_runner.apply_dashboard_filters(DashboardFilter(interval=IntervalType.WEEK))
+
+        assert query_runner.query.filters == HogQLFilters(interval=IntervalType.WEEK)
+
+    def test_breakdown_filter_is_copied_for_the_breakdown_placeholder(self):
+        breakdown_filter = BreakdownFilter(breakdown="plan", breakdown_type="event")
+        query_runner = self._create_hogql_runner()
+        query_runner.apply_dashboard_filters(DashboardFilter(breakdown_filter=breakdown_filter))
+
+        assert query_runner.query.filters == HogQLFilters(breakdownFilter=breakdown_filter)

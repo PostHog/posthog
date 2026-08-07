@@ -26947,11 +26947,19 @@
             "additionalProperties": false,
             "description": "Filters object that will be converted to a HogQL {filters} placeholder",
             "properties": {
+                "breakdownFilter": {
+                    "$ref": "#/definitions/BreakdownFilter",
+                    "description": "Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown."
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
                 "filterTestAccounts": {
                     "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "Time granularity consumed by the {filters.interval} placeholder. Set from the dashboard-level interval."
                 },
                 "properties": {
                     "items": {
