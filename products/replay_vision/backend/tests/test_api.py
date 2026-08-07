@@ -1598,6 +1598,28 @@ class TestObserveAction(_VisionAPITestCase):
     def observe_url(self, scanner_id: str) -> str:
         return f"{self.scanners_url}{scanner_id}/observe/"
 
+    def test_no_scan_entrypoint_starts_without_ai_consent(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # This gate went in per-endpoint and was missed twice, on bulk_observe and then observe. Both
+        # returned 202 for a scan that never ran, because create_observation fails closed on consent
+        # once the workflow is already going. Covering all of them together is what stops a third.
+        # Plain loop, not @parameterized: class-level @patch mis-orders expanded args.
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        cases = [
+            (f"{self.scanners_url}{self.scanner.id}/observe/", {"session_id": "s1"}),
+            (f"{self.scanners_url}{self.scanner.id}/bulk_observe/", {"session_ids": ["s1"]}),
+            (f"{self.scanners_url}inline_scan/", {"session_ids": ["s1"], "prompt": "did it fail?"}),
+        ]
+        for url, body in cases:
+            resp = self.client.post(url, data=body, format="json")
+            self.assertEqual(resp.status_code, 400, f"{url}: {resp.json()}")
+        start_workflow.assert_not_called()
+
     def test_a_settled_session_returns_the_existing_observation_and_starts_nothing(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:
@@ -1921,7 +1943,7 @@ class TestBulkObserveAction(_VisionAPITestCase):
         self._in_flight("running-1")
         self._in_flight("running-2")
 
-        with patch("products.replay_vision.backend.api.scanners.MAX_IN_FLIGHT_APPLIES_PER_SCANNER", 3):
+        with patch("products.replay_vision.backend.scanning.MAX_IN_FLIGHT_APPLIES_PER_SCANNER", 3):
             resp = self.client.post(
                 self.bulk_url(str(self.scanner.id)), data={"session_ids": ["x", "y", "z"]}, format="json"
             )
@@ -2134,6 +2156,23 @@ class TestRetryActions(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 400, resp.json())
         self.assertTrue(ReplayObservation.objects.filter(id=observation.id).exists())
         start_workflow.assert_not_called()
+
+    def test_retry_reports_status_before_consent(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # Both paths 400, so only the message distinguishes them. A succeeded observation should hear
+        # that it isn't retryable, not that the org needs to turn on AI.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+        observation = self._create_failed("sess-order")
+        ReplayObservation.objects.filter(id=observation.id).update(status=ObservationStatus.SUCCEEDED)
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        resp = self.client.post(self.retry_url(str(observation.id)))
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertIn("retried", resp.json()["detail"])
 
     def test_retry_rejects_non_terminal_statuses(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock

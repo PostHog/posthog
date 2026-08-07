@@ -58,7 +58,7 @@ from posthog.models.user import User
 from posthog.models.utils import IntegrityError, generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.rbac.decorators import field_access_control
-from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
+from posthog.schema_enums import SlackIntegrationScope
 from posthog.scopes import get_oauth_scopes_supported
 from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
@@ -713,19 +713,10 @@ class OauthConfig:
 # StrEnum declared in posthog/schema.py (generated from the SlackIntegrationScope enum in
 # frontend/src/types.ts via `hogli build:schema`), so widening it on either side stays in sync.
 #
-# On the internal DEV instance (CLOUD_DEPLOYMENT="DEV") and local development (settings.DEBUG)
-# we also request the in-review scopes — the Slack app manifest in those setups can list them.
-# US/EU/self-hosted would fail with `invalid_scope` until Slack approves the public Cloud app.
-# Evaluated at module import; tests that need a different value should
-# `@override_settings(...)` *before* importing this module (or `importlib.reload` it after).
-def _build_posthog_slack_scope() -> str:
-    scopes = [scope.value for scope in SlackIntegrationScope]
-    if settings.DEBUG or get_instance_region() == "DEV":
-        scopes.extend(scope.value for scope in SlackIntegrationScopeInReview)
-    return ",".join(scopes)
-
-
-POSTHOG_SLACK_SCOPE = _build_posthog_slack_scope()
+# Every scope here is approved for the public Cloud app, so the same list is requested on every
+# instance. Staging a scope Slack hasn't approved needs a DEV/local-only branch again — see the
+# note by SlackIntegrationScope in frontend/src/types.ts.
+POSTHOG_SLACK_SCOPE = ",".join(scope.value for scope in SlackIntegrationScope)
 
 
 def _salesforce_instance_host(instance_url: str | None) -> str | None:
@@ -3210,6 +3201,25 @@ class JiraIntegration:
         except Exception:
             logger.warning("JiraIntegration: token refresh pre-check failed", exc_info=True)
 
+    def _raise_create_issue_error(self, response: requests.Response, response_body: Any) -> NoReturn:
+        properties: dict[str, Any] = {
+            "jira_status_code": response.status_code,
+            "jira_response_content_type": response.headers.get("Content-Type"),
+            "integration_id": self.integration.id,
+            "team_id": self.integration.team_id,
+        }
+        if isinstance(response_body, dict):
+            properties.update(
+                {
+                    "jira_error_messages": response_body.get("errorMessages"),
+                    "jira_field_errors": response_body.get("errors"),
+                    "jira_response_keys": list(response_body.keys()),
+                }
+            )
+
+        capture_exception(Exception("Jira issue creation failed"), additional_properties=properties)
+        raise ValidationError("Could not create the Jira issue. Check the project's issue settings and try again.")
+
     def list_projects(self) -> list[dict]:
         """List all Jira projects accessible to the user"""
         cloud_id = self.cloud_id()
@@ -3272,8 +3282,18 @@ class JiraIntegration:
             timeout=10,
         )
 
-        issue = response.json()
-        return {"key": issue.get("key", ""), "id": issue.get("id", "")}
+        try:
+            issue = response.json()
+        except ValueError:
+            issue = None
+
+        if response.status_code != 201:
+            self._raise_create_issue_error(response, issue)
+
+        if not isinstance(issue, dict) or not issue.get("key"):
+            self._raise_create_issue_error(response, issue)
+
+        return {"key": issue["key"], "id": issue.get("id", "")}
 
 
 # Default branches change rarely; a multi-hour TTL is plenty to avoid hitting
@@ -3370,6 +3390,10 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "name": dot_get(installation_access.installation_info, "account.login", installation_id),
             },
         }
+        # See GitHubIntegrationBase.refresh_access_token for why permissions are persisted.
+        permissions = installation_access.installation_info.get("permissions")
+        if isinstance(permissions, dict):
+            config["permissions"] = permissions
 
         sensitive_config = {"access_token": installation_access.access_token}
 

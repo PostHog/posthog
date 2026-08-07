@@ -19,10 +19,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     RedshiftSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift import (
+    REDSHIFT_SINGLE_NODE_FETCH_LIMIT,
     RedshiftColumn,
     RedshiftImplementation,
     _build_query,
     _explain_query,
+    _fetch_arrow_batches,
     _stream_arrow_batches,
     filter_redshift_incremental_fields,
 )
@@ -561,6 +563,24 @@ def _ids(tables) -> list[list[int]]:
     return [table.column("id").to_pylist() for table in tables]
 
 
+class TestFetchArrowBatches:
+    def test_accumulates_small_fetches_into_chunk_sized_batches(self):
+        # Paging the FETCH must not shrink the Arrow batch too: one table per 1000-row fetch would
+        # hand the Delta writer 20x more, 20x smaller batches than the chunk size budgets for.
+        cursor = _stream_cursor([[(1,), (2,)], [(3,), (4,)], [(5,), (6,)], [(7,)]])
+
+        tables = list(_fetch_arrow_batches(cursor, 5, _STREAM_SCHEMA, fetch_size=2))
+
+        assert _ids(tables) == [[1, 2, 3, 4, 5, 6], [7]]
+        assert [c.args[0] for c in cursor.fetchmany.call_args_list] == [2, 2, 2, 2, 2]
+
+    def test_fetches_a_whole_chunk_at_a_time_by_default(self):
+        cursor = _stream_cursor([[(1,), (2,)]])
+
+        assert _ids(list(_fetch_arrow_batches(cursor, 2, _STREAM_SCHEMA))) == [[1, 2]]
+        assert [c.args[0] for c in cursor.fetchmany.call_args_list] == [2, 2]
+
+
 class TestStreamArrowBatches:
     def test_streams_through_a_server_side_cursor(self, logger):
         server_cursor = _stream_cursor([[(1,), (2,)], [(3,)]])
@@ -578,9 +598,9 @@ class TestStreamArrowBatches:
     @pytest.mark.parametrize(
         "failure_point,error",
         [
-            # Cumulative cursor result sets are capped per node type.
-            ("declare", psycopg.errors.FeatureNotSupported("cursor result set too large")),
-            # Single-node clusters reject a FETCH FORWARD above 1000 rows.
+            # Cumulative cursor result sets are capped per node type. It says "exceeds the limit"
+            # too, but shrinking the fetch can't fix it, so it must not trigger the retry below.
+            ("declare", psycopg.errors.FeatureNotSupported("cursor result set size exceeds the limit")),
             ("fetch", psycopg.errors.InvalidCursorName("cursor does not exist")),
         ],
     )
@@ -598,6 +618,48 @@ class TestStreamArrowBatches:
         assert _ids(tables) == [[1, 2]]
         # Without the rollback the fallback dies on `InFailedSqlTransaction` instead of syncing.
         connection.rollback.assert_called_once()
+
+    def test_retries_at_the_single_node_limit_instead_of_falling_back(self, logger):
+        # A single-node cluster rejects the first FETCH of every sync. Falling back here reads the
+        # whole table into the worker, which is what OOM-killed the pod in production.
+        server_cursor = _stream_cursor([[(1,), (2,)]])
+        server_cursor.fetchmany.side_effect = [
+            psycopg.errors.InternalError_("Fetch size 20000 exceeds the limit of 1000 for a single node configuration"),
+            [(1,), (2,)],
+            [],
+        ]
+        client_cursor = _stream_cursor([[(9,)]])
+        connection = _stream_connection(server_cursor, client_cursor, TransactionStatus.INERROR)
+
+        tables = list(_stream_arrow_batches(connection, _STREAM_QUERY, 20_000, _STREAM_SCHEMA, "cur", logger))
+
+        assert _ids(tables) == [[1, 2]]
+        client_cursor.execute.assert_not_called()
+        assert connection.cursor.call_args_list == [call(name="cur"), call(name="cur")]
+        # The retry has to actually shrink the fetch, or Redshift rejects it identically.
+        assert [c.args[0] for c in server_cursor.fetchmany.call_args_list] == [
+            20_000,
+            REDSHIFT_SINGLE_NODE_FETCH_LIMIT,
+            REDSHIFT_SINGLE_NODE_FETCH_LIMIT,
+        ]
+
+    def test_does_not_retry_when_the_chunk_already_fits_the_single_node_limit(self, logger):
+        # Re-DECLARE-ing at the size that was just rejected would loop the same failure.
+        server_cursor = _stream_cursor([])
+        server_cursor.fetchmany.side_effect = psycopg.errors.InternalError_(
+            "Fetch size 1000 exceeds the limit of 1000 for a single node configuration"
+        )
+        client_cursor = _stream_cursor([[(1,)]])
+        connection = _stream_connection(server_cursor, client_cursor, TransactionStatus.INERROR)
+
+        tables = list(
+            _stream_arrow_batches(
+                connection, _STREAM_QUERY, REDSHIFT_SINGLE_NODE_FETCH_LIMIT, _STREAM_SCHEMA, "cur", logger
+            )
+        )
+
+        assert _ids(tables) == [[1]]
+        assert connection.cursor.call_args_list == [call(name="cur"), call()]
 
     def test_does_not_fall_back_once_a_batch_has_been_yielded(self, logger):
         server_cursor = _stream_cursor([])

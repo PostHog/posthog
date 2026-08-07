@@ -36,6 +36,7 @@ from products.tasks.backend.temporal.metrics import (
     increment_snapshot_restore,
     increment_snapshot_usage,
     record_sandbox_created,
+    sandbox_runtime_label,
 )
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run, create_wizard_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
@@ -443,7 +444,11 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         # Repo-setup snapshots come from default-base sandboxes; restoring one would silently
         # drop the custom base image. Resume snapshots were taken from this task's own sandbox.
         if has_repo and ctx.github_integration_id is not None and not ctx.custom_image_name:
-            with StepTimer("snapshot_lookup") as snapshot_lookup_timer:
+            with StepTimer(
+                "snapshot_lookup",
+                origin_product=ctx.origin_product,
+                runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
+            ) as snapshot_lookup_timer:
                 snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(ctx.github_integration_id, ctx.repositories)
                 used_snapshot = snapshot is not None
                 snapshot_lookup_timer.set_used_snapshot(used_snapshot)
@@ -609,7 +614,13 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
                 f"Using Modal outbound_domain_allowlist ({len(config.outbound_domain_allowlist)} domains) instead of agentsh",
             )
 
-        with StepTimer("sandbox_creation", used_snapshot=prepared.used_snapshot) as sandbox_creation_timer:
+        runtime = sandbox_runtime_label(use_vm_sandbox)
+        with StepTimer(
+            "sandbox_creation",
+            used_snapshot=prepared.used_snapshot,
+            origin_product=ctx.origin_product,
+            runtime=runtime,
+        ) as sandbox_creation_timer:
             sandbox = Sandbox.create(config)
             # The provider's TTL clock starts here — the usage ledger anchors its
             # kill deadline on this boundary, not on when the row is opened below.
@@ -643,7 +654,7 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
         increment_snapshot_restore(prepared.snapshot_source, metrics_snapshot_kind, snapshot_outcome)
 
         record_sandbox_created(
-            "vm" if use_vm_sandbox else "gvisor",
+            runtime,
             _sandbox_image_kind(prepared.image_source, config.custom_image_name),
             sandbox.config.image_fallback is not None,
             create_ms,
@@ -702,7 +713,12 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
         state = ctx.state or {}
         is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
 
-        with StepTimer("repository_clone", used_snapshot=False) as clone_timer:
+        with StepTimer(
+            "repository_clone",
+            used_snapshot=False,
+            origin_product=ctx.origin_product,
+            runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
+        ) as clone_timer:
             clone_result = sandbox.clone_repository(
                 input.repository,
                 github_token=input.github_token,
@@ -799,7 +815,12 @@ def checkout_branch_in_sandbox(input: CheckoutBranchInSandboxInput) -> CheckoutB
             )
             raise RuntimeError(f"Failed to check whether branch {input.branch} exists")
 
-        with StepTimer("branch_checkout", used_snapshot=input.used_snapshot) as checkout_timer:
+        with StepTimer(
+            "branch_checkout",
+            used_snapshot=input.used_snapshot,
+            origin_product=ctx.origin_product,
+            runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
+        ) as checkout_timer:
             result = sandbox.execute(checkout_command, timeout_seconds=5 * 60)
 
         if result.exit_code != 0:

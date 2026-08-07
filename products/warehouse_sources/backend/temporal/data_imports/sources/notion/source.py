@@ -55,7 +55,22 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig]):
         # tenacity-wrapped _request, which honors Notion's Retry-After on 429s); if those retries
         # still exhaust, the failure is transient and self-recovering, so let Temporal retry the
         # activity without surfacing it as tracked exception noise.
-        return {"Notion API error (retryable)", "Notion rate limited"}
+        return {
+            "Notion API error (retryable)",
+            "Notion rate limited",
+            # `_request`'s tenacity retry also covers `requests.ConnectionError` (which
+            # `requests.exceptions.SSLError` subclasses) and `requests.ReadTimeout`. urllib3
+            # wraps both as "... Max retries exceeded with url: ..." regardless of the underlying
+            # cause (TLS EOF, refused connection, timeout), so match that stable prefix rather
+            # than the per-request URL or nested error id.
+            "Max retries exceeded with url",
+            # Defensive fallback for the mid-TLS-handshake drop: the same self-recovering condition
+            # ClickHouse already classifies this way. These stable OpenSSL SSLEOFError strings sit
+            # inside the MaxRetryError message above, so match them too and the SSL EOF case stays
+            # recognized even if that outer wrapper ever changes.
+            "UNEXPECTED_EOF_WHILE_READING",
+            "EOF occurred in violation of protocol",
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:

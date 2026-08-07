@@ -47,8 +47,6 @@ rules:
       owners: team-growth
     - match: '/hog-functions/'
       owners: team-workflows
-    - match: '/inbox/'
-      owners: team-self-driving
     - match: '/insights/'
       owners: team-product-analytics
     - match: '/instance/'
