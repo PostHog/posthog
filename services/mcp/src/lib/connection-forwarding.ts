@@ -176,6 +176,7 @@ export function buildForwardedContext(context: Context, options: ForwardingOptio
         api,
         cache,
         stateManager,
+        connection: { localProjectId: options.localProjectId, connectionId: options.connectionId },
     }
 }
 
