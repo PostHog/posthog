@@ -40,6 +40,14 @@ export interface ForwardingOptions {
 }
 
 /**
+ * Stands in for the caller's token on a forwarded client, which has no use for one: `forward/`
+ * injects the connection's own token inside Django. Anything that reaches the network by reading
+ * `config.apiToken` instead of going through `fetch` therefore sends this and gets a 401, rather
+ * than putting the caller's bearer token on the wire to another account's project.
+ */
+export const FORWARDED_API_TOKEN = 'posthog-connection-forwarded'
+
+/**
  * An `ApiClient` whose every call is replayed against the connected project.
  *
  * `baseUrl` is the target's, so paths and rendered `_posthogUrl` links read as the other project's,
@@ -53,6 +61,7 @@ export class ForwardingApiClient extends ApiClient {
     constructor(local: ApiClient, options: ForwardingOptions) {
         super({
             ...local.config,
+            apiToken: FORWARDED_API_TOKEN,
             baseUrl: options.target.base_url,
             publicBaseUrl: options.target.base_url,
         })
