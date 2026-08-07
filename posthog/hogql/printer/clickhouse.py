@@ -1002,6 +1002,32 @@ class ClickHousePrinter(BasePrinter):
         ):
             sql = f"(SELECT * FROM {sql})"
 
+        # ClickHouse doesn't push the outer team_id guard through joins into a postgresql()
+        # read, so a joined federated table gets COPY'd out of Postgres in full. Repeat the
+        # filter adjacent to the table function, where it does get pushed down; the outer
+        # guard stays and column pruning still applies through the SELECT *. Skip tables
+        # that declare predicates: those print in the enclosing select, and the wrap would
+        # block them from being pushed into the federated read alongside the team guard.
+        from posthog.hogql.database.postgres_table import (
+            PostgresTable,  # noqa: PLC0415 (keeps persons-DB deps off the printer import path)
+        )
+
+        if (
+            isinstance(table, PostgresTable)
+            # mypy proves this intersection impossible from signatures, but subclasses of
+            # both exist at runtime (customer_analytics _AccountScopedPostgresTable).
+            and not isinstance(table, DANGEROUS_NoTeamIdCheckTable)  # type: ignore[unreachable]
+            and "team_id" in table.fields
+            and not table.get_predicates()
+            and self.context.team_id is not None
+        ):
+            # The HogQL `team_id` field may map to a differently named DB column (e.g.
+            # system.teams exposes it as an alias of `id`), so filter the real column, not
+            # the HogQL name. Skip the wrap when the field isn't a plain column.
+            team_id_column = getattr(table.fields["team_id"], "name", None)
+            if team_id_column:
+                sql = f"(SELECT * FROM {sql} WHERE {team_id_column} = {int(self.context.team_id)})"
+
         return sql
 
     def _print_select_columns(self, columns):
