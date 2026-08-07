@@ -280,6 +280,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 logic.actions.loadSessionRecordingsSuccess({
                     results: [{ ...outsideFiltersRecording, matches_filters: true }],
                     has_next: false,
+                    next_cursor: undefined,
                     order: 'start_time',
                     order_direction: 'DESC',
                 })
