@@ -220,8 +220,8 @@ export interface llmSkillLogicValues {
     skill: ResolvedLLMSkill | SkillFormValues | null
     skillFetched: boolean
     skillForm: SkillFormValues
-    skillFormBaseline: SkillFormValues | null
     skillFormAllErrors: Record<string, any>
+    skillFormBaseline: SkillFormValues | null
     skillFormChanged: boolean
     skillFormErrors: DeepPartialMap<SkillFormValues, ValidationErrorType>
     skillFormHasErrors: boolean
@@ -230,8 +230,8 @@ export interface llmSkillLogicValues {
     skillFormTouches: Record<string, boolean>
     skillFormValidationErrors: DeepPartialMap<SkillFormValues, ValidationErrorType>
     skillLoading: boolean
-    versions: LLMSkillVersionSummaryApi[]
     versionDescription: string
+    versions: LLMSkillVersionSummaryApi[]
     versionsLoading: boolean
 }
 
