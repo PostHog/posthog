@@ -98,8 +98,9 @@ NORTHPASS_ENDPOINTS: dict[str, NorthpassEndpointConfig] = {
         name="activity_events",
         path="/events",
         partition_key="created_at",
-        # Events carry no id of their own; a row is identified by who did what on which activity
-        # when. Same-second duplicates collapse, acceptable for a full-refresh-only table.
+        # Events carry no id of their own; the (person, activity, type, time) grain is the closest
+        # stable key. Full-refresh writes never dedupe on primary keys, so exact duplicates land
+        # as-is (harmless for an event stream).
         primary_keys=["person_id", "activity_id", "type", "created_at"],
         # The endpoint has no server-side filter, so every sync re-fetches the full event history —
         # potentially very large, so users opt in per schema.
