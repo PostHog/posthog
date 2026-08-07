@@ -8,10 +8,8 @@ import { OnboardingStepKey, type SDK } from '~/types'
 
 import { onboardingEventUsageLogic } from '../../../../onboardingEventUsageLogic'
 import { activeCloudRunLogic } from '../../../../shared/wizard-sync/activeCloudRunLogic'
-import {
-    InstallationProgressView,
-    useLocalWizardRunActive,
-} from '../../../../shared/wizard-sync/InstallationProgressView'
+import { useLocalWizardRunActive } from '../../../../shared/wizard-sync/hooks'
+import { InstallationProgressView } from '../../../../shared/wizard-sync/InstallationProgressView'
 import { WizardCommandBlock } from '../../../../shared/wizard-sync/WizardCommandBlock'
 import { WizardInstallOptions } from '../../../../shared/wizard-sync/WizardInstallOptions'
 import { OnboardingStep } from '../../../OnboardingStep'
@@ -26,10 +24,10 @@ import { WizardInstallIntro } from './WizardInstallIntro'
 // active cloud run renders inside it (WizardCloudRunBlock pins to the run's progress), so the
 // failed-run "Run it yourself" fallback keeps working — the mode state must not unmount mid-recovery.
 function LegacyInstallOptions(): JSX.Element {
-    const { reportContextOnboardingInstallModeSelected } = useActions(onboardingEventUsageLogic)
+    const { reportSelfDrivingOnboardingInstallModeSelected } = useActions(onboardingEventUsageLogic)
     return (
         <WizardInstallOptions
-            onModeSelected={reportContextOnboardingInstallModeSelected}
+            onModeSelected={reportSelfDrivingOnboardingInstallModeSelected}
             localBlock={<WizardCommandBlock />}
         />
     )

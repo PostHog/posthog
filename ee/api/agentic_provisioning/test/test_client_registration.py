@@ -15,7 +15,7 @@ from posthog.api.oauth.cimd import CIMDFetchError
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER, ClientAssertionError
 from posthog.models.oauth import OAuthApplication
 
-from ee.api.agentic_provisioning.test.base import TEST_PARTNER_SCOPES, ProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import TEST_PARTNER_SCOPES, ProvisioningTestBase, provisioning_config
 
 REGISTRATION_URL = "/api/agentic/provisioning/client_registration"
 ACCOUNT_REQUESTS_URL = "/api/agentic/provisioning/account_requests"
@@ -94,8 +94,14 @@ class TestClientRegistration(ProvisioningTestBase):
             "algorithm": "RS256",
             "scopes": TEST_PARTNER_SCOPES,
             "is_provisioning_partner": True,
-            "provisioning_active": True,
-            "provisioning_can_create_accounts": True,
+            # The default here is a client that registered itself: it does ordinary
+            # provisioning, and holds none of the capabilities an admin has to grant.
+            "_provisioning_config": provisioning_config(
+                active=True,
+                can_create_accounts=True,
+                can_use_github_grants=False,
+                can_start_wizard_runs=False,
+            ),
         }
         return OAuthApplication.objects.create(**{**defaults, **overrides})
 
@@ -143,7 +149,7 @@ class TestClientRegistration(ProvisioningTestBase):
         assert KID in checks["jwks"]["detail"]
 
     def test_partner_registered_by_an_admin_can_use_github_grants(self):
-        self._make_partner(provisioning_partner_type="wizard")
+        self._make_partner(_provisioning_config=provisioning_config(can_use_github_grants=True))
 
         res = self._register({"client_id": CIMD_URL})
 
@@ -167,27 +173,27 @@ class TestClientRegistration(ProvisioningTestBase):
         # A CIMD app registered through the ordinary OAuth flow carries no provisioning
         # config. Opting it in used to happen implicitly on the auth path; it is now this
         # endpoint's job, and without it such a client could never reach any endpoint here.
-        self._make_partner(is_provisioning_partner=False, provisioning_active=False)
+        self._make_partner(is_provisioning_partner=False, _provisioning_config=provisioning_config(active=False))
 
         res = self._register({"client_id": CIMD_URL})
 
         assert res.status_code == 200, res.json()
         app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_URL)
         assert app.is_provisioning_partner
-        assert app.provisioning_active
+        assert app.provisioning.active
 
     def test_deactivated_partner_is_not_reactivated_by_re_registering(self):
         # Only a client that is not yet a partner gets the defaults applied. Registering again
         # must not undo an admin turning a partner off, which would make the endpoint a way for
         # a partner to reinstate itself.
-        self._make_partner(provisioning_active=False)
+        self._make_partner(_provisioning_config=provisioning_config(active=False))
 
         res = self._register({"client_id": CIMD_URL})
 
         assert res.status_code == 400, res.json()
         assert res.json()["error"]["code"] == "registration_failed"
         app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_URL)
-        assert app.provisioning_active is False
+        assert app.provisioning.active is False
 
     def test_unreachable_jwks_is_reported_as_a_failed_check(self):
         self._make_partner()

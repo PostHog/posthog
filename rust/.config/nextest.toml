@@ -7,11 +7,21 @@
 # suite from saturating the runner while a cluster is up.
 [test-groups]
 k3s = { max-threads = 1 }
+# The two-partition double-zombie models are the stateright suite's long
+# pole (roughly 15x anything else in it). Their checkers explore
+# multi-threaded, so each gets the whole thread budget to itself instead
+# of contending with the rest of the suite mid-explore.
+stateright-heavy = { max-threads = 1 }
 
 [[profile.default.overrides]]
 filter = 'binary(k3s_integration)'
 test-group = 'k3s'
 threads-required = 4
+
+[[profile.default.overrides]]
+filter = 'package(personhog-stateright) & test(two_partitions_double_zombie)'
+test-group = 'stateright-heavy'
+threads-required = "num-cpus"
 
 # CI profile: emits JUnit XML (target/nextest/ci/junit.xml) so test results can be
 # uploaded to Trunk for flaky-test detection.

@@ -163,10 +163,12 @@ class PostHogCallback(InstrumentedCallback):
         region_url: str = "https://us.posthog.com",
         secondary_api_key: str | None = None,
         secondary_host: str | None = None,
+        ai_lane_capture: bool = True,
     ):
         super().__init__()
         self._api_key = api_key
         self._host = host
+        self._ai_lane_capture = ai_lane_capture
         # Customer-origin region URL stamped on every captured event via the
         # `instance` group. The PHAI usage report filters on $group_<N> where
         # N is the destination project's `instance` group_type_index, so the
@@ -420,8 +422,9 @@ class PostHogCallback(InstrumentedCallback):
             host=host,
             sync_mode=True,
             enable_local_evaluation=False,
-            _use_ai_lane=True,
-            _enable_multimodal_capture=True,
+            # Multimodal capture implies the AI lane, so one setting governs both.
+            _use_ai_lane=self._ai_lane_capture,
+            _enable_multimodal_capture=self._ai_lane_capture,
         )
         try:
             _capture_ai_event(client, **capture_kwargs)
