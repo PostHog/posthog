@@ -19,8 +19,6 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any, ClassVar, Protocol, cast
 
-from django.core.validators import RegexValidator
-
 import structlog
 from rest_framework import serializers
 
@@ -404,19 +402,15 @@ class FlagMultivariateVariantSerializer(DropsUnknownKeysMixin, serializers.Seria
 
     unknown_key_level = "variant"
 
-    # Charset widened beyond the flag-key rule (#50084 inventory addendum 2): variant keys are
-    # used as config values (e.g. LLM routing keys like "provider/model-1.2"), so dots and
-    # slashes are allowed. Must match the UI rule in featureFlagLogic.ts.
+    # No charset rule, deliberately. The flag editor has restricted variant keys since the
+    # multivariate UI shipped, but the API never has, and hundreds of stored flags rely on
+    # that: variant keys double as config values (LLM routing keys like "provider/model-1.2")
+    # and plenty carry spaces. Enforcing the form's charset here would make those flags
+    # uneditable through every path their owners have left. Flag keys keep their charset —
+    # that one is genuinely server-enforced.
     key = StrictCharField(
         max_length=400,
-        validators=[
-            RegexValidator(
-                regex=r"^[a-zA-Z0-9_./-]+$",
-                message="Only letters, numbers, hyphens (-), underscores (_), dots (.) & slashes (/) are allowed.",
-            )
-        ],
-        help_text="Unique key for this variant. Letters, numbers, hyphens, underscores, dots, and "
-        "slashes; at most 400 characters.",
+        help_text="Unique key for this variant. At most 400 characters.",
     )
     name = StrictCharField(
         required=False,

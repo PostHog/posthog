@@ -360,15 +360,18 @@ class TestFiltersSchema(SimpleTestCase):
     @parameterized.expand(
         [
             ("simple", "control", True),
+            # The API has never restricted the charset and stored flags depend on that: keys
+            # double as config values, and hundreds carry spaces or other characters the flag
+            # editor rejects. Only blank and over-length are structural violations.
             ("llm_routing_style", "provider/model-1.2", True),
             ("dots_underscores", "a.b_c-d", True),
-            ("space", "foo bar", False),
-            ("comma", "foo,bar", False),
+            ("space", "foo bar", True),
+            ("comma", "foo,bar", True),
             ("blank", "", False),
             ("too_long", "k" * 401, False),
         ]
     )
-    def test_variant_key_charset_and_length(self, _name: str, key: str, valid: bool) -> None:
+    def test_variant_key_length_and_blank(self, _name: str, key: str, valid: bool) -> None:
         serializer = FlagMultivariateVariantSerializer(data={"key": key, "rollout_percentage": 100})
         assert serializer.is_valid() is valid, serializer.errors
 
