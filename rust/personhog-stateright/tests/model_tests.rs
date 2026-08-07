@@ -28,7 +28,7 @@
 use std::time::Instant;
 
 use personhog_stateright::model::{ClaimDetection, HandoffModel, Variant, WarmOrder};
-use stateright::{Checker, Model};
+use stateright::{Checker, HasDiscoveries, Model};
 
 /// Every checker explores in parallel: stateright defaults to a single
 /// thread, which left the largest models (the two-partition
@@ -39,12 +39,12 @@ fn parallelism() -> usize {
     std::thread::available_parallelism().map_or(1, Into::into)
 }
 
-/// Exhaustive exploration, plus optional size reporting.
+/// How every test in this file runs its checker, with optional size
+/// reporting.
 ///
-/// Every test explores through this method so the size of each scenario
-/// can be reported from the *real* test configurations — a separate
-/// config list would drift from what CI actually runs. Set
-/// `STATERIGHT_REPORT` to print them:
+/// Going through one place means the size of each scenario can be reported
+/// from the *real* test configurations — a separate config list would drift
+/// from what CI actually runs. Set `STATERIGHT_REPORT` to print them:
 ///
 /// ```sh
 /// STATERIGHT_REPORT=1 cargo test -p personhog-stateright --release -- --nocapture --test-threads=1
@@ -55,23 +55,57 @@ fn parallelism() -> usize {
 /// deliberate collapse must shrink it while every verdict below is
 /// unchanged.
 trait Explore {
+    /// Explore the whole reachable state space. Required by any run that
+    /// asserts a property *holds* — an `always` property is only proven by
+    /// exhaustion.
     fn explore(self, scenario: &str) -> impl Checker<HandoffModel>;
+
+    /// Explore only until `wanted` have all been discovered.
+    ///
+    /// For a run that asserts a counterexample *exists*, exhaustive search
+    /// is wasted after the counterexample turns up — and stateright's
+    /// default stopping condition never fires here. It waits for every
+    /// property to be discovered, but a discovery for an `always` property
+    /// is a violation, so the safety properties that hold never produce
+    /// one, and `converges_to_stable` keeps the checker waiting regardless.
+    ///
+    /// Only use this where every assertion is existential. A run that also
+    /// asserts a discovery is *absent* needs the whole space, and adding
+    /// such an assertion to one of these tests means putting it back on
+    /// [`Explore::explore`].
+    fn explore_until(self, scenario: &str, wanted: &[&'static str]) -> impl Checker<HandoffModel>;
 }
 
 impl Explore for HandoffModel {
     fn explore(self, scenario: &str) -> impl Checker<HandoffModel> {
         let start = Instant::now();
         let checker = self.checker().threads(parallelism()).spawn_bfs().join();
-        if std::env::var_os("STATERIGHT_REPORT").is_some() {
-            println!(
-                "STATERIGHT_REPORT\t{scenario}\tunique={}\tgenerated={}\tdepth={}\telapsed={:?}",
-                checker.unique_state_count(),
-                checker.state_count(),
-                checker.max_depth(),
-                start.elapsed(),
-            );
-        }
+        report(scenario, start, &checker);
         checker
+    }
+
+    fn explore_until(self, scenario: &str, wanted: &[&'static str]) -> impl Checker<HandoffModel> {
+        let start = Instant::now();
+        let checker = self
+            .checker()
+            .threads(parallelism())
+            .finish_when(HasDiscoveries::AllOf(wanted.iter().copied().collect()))
+            .spawn_bfs()
+            .join();
+        report(scenario, start, &checker);
+        checker
+    }
+}
+
+fn report(scenario: &str, start: Instant, checker: &impl Checker<HandoffModel>) {
+    if std::env::var_os("STATERIGHT_REPORT").is_some() {
+        println!(
+            "STATERIGHT_REPORT\t{scenario}\tunique={}\tgenerated={}\tdepth={}\telapsed={:?}",
+            checker.unique_state_count(),
+            checker.state_count(),
+            checker.max_depth(),
+            start.elapsed(),
+        );
     }
 }
 
@@ -149,8 +183,10 @@ fn current_protocol_single_zombie_pod_is_safe() {
 /// but sits beyond the warm HWM, invisible to the new owner forever.
 #[test]
 fn current_protocol_double_zombie_loses_acked_writes() {
-    let checker =
-        model(Variant::Current, 2, 1).explore("current_protocol_double_zombie_loses_acked_writes");
+    let checker = model(Variant::Current, 2, 1).explore_until(
+        "current_protocol_double_zombie_loses_acked_writes",
+        &["no_lost_acked_write", "no_split_write_acceptance"],
+    );
     assert!(
         checker.discovery("no_lost_acked_write").is_some(),
         "the double zombie must produce an acked-write-loss counterexample"
@@ -199,7 +235,10 @@ fn epoch_fenced_read_first_ordering_loses_acked_writes() {
         warm_order: WarmOrder::ReadFirst,
         ..model(Variant::EpochFenced, 2, 1)
     }
-    .explore("epoch_fenced_read_first_ordering_loses_acked_writes");
+    .explore_until(
+        "epoch_fenced_read_first_ordering_loses_acked_writes",
+        &["no_lost_acked_write"],
+    );
     assert!(
         checker.discovery("no_lost_acked_write").is_some(),
         "read-before-fence must produce an acked-write-loss counterexample"
@@ -302,7 +341,10 @@ fn two_partitions_double_zombie_loses_acked_writes() {
         zombie_window: 1,
         ..base()
     }
-    .explore("two_partitions_double_zombie_loses_acked_writes");
+    .explore_until(
+        "two_partitions_double_zombie_loses_acked_writes",
+        &["no_lost_acked_write"],
+    );
     assert!(checker.discovery("no_lost_acked_write").is_some());
 }
 
@@ -683,6 +725,17 @@ fn fencing_and_lease_gated_reads_together_close_the_double_zombie() {
         zombie_window: 1,
         ..base()
     };
+    // The two arms below that expect a stale read stop at it; the arm that
+    // asserts none exists has to explore everything.
+    let stale_reads_reachable = |variant, gated| {
+        cfg(variant, gated)
+            .explore_until(
+                "fencing_and_lease_gated_reads_together_close_the_double_zombie",
+                &["strong_reads_complete"],
+            )
+            .discovery("strong_reads_complete")
+            .is_some()
+    };
     let stale_reads = |variant, gated| {
         cfg(variant, gated)
             .explore("fencing_and_lease_gated_reads_together_close_the_double_zombie")
@@ -691,12 +744,12 @@ fn fencing_and_lease_gated_reads_together_close_the_double_zombie() {
     };
 
     assert!(
-        stale_reads(Variant::Current, true),
+        stale_reads_reachable(Variant::Current, true),
         "the read gate alone must not close it: the honest owner serves a read missing the \
          zombie's lost write"
     );
     assert!(
-        stale_reads(Variant::EpochFenced, false),
+        stale_reads_reachable(Variant::EpochFenced, false),
         "fencing alone must not close it: the zombie still answers reads"
     );
     assert!(
@@ -747,7 +800,10 @@ fn a_lapsed_claim_that_never_returns_fails_stability() {
         zombie_window: 1,
         ..base()
     }
-    .explore("a_lapsed_claim_that_never_returns_fails_stability");
+    .explore_until(
+        "a_lapsed_claim_that_never_returns_fails_stability",
+        &["converges_to_stable"],
+    );
     assert!(
         checker.discovery("converges_to_stable").is_some(),
         "an owner that refuses its own reads while looking alive to the coordinator \
@@ -765,27 +821,33 @@ fn a_lapsed_claim_that_never_returns_fails_stability() {
 /// does.
 #[test]
 fn prompt_detection_is_what_makes_the_read_gate_hold() {
-    let stale_reads = |detection| {
-        HandoffModel {
-            variant: Variant::EpochFenced,
-            lease_gated_reads: true,
-            claim_recovers: true,
-            claim_detection: detection,
-            crashes: 2,
-            zombie_window: 1,
-            ..base()
-        }
-        .explore("prompt_detection_is_what_makes_the_read_gate_hold")
-        .discovery("strong_reads_complete")
-        .is_some()
+    let cfg = |detection| HandoffModel {
+        variant: Variant::EpochFenced,
+        lease_gated_reads: true,
+        claim_recovers: true,
+        claim_detection: detection,
+        crashes: 2,
+        zombie_window: 1,
+        ..base()
     };
 
+    // The Delayed arm expects a stale read and stops at it; the Prompt arm
+    // asserts there is none, so it has to explore everything.
     assert!(
-        stale_reads(ClaimDetection::Delayed),
+        cfg(ClaimDetection::Delayed)
+            .explore_until(
+                "prompt_detection_is_what_makes_the_read_gate_hold",
+                &["strong_reads_complete"],
+            )
+            .discovery("strong_reads_complete")
+            .is_some(),
         "a claim outliving its lease must still leave stale reads reachable"
     );
     assert!(
-        !stale_reads(ClaimDetection::Prompt),
+        cfg(ClaimDetection::Prompt)
+            .explore("prompt_detection_is_what_makes_the_read_gate_hold")
+            .discovery("strong_reads_complete")
+            .is_none(),
         "dropping the claim with the registration must close them"
     );
 }
