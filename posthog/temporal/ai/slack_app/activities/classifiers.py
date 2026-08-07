@@ -29,9 +29,10 @@ CLASSIFIER_THREAD_HISTORY_MESSAGES = 10
 CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
 
 
-# Both routing classifiers run on a reasoning model, which draws its reasoning from the
-# same token budget as the reply. The reply is one short JSON object; the headroom is for
-# the thinking in front of it, and a truncated turn falls back to the safe answer.
+# The model-override and agent-directed classifiers both run on a reasoning model, which
+# draws its reasoning from the same token budget as the reply. The reply is one short JSON
+# object; the headroom is for the thinking in front of it, and a truncated turn falls back
+# to the safe answer.
 #
 # The gateway client defaults to a 600s read and two retries, which is the right shape for
 # a generation call and the wrong one here. Left unbounded these never get to fall back,
@@ -44,13 +45,13 @@ MODEL_OVERRIDE_MAX_TOKENS = 2048
 MODEL_OVERRIDE_TIMEOUT_SECONDS = 10.0
 MODEL_OVERRIDE_MAX_RETRIES = 1
 
-UNTAGGED_FOLLOWUP_CLASSIFIER_MODEL = "gpt-5.6-luna"
-UNTAGGED_FOLLOWUP_MAX_TOKENS = 2048
+AGENT_DIRECTED_CLASSIFIER_MODEL = "gpt-5.6-luna"
+AGENT_DIRECTED_MAX_TOKENS = 2048
 # One call per reply in every thread the agent is working in, and its prompt carries the
 # thread the override classifier's does not. The eval suite sees 3-9s on that shape, close
 # enough to a 10s ceiling that the tail would drop instructions rather than misread them.
-UNTAGGED_FOLLOWUP_TIMEOUT_SECONDS = 20.0
-UNTAGGED_FOLLOWUP_MAX_RETRIES = 1
+AGENT_DIRECTED_TIMEOUT_SECONDS = 20.0
+AGENT_DIRECTED_MAX_RETRIES = 1
 
 
 def classify_task_needs_repo(
@@ -273,12 +274,12 @@ def classify_message_is_agent_directed(
     )
     try:
         client = get_llm_client("slack_app_routing").with_options(
-            timeout=UNTAGGED_FOLLOWUP_TIMEOUT_SECONDS, max_retries=UNTAGGED_FOLLOWUP_MAX_RETRIES
+            timeout=AGENT_DIRECTED_TIMEOUT_SECONDS, max_retries=AGENT_DIRECTED_MAX_RETRIES
         )
         response = client.chat.completions.create(
-            model=UNTAGGED_FOLLOWUP_CLASSIFIER_MODEL,
+            model=AGENT_DIRECTED_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=UNTAGGED_FOLLOWUP_MAX_TOKENS,
+            max_tokens=AGENT_DIRECTED_MAX_TOKENS,
             response_format=_agent_directed_response_format(),
         )
         # Tolerant parse on top of the schema on purpose: the gateway fronts several

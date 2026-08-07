@@ -264,11 +264,7 @@ class FollowupRoutingMatch(Scorer):
 class NoUnaskedWake(Scorer):
     """The expensive direction: waking the agent on a message nobody addressed to it.
 
-    The two errors cost differently, and the classifier is deliberately biased to say no
-    because of it. A missed instruction costs the author one ``@PostHog`` — the same thing
-    they would have typed anyway. A wrong wake-up puts the agent into a conversation it was
-    not part of, in public, where everyone in the thread sees it interject.
-
+    See ``classify_message_is_agent_directed`` for why the two errors cost differently.
     Skips on cases that really are instructions, so the score reads as a rate over the
     replies the agent should have stayed out of.
     """
@@ -281,8 +277,8 @@ class NoUnaskedWake(Scorer):
         if want.get("agent_directed", True):
             return Score(name=self._name(), score=None, metadata={"reason": "Case is a real instruction"})
         if output and output.get("error"):
-            # A failed call returns False, which is this scorer's passing answer — scoring
-            # it would let a wholly broken classifier post a perfect rate.
+            # A failed call returns False, this scorer's passing answer — scoring it would
+            # let a wholly broken classifier post a perfect rate.
             return Score(name=self._name(), score=None, metadata={"reason": output["error"]})
 
         return Score(
@@ -295,17 +291,13 @@ class NoUnaskedWake(Scorer):
 def require_llm_gateway() -> None:
     """Fail a classifier suite up front when the gateway it grades through is unreachable.
 
-    Every classifier in these suites catches its own exceptions and returns the safe
-    default — False, or no override. That is right in production, where a transient
-    gateway blip must not wake the agent or hijack someone's model. In an eval it is
-    silent poison: a refused connection still produces a full scorecard, and the cases
-    expecting the safe answer all pass, so the run reports a plausible number for a
-    classifier that was never asked anything.
+    These classifiers catch their own exceptions and return the safe default, so a refused
+    connection still produces a full scorecard — every case expecting the safe answer
+    passes, and the run reports a plausible number for a classifier never asked anything.
 
-    The harness does not cover this. It boots its own gateway on a private port and points
-    only the *sandbox* at it (`SANDBOX_LLM_GATEWAY_URL`); in-process calls go to
-    `settings.LLM_GATEWAY_URL`, which is a developer-run gateway. So the check belongs to
-    the suites that depend on it.
+    The harness boots its own gateway but points only the *sandbox* at it
+    (`SANDBOX_LLM_GATEWAY_URL`); in-process calls go to `settings.LLM_GATEWAY_URL`, so the
+    check belongs to the suites that depend on it.
     """
     url = getattr(settings, "LLM_GATEWAY_URL", None)
     if not url:

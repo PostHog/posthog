@@ -3,25 +3,22 @@ from unittest.mock import patch
 from django.apps import apps
 from django.test import TestCase
 
-from parameterized import parameterized
-
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.temporal.ai.slack_app import (
-    PostHogCodeSlackMentionWorkflowInputs,
-    classify_message_is_agent_directed,
-    classify_untagged_followup_activity,
-)
+from posthog.temporal.ai.slack_app import PostHogCodeSlackMentionWorkflowInputs, classify_untagged_followup_activity
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
 
 
 class TestClassifyUntaggedFollowupActivity(TestCase):
     """Activity-level tests for the classifier that now lives inside the
-    mention workflow. The activity owns mapping lookup, thread-history fetch,
-    and the LLM call; the webhook handler is no longer involved."""
+    mention workflow. The activity owns mapping lookup and thread-history fetch;
+    the webhook handler is no longer involved.
+
+    The classifier it calls has its own tests next to the model-override one, in
+    ``slack_app/activities/test_classify_message_is_agent_directed.py``."""
 
     def setUp(self):
         self.Task = apps.get_model("tasks", "Task")
@@ -113,47 +110,8 @@ class TestClassifyUntaggedFollowupActivity(TestCase):
         assert mock_classify.call_args[0][2] == []
 
 
-def _reply(content: str):
-    message = type("Msg", (), {"content": content})()
-    return type("Resp", (), {"choices": [type("Choice", (), {"message": message})()]})()
-
-
-class TestClassifyMessageIsAgentDirected(TestCase):
-    """Parsing and the pre-LLM heuristic. Whether the prompt reads a thread correctly is
-    the eval suite's question, not this file's.
-    """
-
-    def test_emoji_only_dropped_without_llm(self):
-        with patch("posthog.temporal.ai.slack_app.activities.classifiers.get_llm_client") as mock_client:
-            assert classify_message_is_agent_directed(":thumbsup: :tada:", "do thing", []) is False
-        mock_client.assert_not_called()
-
-    @parameterized.expand(
-        [
-            ("instruction", '{"agent_directed": true}', True),
-            ("chatter", '{"agent_directed": false}', False),
-            # The gateway does not honour the response format identically on every route,
-            # so a fenced reply still has to land rather than dropping the message.
-            ("fenced_reply", '```json\n{"agent_directed": true}\n```', True),
-            # Anything that isn't the schema's boolean drops, rather than reading a
-            # truthy string as a wake-up.
-            ("stringified_bool", '{"agent_directed": "true"}', False),
-            ("prose_instead_of_json", "The message looks like an instruction.", False),
-        ]
-    )
-    def test_parses_the_reply(self, _name, content, expected):
-        with patch("posthog.temporal.ai.slack_app.activities.classifiers.get_llm_client") as mock_client:
-            mock_client.return_value.with_options.return_value.chat.completions.create.return_value = _reply(content)
-            result = classify_message_is_agent_directed("also check the auth flow on safari", "fix the bug", [])
-        assert result is expected
-
-    def test_failure_defaults_to_drop(self):
-        """Conservative default: a false positive makes the agent interrupt a conversation
-        in public; a false negative just means the author re-tags.
-        """
-        with patch("posthog.temporal.ai.slack_app.activities.classifiers.get_llm_client") as mock_client:
-            mock_client.return_value.with_options.return_value.chat.completions.create.side_effect = RuntimeError(
-                "boom"
-            )
-            result = classify_message_is_agent_directed("also check the auth flow on safari", "fix the bug", [])
-        assert result is False
+# The classifier itself — parsing, the pre-LLM heuristic, the bounded client, and the
+# prompt snapshot — is covered in
+# `posthog/temporal/tests/ai/slack_app/activities/test_classify_message_is_agent_directed.py`,
+# next to the model-override classifier's own tests. This file covers the activity around
+# it: the thread mapping, the history fetch, and what happens when either is missing.
