@@ -5,10 +5,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 
 @config.config
-class PlanetScaleSourceConfig(config.Config):
+class PlanetScalePostgresSourceConfig(config.Config):
     host: str
     database: str
     user: str
     password: str
     port: int = config.value(converter=int)
+    connection_string: str | None = None
     schema: str | None = None

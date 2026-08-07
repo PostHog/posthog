@@ -16,12 +16,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.planetscale.planetscale import (
-    PlanetScaleImplementation,
+from products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_mysql.planetscale_mysql import (
+    PlanetScaleMySQLImplementation,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
-_PLANETSCALE_IMPLEMENTATION = PlanetScaleImplementation()
+_PLANETSCALE_MYSQL_IMPLEMENTATION = PlanetScaleMySQLImplementation()
 
 # planetscale.com is the dashboard, never a database endpoint — branch connect hosts live on
 # psdb.cloud. Pasting the dashboard address otherwise fails as an opaque connection timeout.
@@ -52,7 +52,7 @@ _HOST_NOT_RESOLVED_ERROR = (
     f"for example {_CONNECT_HOST_EXAMPLE}."
 )
 
-_GENERIC_CONNECTION_ERROR = "Could not connect to PlanetScale. Please check all connection details are valid."
+_GENERIC_CONNECTION_ERROR = "Could not connect to PlanetScale MySQL. Please check all connection details are valid."
 
 # Create-time refinement of pymysql's catch-all connect error (2003), which collapses a bad host,
 # a closed port, and a firewall drop into one message. Mirrors the MySQL source's handling with
@@ -89,31 +89,33 @@ def _bare_host(host: str) -> str:
 
 
 @SourceRegistry.register
-class PlanetScaleSource(MySQLSource):
-    """PlanetScale speaks the MySQL wire protocol, so it reuses the MySQL driver wholesale.
+class PlanetScaleMySQLSource(MySQLSource):
+    """PlanetScale's Vitess databases speak the MySQL wire protocol, so this reuses the MySQL
+    driver wholesale.
 
     Only the connection differs: TLS is mandatory, credentials are per-branch, and there is no
-    SSH tunnel to configure.
+    SSH tunnel to configure. PlanetScale's Postgres databases are a separate product on a
+    different wire protocol — see `planetscale_postgres`.
     """
 
     api_docs_url = "https://planetscale.com/docs"
 
     @property
-    def get_implementation(self) -> PlanetScaleImplementation:
-        return _PLANETSCALE_IMPLEMENTATION
+    def get_implementation(self) -> PlanetScaleMySQLImplementation:
+        return _PLANETSCALE_MYSQL_IMPLEMENTATION
 
     @property
     def source_type(self) -> ExternalDataSourceType:
-        return ExternalDataSourceType.PLANETSCALE
+        return ExternalDataSourceType.PLANETSCALEMYSQL
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PLANET_SCALE,
+            name=SchemaExternalDataSourceType.PLANET_SCALE_MY_SQL,
             category=DataWarehouseSourceCategory.DATABASES,
-            keywords=["sql", "mysql", "vitess"],
-            label="PlanetScale",
-            caption="Enter your PlanetScale branch credentials to pull your data into the PostHog Data warehouse.",
+            keywords=["sql", "mysql", "vitess", "planetscale"],
+            label="PlanetScale MySQL",
+            caption="Enter your PlanetScale MySQL branch credentials to pull your data into the PostHog Data warehouse.",
             iconPath="/static/services/planetscale.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/planetscale",
             fields=cast(

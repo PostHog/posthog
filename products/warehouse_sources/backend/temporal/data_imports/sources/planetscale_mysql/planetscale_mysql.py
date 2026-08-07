@@ -18,7 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
 _VITESS_OLAP_INIT_COMMAND = "SET workload = 'OLAP';"
 
 
-class PlanetScaleImplementation(MySQLImplementation):
+class PlanetScaleMySQLImplementation(MySQLImplementation):
     """MySQL driver specialized for PlanetScale's Vitess endpoints.
 
     Everything except the connection itself is plain MySQL, so only `connect` is overridden:
