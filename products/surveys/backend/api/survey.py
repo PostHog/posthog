@@ -125,31 +125,28 @@ def _normalize_language_code(raw: str) -> str:
     return raw.strip().lower().replace("_", "-")
 
 
-SURVEY_TRANSLATION_ROOT_FIELDS = (
-    "name",
-    "description",
+# Survey-level (non-question) translatable keys, split by where they live on the model:
+# name/description sit on the survey root, the rest on appearance. Every other translation
+# allow-list is derived from these two tuples so they cannot drift apart.
+SURVEY_TRANSLATION_SURVEY_FIELDS = ("name", "description")
+SURVEY_TRANSLATION_APPEARANCE_FIELDS = (
     "thankYouMessageHeader",
     "thankYouMessageDescription",
     "thankYouMessageCloseButtonText",
     "submitButtonText",
     "backButtonText",
 )
+SURVEY_TRANSLATION_ROOT_FIELDS = SURVEY_TRANSLATION_SURVEY_FIELDS + SURVEY_TRANSLATION_APPEARANCE_FIELDS
 
-# Keep this in sync with SurveyAPISerializer's public runtime contract.
-# Root survey description is intentionally excluded because customers have used it for internal notes.
+# Public API emit contract (SurveyAPISerializer). description is excluded because customers
+# have used it for internal notes; deriving it keeps it in lockstep with the write allow-list.
 SURVEY_API_TRANSLATION_FIELDS = frozenset(SURVEY_TRANSLATION_ROOT_FIELDS) - {"description"}
 FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
     "linked_flag_id",
     "targeting_flag_filters",
 ]
 SURVEY_TRANSLATION_DRAFT_FIELDS = ("name", "description", "type", "appearance", "questions", "translations")
-SURVEY_TRANSLATION_DRAFT_APPEARANCE_FIELDS = (
-    "thankYouMessageHeader",
-    "thankYouMessageDescription",
-    "thankYouMessageCloseButtonText",
-    "submitButtonText",
-    "backButtonText",
-)
+SURVEY_TRANSLATION_DRAFT_APPEARANCE_FIELDS = SURVEY_TRANSLATION_APPEARANCE_FIELDS
 SURVEY_TRANSLATION_DRAFT_QUESTION_FIELDS = (
     "id",
     "type",

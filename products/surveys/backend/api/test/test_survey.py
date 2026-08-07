@@ -33,11 +33,14 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.api.survey import (
+    SURVEY_API_TRANSLATION_FIELDS,
+    GeneratedSurveyRootTranslationSerializer,
     get_survey_api_translations,
     get_surveys_response,
     nh3_clean_with_allow_list,
 )
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive
+from products.surveys.backend.translation import SurveyRootTranslation
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -3652,6 +3655,20 @@ class TestSurvey(APIBaseTest):
 
         assert results
         assert all("search_match_type" not in r for r in results)
+
+
+class TestSurveyTranslationFieldContracts(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("generated_response_serializer", set(GeneratedSurveyRootTranslationSerializer().fields)),
+            ("llm_output_model", set(SurveyRootTranslation.model_fields)),
+        ]
+    )
+    def test_root_translation_schemas_match_public_api_fields(self, _name, declared_fields):
+        # These two schemas are hand-declared, so they can silently drift from the derived
+        # allow-lists. This locks them to SURVEY_API_TRANSLATION_FIELDS: adding a translatable
+        # survey field without updating them (the omission that dropped the button labels) fails here.
+        assert declared_fields == SURVEY_API_TRANSLATION_FIELDS
 
 
 class TestMultipleChoiceQuestions(APIBaseTest):
