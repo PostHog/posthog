@@ -13,11 +13,16 @@ from parameterized import parameterized
 
 from posthog.models.team import Team
 
+import products.replay_vision.backend.max_tools as max_tools_module
 from products.replay_vision.backend.max_tools import (
+    AnalyzeReplayVisionImpactTool,
     CreateReplayVisionActionTool,
     CreateReplayVisionScannerTool,
+    DeleteReplayVisionScannerTool,
     DraftReplayVisionScannerPromptTool,
     GetReplayVisionQuotaTool,
+    LabelReplayVisionObservationTool,
+    ListReplayVisionScannersTool,
     RetryReplayVisionObservationTool,
     ScanReplayVisionSessionsTool,
     SearchReplayVisionObservationsTool,
@@ -30,13 +35,14 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationTrigger,
     ReplayObservation,
 )
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
 from products.replay_vision.backend.models.vision_action import VisionAction
 from products.replay_vision.backend.scanner_config import MAX_PROMPT_LENGTH
 from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN
 from products.replay_vision.backend.tags import slugify_tag
 
-from ee.hogai.tool import ApprovalResumePayload
+from ee.hogai.tool import ApprovalResumePayload, MaxTool
 
 _FLAG_PATH = "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled"
 # The estimate refresh runs a ClickHouse query; these tests are about the tool, not the query.
@@ -1053,3 +1059,196 @@ class TestUpdateReplayVisionScannerTool(BaseTest):
             _, artifact = await tool._arun_impl(scanner_id=str(scanner.id), enabled=True)
 
         assert artifact["error"] == "not_found"
+
+
+class TestEveryReplayVisionToolDeclaresItsCost(BaseTest):
+    """One place that pins what every tool costs.
+
+    The gate is per-tool, so the failure mode is a new tool quietly defaulting to the wrong side. This
+    enumerates the whole surface, so adding a tool without deciding fails here rather than in production.
+    """
+
+    # Every Replay Vision MaxTool, and whether using it should ask the user first.
+    _EXPECTED = {
+        # Spend Replay Vision observation credits.
+        "scan_replay_vision_sessions": True,
+        "retry_replay_vision_observation": True,
+        # Spend the project's AI credits, on a schedule or immediately.
+        "create_replay_vision_action": True,
+        "run_replay_vision_action": True,
+        # Destroy history irreversibly.
+        "delete_replay_vision_scanner": True,
+        "delete_replay_vision_action": True,
+        # Read-only, or write nothing that costs.
+        "list_replay_vision_scanners": False,
+        "estimate_replay_vision_scanner": False,
+        "get_replay_vision_quota": False,
+        "search_replay_vision_observations": False,
+        "summarize_replay_vision_summaries": False,
+        "draft_replay_vision_scanner_prompt": False,
+        "label_replay_vision_observation": False,
+        "analyze_replay_vision_impact": False,
+        "suggest_replay_vision_tags": False,
+        "read_replay_vision_actions": False,
+        # Argument-dependent, so they override is_dangerous_operation rather than the flag.
+        "create_replay_vision_scanner": None,
+        "update_replay_vision_scanner": None,
+        "update_replay_vision_action": None,
+    }
+
+    def _tools(self) -> dict[str, Any]:
+        return {
+            cls.model_fields["name"].default: cls
+            for cls in vars(max_tools_module).values()
+            if isinstance(cls, type)
+            and issubclass(cls, MaxTool)
+            and cls is not MaxTool
+            and isinstance(cls.model_fields.get("name") and cls.model_fields["name"].default, str)
+        }
+
+    def test_every_tool_is_accounted_for(self):
+        # A new tool that nobody classified is the thing this catches.
+        assert set(self._tools()) == set(self._EXPECTED), (
+            "A Replay Vision tool was added or renamed without deciding whether it needs confirmation."
+        )
+
+    def test_flagged_tools_match_their_declared_cost(self):
+        # Plain loop, not @parameterized: the mapping is the fixture.
+        for name, cls in self._tools().items():
+            expected = self._EXPECTED[name]
+            if expected is None:
+                # Argument-dependent tools decide per call; covered by their own tests.
+                assert "is_dangerous_operation" in vars(cls), f"{name} was expected to decide per call"
+                continue
+            assert cls.spends_credits is expected, name
+
+
+class TestReplayVisionLifecycleTools(BaseTest):
+    """The tools that close the create-then-manage loop."""
+
+    def _tool(self, tool_cls):
+        config: RunnableConfig = {"configurable": {"team": self.team, "user": self.user}}
+        return tool_cls(team=self.team, user=self.user, config=config)
+
+    def _scanner(self, **overrides) -> ReplayScanner:
+        defaults: dict = {
+            "team": self.team,
+            "name": "checkout",
+            "scanner_type": ScannerType.MONITOR,
+            "scanner_config": {"prompt": "did the user check out?"},
+            "model": ScannerModel.GEMINI_3_6_FLASH,
+        }
+        defaults.update(overrides)
+        return ReplayScanner.objects.create(**defaults)
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_listing_gives_max_the_ids_every_other_tool_needs(self):
+        # Without this, "turn on my checkout scanner" is unresolvable: every write tool takes an id and
+        # nothing else in the toolset produces one.
+        scanner = await sync_to_async(self._scanner)()
+
+        with patch(_FLAG_PATH, return_value=True):
+            _, artifact = await self._tool(ListReplayVisionScannersTool)._arun_impl()
+
+        assert [s["scanner_id"] for s in artifact["scanners"]] == [str(scanner.id)]
+        assert artifact["scanners"][0]["name"] == "checkout"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_listing_hides_inline_scans(self):
+        # An inline scan's scanner is a throwaway the reaper may collect; naming it here would invite
+        # Max to point standing operations at a row that can vanish.
+        await sync_to_async(self._scanner)()
+        await sync_to_async(ReplayScanner.all_origins.create)(
+            team=self.team,
+            name="",
+            origin=ScannerOrigin.INLINE,
+            inline_key="k",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "one-off"},
+            model=ScannerModel.GEMINI_3_6_FLASH,
+            enabled=False,
+            sampling_rate=0.0,
+        )
+
+        with patch(_FLAG_PATH, return_value=True):
+            _, artifact = await self._tool(ListReplayVisionScannersTool)._arun_impl()
+
+        assert len(artifact["scanners"]) == 1
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_delete_preview_says_how_much_history_goes_with_it(self):
+        # Deleting cascades the observations away, and the credits spent on them aren't refunded, so the
+        # count is the thing the user needs before agreeing.
+        scanner = await sync_to_async(self._scanner)()
+        await sync_to_async(ReplayObservation.objects.create)(
+            scanner=scanner,
+            session_id="s1",
+            scanner_snapshot={"scanner_type": "monitor"},
+            triggered_by=ObservationTrigger.ON_DEMAND,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+        )
+
+        preview = await self._tool(DeleteReplayVisionScannerTool).format_dangerous_operation_preview(
+            scanner_id=str(scanner.id)
+        )
+
+        assert "1 observation(s)" in preview
+        assert "Pausing it instead" in preview
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_deleting_takes_the_observations_with_it(self):
+        scanner = await sync_to_async(self._scanner)()
+        await sync_to_async(ReplayObservation.objects.create)(
+            scanner=scanner,
+            session_id="s1",
+            scanner_snapshot={"scanner_type": "monitor"},
+            triggered_by=ObservationTrigger.ON_DEMAND,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+        )
+
+        with patch(_FLAG_PATH, return_value=True):
+            _, artifact = await self._tool(DeleteReplayVisionScannerTool)._arun_impl(scanner_id=str(scanner.id))
+
+        assert "error" not in artifact, artifact
+        assert not await sync_to_async(ReplayObservation.objects.filter(session_id="s1").exists)()
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_labelling_records_the_teams_verdict(self):
+        scanner = await sync_to_async(self._scanner)()
+        observation = await sync_to_async(ReplayObservation.objects.create)(
+            scanner=scanner,
+            session_id="s1",
+            scanner_snapshot={"scanner_type": "monitor"},
+            triggered_by=ObservationTrigger.ON_DEMAND,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+        )
+
+        with patch(_FLAG_PATH, return_value=True):
+            _, artifact = await self._tool(LabelReplayVisionObservationTool)._arun_impl(
+                observation_id=str(observation.id), is_correct=False, feedback="it missed the coupon step"
+            )
+
+        assert "error" not in artifact, artifact
+        label = await sync_to_async(ReplayObservationLabel.objects.get)(observation_id=observation.id)
+        assert label.is_correct is False
+        assert label.feedback == "it missed the coupon step"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_impact_does_not_create_a_cohort_unless_asked(self):
+        # Cohort creation is a write with a dated, non-updating result, so it stays opt-in.
+        scanner = await sync_to_async(self._scanner)()
+
+        with patch(_FLAG_PATH, return_value=True):
+            _, artifact = await self._tool(AnalyzeReplayVisionImpactTool)._arun_impl(scanner_id=str(scanner.id))
+
+        assert "cohort_id" not in artifact
+        assert artifact["affected_sessions"] == 0
