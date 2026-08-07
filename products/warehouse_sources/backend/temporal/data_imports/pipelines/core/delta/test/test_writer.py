@@ -407,6 +407,45 @@ class TestAppendDecimalReconciliation:
             )
 
 
+class TestFullRefreshDecimalReconciliation:
+    """A later batch of a full_refresh (or first incremental) sync infers its own decimal type
+    independently of earlier batches, same as the incremental-merge and append-continuation
+    paths. Without reconciling to the table's already-established stored type before writing,
+    a batch whose inferred scale is wider than the stored column hits delta-rs's merge-schema
+    SchemaMismatchError, since schema_mode="merge" can't widen a stored column's scale in place.
+    """
+
+    @pytest.mark.asyncio
+    async def test_wider_scale_batch_is_rounded_to_stored_type(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        # First batch establishes a narrower-scale decimal column, as independent per-batch
+        # inference would.
+        deltalake.write_deltalake(
+            delta_path,
+            pa.table(
+                {"id": pa.array([1], type=pa.int64()), "amount": pa.array([Decimal("1.0")], type=pa.decimal128(4, 1))}
+            ),
+        )
+        helper = make_local_table_ref(delta_path)
+
+        # Second batch's own values infer a wider scale.
+        batch = pa.table(
+            {
+                "id": pa.array([2], type=pa.int64()),
+                "amount": pa.array([Decimal("2.23456")], type=pa.decimal128(8, 5)),
+            }
+        )
+
+        result = await DeltaWriter(helper).write(
+            data=batch, write_type="full_refresh", should_overwrite_table=False, primary_keys=None
+        )
+
+        final = result.to_pyarrow_table()
+        assert final.schema.field("amount").type == pa.decimal128(4, 1)
+        assert set(final.column("id").to_pylist()) == {1, 2}
+        assert Decimal("2.2") in final.column("amount").to_pylist()
+
+
 class TestSchemaEvolutionNullability:
     """A column added mid-table-lifetime always predates its own addition: every file the
     table already holds was written without it, so `optimize.compact()` must be able to

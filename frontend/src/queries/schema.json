@@ -26988,7 +26988,7 @@
                 },
                 "filters": {
                     "$ref": "#/definitions/HogQLFilters",
-                    "description": "Extra filters applied to query via {filters}"
+                    "description": "Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder"
                 },
                 "globals": {
                     "description": "Extra globals for the query",
@@ -27132,7 +27132,8 @@
                     "type": "boolean"
                 },
                 "filters": {
-                    "$ref": "#/definitions/HogQLFilters"
+                    "$ref": "#/definitions/HogQLFilters",
+                    "description": "Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder"
                 },
                 "kind": {
                     "const": "HogQLQuery",
@@ -27232,6 +27233,10 @@
                 "materializedColumnsOptimizationMode": {
                     "enum": ["disabled", "optimized"],
                     "type": "string"
+                },
+                "mergeFederatedAggregateJoins": {
+                    "description": "Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap",
+                    "type": "boolean"
                 },
                 "optimizeJoinedFilters": {
                     "type": "boolean"
@@ -36956,6 +36961,7 @@
                 "experiment created",
                 "experiment analyzed",
                 "experiment view recordings",
+                "experiment replay vision scanner created",
                 "feature flag created",
                 "session_replay_set_filters",
                 "session_replay_experiment_link_clicked",
