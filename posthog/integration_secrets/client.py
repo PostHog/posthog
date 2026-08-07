@@ -43,7 +43,7 @@ from posthog.security.outbound_proxy import internal_requests
 from posthog.settings.utils import get_list
 
 from .callers import IntegrationCaller
-from .errors import SecretDeniedError, SecretInRecoveryError, SecretMissingError
+from .errors import SecretInRecoveryError, SecretMissingError
 
 logger = structlog.get_logger(__name__)
 
@@ -151,15 +151,11 @@ class IntegrationSecretsClient:
         response.raise_for_status()
         body: dict[str, Any] = response.json()
 
-        denied = set(body.get("denied") or [])
         missing = set(body.get("missing") or [])
         secrets: dict[str, Any] = body.get("secrets") or {}
 
         resolved: dict[str, SecretValue] = {}
         for key in keys:
-            if key in denied:
-                INTEGRATION_SECRET_FETCH_COUNTER.labels(outcome="denied").inc()
-                raise SecretDeniedError(key)
             if key in missing or key not in secrets:
                 INTEGRATION_SECRET_FETCH_COUNTER.labels(outcome="missing").inc()
                 raise SecretMissingError(key)

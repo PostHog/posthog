@@ -16,18 +16,21 @@ flows and token refresh come later; nothing here touches them.
 
 Worth being precise, because it shapes what had to ship in phase 1 rather than after it.
 
-An attacker who has compromised a pod still holds that pod's JWT signing key, and can ask for
-anything on that caller's allowlist. Per-request key scoping contains a _leaked token_, not a
-_compromised caller_. The wins are:
+An attacker who has compromised a pod still holds that pod's JWT signing key, and can ask for any
+credential in the manifest. Per-request key scoping contains a _leaked token_, not a _compromised
+pod_. The wins are:
 
 1. Environment dumps stop containing credentials — `/proc/self/environ`, crash reports, a stray
    `printenv` in a log, and environments inherited by subprocesses.
 2. Every read is attributed, so rotating after a suspected exposure is scoped to what was actually
    accessed rather than to everything.
-3. Per-caller allowlists cap what any single compromised pod can obtain.
+3. A compromised deployment is cut off by revoking one signing key, without disturbing any other
+   deployment.
 4. Rotation stops needing a charts PR and a rolling restart.
 
-Point 3 is where most of the value sits, which is why the allowlist is in phase 1.
+Points 2 and 3 are where the value sits. Note what is _not_ claimed: nothing here stops a
+compromised pod reading credentials it is entitled to read, and no list is maintained pretending
+otherwise.
 
 ## API
 
@@ -63,7 +66,6 @@ that one call needed:
       "fetched_at": "…",
     },
   },
-  "denied": [], // in the token, but outside this deployment's allowlist
   "missing": [], // unknown key, or no value in this environment
 }
 ```
@@ -91,20 +93,22 @@ Authorization hangs off the deployment. The product exists so an incident can as
 read this", and is collapsed to a constant when the service does not recognise it, so it can never
 become an unbounded metric label.
 
-Two layers bound different failures:
+**There is no per-deployment provider allowlist.** Every authenticated deployment may read any
+credential in the manifest.
 
-| Layer                               | Bounds                   |
-| ----------------------------------- | ------------------------ |
-| The deployment's provider allowlist | a compromised deployment |
-| `keys` claim in the token           | a leaked token           |
+A list would have to be kept current per deployment, which is the same friction this service exists
+to remove, and it bounds nothing the signing key does not already bound: a compromised deployment
+is contained by revoking its key, which leaves every other deployment working. What a deployment
+actually read is in the audit log and the usage rollup, which is the more useful artifact after an
+incident anyway.
 
-The allowlist lives in `src/deployments.ts` rather than in a secret. It is authorization policy, so
-it should move through review, and it changes rarely. Django gets `*` because it hosts nearly every
-product and an explicit list there would be the full set with extra upkeep; the warehouse worker
-gets a real list because its need is genuinely narrow.
+So one thing bounds a request: the `keys` claim, which _is_ the request. A token lifted from a log
+unlocks the fields of one call, for five minutes.
 
 Signing keys live in this service's own secret, one flat entry per deployment, so the
-`PostHog/secrets` CLI and UI can manage them:
+`PostHog/secrets` CLI and UI can manage them. Deployment names are derived from the entries
+present, not declared in code, so onboarding a caller or revoking a compromised one is a secrets
+edit with no deploy:
 
 ```
 integration-service-secrets

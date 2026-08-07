@@ -71,15 +71,6 @@ describe('jwt verification', () => {
         expect(signedByWorker.deployment).toBe(DW)
     })
 
-    it('gives a deployment the provider allowlist defined for it in code', async () => {
-        const worker = await verifier().verify(await mint({ key: DW_KEY_NEW }))
-        const django = await verifier().verify(await mint({ key: DJANGO_KEY }))
-
-        expect(worker.allowedProviders).toContain('google-ads')
-        expect(worker.allowedProviders).not.toContain('linear')
-        expect(django.allowedProviders).toBe('*')
-    })
-
     it('accepts a token signed with a retired key still listed for that deployment', async () => {
         await expect(verifier().verify(await mint({ key: DW_KEY_OLD }))).resolves.toBeDefined()
     })
@@ -119,16 +110,15 @@ describe('jwt verification', () => {
             expect(identity.product).toBe('unknown')
         })
 
-        it('grants nothing — the allowlist follows the deployment', async () => {
+        it('never changes the authenticated deployment', async () => {
             const identity = await verifier().verify(await mint({ key: DW_KEY_NEW, product: 'cdp' }))
             expect(identity.deployment).toBe(DW)
-            expect(identity.allowedProviders).not.toBe('*')
         })
     })
 
     // Every distinct key name a caller sends becomes a Redis field, and it is never
-    // reclaimed. The allowlist bounds what a compromised caller can read; these bound
-    // what it can cost.
+    // reclaimed. Revoking a deployment's key bounds what a compromised caller can read;
+    // these bound what it can cost before anyone notices.
     describe('claim size limits', () => {
         it.each([
             ['more keys than any real request needs', Array.from({ length: 51 }, (_, i) => `KEY_${i}`)],

@@ -51,11 +51,9 @@ export interface CallerIdentity {
      * names or a constant, so it is safe as a metric label.
      */
     product: string
-    /** Providers this deployment may ever obtain, or '*' for all of them. */
-    allowedProviders: readonly string[] | '*'
     /** The exact keys this one request asked for, from the token's `keys` claim. */
     requestedKeys: readonly string[]
 }
 
 /** Per-key outcome, used for both metrics and the usage rollup. */
-export type ResolveOutcome = 'ok' | 'denied' | 'missing' | 'recovery'
+export type ResolveOutcome = 'ok' | 'missing' | 'recovery'

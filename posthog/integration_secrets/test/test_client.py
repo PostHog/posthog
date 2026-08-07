@@ -14,7 +14,7 @@ from posthog.integration_secrets.client import (
     integration_service_enabled,
     integration_service_signing_keys,
 )
-from posthog.integration_secrets.errors import SecretDeniedError, SecretInRecoveryError, SecretMissingError
+from posthog.integration_secrets.errors import SecretInRecoveryError, SecretMissingError
 from posthog.jwt import PosthogJwtAudience
 
 SERVICE_SETTINGS: dict[str, Any] = {
@@ -40,12 +40,8 @@ class FakeResponse:
         return self._payload
 
 
-def body(
-    secrets: dict[str, Any] | None = None,
-    denied: list[str] | None = None,
-    missing: list[str] | None = None,
-) -> dict[str, Any]:
-    return {"secrets": secrets or {}, "denied": denied or [], "missing": missing or []}
+def body(secrets: dict[str, Any] | None = None, missing: list[str] | None = None) -> dict[str, Any]:
+    return {"secrets": secrets or {}, "missing": missing or []}
 
 
 def steady(value: str) -> dict[str, Any]:
@@ -81,7 +77,6 @@ class TestIntegrationSecretsClient(TestCase):
 
     @parameterized.expand(
         [
-            ("denied", {"denied": [KEY]}, SecretDeniedError),
             ("missing", {"missing": [KEY]}, SecretMissingError),
             ("absent from the response", {}, SecretMissingError),
         ]

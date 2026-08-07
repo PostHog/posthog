@@ -1,16 +1,18 @@
 // Turns a verified token into a response.
 //
-// Two independent gates, in this order:
-//   1. the `keys` claim — what this request asked for (bounds a leaked token);
-//   2. the deployment's provider allowlist — what this pod may ever have (bounds a
-//      compromised deployment).
+// What a request may read is bounded by the `keys` claim alone: the token IS the request,
+// so a leaked one unlocks the fields of one call rather than everything.
 //
-// A key outside the allowlist is reported in `denied` rather than failing the whole
-// request, so a policy mistake shows up as one named field a human can act on instead of
-// an opaque 403. Same for `missing`: an unknown key name and an unpopulated credential
-// are both diagnosable states, not errors.
+// There is deliberately no per-deployment provider allowlist. Every authenticated
+// deployment may read any credential in the manifest. A list would have to be maintained
+// per deployment, which is the same friction this service exists to remove, and it bounds
+// nothing that the per-deployment signing key does not already bound: a compromised
+// deployment is contained by revoking its key, which leaves every other deployment
+// working. What it actually read is in the audit log and the usage rollup.
+//
+// `missing` covers both an unknown key name and a manifest key with no value here. Both
+// are diagnosable states reported per key, not errors that fail the batch.
 
-import { ALL_PROVIDERS } from '../deployments.js'
 import { logger } from '../lib/logging.js'
 import { observeResolve, previousVersionServedTotal } from '../metrics.js'
 import { providerForKey } from '../providers.js'
@@ -19,13 +21,6 @@ import type { UsageRecorder } from '../usage/recorder.js'
 
 /** Stand-in label for anything a caller named that the provider manifest does not define. */
 const UNKNOWN_LABEL = 'unknown'
-
-// Read the allowlist off the verified identity rather than the global table. The verifier
-// is the one place that decides what a token is allowed, and everything downstream should
-// answer to that decision rather than looking it up again.
-function allows(identity: CallerIdentity, provider: string): boolean {
-    return identity.allowedProviders === ALL_PROVIDERS || identity.allowedProviders.includes(provider)
-}
 
 /** Wire shape of one resolved field. snake_case because Python is the primary consumer. */
 export interface WireSecret {
@@ -38,7 +33,6 @@ export interface WireSecret {
 
 export interface ResolveResponse {
     secrets: Record<string, WireSecret>
-    denied: string[]
     missing: string[]
 }
 
@@ -49,7 +43,6 @@ export interface ResolveDeps {
 
 export async function resolveKeys(identity: CallerIdentity, deps: ResolveDeps): Promise<ResolveResponse> {
     const secrets: Record<string, WireSecret> = {}
-    const denied: string[] = []
     const missing: string[] = []
     const served: string[] = []
 
@@ -64,11 +57,6 @@ export async function resolveKeys(identity: CallerIdentity, deps: ResolveDeps): 
             // a signing key grow this process's series set without bound. The real name
             // still reaches the response and the log line, neither of which is a label.
             observeResolve(identity, UNKNOWN_LABEL, UNKNOWN_LABEL, 'missing')
-            continue
-        }
-        if (!allows(identity, provider)) {
-            denied.push(key)
-            observeResolve(identity, provider, key, 'denied')
             continue
         }
         const bucket = byProvider.get(provider)
@@ -116,11 +104,10 @@ export async function resolveKeys(identity: CallerIdentity, deps: ResolveDeps): 
         deployment: identity.deployment,
         product: identity.product,
         served,
-        denied,
         missing,
     })
 
     deps.recorder.record(identity.deployment, served)
 
-    return { secrets, denied, missing }
+    return { secrets, missing }
 }

@@ -41,19 +41,25 @@ function deps(overrides: Partial<ResolveDeps> = {}): ResolveDeps {
 
 // `temporal-worker-data-warehouse` is a real deployment in src/deployments.ts, so its
 // allowlist here is the one the service will actually apply.
-function identity(
-    requestedKeys: string[],
-    allowed: readonly string[] | '*' = ['google-ads', 'stripe']
-): CallerIdentity {
+function identity(requestedKeys: string[]): CallerIdentity {
     return {
         deployment: 'temporal-worker-data-warehouse',
         product: 'warehouse-sources',
-        allowedProviders: allowed,
         requestedKeys,
     }
 }
 
 describe('resolve', () => {
+    // There is no per-deployment allowlist: any authenticated deployment may read any
+    // credential in the manifest. Containment is revoking that deployment's signing key,
+    // not a list somebody has to keep current.
+    it('serves any manifest provider to an authenticated deployment', async () => {
+        const response = await resolveKeys(identity(['GOOGLE_ADS_APP_CLIENT_ID', 'STRIPE_APP_SECRET_KEY']), deps())
+
+        expect(Object.keys(response.secrets).sort()).toEqual(['GOOGLE_ADS_APP_CLIENT_ID', 'STRIPE_APP_SECRET_KEY'])
+        expect(response.missing).toEqual([])
+    })
+
     it('serves the requested fields with their rotation state', async () => {
         const response = await resolveKeys(
             identity(['GOOGLE_ADS_APP_CLIENT_ID', 'GOOGLE_ADS_APP_CLIENT_SECRET']),
@@ -76,18 +82,6 @@ describe('resolve', () => {
 
         expect(Object.keys(response.secrets)).toEqual(['GOOGLE_ADS_APP_CLIENT_ID'])
         expect(response.secrets).not.toHaveProperty('STRIPE_APP_SECRET_KEY')
-    })
-
-    // A policy mistake should read as one named field, not an opaque 403 over the batch.
-    it('reports a key outside the allowlist as denied while still serving the permitted ones', async () => {
-        const response = await resolveKeys(
-            identity(['GOOGLE_ADS_APP_CLIENT_ID', 'STRIPE_APP_SECRET_KEY'], ['google-ads']),
-            deps()
-        )
-
-        expect(response.denied).toEqual(['STRIPE_APP_SECRET_KEY'])
-        expect(response.secrets).not.toHaveProperty('STRIPE_APP_SECRET_KEY')
-        expect(response.secrets).toHaveProperty('GOOGLE_ADS_APP_CLIENT_ID')
     })
 
     it.each([

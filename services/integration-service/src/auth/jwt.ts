@@ -11,20 +11,20 @@
 // not recognise it, and it grants nothing.
 //
 // The requested key set travels in the `keys` claim and there is no request body, so a
-// token lifted from a log unlocks the fields of one call rather than everything the
-// deployment may read.
+// token lifted from a log unlocks the fields of one call rather than every credential we
+// hold.
 
 import { decodeJwt, jwtVerify } from 'jose'
 
-import { DEPLOYMENT_PROVIDERS, productLabel } from '../deployments.js'
+import { productLabel } from '../products.js'
 import type { CallerIdentity } from '../types.js'
 import type { SigningKeyLoader } from './registry.js'
 import { AUDIENCE, AuthError, type Verifier } from './types.js'
 
 // Caps on the `keys` claim. A holder of a valid signing key would otherwise be able to
 // grow this process's memory without bound: every distinct key name becomes a Redis usage
-// field, and it is never reclaimed. The deployment allowlist bounds what a compromised
-// caller can *read*; these bound what it can *cost*.
+// field, and it is never reclaimed. Revoking a deployment's key bounds what a compromised
+// caller can *read*; these bound what it can *cost* before anyone notices.
 //
 // The real ceiling is the provider manifest, well under 50 fields in total, so no
 // legitimate request comes close.
@@ -97,7 +97,6 @@ export class JwtVerifier implements Verifier {
         return {
             deployment,
             product: productLabel(typeof claimedProduct === 'string' ? claimedProduct : ''),
-            allowedProviders: DEPLOYMENT_PROVIDERS[deployment] ?? [],
             // Deduplicate: a repeated key would otherwise be resolved, counted and logged
             // once per occurrence for no benefit.
             requestedKeys: [...new Set(claimedKeys)],

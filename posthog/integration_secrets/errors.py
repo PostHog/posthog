@@ -4,17 +4,6 @@ class IntegrationSecretError(Exception):
         super().__init__(message)
 
 
-class SecretDeniedError(IntegrationSecretError):
-    """This caller is not allowlisted for the provider that owns the key.
-
-    A configuration problem, not a transient one: retrying will not help, and falling
-    back to an environment variable would defeat the allowlist.
-    """
-
-    def __init__(self, key: str) -> None:
-        super().__init__(key, f"This service is not permitted to read {key}")
-
-
 class SecretMissingError(IntegrationSecretError):
     """The key is unknown to the service, or has no value in this environment."""
 
