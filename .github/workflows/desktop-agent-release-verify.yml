@@ -19,6 +19,10 @@ on:
             - 'products/desktop/pnpm-lock.yaml'
             - 'products/desktop/pnpm-workspace.yaml'
 
+concurrency:
+    group: desktop-agent-release-verify-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
     verify:
         name: Verify agent release build
