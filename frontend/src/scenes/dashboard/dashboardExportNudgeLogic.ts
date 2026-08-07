@@ -168,6 +168,12 @@ export async function resolveExportNudgeEligibility(dashboardId: number): Promis
  */
 export function claimExportNudge(dashboardId: number): boolean {
     const { values, actions } = mountedExportNudgeLogic()
+    // Re-read rather than trust resolveExportNudgeEligibility's check: two exports of the same
+    // dashboard both run that check before either of them gets here, so only this read sees a
+    // claim the other one already made.
+    if (values.exportNudgedDashboardIds.includes(dashboardId) || values.suppressedDashboardIds.includes(dashboardId)) {
+        return false
+    }
     // Reading featureFlags[...] fires the exposure event, so only read it once every other check
     // has passed.
     if (values.featureFlags[FEATURE_FLAGS.DASHBOARD_EXPORT_NUDGE] !== 'test') {

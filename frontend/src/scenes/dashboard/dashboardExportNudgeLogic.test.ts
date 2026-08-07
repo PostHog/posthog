@@ -111,6 +111,14 @@ describe('dashboardExportNudgeLogic', () => {
         expect(await considerNudge()).toBe(false)
     })
 
+    it('nudges a dashboard only once when two of its exports run concurrently', async () => {
+        // Exporting the same dashboard as PNG and CSV back to back runs both eligibility checks
+        // before either export claims, so the claim itself has to be what excludes the second.
+        expect(await Promise.all([considerNudge(), considerNudge()])).toEqual([true, false])
+
+        expect(capturesOf('dashboard export nudge shown')).toHaveLength(1)
+    })
+
     it('suppresses the dashboard when it already has a subscription', async () => {
         mockSubscriptionCounts({ dashboardCount: 1 })
 
