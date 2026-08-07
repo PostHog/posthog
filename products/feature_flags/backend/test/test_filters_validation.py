@@ -1,4 +1,3 @@
-
 from typing import Any
 
 from django.test import SimpleTestCase
@@ -312,8 +311,16 @@ class TestRejectSerdeUnsafeFilters(SimpleTestCase):
             ("property_group_type_index_string", {"groups": [{"properties": [{"group_type_index": "1"}]}]}),
             ("property_operator_unknown", {"groups": [{"properties": [{"operator": "does not equal"}]}]}),
             ("property_operator_unhashable", {"groups": [{"properties": [{"operator": []}]}]}),
-            ("property_type_unknown", {"groups": [{"properties": [{"type": "banana"}]}]}),
-            ("property_type_not_string", {"groups": [{"properties": [{"type": 1}]}]}),
+            ("property_type_unknown", {"groups": [{"properties": [{"key": "k", "type": "banana"}]}]}),
+            ("property_type_not_string", {"groups": [{"properties": [{"key": "k", "type": 1}]}]}),
+            # Rust has no `event` variant, so one of these fails the team's whole cached set.
+            ("property_type_event", {"groups": [{"properties": [{"key": "k", "type": "event"}]}]}),
+            ("property_type_missing", {"groups": [{"properties": [{"key": "k"}]}]}),
+            ("property_empty", {"groups": [{"properties": [{}]}]}),
+            ("property_key_missing", {"groups": [{"properties": [{"type": "person"}]}]}),
+            ("property_key_null", {"groups": [{"properties": [{"key": None, "type": "person"}]}]}),
+            ("property_key_bool", {"groups": [{"properties": [{"key": True, "type": "person"}]}]}),
+            ("property_key_list", {"groups": [{"properties": [{"key": [], "type": "person"}]}]}),
             ("multivariate_not_dict", {"multivariate": []}),
             ("variants_not_list", {"multivariate": {"variants": {}}}),
             ("variant_not_dict", {"multivariate": {"variants": ["x"]}}),
@@ -329,9 +336,13 @@ class TestRejectSerdeUnsafeFilters(SimpleTestCase):
     @parameterized.expand(
         [
             ("empty", {}),
-            ("alias_operator", {"groups": [{"properties": [{"operator": "min"}]}]}),
-            ("event_property_type", {"groups": [{"properties": [{"type": "event"}]}]}),
-            ("operator_absent", {"groups": [{"properties": [{"key": "x"}]}]}),
+            ("alias_operator", {"groups": [{"properties": [{"key": "k", "type": "person", "operator": "min"}]}]}),
+            # Rust deserializes person_metadata; the structural tier narrows to four types,
+            # but that is a policy choice rather than something serde rejects.
+            ("person_metadata_type", {"groups": [{"properties": [{"key": "k", "type": "person_metadata"}]}]}),
+            ("operator_absent", {"groups": [{"properties": [{"key": "x", "type": "person"}]}]}),
+            # deserialize_key accepts a JSON number and normalizes it to a string.
+            ("numeric_key", {"groups": [{"properties": [{"key": 226357, "type": "flag"}]}]}),
             ("payload_dict_value", {"payloads": {"true": {"a": 1}}}),
             ("payload_nan_token", {"payloads": {"true": "NaN"}}),
             ("redacted_payload_sentinel", {"payloads": {"true": REDACTED_PAYLOAD_VALUE}}),

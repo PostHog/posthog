@@ -9,7 +9,7 @@ import functools
 from collections.abc import Iterable, Iterator
 from dataclasses import asdict
 from datetime import datetime, timedelta
-from typing import Any, NoReturn, Optional, cast, get_args
+from typing import Any, NoReturn, Optional, cast
 
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
@@ -65,7 +65,6 @@ from posthog.models.person.point_in_time_properties import (
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
-from posthog.models.property.property import PropertyType
 from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import (
@@ -88,6 +87,7 @@ from products.dashboards.backend.api.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment, flag_has_live_experiment
 from products.feature_flags.backend.api.filters_schema import (
     FEATURE_FLAG_OPERATOR_ALIASES,
+    FEATURE_FLAG_PROPERTY_TYPES,
     FEATURE_FLAG_SUPPORTED_OPERATORS,
     FLAG_ID_CONTEXT_KEY,
     FeatureFlagFiltersSerializer,
@@ -834,7 +834,12 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
 
 # Master constructed Property(**prop) on every write, so it accepted any type the Property
 # model knows; the narrower flags-only set belongs to the switch-gated structural tier.
-_KNOWN_PROPERTY_TYPES: frozenset[str] = frozenset(get_args(PropertyType))
+# Exactly the variants Rust's flag-side PropertyType deserializes. Not the generic PostHog
+# PropertyType union, which includes types like "event" that the flag service has no variant
+# for: the hypercache payload is deserialized whole, so one such property fails the team's
+# entire cached flag set. person_metadata is here because Rust accepts it — the narrower
+# four-type set the structural tier enforces is a policy choice, not a serde limit.
+_RUST_PROPERTY_TYPES: frozenset[str] = frozenset({*FEATURE_FLAG_PROPERTY_TYPES, "person_metadata"})
 
 
 def _reject_serde_unsafe_filters(filters: Any) -> None:
@@ -943,8 +948,15 @@ def _reject_serde_unsafe_filters(filters: Any) -> None:
             raise serializers.ValidationError(
                 f"groups[{group_index}].properties[{prop_index}].operator: unsupported operator for feature flags"
             )
+        # Rust's PropertyFilter declares key and type as required (Option-typed fields are the
+        # optional ones), so a property missing either fails the whole payload, not just itself.
+        prop_key = prop.get("key")
+        if prop_key is None or isinstance(prop_key, bool) or not isinstance(prop_key, str | int | float):
+            raise serializers.ValidationError(
+                f"groups[{group_index}].properties[{prop_index}].key: a property key is required"
+            )
         prop_type = prop.get("type")
-        if prop_type is not None and (not isinstance(prop_type, str) or prop_type not in _KNOWN_PROPERTY_TYPES):
+        if not isinstance(prop_type, str) or prop_type not in _RUST_PROPERTY_TYPES:
             raise serializers.ValidationError(
                 f"groups[{group_index}].properties[{prop_index}].type: invalid property type"
             )

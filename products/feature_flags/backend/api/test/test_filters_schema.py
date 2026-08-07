@@ -320,7 +320,11 @@ class TestFiltersSchema(SimpleTestCase):
         serializer = FeatureFlagFiltersSerializer(data=filters, context={"flag_id": 42})
         assert serializer.is_valid(), serializer.errors
         mock_logger.warning.assert_called_once_with(
-            "feature_flag_filters_unknown_keys_dropped", level=level, keys=expected_keys, flag_id=42
+            "feature_flag_filters_unknown_keys_dropped",
+            level=level,
+            key_count=len(expected_keys),
+            keys=expected_keys,
+            flag_id=42,
         )
 
     def test_display_passthrough_fields_survive_validation(self) -> None:

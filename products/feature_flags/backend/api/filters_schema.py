@@ -88,6 +88,9 @@ I64_MIN, I64_MAX = -(2**63), 2**63 - 1
 
 # Serializer-context keys shared with the audit command; constants so a typo on either side
 # fails loudly at import instead of silently under-reporting unknown keys.
+MAX_LOGGED_UNKNOWN_KEYS = 20
+MAX_LOGGED_UNKNOWN_KEY_CHARS = 100
+
 UNKNOWN_KEYS_SINK_CONTEXT_KEY = "unknown_keys_sink"
 FLAG_ID_CONTEXT_KEY = "flag_id"
 
@@ -104,14 +107,19 @@ def _record_dropped_unknown_keys(level: str, keys: Sequence[str], context: Mappi
     sink: UnknownKeySink | None = context.get(UNKNOWN_KEYS_SINK_CONTEXT_KEY)
     flag_id: int | None = context.get(FLAG_ID_CONTEXT_KEY)
     if sink is not None:
+        # The audit sink gets everything: it counts offline against a stored corpus, not
+        # against request bodies, so there is no caller to flood it.
         sink.record(level=level, keys=keys, flag_id=flag_id)
         return
     non_legacy = [key for key in keys if not is_legacy_unknown_key(level, key)]
     if non_legacy:
+        # Keys are caller-controlled and a request body can carry megabytes of them, so the
+        # log line is capped in both dimensions. key_count keeps the true size visible.
         logger.warning(
             "feature_flag_filters_unknown_keys_dropped",
             level=level,
-            keys=non_legacy,
+            key_count=len(non_legacy),
+            keys=[key[:MAX_LOGGED_UNKNOWN_KEY_CHARS] for key in non_legacy[:MAX_LOGGED_UNKNOWN_KEYS]],
             flag_id=flag_id,
         )
 
