@@ -100,6 +100,17 @@ EXTERNAL_REFERENCE_NON_BLANK_CONFIG_FIELDS = {
     Integration.IntegrationKind.JIRA.value: ("project_key", "title"),
 }
 
+# Keys build_external_issue_url reads per provider, with the identifier type each expects —
+# the minimal external_context we need to persist when linking an issue that already exists
+# rather than creating a new one. References cannot be deleted, so a malformed identifier
+# would persist a permanently broken link.
+LINK_EXISTING_REQUIRED_CONTEXT_FIELDS: dict[str, dict[str, type]] = {
+    Integration.IntegrationKind.GITHUB.value: {"repository": str, "number": int},
+    Integration.IntegrationKind.GITLAB.value: {"issue_id": int},
+    Integration.IntegrationKind.LINEAR.value: {"id": str},
+    Integration.IntegrationKind.JIRA.value: {"key": str},
+}
+
 
 def is_supported_external_issue_provider(kind: str) -> bool:
     return kind in SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
@@ -141,6 +152,41 @@ def _validate_external_reference_config(integration: Integration, config: Any) -
             raise ErrorTrackingExternalReferenceValidationError(
                 "Invalid Linear team_id. Use integrations-linear-teams-retrieve to choose a team from this integration."
             )
+
+
+def _clean_existing_external_context(integration: Integration, external_context: Any) -> dict[str, Any]:
+    """Validate and normalize the external_context for linking an already-existing issue.
+
+    Keeps only the provider keys build_external_issue_url reads, so we never persist arbitrary
+    client-supplied data on the reference.
+    """
+    if not isinstance(external_context, dict):
+        raise ErrorTrackingExternalReferenceValidationError("External context must be an object.")
+
+    required_fields = LINK_EXISTING_REQUIRED_CONTEXT_FIELDS.get(integration.kind)
+    if required_fields is None:
+        raise ErrorTrackingExternalReferenceValidationError("Provider not supported")
+
+    error = ErrorTrackingExternalReferenceValidationError(
+        f"Missing required external context fields for {integration.kind}: {', '.join(required_fields)}."
+    )
+
+    cleaned: dict[str, Any] = {}
+    for field, expected_type in required_fields.items():
+        value = external_context.get(field)
+        # build_external_issue_url interpolates these into URLs, so enforce the identifier
+        # type each provider expects (digit strings are accepted for numeric identifiers).
+        if isinstance(value, str):
+            value = value.strip()
+        if expected_type is int:
+            if isinstance(value, str) and value.isdigit():
+                value = int(value)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise error
+        elif not isinstance(value, str) or value == "":
+            raise error
+        cleaned[field] = value
+    return cleaned
 
 
 def get_issue_list_queryset(team_id: int) -> QuerySet[ErrorTrackingIssue]:
@@ -256,13 +302,9 @@ def get_external_reference(reference_id: UUID, team_id: int) -> ErrorTrackingExt
     return list_external_references(team_id=team_id).filter(id=reference_id).first()
 
 
-def create_external_reference(
-    *,
-    team_id: int,
-    issue_id: UUID,
-    integration_id: int,
-    config: dict[str, Any],
-) -> ErrorTrackingExternalReference:
+def _get_issue_and_integration(
+    team_id: int, issue_id: UUID, integration_id: int
+) -> tuple[ErrorTrackingIssue, Integration]:
     issue = ErrorTrackingIssue.objects.filter(id=issue_id, team_id=team_id).first()
     if issue is None:
         raise ErrorTrackingExternalReferenceValidationError("Issue does not belong to this team.")
@@ -271,26 +313,102 @@ def create_external_reference(
     if integration is None:
         raise ErrorTrackingExternalReferenceValidationError("Integration does not belong to this team.")
 
+    return issue, integration
+
+
+def create_external_reference(
+    *,
+    team_id: int,
+    issue_id: UUID,
+    integration_id: int,
+    config: dict[str, Any] | None = None,
+    external_context: dict[str, Any] | None = None,
+) -> ErrorTrackingExternalReference:
+    """Link an error tracking issue to an external provider issue.
+
+    Pass ``config`` to create a brand-new provider issue, or ``external_context`` to link an
+    existing one that the user picked. Exactly one of the two must be supplied.
+    """
+    if (config is None) == (external_context is None):
+        raise ErrorTrackingExternalReferenceValidationError(
+            "Provide either config (to create a new issue) or external_context (to link an existing one)."
+        )
+
+    issue, integration = _get_issue_and_integration(team_id, issue_id, integration_id)
+
+    if external_context is not None:
+        if not is_supported_external_issue_provider(integration.kind):
+            raise ErrorTrackingExternalReferenceValidationError("Provider not supported")
+        stored_context = _clean_existing_external_context(integration, external_context)
+        # Linking is idempotent: retries and double-clicks must not duplicate the
+        # reference (references cannot be deleted) or re-attach in the provider.
+        # Containment (not equality) also matches references the create flow stored
+        # with extra provider keys alongside the identifier.
+        existing = ErrorTrackingExternalReference.objects.filter(
+            issue=issue, integration=integration, external_context__contains=stored_context
+        ).first()
+        if existing is not None:
+            return existing
+        if integration.kind == Integration.IntegrationKind.LINEAR:
+            # Linked issues get the same PostHog back-link attachment as created ones.
+            attachment_url = get_issue_permalink_by_fingerprint(team_id=team_id, issue_id=issue.id)
+            LinearIntegration(integration).create_attachment(stored_context["id"], attachment_url)
+        return ErrorTrackingExternalReference.objects.create(
+            issue=issue,
+            integration=integration,
+            external_context=stored_context,
+        )
+
     _validate_external_reference_config(integration, config)
-    provider_config = dict(config)
+    provider_config = dict(config or {})
 
     if integration.kind == Integration.IntegrationKind.GITHUB:
-        external_context = GitHubIntegration(integration).create_issue(provider_config)
+        created_context = GitHubIntegration(integration).create_issue(provider_config)
     elif integration.kind == Integration.IntegrationKind.GITLAB:
-        external_context = GitLabIntegration(integration).create_issue(provider_config)
+        created_context = GitLabIntegration(integration).create_issue(provider_config)
     elif integration.kind == Integration.IntegrationKind.LINEAR:
         attachment_url = get_issue_permalink_by_fingerprint(team_id=team_id, issue_id=issue.id)
-        external_context = LinearIntegration(integration).create_issue(attachment_url, provider_config)
+        created_context = LinearIntegration(integration).create_issue(attachment_url, provider_config)
     elif integration.kind == Integration.IntegrationKind.JIRA:
-        external_context = JiraIntegration(integration).create_issue(provider_config)
+        created_context = JiraIntegration(integration).create_issue(provider_config)
     else:
         raise ErrorTrackingExternalReferenceValidationError("Provider not supported")
 
     return ErrorTrackingExternalReference.objects.create(
         issue=issue,
         integration=integration,
-        external_context=external_context,
+        external_context=created_context,
     )
+
+
+def search_external_issues(
+    *,
+    team_id: int,
+    integration_id: int,
+    search: str,
+    repository: str | None = None,
+) -> list[dict[str, Any]]:
+    """Search a provider for existing issues to link, returning normalized picker results.
+
+    Each result is ``{id, title, url, external_context}`` where ``external_context`` is the
+    exact payload to persist when the user selects it.
+    """
+    integration = Integration.objects.filter(id=integration_id, team_id=team_id).first()
+    if integration is None:
+        raise ErrorTrackingExternalReferenceValidationError("Integration does not belong to this team.")
+
+    if integration.kind == Integration.IntegrationKind.GITHUB:
+        if not repository:
+            raise ErrorTrackingExternalReferenceValidationError("A repository is required to search GitHub issues.")
+        return GitHubIntegration(integration).search_issues(repository, search)
+    elif integration.kind == Integration.IntegrationKind.GITLAB:
+        return GitLabIntegration(integration).search_issues(search)
+    elif integration.kind == Integration.IntegrationKind.LINEAR:
+        return LinearIntegration(integration).search_issues(search)
+    elif integration.kind == Integration.IntegrationKind.JIRA:
+        return JiraIntegration(integration).search_issues(search)
+
+    raise ErrorTrackingExternalReferenceValidationError("Provider not supported")
 
 
 def get_issue_assignment(assignment_id: UUID | str) -> ErrorTrackingIssueAssignment:

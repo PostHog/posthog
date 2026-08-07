@@ -161,6 +161,23 @@ export const ErrorTrackingExternalReferencesCreateBody = /* @__PURE__ */ zod.obj
     issue: zod.uuid().describe('ID of the error tracking issue to link the reference to.'),
 })
 
+/**
+ * Link an error to an issue that already exists in the connected provider.
+ */
+export const ErrorTrackingExternalReferencesLinkIssueCreateBody = /* @__PURE__ */ zod.object({
+    integration_id: zod
+        .number()
+        .describe(
+            "ID of the connected integration the existing issue lives in (one of 'github', 'gitlab', 'linear', 'jira')."
+        ),
+    issue: zod.uuid().describe('ID of the error tracking issue to link the reference to.'),
+    external_context: zod
+        .record(zod.string(), zod.unknown())
+        .describe(
+            'Identifier of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.'
+        ),
+})
+
 export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
     filters: zod
         .record(zod.string(), zod.unknown())
