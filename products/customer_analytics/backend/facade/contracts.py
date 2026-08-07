@@ -134,6 +134,15 @@ class AccountChannelSummaryView:
 
 
 @dataclass(frozen=True)
+class CalendarSyncStatus:
+    """Sync state of one connected calendar, as shown in settings."""
+
+    integration_id: int
+    last_synced_at: datetime | None
+    is_syncing: bool
+
+
+@dataclass(frozen=True)
 class MeetingParticipantView:
     """One attendee of a synced calendar meeting."""
 

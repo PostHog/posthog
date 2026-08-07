@@ -23,6 +23,10 @@ EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
 BACKFILL_DAYS = 365
 PAGE_SIZE = 250
 SYNC_TOKEN_CONFIG_KEY = "calendar_sync_token"
+SYNC_STARTED_AT_CONFIG_KEY = "calendar_sync_started_at"
+LAST_SYNCED_AT_CONFIG_KEY = "calendar_last_synced_at"
+# Matches the sync activity's start_to_close timeout: past this, an unfinished run is dead.
+SYNC_STALE_AFTER = timedelta(minutes=30)
 
 PERSON_EMAIL_LOOKUP_QUERY = """
 SELECT id, properties.email
@@ -70,6 +74,9 @@ def sync_calendar_integration(integration_id: int, team_id: int) -> CalendarSync
     connected_email = (integration.config or {}).get("email", "")
     internal_domain = _domain_of(connected_email)
 
+    integration.config[SYNC_STARTED_AT_CONFIG_KEY] = timezone.now().isoformat()
+    integration.save(update_fields=["config"])
+
     counts = CalendarSyncCounts()
     sync_token = (integration.config or {}).get(SYNC_TOKEN_CONFIG_KEY)
     try:
@@ -78,6 +85,7 @@ def sync_calendar_integration(integration_id: int, team_id: int) -> CalendarSync
         next_sync_token = _sync_events(team, access_token, None, internal_domain, counts)
 
     integration.config[SYNC_TOKEN_CONFIG_KEY] = next_sync_token
+    integration.config[LAST_SYNCED_AT_CONFIG_KEY] = timezone.now().isoformat()
     integration.save(update_fields=["config"])
     return counts
 

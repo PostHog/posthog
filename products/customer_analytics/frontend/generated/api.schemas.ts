@@ -682,6 +682,21 @@ export interface AnnouncementChannelApi {
 }
 
 /**
+ * Sync state of one connected calendar (read-only).
+ */
+export interface CalendarSyncStatusApi {
+    /** Id of the google-calendar integration. */
+    readonly integration_id: number
+    /**
+     * When the last sync run completed; null before the first sync.
+     * @nullable
+     */
+    readonly last_synced_at: string | null
+    /** Whether a sync run is currently in flight. */
+    readonly is_syncing: boolean
+}
+
+/**
  * Request body of the calendar sync-now trigger.
  */
 export interface CalendarSyncTriggerApi {

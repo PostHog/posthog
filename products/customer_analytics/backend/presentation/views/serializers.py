@@ -41,6 +41,7 @@ from products.customer_analytics.backend.facade.contracts import (
     AccountRelationship,
     AccountRelationshipDefinition,
     AccountView,
+    CalendarSyncStatus,
     CustomerJourneyView,
     CustomerProfileConfigView,
     CustomPropertyDefinitionView,
@@ -376,6 +377,21 @@ class SupportTicketSerializer(DataclassSerializer):
         dataclass = TicketSummary
         ref_name = "SupportTicket"
         fields = ["id", "ticket_number", "status", "last_message_at", "last_message_text", "deep_link"]
+
+
+class CalendarSyncStatusSerializer(DataclassSerializer):
+    """Sync state of one connected calendar (read-only)."""
+
+    integration_id = serializers.IntegerField(read_only=True, help_text="Id of the google-calendar integration.")
+    last_synced_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the last sync run completed; null before the first sync."
+    )
+    is_syncing = serializers.BooleanField(read_only=True, help_text="Whether a sync run is currently in flight.")
+
+    class Meta:
+        dataclass = CalendarSyncStatus
+        ref_name = "CalendarSyncStatus"
+        fields = ["integration_id", "last_synced_at", "is_syncing"]
 
 
 class CalendarSyncTriggerSerializer(serializers.Serializer):
