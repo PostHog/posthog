@@ -48,7 +48,7 @@ describe('heatmapsBrowserLogic', () => {
             expect(message).toContain(expected)
         })
 
-        it('attributes a non-2xx to the customer host and quotes what it returned', () => {
+        it('reports a non-2xx without blaming the customer CDN and points to a fallback', () => {
             const message = preflightBannerMessage({
                 ...base,
                 framing: 'unknown',
@@ -58,7 +58,10 @@ describe('heatmapsBrowserLogic', () => {
 
             expect(message).toContain('429')
             expect(message).toContain('local_rate_limited')
-            expect(message).toContain('host or CDN')
+            // We can't tell a genuine site error from bot protection blocking us, so we don't accuse the
+            // customer's host and we point at the background that works instead of a dead end.
+            expect(message).not.toContain('CDN')
+            expect(message).toContain('screenshot or session recording')
             expect(message).not.toContain('embedding')
         })
 

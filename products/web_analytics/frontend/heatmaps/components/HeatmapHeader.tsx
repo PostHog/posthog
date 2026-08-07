@@ -6,7 +6,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { heatmapLogic } from '../scenes/heatmap/heatmapLogic'
+import { SCREENSHOT_PERMANENT_FAILURE_REASONS, heatmapLogic } from '../scenes/heatmap/heatmapLogic'
 import { HeatmapAdvancedSettings } from './HeatmapAdvancedSettings'
 import { HeatmapRecordingFallback } from './HeatmapRecordingFallback'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
@@ -20,6 +20,7 @@ export function HeatmapHeader(): JSX.Element {
         pageUrlDraftIsPattern,
         loading,
         screenshotError,
+        screenshotFailureReason,
         displayUrl,
         displayUrlIsPattern,
         type,
@@ -83,10 +84,17 @@ export function HeatmapHeader(): JSX.Element {
                         <div className="flex flex-col gap-2">
                             <LemonBanner
                                 type="error"
-                                action={{
-                                    children: 'Retry',
-                                    onClick: regenerateScreenshot,
-                                }}
+                                // A permanent failure (the site refused our request) won't be fixed by
+                                // regenerating. Point to the fallback below instead of a retry that dead-ends.
+                                action={
+                                    screenshotFailureReason &&
+                                    SCREENSHOT_PERMANENT_FAILURE_REASONS.includes(screenshotFailureReason)
+                                        ? undefined
+                                        : {
+                                              children: 'Retry',
+                                              onClick: regenerateScreenshot,
+                                          }
+                                }
                             >
                                 {screenshotError}
                             </LemonBanner>

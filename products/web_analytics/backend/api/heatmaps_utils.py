@@ -7,6 +7,14 @@ DEFAULT_TARGET_WIDTHS = [320, 375, 425, 768, 1024, 1440, 1920]
 # single heatmap can fan out to.
 MAX_TARGET_WIDTHS = 16
 
+# A default python-requests / headless User-Agent trips bot protection (Cloudflare and similar) on
+# sites a real visitor loads fine, which is the top cause of heatmap capture failures. Both the
+# preflight probe and the Browserless render present a mainstream desktop-browser UA so those
+# requests look like the visit the page expects.
+HEATMAP_BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+)
+
 PREWARM_PREVIEW_WIDTH = 1024
 PREWARM_TTL = timedelta(minutes=15)
 

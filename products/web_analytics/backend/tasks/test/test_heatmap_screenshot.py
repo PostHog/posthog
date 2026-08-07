@@ -105,6 +105,8 @@ class TestHeatmapScreenshotTask(APIBaseTest):
         assert heatmap.status == SavedHeatmap.Status.FAILED
         assert "429" in (heatmap.exception or "")
         assert "example.com" in (heatmap.exception or "")
+        # The frontend keys off this to stop offering a retry that can't succeed and point to a fallback.
+        assert heatmap.failure_reason == "page_http_status"
         assert not HeatmapSnapshot.objects.filter(heatmap=heatmap).exists()
 
     @parameterized.expand([("blocking_on", True), ("blocking_off", False)])
@@ -311,6 +313,8 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
         assert content == _jpeg(b"img")
         body = mock_requests.post.call_args.kwargs["json"]
         assert body["url"] == "https://example.com"
+        # A browser-like UA keeps bot protection from answering the render with an error page we'd capture.
+        assert "Chrome/" in body["userAgent"]
         assert body["viewport"]["width"] == width
         assert body["viewport"]["isMobile"] is is_mobile
         assert body["options"]["fullPage"] is True

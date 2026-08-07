@@ -36,6 +36,10 @@ class SavedHeatmap(UUIDTModel):
 
     # Error handling
     exception = models.TextField(null=True, blank=True)
+    # Machine-readable failure classification (e.g. "page_http_status", "browserless_timeout"), so the
+    # UI can tell a permanent failure (regenerating won't help — offer a different background) apart
+    # from a transient one worth retrying. Human detail stays in `exception`.
+    failure_reason = models.CharField(max_length=64, null=True, blank=True)
 
     # Soft delete
     deleted = models.BooleanField(default=False)

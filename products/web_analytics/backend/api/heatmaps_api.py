@@ -851,6 +851,7 @@ class HeatmapScreenshotResponseSerializer(UserAccessControlSerializerMixin, seri
             "created_at",
             "updated_at",
             "exception",
+            "failure_reason",
             "user_access_level",
         ]
         read_only_fields = [
@@ -862,6 +863,7 @@ class HeatmapScreenshotResponseSerializer(UserAccessControlSerializerMixin, seri
             "created_at",
             "updated_at",
             "exception",
+            "failure_reason",
         ]
         extra_kwargs = {
             "short_id": {"help_text": "Short, URL-safe identifier used as the lookup key for saved-heatmap routes."},
@@ -878,6 +880,11 @@ class HeatmapScreenshotResponseSerializer(UserAccessControlSerializerMixin, seri
                 "the screenshot. Only applies to 'screenshot' heatmaps."
             },
             "exception": {"help_text": "Error detail when screenshot generation failed, otherwise null."},
+            "failure_reason": {
+                "help_text": "Machine-readable failure category when generation failed (e.g. 'page_http_status' "
+                "for a site that refused the request, 'browserless_timeout'), otherwise null. Permanent "
+                "categories like 'page_http_status' won't be fixed by regenerating."
+            },
         }
 
     @extend_schema_field(HeatmapSnapshotMetadataSerializer(many=True))
@@ -1426,7 +1433,8 @@ class SavedHeatmapViewSet(
     def _regenerate(self, obj: SavedHeatmap) -> None:
         obj.status = SavedHeatmap.Status.PROCESSING
         obj.exception = None
-        obj.save(update_fields=["status", "exception", "updated_at"])
+        obj.failure_reason = None
+        obj.save(update_fields=["status", "exception", "failure_reason", "updated_at"])
         HeatmapSnapshot.objects.filter(heatmap=obj).delete()
         generate_heatmap_screenshot.delay(obj.id)
 

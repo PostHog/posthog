@@ -225,6 +225,43 @@ class TestPreflightPage(SimpleTestCase):
         assert result.body_excerpt is not None
         assert len(result.body_excerpt) <= 200
 
+    @parameterized.expand(
+        [
+            # A Cloudflare block page is the exact markup a customer hit in the wizard — its <title> is
+            # the only human-readable part, so that's all the banner should ever see.
+            (
+                "cloudflare_block_page",
+                '<!DOCTYPE html><html lang="en-US"><head><title>Attention Required! | Cloudflare</title>'
+                "</head><body>error 1020</body></html>",
+                "Attention Required! | Cloudflare",
+            ),
+            ("html_without_a_title", "<!DOCTYPE html><html><body>Access denied</body></html>", None),
+        ]
+    )
+    @patch("products.web_analytics.backend.heatmap_preflight.pinned_session")
+    def test_an_html_error_page_never_reaches_the_banner_as_raw_markup(
+        self, _name, body, expected_excerpt, mock_session
+    ):
+        mock_session.return_value.__enter__.return_value.request.return_value = self._response(
+            403, {"content-type": "text/html; charset=utf-8"}, body
+        )
+
+        result = preflight_page("https://example.com/page")
+
+        assert result.http_status == 403
+        assert result.body_excerpt == expected_excerpt
+
+    @patch("products.web_analytics.backend.heatmap_preflight.pinned_session")
+    def test_probe_presents_a_browser_user_agent(self, mock_session):
+        # A default python-requests UA trips bot protection on sites a real visitor loads fine, which
+        # is the top heatmap capture failure. Losing this header silently reintroduces that.
+        request = mock_session.return_value.__enter__.return_value.request
+        request.return_value = self._response(200, {})
+
+        preflight_page("https://example.com/page")
+
+        assert "Chrome/" in request.call_args.kwargs["headers"]["User-Agent"]
+
     @patch("products.web_analytics.backend.heatmap_preflight.pinned_session")
     def test_a_settled_verdict_is_cached_and_not_refetched(self, mock_session):
         request = mock_session.return_value.__enter__.return_value.request

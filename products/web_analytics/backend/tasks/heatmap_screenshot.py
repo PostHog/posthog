@@ -20,7 +20,12 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.security.url_validation import is_url_allowed
 from posthog.tasks.utils import CeleryQueue
 
-from products.web_analytics.backend.api.heatmaps_utils import DEFAULT_TARGET_WIDTHS, MAX_TARGET_WIDTHS, PREWARM_TTL
+from products.web_analytics.backend.api.heatmaps_utils import (
+    DEFAULT_TARGET_WIDTHS,
+    HEATMAP_BROWSER_USER_AGENT,
+    MAX_TARGET_WIDTHS,
+    PREWARM_TTL,
+)
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 
 logger = structlog.get_logger(__name__)
@@ -150,7 +155,8 @@ def _record_failure(screenshot: SavedHeatmap, e: Exception, *, started_at: float
     failure_type = _classify_failure(e)
     screenshot.status = SavedHeatmap.Status.FAILED
     screenshot.exception = str(e)
-    screenshot.save(update_fields=["status", "exception"])
+    screenshot.failure_reason = failure_type
+    screenshot.save(update_fields=["status", "exception", "failure_reason"])
 
     HEATMAP_SCREENSHOT_FAILED.labels(failure_type=failure_type).inc()
     if started_at is not None:
@@ -214,7 +220,8 @@ def generate_heatmap_screenshot(self: Task, screenshot_id: str) -> None:
             if not ok:
                 screenshot.status = SavedHeatmap.Status.FAILED
                 screenshot.exception = f"SSRF blocked: {err}"
-                screenshot.save(update_fields=["status", "exception"])
+                screenshot.failure_reason = "ssrf_blocked"
+                screenshot.save(update_fields=["status", "exception", "failure_reason"])
                 HEATMAP_SCREENSHOT_FAILED.labels(failure_type="ssrf_blocked").inc()
                 HEATMAP_SCREENSHOT_TIMER.labels(outcome="failed").observe(time.monotonic() - started_at)
                 logger.warning(
@@ -387,6 +394,9 @@ def _browserless_screenshot(
     # scrollPage triggers lazy-loaded content and blockConsentModals dismisses cookie banners server-side.
     body: dict[str, object] = {
         "url": page_url,
+        # Present a mainstream desktop-browser UA so bot protection doesn't answer the render with a
+        # 403/error page we'd otherwise capture a picture of.
+        "userAgent": HEATMAP_BROWSER_USER_AGENT,
         "options": {"fullPage": True, "type": "jpeg", "quality": 70},
         "viewport": {
             "width": int(width),
@@ -562,8 +572,9 @@ def _generate_browserless_screenshots(screenshot: SavedHeatmap, widths: list[int
         )
         if page_status is not None and not 200 <= page_status < 300:
             raise PageHttpStatusError(
-                f"{_host_of(screenshot.url)} returned {page_status} when we loaded the page, so the capture "
-                f"is a picture of that response. This comes from the site's host or CDN, not from PostHog.",
+                f"We couldn't load {_host_of(screenshot.url)} from our servers. It returned {page_status}, "
+                f"so there's no page to capture. This can happen when a site blocks automated requests. "
+                f"Try a session recording background instead.",
                 cause="page_http_status",
             )
         _persist_snapshot(screenshot, w, image_data)

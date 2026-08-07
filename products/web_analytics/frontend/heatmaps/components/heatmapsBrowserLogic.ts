@@ -73,13 +73,13 @@ export function preflightBannerMessage(preflight: PagePreflight | null): string 
     const host = hostOf(preflight.url)
 
     // Only a 4xx or 5xx is the host refusing. Anything else it answered with, the browser handles
-    // on its own, and blaming the customer's CDN for it sends them after a problem they don't have.
+    // on its own. We can't tell a genuine site error from bot protection blocking our fetch, so the
+    // copy points at the working fallback instead of sending the user to audit their firewall.
     if (preflight.http_status !== null && preflight.http_status >= 400) {
         const said = preflight.body_excerpt ? ` It said: "${preflight.body_excerpt}".` : ''
         return (
-            `${host} returned ${preflight.http_status} when we tried to load this page.${said} ` +
-            `This came from your site's host or CDN, not from PostHog. ` +
-            `Check its rate limits and firewall rules, then try again.`
+            `We couldn't load ${host} from our servers, which returned ${preflight.http_status}.${said} ` +
+            `Some sites block automated requests like ours. Use a screenshot or session recording background instead.`
         )
     }
 

@@ -30,6 +30,10 @@ import { heatmapsSceneLogic } from '../heatmaps/heatmapsSceneLogic'
 
 const DEFAULT_HEATMAP_NAME = 'Untitled heatmap'
 
+// Failure categories a regenerate can't fix: the site refused our request or the URL isn't fetchable.
+// For these the UI points to a different background instead of a retry that keeps failing.
+export const SCREENSHOT_PERMANENT_FAILURE_REASONS = ['page_http_status', 'ssrf_blocked']
+
 export interface HeatmapCreationContext {
     creation_flow: 'wizard'
     capture_enabled: boolean
@@ -129,6 +133,7 @@ export interface heatmapLogicValues {
     savedDisplayUrl: string | null
     scalePercent: number
     screenshotError: string | null
+    screenshotFailureReason: string | null
     screenshotLoaded: boolean
     screenshotLoading: boolean
     screenshotUrl: string | null
@@ -213,8 +218,12 @@ export interface heatmapLogicActions {
     setPageUrlDraft: (value: string) => {
         value: string
     }
-    setScreenshotError: (error: string | null) => {
+    setScreenshotError: (
+        error: string | null,
+        failureReason?: string | null
+    ) => {
         error: string | null
+        failureReason: string | null
     }
     setScreenshotLoaded: (screenshotLoaded: boolean) => {
         screenshotLoaded: boolean
@@ -313,7 +322,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         setWidth: (width: number) => ({ width }),
         setName: (name: string) => ({ name }),
         setScreenshotUrl: (url: string | null) => ({ url }),
-        setScreenshotError: (error: string | null) => ({ error }),
+        setScreenshotError: (error: string | null, failureReason: string | null = null) => ({ error, failureReason }),
         setGeneratingScreenshot: (generating: boolean) => ({ generating }),
         pollScreenshotStatus: (width?: number) => ({ width }),
         setHeatmapId: (id: string | null) => ({ id }),
@@ -336,6 +345,12 @@ export const heatmapLogic = kea<heatmapLogicType>([
         status: ['processing' as HeatmapStatus, { setStatus: (_, { status }) => status }],
         screenshotUrl: [null as string | null, { setScreenshotUrl: (_, { url }) => url }],
         screenshotError: [null as string | null, { setScreenshotError: (_, { error }) => error }],
+        // 'page_http_status' and other permanent categories mean regenerating won't help, so the UI
+        // steers to a different background rather than offering a retry that dead-ends.
+        screenshotFailureReason: [
+            null as string | null,
+            { setScreenshotError: (_, { failureReason }) => failureReason },
+        ],
         generatingScreenshot: [false, { setGeneratingScreenshot: (_, { generating }) => generating }],
         // expose a screenshotLoading alias for UI compatibility
         screenshotLoading: [false as boolean, { setScreenshotUrl: () => false }],
@@ -405,7 +420,10 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         // trigger heatmap overlay load
                         actions.loadHeatmap()
                     } else if (item.status === 'failed') {
-                        actions.setScreenshotError(item.exception || 'Screenshot generation failed')
+                        actions.setScreenshotError(
+                            item.exception || 'Screenshot generation failed',
+                            item.failure_reason ?? null
+                        )
                     } else {
                         actions.setScreenshotError(null)
                         actions.pollScreenshotStatus(desiredWidth)
@@ -469,7 +487,10 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         actions.setGeneratingScreenshot(false)
                         break
                     } else if (screenshot.status === 'failed') {
-                        actions.setScreenshotError(screenshot.exception || 'Screenshot generation failed')
+                        actions.setScreenshotError(
+                            screenshot.exception || 'Screenshot generation failed',
+                            screenshot.failure_reason ?? null
+                        )
                         actions.setGeneratingScreenshot(false)
                         break
                     }

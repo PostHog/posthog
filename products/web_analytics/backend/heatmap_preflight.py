@@ -14,6 +14,8 @@ import structlog
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
 from posthog.security.url_validation import strip_userinfo
 
+from products.web_analytics.backend.api.heatmaps_utils import HEATMAP_BROWSER_USER_AGENT
+
 logger = structlog.get_logger(__name__)
 
 Framing = Literal["allowed", "blocked", "unknown"]
@@ -28,6 +30,7 @@ BODY_EXCERPT_MAX_CHARS = 200
 PREFLIGHT_CACHE_TTL_SECONDS = 300
 PREFLIGHT_MAX_REDIRECTS = 5
 
+_TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
 _FRAME_ANCESTORS_RE = re.compile(r"(?:^|;)\s*frame-ancestors\s+([^;]+)", re.IGNORECASE)
 _SCHEME_SOURCE_RE = re.compile(r"^[a-z][a-z0-9+.\-]*:$")
 _DEFAULT_PORTS = {"http": 80, "https": 443}
@@ -142,6 +145,16 @@ def _body_excerpt(response: requests.Response, deadline: float) -> str | None:
         if total >= PREFLIGHT_MAX_BODY_BYTES or time.monotonic() > deadline:
             break
     text = b"".join(chunks)[:PREFLIGHT_MAX_BODY_BYTES].decode(response.encoding or "utf-8", errors="replace")
+
+    # An HTML error page (a Cloudflare block, a WAF interstitial) is markup, not a message, so its
+    # raw bytes must never reach the banner. Show its <title> if it has one, otherwise nothing.
+    content_type = response.headers.get("content-type", "")
+    if "html" in content_type.lower() or "<html" in text[:1024].lower():
+        match = _TITLE_RE.search(text)
+        if not match:
+            return None
+        return " ".join(match.group(1).split())[:BODY_EXCERPT_MAX_CHARS] or None
+
     return " ".join(text[:BODY_EXCERPT_MAX_CHARS].split()) or None
 
 
@@ -160,6 +173,11 @@ def _probe(url: str) -> PreflightResult:
                 res = session.request(
                     "GET",
                     current,
+                    headers={
+                        "User-Agent": HEATMAP_BROWSER_USER_AGENT,
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                        "Accept-Language": "en-US,en;q=0.9",
+                    },
                     timeout=(PREFLIGHT_CONNECT_TIMEOUT_SECONDS, read_timeout),
                     allow_redirects=False,
                     stream=True,

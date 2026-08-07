@@ -153,6 +153,11 @@ export interface HeatmapScreenshotResponseApi {
      */
     readonly exception: string | null
     /**
+     * Machine-readable failure category when generation failed (e.g. 'page_http_status' for a site that refused the request, 'browserless_timeout'), otherwise null. Permanent categories like 'page_http_status' won't be fixed by regenerating.
+     * @nullable
+     */
+    readonly failure_reason: string | null
+    /**
      * The effective access level the user has for this object
      * @nullable
      */
