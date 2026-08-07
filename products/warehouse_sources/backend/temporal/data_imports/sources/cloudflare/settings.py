@@ -301,6 +301,10 @@ CLOUDFLARE_ENDPOINTS: dict[str, CloudflareEndpointConfig] = {
         path="/accounts/{account_id}/storage/kv/namespaces",
         parent=ACCOUNTS_PARENT,
         parent_key="_account_id",
+        # A token that can list accounts but lacks Workers KV Storage:Read gets a 401 on
+        # this endpoint rather than the usual 403 — skip that account like any other the
+        # token can't read here, instead of failing the whole sync.
+        extra_skip_status_codes=(401,),
     ),
     "d1_databases": CloudflareEndpointConfig(
         name="d1_databases",

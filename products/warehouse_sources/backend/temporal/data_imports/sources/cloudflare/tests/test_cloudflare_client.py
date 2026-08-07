@@ -370,6 +370,25 @@ class TestAccountFanout:
         assert [(r["ts"], r["_account_id"]) for r in rows] == [(1, "a2")]
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_skips_account_missing_kv_read_permission_and_continues(self, MockSession) -> None:
+        # A token that can list accounts but lacks Workers KV Storage:Read gets a 401 on
+        # the KV namespaces endpoint rather than a 403 — one such account must not abort
+        # the whole stream.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"id": "a1"}, {"id": "a2"}], total_pages=1),
+                _error_response(401),
+                _response([{"id": "n2"}], total_pages=1),
+            ],
+        )
+
+        rows = _rows(cloudflare_source("token", "kv_namespaces", team_id=1, job_id="j"))
+
+        assert [(r["id"], r["_account_id"]) for r in rows] == [("n2", "a2")]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_audit_logs_stops_on_400_past_a_full_last_page(self, MockSession) -> None:
         # audit_logs has no result_info.total_pages, so a "short page" is the only way the
         # paginator learns it has reached the end. When an account's true count is an exact
