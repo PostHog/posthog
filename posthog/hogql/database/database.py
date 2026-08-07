@@ -89,7 +89,10 @@ from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.hog_invocation_results import HogInvocationResultsTable
-from posthog.hogql.database.schema.information_schema import disable_data_catalog
+from posthog.hogql.database.schema.information_schema import (
+    direct_connection_information_schema_node,
+    disable_data_catalog,
+)
 from posthog.hogql.database.schema.log_entries import (
     BatchExportLogEntriesTable,
     LogEntriesTable,
@@ -380,7 +383,16 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
         "generate_series": TableNode(name="generate_series", table=GenerateSeriesTable()),
     }
 
-    if include_posthog_tables:
+    if not include_posthog_tables:
+        # This is a direct-connection catalog: no PostHog tables, only the connection's own. It still
+        # needs to be discoverable — otherwise the only way to learn a connection's table names is to
+        # already know them. The rows are computed from this Database object, so they describe the
+        # connection, not the team's ClickHouse catalog. `_prepare_direct_query` explains why such a
+        # query still runs on ClickHouse rather than being sent to the remote engine.
+        children["system"] = TableNode(
+            name="system", children={"information_schema": direct_connection_information_schema_node()}
+        )
+    else:
         root_tables = clone_root_tables()
         children = {
             **root_tables,
@@ -797,7 +809,11 @@ class Database(BaseModel):
 
     def apply_schema_scope(self) -> None:
         if self._is_direct_query():
-            self.prune_to_table_names(set(self._warehouse_table_names))
+            # The connection's own information_schema survives the prune: it describes the connection
+            # rather than reading from it, and it is how a caller discovers these table names at all.
+            system_node = self.tables.children.get("system")
+            catalog_table_names = set(system_node.resolve_visible_table_names()) if system_node is not None else set()
+            self.prune_to_table_names(set(self._warehouse_table_names) | catalog_table_names)
             return
 
         allowed_table_names = set(self.tables.resolve_all_table_names())
