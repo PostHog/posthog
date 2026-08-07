@@ -19,11 +19,9 @@ import { urls } from 'scenes/urls'
 
 import { MeetingApi, MeetingParticipantApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { accountMeetingsLogic, NOT_LOADED } from './accountMeetingsLogic'
+import { accountMeetingsLogic, NOT_LOADED, PAGE_SIZE } from './accountMeetingsLogic'
 import { AccountsEvents } from './constants'
 
-// Matches the Support tickets tab, the other client-side-paginated account tab.
-const PAGE_SIZE = 10
 const COLLAPSED_ATTENDEE_COUNT = 3
 
 function MatchingEditor({ accountId }: { accountId: string }): JSX.Element {
@@ -141,14 +139,15 @@ const STATUS_TAG_TYPE = {
 
 export function AccountMeetingsExpansion({ accountId }: { accountId: string }): JSX.Element {
     const logic = accountMeetingsLogic({ accountId })
-    const { meetingsResult, meetingsResultLoading, filteredMeetings, searchTerm, matchingEditorOpen } = useValues(logic)
-    const { setSearchTerm, openMatchingEditor } = useActions(logic)
+    const { meetingsResult, meetingsResultLoading, searchTerm, page, matchingEditorOpen } = useValues(logic)
+    const { setSearchTerm, setPage, openMatchingEditor } = useActions(logic)
 
-    if (meetingsResultLoading || meetingsResult === NOT_LOADED) {
+    if (meetingsResult === NOT_LOADED) {
         return <LemonSkeleton className="h-64 w-full" />
     }
 
-    const { meetings, loadFailed } = meetingsResult
+    const { meetings, count, loadFailed } = meetingsResult
+    const hasSearch = searchTerm.trim().length > 0
 
     const columns: LemonTableColumns<MeetingApi> = [
         {
@@ -193,7 +192,7 @@ export function AccountMeetingsExpansion({ accountId }: { accountId: string }): 
                 detail="Something went wrong loading this account's meetings. Try refreshing the page."
             />
         )
-    } else if (!meetings || meetings.length === 0) {
+    } else if (count === 0 && !hasSearch && !meetingsResultLoading) {
         content = (
             <MeetingsEmptyState
                 title="No meetings yet"
@@ -205,10 +204,18 @@ export function AccountMeetingsExpansion({ accountId }: { accountId: string }): 
             <LemonTable<MeetingApi>
                 size="small"
                 embedded
-                dataSource={filteredMeetings}
+                dataSource={meetings ?? []}
                 columns={columns}
                 rowKey="id"
-                pagination={{ pageSize: PAGE_SIZE }}
+                loading={meetingsResultLoading}
+                pagination={{
+                    controlled: true,
+                    pageSize: PAGE_SIZE,
+                    currentPage: page,
+                    entryCount: count,
+                    onForward: () => setPage(page + 1),
+                    onBackward: () => setPage(page - 1),
+                }}
                 emptyState="No meetings match your search."
             />
         )

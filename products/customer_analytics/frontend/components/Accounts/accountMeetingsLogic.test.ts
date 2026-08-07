@@ -8,9 +8,9 @@ import {
     accountsPartialUpdate,
     accountsRetrieve,
 } from 'products/customer_analytics/frontend/generated/api'
-import type { AccountApi, MeetingApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import type { AccountApi, PaginatedMeetingListApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { accountMeetingsLogic } from './accountMeetingsLogic'
+import { accountMeetingsLogic, PAGE_SIZE } from './accountMeetingsLogic'
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     // Keep the real module for everything else — connected logics call other generated
@@ -24,6 +24,10 @@ jest.mock('products/customer_analytics/frontend/generated/api', () => ({
 const mockList = accountsMeetingsList as jest.MockedFunction<typeof accountsMeetingsList>
 const mockRetrieve = accountsRetrieve as jest.MockedFunction<typeof accountsRetrieve>
 const mockPartialUpdate = accountsPartialUpdate as jest.MockedFunction<typeof accountsPartialUpdate>
+
+function pageOf(meetings: any[], count?: number): PaginatedMeetingListApi {
+    return { results: meetings, count: count ?? meetings.length, next: null, previous: null }
+}
 
 describe('accountMeetingsLogic', () => {
     let logic: ReturnType<typeof accountMeetingsLogic.build>
@@ -47,12 +51,12 @@ describe('accountMeetingsLogic', () => {
     }
 
     it('loads the account meetings', async () => {
-        const meetings = [{ id: 'm-1', title: 'Kickoff', status: 'confirmed' }] as MeetingApi[]
-        mockList.mockResolvedValue(meetings)
+        const meetings = [{ id: 'm-1', title: 'Kickoff', status: 'confirmed' }]
+        mockList.mockResolvedValue(pageOf(meetings))
 
         await mount()
 
-        expect(logic.values.meetingsResult).toEqual({ meetings })
+        expect(logic.values.meetingsResult).toEqual({ meetings, count: 1 })
     })
 
     it('surfaces a load-failed result (not an infinite skeleton) and captures the error when the fetch throws', async () => {
@@ -60,29 +64,34 @@ describe('accountMeetingsLogic', () => {
 
         await mount()
 
-        expect(logic.values.meetingsResult).toEqual({ meetings: null, loadFailed: true })
+        expect(logic.values.meetingsResult).toEqual({ meetings: null, count: 0, loadFailed: true })
         expect(posthog.captureException).toHaveBeenCalledTimes(1)
     })
 
-    it('filters meetings by title or attendee, case-insensitively', async () => {
-        const meetings = [
-            { id: 'm-1', title: 'Quarterly review', participants: [{ email: 'jane@acme.com', display_name: 'Jane' }] },
-            { id: 'm-2', title: 'Kickoff', participants: [{ email: 'bob@other.com', display_name: 'Bob' }] },
-        ] as unknown as MeetingApi[]
-        mockList.mockResolvedValue(meetings)
-
+    it('search resets to page 1 and reloads with the search param; paging sends the matching offset', async () => {
+        mockList.mockResolvedValue(pageOf([], 25))
         await mount()
 
-        logic.actions.setSearchTerm('JANE')
-        expect(logic.values.filteredMeetings.map((m) => m.id)).toEqual(['m-1'])
-        logic.actions.setSearchTerm('kickoff')
-        expect(logic.values.filteredMeetings.map((m) => m.id)).toEqual(['m-2'])
-        logic.actions.setSearchTerm('')
-        expect(logic.values.filteredMeetings).toHaveLength(2)
+        logic.actions.setPage(3)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockList).toHaveBeenLastCalledWith(expect.any(String), 'acc-1', {
+            limit: PAGE_SIZE,
+            offset: 2 * PAGE_SIZE,
+            search: undefined,
+        })
+
+        logic.actions.setSearchTerm('jane')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.page).toBe(1)
+        expect(mockList).toHaveBeenLastCalledWith(expect.any(String), 'acc-1', {
+            limit: PAGE_SIZE,
+            offset: 0,
+            search: 'jane',
+        })
     })
 
     it('saves normalized matching values without clobbering other account properties', async () => {
-        mockList.mockResolvedValue([])
+        mockList.mockResolvedValue(pageOf([]))
         mockRetrieve.mockResolvedValue({
             id: 'acc-1',
             properties: { billing_id: 'cus_123', email_domains: ['old.com'] },

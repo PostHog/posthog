@@ -17,6 +17,7 @@ import type {
     AccountRelationshipDefinitionsListParams,
     AccountRelationshipWriteApi,
     AccountsListParams,
+    AccountsMeetingsListParams,
     AccountsNotebooksListParams,
     AccountsRelationshipsListParams,
     AccountsSummariesListParams,
@@ -45,7 +46,6 @@ import type {
     ExternalAccountListPageApi,
     GroupUsageMetricApi,
     GroupsTypesMetricsListParams,
-    MeetingApi,
     PaginatedAccountChannelSummaryListApi,
     PaginatedAccountListApi,
     PaginatedAccountNoteListApi,
@@ -58,6 +58,7 @@ import type {
     PaginatedCustomerJourneyListApi,
     PaginatedCustomerProfileConfigListApi,
     PaginatedGroupUsageMetricListApi,
+    PaginatedMeetingListApi,
     PatchedAccountApi,
     PatchedAccountRelationshipDefinitionApi,
     PatchedCustomPropertyDefinitionApi,
@@ -547,16 +548,29 @@ export const accountsDestroy = async (projectId: string, id: string, options?: R
     })
 }
 
-export const getAccountsMeetingsListUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/accounts/${id}/meetings/`
+export const getAccountsMeetingsListUrl = (projectId: string, id: string, params?: AccountsMeetingsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/accounts/${id}/meetings/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/${id}/meetings/`
 }
 
 export const accountsMeetingsList = async (
     projectId: string,
     id: string,
+    params?: AccountsMeetingsListParams,
     options?: RequestInit
-): Promise<MeetingApi[]> => {
-    return apiMutator<MeetingApi[]>(getAccountsMeetingsListUrl(projectId, id), {
+): Promise<PaginatedMeetingListApi> => {
+    return apiMutator<PaginatedMeetingListApi>(getAccountsMeetingsListUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

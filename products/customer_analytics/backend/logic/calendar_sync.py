@@ -137,6 +137,8 @@ def _process_events(team: Team, events: list[dict], internal_domain: str, counts
 
     external_emails = {p["email"] for parsed in to_upsert for p in parsed["participants"] if not p["is_internal"]}
     accounts_by_email = _match_accounts_for_emails(team, sorted(external_emails))
+    all_emails = {p["email"] for parsed in to_upsert for p in parsed["participants"]}
+    person_uuid_by_email = _person_uuids_by_email(team, sorted(all_emails))
 
     for parsed in to_upsert:
         account = next(
@@ -147,7 +149,7 @@ def _process_events(team: Team, events: list[dict], internal_domain: str, counts
             counts.matched += 1
         else:
             counts.unmatched_emails.update(p["email"] for p in parsed["participants"] if not p["is_internal"])
-        _upsert_meeting(team, parsed, account)
+        _upsert_meeting(team, parsed, account, person_uuid_by_email)
         counts.upserted += 1
 
 
@@ -197,7 +199,7 @@ def _parse_event(event: dict, internal_domain: str) -> dict | None:
     }
 
 
-def _upsert_meeting(team: Team, parsed: dict, account: Account | None) -> None:
+def _upsert_meeting(team: Team, parsed: dict, account: Account | None, person_uuid_by_email: dict[str, str]) -> None:
     defaults = {
         "title": parsed["title"],
         "description": parsed["description"],
@@ -225,6 +227,7 @@ def _upsert_meeting(team: Team, parsed: dict, account: Account | None) -> None:
                 "display_name": participant["display_name"],
                 "response_status": participant["response_status"],
                 "is_organizer": participant["is_organizer"],
+                "person_id": person_uuid_by_email.get(participant["email"]),
             },
         )
 
@@ -295,7 +298,9 @@ def _match_accounts_for_emails(team: Team, emails: list[str]) -> dict[str, Accou
     return matched
 
 
-def _group_keys_via_persons(team: Team, emails: list[str], group_type_index: int) -> dict[str, str]:
+def _person_uuids_by_email(team: Team, emails: list[str]) -> dict[str, str]:
+    if not emails:
+        return {}
     # Deferred: hogql.query pulls the whole query-runner layer into module import.
     from posthog.hogql import ast  # noqa: PLC0415
     from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
@@ -312,6 +317,15 @@ def _group_keys_via_persons(team: Team, emails: list[str], group_type_index: int
         lower = (prop_email or "").lower()
         if lower and lower not in email_to_uuid:
             email_to_uuid[lower] = str(person_uuid)
+    return email_to_uuid
+
+
+def _group_keys_via_persons(team: Team, emails: list[str], group_type_index: int) -> dict[str, str]:
+    # Deferred: hogql.query pulls the whole query-runner layer into module import.
+    from posthog.hogql import ast  # noqa: PLC0415
+    from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
+
+    email_to_uuid = _person_uuids_by_email(team, emails)
     if not email_to_uuid:
         return {}
 

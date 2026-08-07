@@ -488,6 +488,15 @@ export interface MeetingApi {
     readonly participants: readonly MeetingParticipantApi[]
 }
 
+export interface PaginatedMeetingListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: MeetingApi[]
+}
+
 /**
  * Metadata for one message a channel summary covered — never the message text.
  */
@@ -1543,6 +1552,21 @@ export type AccountsRelationshipsListParams = {
      * Include ended assignments (the full timeline), not just active ones.
      */
     include_history?: boolean
+}
+
+export type AccountsMeetingsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter meetings by title or attendee email/name.
+     */
+    search?: string
 }
 
 export type AccountsSummariesListParams = {

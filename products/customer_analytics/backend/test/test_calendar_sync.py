@@ -45,9 +45,11 @@ class TestCalendarSync(BaseTest):
             sensitive_config={"access_token": "ACCESS", "refresh_token": "REFRESH"},
         )
 
-    def _sync(self, responses: list[MagicMock]) -> calendar_sync.CalendarSyncCounts:
+    def _sync(
+        self, responses: list[MagicMock], person_uuids: dict[str, str] | None = None
+    ) -> calendar_sync.CalendarSyncCounts:
         with (
-            patch.object(calendar_sync, "_group_keys_via_persons", return_value={}),
+            patch.object(calendar_sync, "_person_uuids_by_email", return_value=person_uuids or {}),
             patch.object(calendar_sync.requests, "get", side_effect=responses),
         ):
             return calendar_sync.sync_calendar_integration(self.integration.id, self.team.id)
@@ -147,6 +149,14 @@ class TestCalendarSync(BaseTest):
         )
         self._sync([_pages_response([event])])
         assert Meeting.objects.for_team(self.team.id).get().account_id == account.id
+
+    def test_resolved_person_uuid_is_stored_on_participants(self):
+        person_uuid = "0198b6f3-0000-0000-0000-000000000001"
+        self._sync([_pages_response([_event()])], person_uuids={"jane@acme.com": person_uuid})
+
+        participants = {p.email: p for p in MeetingParticipant.objects.for_team(self.team.id)}
+        assert str(participants["jane@acme.com"].person_id) == person_uuid
+        assert participants["csm@posthog.com"].person_id is None
 
     def test_ambiguous_email_domain_matches_nothing(self):
         for name in ("Acme US", "Acme EU"):

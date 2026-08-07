@@ -46929,6 +46929,15 @@ export namespace Schemas {
       results: MaxCoreMemory[];
     }
 
+    export interface PaginatedMeetingList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Meeting[];
+    }
+
     export interface PaginatedMessageCategoryList {
       count: number;
       /** @nullable */
@@ -79162,6 +79171,21 @@ export namespace Schemas {
      * Include ended assignments (the full timeline), not just active ones.
      */
     include_history?: boolean;
+    };
+
+    export type AccountsMeetingsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter meetings by title or attendee email/name.
+     */
+    search?: string;
     };
 
     export type AccountsSummariesListParams = {

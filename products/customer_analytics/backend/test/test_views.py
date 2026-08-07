@@ -2686,7 +2686,9 @@ class TestAccountMeetingViewSet(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/accounts/{account.id}/meetings/")
 
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
-        data = response.json()
+        payload = response.json()
+        self.assertEqual(payload["count"], 2)
+        data = payload["results"]
         self.assertEqual([m["id"] for m in data], [str(newer.id), str(older.id)])
         self.assertEqual(
             data[0]["participants"],
@@ -2700,3 +2702,19 @@ class TestAccountMeetingViewSet(APIBaseTest):
                 }
             ],
         )
+
+    def test_search_filters_by_title_or_attendee(self):
+        account = Account.objects.unscoped().create(team=self.team, name="Acme Corp", external_id="acme-2")
+        review = Meeting.objects.unscoped().create(
+            team=self.team, account=account, ical_uid="uid-r", start_time="2026-08-01T15:00:00Z", title="Review"
+        )
+        kickoff = Meeting.objects.unscoped().create(
+            team=self.team, account=account, ical_uid="uid-k", start_time="2026-08-02T15:00:00Z", title="Kickoff"
+        )
+        MeetingParticipant.objects.unscoped().create(team=self.team, meeting=kickoff, email="jane@acme.com")
+
+        endpoint = f"/api/environments/{self.team.id}/accounts/{account.id}/meetings/"
+        by_title = self.client.get(endpoint, {"search": "review"}).json()
+        self.assertEqual([m["id"] for m in by_title["results"]], [str(review.id)])
+        by_attendee = self.client.get(endpoint, {"search": "jane"}).json()
+        self.assertEqual([m["id"] for m in by_attendee["results"]], [str(kickoff.id)])
