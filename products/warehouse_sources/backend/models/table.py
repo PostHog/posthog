@@ -17,6 +17,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
+from posthog.hogql.database.direct_motherduck_table import DirectMotherDuckTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
@@ -653,6 +654,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         | DirectSnowflakeTable
         | DirectRedshiftTable
         | DirectClickHouseTable
+        | DirectMotherDuckTable
     ):
         # Deferred: importing data_warehouse's facade at module scope creates an import cycle
         # (data_warehouse models -> this model package -> data_warehouse.facade.sources -> ...).
@@ -660,6 +662,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         from products.data_warehouse.backend.facade.sources import (  # noqa: PLC0415 — breaks an import cycle
             DIRECT_CLICKHOUSE_DATABASE_OPTION,
             DIRECT_CLICKHOUSE_TABLE_OPTION,
+            DIRECT_MOTHERDUCK_CATALOG_OPTION,
+            DIRECT_MOTHERDUCK_SCHEMA_OPTION,
+            DIRECT_MOTHERDUCK_TABLE_OPTION,
             DIRECT_MYSQL_SCHEMA_OPTION,
             DIRECT_MYSQL_TABLE_OPTION,
             DIRECT_POSTGRES_CATALOG_OPTION,
@@ -779,6 +784,40 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 postgres_table_name=redshift_table_name,
                 external_data_source_id=str(self.external_data_source_id),
                 connection_metadata=self.external_data_source.connection_metadata,
+            )
+
+        # Engine-keyed like ClickHouse (no is_direct_motherduck) to satisfy the source-agnostic
+        # guard; the is_direct_query check keeps synced sources' tables S3-backed.
+        if (
+            self.external_data_source
+            and self.external_data_source.is_direct_query
+            and self.external_data_source.direct_engine == "motherduck"
+        ):
+            job_inputs = self.external_data_source.job_inputs or {}
+            motherduck_database = (
+                self.options.get(DIRECT_MOTHERDUCK_CATALOG_OPTION)
+                if isinstance(self.options.get(DIRECT_MOTHERDUCK_CATALOG_OPTION), str)
+                else job_inputs.get("database", "")
+            )
+            motherduck_schema = (
+                self.options.get(DIRECT_MOTHERDUCK_SCHEMA_OPTION)
+                if isinstance(self.options.get(DIRECT_MOTHERDUCK_SCHEMA_OPTION), str)
+                else "main"
+            )
+            motherduck_table_name = (
+                self.options.get(DIRECT_MOTHERDUCK_TABLE_OPTION)
+                if isinstance(self.options.get(DIRECT_MOTHERDUCK_TABLE_OPTION), str)
+                else self.name
+            )
+            return DirectMotherDuckTable(
+                name=self.name,
+                fields=fields,
+                motherduck_database=motherduck_database,
+                motherduck_schema=motherduck_schema,
+                motherduck_table_name=motherduck_table_name,
+                external_data_source_id=str(self.external_data_source_id),
+                connection_metadata=self.external_data_source.connection_metadata,
+                has_complete_columns=self._direct_columns_are_complete(),
             )
 
         # Engine-keyed (no is_direct_clickhouse) to satisfy the source-agnostic guard. The

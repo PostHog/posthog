@@ -105,6 +105,7 @@ import type {
   TaskMention,
   TaskRun,
   TaskRunArtefact,
+  TaskRunArtifact,
   TaskThreadMessage,
   UserBasic,
 } from "@posthog/shared/domain-types";
@@ -141,7 +142,9 @@ import type {
 import type { SpendAnalysisResponse } from "./spend-analysis";
 import {
   normalizeTaskResponse,
+  normalizeTaskRunArtifact,
   normalizeTaskRunResponse,
+  type TaskRunArtifactDTO,
 } from "./task-normalization";
 
 export type * from "./mcp-gateway";
@@ -3294,6 +3297,34 @@ export class PostHogAPIClient {
       path: { project_id: String(teamId) },
       body: payload as unknown as Schemas.Comment,
     });
+  }
+
+  /** Hide or restore every version of a file on the run, returning the updated manifest. */
+  async setTaskRunArtifactsDismissed(
+    taskId: string,
+    runId: string,
+    artifactIds: string[],
+    dismissed: boolean,
+  ): Promise<TaskRunArtifact[]> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/artifacts/dismiss/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+      overrides: {
+        body: JSON.stringify({ artifact_ids: artifactIds, dismissed }),
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to update artifact: ${response.statusText}`);
+    }
+
+    const data = (await response.json()) as {
+      artifacts?: TaskRunArtifactDTO[];
+    };
+    return (data.artifacts ?? []).map(normalizeTaskRunArtifact);
   }
 
   async getTaskSessionStorageAccess(

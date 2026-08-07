@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { OUTPUT_ARTIFACT_TYPES, parseRunArtifacts } from "./runArtifactSchemas";
+import {
+  groupRunArtifactVersions,
+  OUTPUT_ARTIFACT_TYPES,
+  parseRunArtifacts,
+} from "./runArtifactSchemas";
 
 describe("parseRunArtifacts", () => {
   it.each([
@@ -63,6 +67,57 @@ describe("parseRunArtifacts", () => {
   it("ignores an artifact with no type", () => {
     expect(
       parseRunArtifacts([{ id: "a", name: "mystery" }], OUTPUT_ARTIFACT_TYPES),
+    ).toEqual([]);
+  });
+});
+
+describe("groupRunArtifactVersions", () => {
+  it("collapses re-uploads of a name into one newest-first group", () => {
+    const groups = groupRunArtifactVersions([
+      { id: "a", name: "report.md", uploaded_at: "2026-07-27T08:00:00Z" },
+      { id: "b", name: "chart.png", uploaded_at: "2026-07-27T08:30:00Z" },
+      { id: "c", name: "report.md", uploaded_at: "2026-07-27T09:00:00Z" },
+    ]);
+
+    expect(groups.map((group) => group.name)).toEqual([
+      "report.md",
+      "chart.png",
+    ]);
+    expect(groups[0]?.versions.map((version) => version.id)).toEqual([
+      "c",
+      "a",
+    ]);
+    expect(groups[0]?.latest.id).toBe("c");
+  });
+
+  // A file is only gone once every upload of it is dismissed — otherwise
+  // dismissing the current version would resurrect the one it replaced.
+  it.each([
+    { name: "no version", dismissedIds: [] as string[], dismissed: false },
+    { name: "only the newest version", dismissedIds: ["b"], dismissed: false },
+    { name: "every version", dismissedIds: ["a", "b"], dismissed: true },
+  ])(
+    "reports dismissed as $dismissed when $name is",
+    ({ dismissedIds, dismissed }) => {
+      const groups = groupRunArtifactVersions(
+        [
+          { id: "a", name: "report.md", uploaded_at: "2026-07-27T08:00:00Z" },
+          { id: "b", name: "report.md", uploaded_at: "2026-07-27T09:00:00Z" },
+        ].map((artifact) => ({
+          ...artifact,
+          dismissed_at: dismissedIds.includes(artifact.id)
+            ? "2026-07-27T10:00:00Z"
+            : null,
+        })),
+      );
+
+      expect(groups[0]?.dismissed).toBe(dismissed);
+    },
+  );
+
+  it("skips artifacts with no name", () => {
+    expect(
+      groupRunArtifactVersions([{ uploaded_at: "2026-07-27T08:00:00Z" }]),
     ).toEqual([]);
   });
 });
