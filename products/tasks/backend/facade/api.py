@@ -4328,13 +4328,14 @@ def create_task(
     if (
         warm_branch_provided
         and validated_data["origin_product"] == Task.OriginProduct.USER_CREATED
-        and len(validated_data.get("repositories", [])) <= 1
         and user_id is not None
     ):
         warm_run = _find_idling_warm_run(
             team_id,
             user_id,
             repository=validated_data.get("repository"),
+            repositories=validated_data.get("repositories", []),
+            github_integration_id=getattr(validated_data.get("github_integration"), "id", None),
             branch=warm_branch,
             runtime_adapter=warm_runtime_adapter,
             model=warm_model,
@@ -4702,6 +4703,8 @@ def _find_idling_warm_run(
     user_id: int | None,
     *,
     repository: str | None,
+    repositories: list[str] | None = None,
+    github_integration_id: int | None,
     branch: str | None,
     runtime_adapter: str | None = None,
     model: str | None = None,
@@ -4724,6 +4727,7 @@ def _find_idling_warm_run(
     """
     if user_id is None:
         return None
+    normalized_repositories = [repo.lower() for repo in (repositories or ([repository] if repository else []))]
     repository_filter = {"task__repository__iexact": repository} if repository else {"task__repository__isnull": True}
     candidates = (
         TaskRun.objects.filter(  # nosemgrep: idor-lookup-without-team — team_id filter applied via the task FK below
@@ -4731,6 +4735,7 @@ def _find_idling_warm_run(
             task__created_by_id=user_id,
             task__origin_product=Task.OriginProduct.USER_CREATED,
             task__deleted=False,
+            task__github_integration_id=github_integration_id,
             state__await_user_message=True,
             branch=branch or None,
             **repository_filter,
@@ -4748,6 +4753,11 @@ def _find_idling_warm_run(
     )
     for run in candidates:
         state = run.state or {}
+        have_repositories = [
+            repo.lower() for repo in (run.task.repositories or ([run.task.repository] if run.task.repository else []))
+        ]
+        if have_repositories != normalized_repositories:
+            continue
         have = (
             state.get("runtime_adapter") or None,
             state.get("model") or None,
@@ -4865,6 +4875,7 @@ def warm_task_sandbox(
     user_id: int,
     *,
     repository: str | None,
+    repositories: list[str] | None = None,
     github_integration_id: int | None,
     branch: str | None,
     runtime_adapter: str | None = None,
@@ -4907,14 +4918,15 @@ def warm_task_sandbox(
     )
 
     team = Team.objects.get(id=team_id)
+    normalized_repositories = [repo.lower() for repo in (repositories or ([repository] if repository else []))]
+    repository = normalized_repositories[0] if normalized_repositories else None
     github_integration = None
     if github_integration_id is not None:
         github_integration = Integration.objects.filter(
             id=github_integration_id, team_id=team_id, kind="github"
         ).first()
-    if bool(repository) != bool(github_integration):
+    if bool(normalized_repositories) != bool(github_integration):
         return None
-
     sandbox_environment = None
     if sandbox_environment_id is not None:
         sandbox_environment = SandboxEnvironment.get_accessible_for_task(
@@ -4939,6 +4951,8 @@ def warm_task_sandbox(
         team_id,
         user_id,
         repository=repository,
+        repositories=normalized_repositories,
+        github_integration_id=github_integration_id,
         branch=branch,
         runtime_adapter=runtime_adapter,
         model=model,
@@ -4958,6 +4972,9 @@ def warm_task_sandbox(
         repository=repository,
         client_provenance=client_provenance,
     )
+    task.repositories = normalized_repositories
+    task.github_integration = github_integration
+    task.save(update_fields=["repositories", "github_integration", "updated_at"])
     assert task.created_by is not None  # create_without_run always sets created_by from user_id
 
     provider = get_provider_for_runtime_adapter(runtime_adapter)
