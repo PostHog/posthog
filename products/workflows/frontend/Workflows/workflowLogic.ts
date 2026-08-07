@@ -3369,12 +3369,8 @@ export const workflowLogic = kea<workflowLogicType>([
                 }
 
                 if (props.id === 'new' && originalWorkflow.id) {
-                    router.actions.replace(
-                        urls.workflow(
-                            originalWorkflow.id,
-                            workflowSceneLogic.findMounted()?.values.currentTab || 'workflow'
-                        )
-                    )
+                    const currentTab = workflowSceneLogic.findMounted({ id: props.id })?.values.currentTab
+                    router.actions.replace(urls.workflow(originalWorkflow.id, currentTab || 'workflow'))
                 }
             }
 
