@@ -664,10 +664,20 @@ class TestResolver(BaseTest):
             "WITH 1 AS cte, cte AS soap SELECT soap FROM events LIMIT 50000",
         )
 
+    def test_ctes_scalar_column_over_table(self):
+        # A top-level scalar `WITH <table column expr> AS x` must resolve within the query's
+        # scope, so its expression can reference the query's tables. This used to raise
+        # "No scope or CTE available" because column CTEs were resolved before the scope existed.
+        self.assertEqual(
+            self._print_hogql("with properties.$browser as module select module, count() from events group by module"),
+            "WITH properties.$browser AS module SELECT module, count() FROM events GROUP BY module LIMIT 50000",
+        )
+
     def test_ctes_field_access(self):
-        with self.assertRaises(QueryError) as e:
-            self._print_hogql("with properties as cte select cte.$browser from events")
-        self.assertIn("No scope or CTE available", str(e.exception))
+        self.assertEqual(
+            self._print_hogql("with properties as cte select cte.$browser from events"),
+            "WITH properties AS cte SELECT cte.$browser FROM events LIMIT 50000",
+        )
 
     def test_ctes_subqueries(self):
         self.assertEqual(

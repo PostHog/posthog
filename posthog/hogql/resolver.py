@@ -95,8 +95,6 @@ def _string_constants(node: ast.Expr) -> list[ast.Constant]:
     return []
 
 
-EMPTY_SCOPE = ast.SelectQueryType()
-
 type PostgresKeywordType = type[ast.DateType] | type[ast.DateTimeType]
 
 POSTGRES_KEYWORD_TYPES: dict[str, PostgresKeywordType] = {
@@ -862,13 +860,40 @@ class Resolver(CloningVisitor):
         # Track CTEs defined at this level (will be attached to new_node)
         current_level_ctes: dict[str, ast.CTE] | None = None
 
-        # First step: resolve all the "WITH" CTEs onto "self.ctes" if there are any
+        # First step: resolve the "WITH" CTEs onto "self.ctes" if there are any.
+        #
+        # Subquery CTEs (`WITH x AS (SELECT ...)`) must be resolved before the FROM clause,
+        # since FROM may reference them.
+        #
+        # Column CTEs (`WITH <expr> AS x`) are scalar aliases whose expression can reference
+        # this query's own tables (e.g. `WITH properties.$foo AS x ... FROM events`). Resolving
+        # that expression before the scope and FROM exist fails with "No scope or CTE available".
+        # So we register a placeholder for each column CTE now — enough for a sibling subquery
+        # CTE to resolve a by-name reference to it (which yields a StringType either way) — and
+        # defer resolving the real expression until after FROM has been visited.
+        deferred_column_ctes: list[ast.CTE] = []
         if node.ctes:
             self.ctes = dict(parent_ctes)
             current_level_ctes = {}
             for cte in node.ctes.values():
-                resolved_cte = self.visit(cte)
-                current_level_ctes[cte.name] = resolved_cte
+                if cte.cte_type == "column":
+                    placeholder = ast.CTE(
+                        start=cte.start,
+                        end=cte.end,
+                        name=cte.name,
+                        expr=cte.expr,
+                        cte_type=cte.cte_type,
+                        recursive=cte.recursive,
+                        materialized=cte.materialized,
+                        using_key=cte.using_key,
+                        columns=cte.columns,
+                        type=ast.CTETableType(name=cte.name, select_query_type=ast.SelectQueryType()),
+                    )
+                    self.ctes[cte.name] = placeholder
+                    current_level_ctes[cte.name] = placeholder
+                    deferred_column_ctes.append(cte)
+                else:
+                    current_level_ctes[cte.name] = self.visit(cte)
             node_type.ctes = current_level_ctes
         else:
             self.ctes = dict(parent_ctes)
@@ -889,6 +914,12 @@ class Resolver(CloningVisitor):
 
         # Visit the FROM clauses first. This resolves all table aliases onto self.scopes[-1]
         new_node.select_from = self.visit(node.select_from)
+
+        # Now that the scope and its tables exist, resolve any deferred column CTEs so their
+        # expressions can reference the query's tables.
+        for cte in deferred_column_ctes:
+            assert current_level_ctes is not None
+            current_level_ctes[cte.name] = self.visit(cte)
 
         if node.limit_percent and self.dialect not in _POSTGRES_FAMILY:
             if self.dialect == "clickhouse":
@@ -2578,8 +2609,10 @@ class Resolver(CloningVisitor):
         if len(self.scopes) > 0:
             return self.scopes[-1]
         elif len(self.ctes) > 0:
-            # Use an empty scope to allow lookups on any present CTEs
-            return EMPTY_SCOPE
+            # Use a fresh empty scope to allow lookups on any present CTEs. It must not be a
+            # shared singleton: callers such as visit_alias mutate `scope.aliases`, which would
+            # otherwise leak alias state across unrelated queries in the same process.
+            return ast.SelectQueryType()
         else:
             raise QueryError("No scope or CTE available")
 
