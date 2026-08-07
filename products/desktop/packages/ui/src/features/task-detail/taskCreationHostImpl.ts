@@ -157,7 +157,7 @@ export class TrpcTaskCreationHost implements ITaskCreationHost {
   }
 
   takeWarmTaskLease(args: {
-    repository: string;
+    repository?: string | null;
     branch?: string | null;
     runtimeAdapter?: string | null;
     model?: string | null;

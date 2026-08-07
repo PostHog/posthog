@@ -3,13 +3,13 @@ import { resolveTextCommentAnchor } from "@posthog/core/comments/anchors";
 const BRIDGE_MARKER = "__POSTHOG_ARTIFACT_COMMENT_BRIDGE__";
 
 /**
- * Runs inside an opaque-origin sandboxed artifact iframe. It never receives
- * credentials or writes to the API: selection and highlight traffic goes
- * through the trusted parent with a per-view channel.
+ * Runs inside the isolated artifact document. It never receives credentials
+ * or writes to the API; selection traffic uses a per-view host channel.
  */
-function artifactHtmlCommentBridge(channel: string, nonce: string): string {
+function artifactHtmlCommentBridge(channel: string, nonce?: string): string {
   const safeChannel = JSON.stringify(channel);
-  return `<script nonce="${nonce}" data-posthog-artifact-comments>(function(){
+  const nonceAttribute = nonce ? ` nonce="${nonce}"` : "";
+  return `<script${nonceAttribute} data-posthog-artifact-comments>(function(){
 "use strict";
 var CHANNEL=${safeChannel};
 var MARKER=${JSON.stringify(BRIDGE_MARKER)};
@@ -42,7 +42,7 @@ style();send("ready");
 export function injectArtifactHtmlCommentBridge(
   html: string,
   channel: string,
-  nonce: string,
+  nonce?: string,
 ): string {
   const bridge = artifactHtmlCommentBridge(channel, nonce);
   const bodyEnd = html.toLowerCase().lastIndexOf("</body>");
