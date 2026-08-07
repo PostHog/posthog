@@ -1259,9 +1259,13 @@ async fn seed_target_mark(
     person_id: i64,
     status: &str,
 ) {
+    // A far-future lease keeps these never-completed ops out of the
+    // identity sweeper's abandoned-op scan (it resumes NULL-lease and
+    // expired-lease rows), so runs against a shared database cannot
+    // poison the engine tests.
     sqlx::query(
-        "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request) \
-         VALUES ($1, 'merge', $2, 'folding', '{}'::jsonb)",
+        "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request, lease_expires_at) \
+         VALUES ($1, 'merge', $2, 'folding', '{}'::jsonb, now() + interval '100 years')",
     )
     .bind(op)
     .bind(team_id as i32)
