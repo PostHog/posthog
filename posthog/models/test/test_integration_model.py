@@ -1687,7 +1687,13 @@ class TestGitHubIntegrationModel(BaseTest):
         )
 
     def mock_github_client_request(
-        self, status_code=201, token="ACCESS_TOKEN", repository_selection="all", expires_in_hours=1, error_text=None
+        self,
+        status_code=201,
+        token="ACCESS_TOKEN",
+        repository_selection="all",
+        expires_in_hours=1,
+        error_text=None,
+        permissions=None,
     ):
         def _client_request(endpoint, method="GET"):
             mock_response = MagicMock()
@@ -1701,13 +1707,17 @@ class TestGitHubIntegrationModel(BaseTest):
                         "token": token,
                         "repository_selection": repository_selection,
                         "expires_at": iso_time,
+                        **({"permissions": permissions} if permissions is not None else {}),
                     }
                 else:
                     mock_response.text = error_text or "error"
                     mock_response.json.return_value = {}
             else:
                 mock_response.status_code = 200
-                mock_response.json.return_value = {"account": {"type": "Organization", "login": "PostHog"}}
+                mock_response.json.return_value = {
+                    "account": {"type": "Organization", "login": "PostHog"},
+                    **({"permissions": permissions} if permissions is not None else {}),
+                }
             return mock_response
 
         return _client_request
@@ -2301,6 +2311,25 @@ class TestGitHubIntegrationModel(BaseTest):
         assert integration.sensitive_config == {
             "access_token": "ACCESS_TOKEN",
         }
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_github_integration_persists_installation_permissions(self, mock_client_request):
+        # The warehouse schema picker reads config["permissions"] to mark tables the installation
+        # can't sync. Dropping this on connect or refresh silently returns the picker to offering
+        # tables whose every sync 403s.
+        mock_client_request.side_effect = self.mock_github_client_request(
+            permissions={"contents": "read", "metadata": "read"}
+        )
+        integration = GitHubIntegration.integration_from_installation_id("INSTALLATION_ID", self.team.id, self.user)
+        assert integration.config["permissions"] == {"contents": "read", "metadata": "read"}
+
+        # A permission update to the App shows up on the next hourly token refresh, including for
+        # integrations connected before this key was persisted at all.
+        mock_client_request.side_effect = self.mock_github_client_request(
+            permissions={"contents": "read", "metadata": "read", "deployments": "read"}
+        )
+        GitHubIntegration(integration).refresh_access_token()
+        assert integration.config["permissions"] == {"contents": "read", "metadata": "read", "deployments": "read"}
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")

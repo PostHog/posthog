@@ -109,7 +109,7 @@ CUSTOM_IMAGE_BUILD_TOTAL = Counter(
 DEV_STACK_IMAGE_BAKE_TOTAL = Counter(
     "posthog_tasks_dev_stack_image_bake_total",
     "Prebaked dev-stack VM image bake lifecycle events",
-    labelnames=["outcome"],
+    labelnames=["outcome", "region", "trigger"],
 )
 
 
@@ -292,11 +292,17 @@ def observe_custom_image_build(outcome: CustomImageBuildOutcome) -> None:
         logger.exception("custom_image_build_metric_failed", outcome=outcome)
 
 
-def observe_dev_stack_image_bake(outcome: DevStackImageBakeOutcome) -> None:
+def observe_dev_stack_image_bake(outcome: DevStackImageBakeOutcome, *, trigger: str) -> None:
     try:
-        DEV_STACK_IMAGE_BAKE_TOTAL.labels(outcome=outcome).inc()
+        from posthog.utils import get_instance_region  # noqa: PLC0415
+
+        DEV_STACK_IMAGE_BAKE_TOTAL.labels(
+            outcome=outcome,
+            region=get_instance_region() or "unknown",
+            trigger=trigger,
+        ).inc()
     except Exception:
-        logger.exception("dev_stack_image_bake_metric_failed", outcome=outcome)
+        logger.exception("dev_stack_image_bake_metric_failed", outcome=outcome, trigger=trigger)
 
 
 def origin_product_label(task_run: "TaskRun | None") -> str:
