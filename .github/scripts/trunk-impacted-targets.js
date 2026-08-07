@@ -210,7 +210,13 @@ const TRIPWIRE_RULES = [
     // group: nothing outside the workspace resolves against them. What kept
     // them universal was the three crates that are also pnpm packages, and the
     // `rust` domain now names the lanes consuming those, so the radius is
-    // covered without claiming every lane in the repo. ci-rust.yml already
+    // covered without claiming every lane in the repo. The workspace's two pyo3
+    // crates do not extend the radius the same way: hogql_parser_rs and
+    // deltalite-python are published to PyPI by their own workflows and pinned
+    // by version in pyproject.toml, so the python suites install a released
+    // wheel rather than building either from this checkout. A resolution change
+    // reaches a python lane only through the version bump, and pyproject.toml
+    // and uv.lock are both universal above. ci-rust.yml already
     // narrows a lockfile touch further, by diffing the resolved graph rather
     // than rebuilding everything, which is a step this script cannot take
     // without a cargo toolchain in the compute job.
@@ -979,7 +985,10 @@ const RUNTIME_SPAWN_EDGES = new Map([
 ])
 
 // Returns null when the crate graph can't be built. Callers must treat null as
-// "unknown dependents" and report every rust target, never as "no dependents".
+// "unknown dependents" and widen to every target, never as "no dependents".
+// Widening past the rust lanes is deliberate: without the graph the script
+// cannot tell which crate a rust path belongs to either, so the rust targets
+// alone would not be a superset of what the change can break.
 function loadRustGraph(repoRoot) {
     try {
         const crates = discoverRustCrates(repoRoot)
@@ -999,7 +1008,7 @@ function loadRustGraph(repoRoot) {
             if (unknown.length > 0) {
                 console.error(
                     `Runtime spawn edges name crates that no longer exist (${unknown.join(', ')}); ` +
-                        'reporting every rust target until RUNTIME_SPAWN_EDGES is updated'
+                        'widening to every target until RUNTIME_SPAWN_EDGES is updated'
                 )
                 return null
             }
@@ -1015,7 +1024,7 @@ function loadRustGraph(repoRoot) {
             .sort((a, b) => b.dir.length - a.dir.length)
         return { dependsOn, byDir, nativeBindings }
     } catch (error) {
-        console.error(`Rust crate graph unavailable (${error.message}); reporting every rust target`)
+        console.error(`Rust crate graph unavailable (${error.message}); widening to every target`)
         return null
     }
 }

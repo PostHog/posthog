@@ -574,6 +574,25 @@ test('nodejs is still the only workspace package importing a rust binding', () =
     )
 })
 
+// The cargo lockfile claims no python lane, which holds only while every python
+// package resolves from a registry. The workspace does contain two pyo3 crates,
+// and the python suites install them as released wheels pinned by version, so a
+// cargo resolution change cannot reach a python lane without a pyproject.toml
+// and uv.lock bump that is universal anyway. Switching either to a local build
+// would break that, and it would break it silently, so it has to fail here.
+test('no python package is built from a path inside the cargo workspace', () => {
+    const lock = fs.readFileSync(path.join(REPO_ROOT, 'uv.lock'), 'utf8')
+    const localSources = [...lock.matchAll(/source = \{ (?:editable|directory|path|virtual) = "([^"]+)"/g)].map(
+        (match) => match[1]
+    )
+    assert.notEqual(localSources.length, 0, 'uv.lock parse produced nothing, so the assertion below is vacuous')
+    assert.deepEqual(
+        localSources.filter((source) => source.startsWith('rust/')),
+        [],
+        'a python package built from rust/ needs its lanes added to the rust/Cargo.lock tripwire'
+    )
+})
+
 test('reverseClosure walks transitively and excludes unrelated nodes', () => {
     const graph = new Map([
         ['base', []],
