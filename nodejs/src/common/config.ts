@@ -35,6 +35,8 @@ export enum PluginServerMode {
     // The consumer is gone; an unknown mode would throw at boot, so keep the member until then.
     cdp_precalculated_filters = 'cdp-precalculated-filters',
     cdp_hogflow_subscription_matcher = 'cdp-hogflow-subscription-matcher',
+    // TODO: remove once charts stop setting PLUGIN_SERVER_MODE=cdp-cohort-membership.
+    // The consumer is gone; an unknown mode would throw at boot, so keep the member until then.
     cdp_cohort_membership = 'cdp-cohort-membership',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_cyclotron_worker_hogflow_legacy_pg = 'cdp-cyclotron-worker-hogflow-legacy-pg',

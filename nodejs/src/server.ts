@@ -23,7 +23,6 @@ import { startEvaluationScheduler } from './ai-observability/evaluation-schedule
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
 import { CdpConsumerBaseDeps } from './cdp/consumers/cdp-base.consumer'
-import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
 import { CdpCyclotronWorkerBatchResolve } from './cdp/consumers/cdp-cyclotron-worker-batch-resolve.consumer'
 import { CdpCyclotronWorkerEmail } from './cdp/consumers/cdp-cyclotron-worker-email.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
@@ -102,7 +101,6 @@ export class PluginServer implements NodeServer {
             capabilities.cdpCyclotronWorkerHogFlowLegacyPg ||
             capabilities.cdpCyclotronWorkerEmail ||
             capabilities.cdpCyclotronWorkerEmailLegacyPg ||
-            capabilities.cdpCohortMembership ||
             capabilities.cdpCyclotronWorkerBatchResolve ||
             capabilities.cdpHogflowSubscriptionMatcher ||
             capabilities.cdpRerunWorker
@@ -399,14 +397,6 @@ export class PluginServer implements NodeServer {
             this.lifecycle.expressApp.use('/', serverCommands.router())
             return Promise.resolve(serverCommands.service)
         })
-
-        if (capabilities.cdpCohortMembership) {
-            serviceLoaders.push(async () => {
-                const consumer = new CdpCohortMembershipConsumer(this.config, cdpDeps!)
-                await consumer.start()
-                return consumer.service
-            })
-        }
 
         if (capabilities.cdpHogflowSubscriptionMatcher) {
             serviceLoaders.push(async () => {

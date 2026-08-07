@@ -49,7 +49,6 @@ CONSUMER_GROUP_INGESTION_WARNINGS_WS = "clickhouse_ingestion_warnings_ws"
 CONSUMER_GROUP_INGESTION_WARNINGS_V2 = "clickhouse_ingestion_warnings_v2"
 CONSUMER_GROUP_SESSION_REPLAY_EVENTS_WS = "clickhouse_session_replay_events_ws"
 CONSUMER_GROUP_SESSION_REPLAY_FEATURES_WS = "clickhouse_session_replay_features_ws"
-CONSUMER_GROUP_COHORT_MEMBERSHIP_WS = "clickhouse_cohort_membership_ws"
 
 # WarpStream-shared consumer groups (topics moved to warpstream-shared VC; coexist with MSK
 # groups during the cut-over so both Kafka tables can run in parallel until the MSK side is

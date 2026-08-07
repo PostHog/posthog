@@ -32,11 +32,6 @@ export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     cdpHogflowSubscriptionMatcher: isDevEnv(),
 }
 
-/** Realtime Cohorts - cohort membership persistence */
-export const CAPABILITIES_REALTIME_COHORTS: PluginServerCapabilities = {
-    cdpCohortMembership: true,
-}
-
 /** Error Tracking - exception event ingestion */
 export const CAPABILITIES_ERROR_TRACKING: PluginServerCapabilities = {
     errorTrackingIngestion: true,
@@ -63,7 +58,6 @@ function mergeCapabilities(...groups: PluginServerCapabilities[]): PluginServerC
 const CAPABILITY_GROUP_MAP: Record<string, PluginServerCapabilities> = {
     cdp: CAPABILITIES_CDP,
     cdp_workflows: CAPABILITIES_CDP_WORKFLOWS,
-    realtime_cohorts: CAPABILITIES_REALTIME_COHORTS,
     feature_flags: CAPABILITIES_FEATURE_FLAGS,
 }
 
@@ -97,14 +91,13 @@ export function getPluginServerCapabilities(
             // Default local dev: run everything except ingestion, recordings, logs, and traces (they run in separate processes)
             return mergeCapabilities(
                 CAPABILITIES_CDP_WORKFLOWS,
-                CAPABILITIES_REALTIME_COHORTS,
                 CAPABILITIES_ERROR_TRACKING,
                 CAPABILITIES_FEATURE_FLAGS
             )
 
         case PluginServerMode.local_cdp:
-            // Local CDP development: CDP + workflows + realtime cohorts (ingestion runs separately)
-            return mergeCapabilities(CAPABILITIES_CDP_WORKFLOWS, CAPABILITIES_REALTIME_COHORTS)
+            // Local CDP development: CDP + workflows (ingestion runs separately)
+            return CAPABILITIES_CDP_WORKFLOWS
 
         // Production modes - granular control for dedicated pods
         case PluginServerMode.cdp_processed_events:
@@ -148,9 +141,9 @@ export function getPluginServerCapabilities(
                 cdpHogflowSubscriptionMatcher: true,
             }
         case PluginServerMode.cdp_cohort_membership:
-            return {
-                cdpCohortMembership: true,
-            }
+            // The consumer is gone. Boot with no capabilities so a pod that charts still
+            // launches in this mode idles instead of crash-looping on an unknown mode.
+            return {}
         case PluginServerMode.cdp_legacy_on_event:
             return {
                 cdpLegacyOnEvent: true,

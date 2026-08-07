@@ -7,7 +7,6 @@ import { UUIDT } from '~/common/utils/utils'
 import { insertRow } from '~/tests/helpers/sql'
 
 import { ClickHousePerson, ClickHouseTimestamp, ProjectId, RawClickHouseEvent, Team } from '../../types'
-import { CohortMembershipChange } from '../consumers/cdp-cohort-membership.consumer'
 import { CdpInternalEvent } from '../schema'
 import { compileHog } from '../templates/compiler'
 import {
@@ -289,58 +288,6 @@ export const createExampleInvocation = (
         queue,
         queuePriority: 0,
     }
-}
-
-// Cohort Membership Test Helpers
-export const createCohortMembershipEvent = (
-    overrides: Partial<CohortMembershipChange> = {}
-): CohortMembershipChange => {
-    return {
-        person_id: new UUIDT().toString(),
-        cohort_id: 1,
-        team_id: 1,
-        status: 'entered',
-        ...overrides,
-    }
-}
-
-export const createCohortMembershipEvents = (events: Partial<CohortMembershipChange>[]): CohortMembershipChange[] => {
-    return events.map((event) => createCohortMembershipEvent(event))
-}
-
-export interface CohortMembershipRecord {
-    team_id: number
-    cohort_id: number
-    person_id: string
-    in_cohort: boolean
-    last_updated?: Date
-}
-
-export const insertCohortMembership = async (
-    db: PostgresRouter,
-    membership: Partial<CohortMembershipRecord>
-): Promise<CohortMembershipRecord> => {
-    const record: CohortMembershipRecord = {
-        team_id: 1,
-        cohort_id: 1,
-        person_id: new UUIDT().toString(),
-        in_cohort: true,
-        ...membership,
-    }
-
-    // insertRow now automatically determines the correct database based on table name
-    return await insertRow(db, 'cohort_membership', record)
-}
-
-export const insertCohortMemberships = async (
-    db: PostgresRouter,
-    memberships: Partial<CohortMembershipRecord>[]
-): Promise<CohortMembershipRecord[]> => {
-    const results = []
-    for (const membership of memberships) {
-        results.push(await insertCohortMembership(db, membership))
-    }
-    return results
 }
 
 export const insertBatchExport = async (postgres: PostgresRouter, team_id: Team['id'], id: string): Promise<any> => {
