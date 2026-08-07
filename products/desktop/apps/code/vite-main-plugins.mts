@@ -355,9 +355,29 @@ async function findSkillsDirInExtract(
   return null;
 }
 
+function getDesktopContextMillSkillFiles(
+  entries: Record<string, Uint8Array>,
+): Set<string> {
+  const manifestData = entries["manifest.json"];
+  if (!manifestData) return new Set();
+
+  try {
+    const manifest = JSON.parse(new TextDecoder().decode(manifestData)) as {
+      resources?: Array<{ desktop?: boolean; file?: string }>;
+    };
+    return new Set(
+      (manifest.resources ?? [])
+        .filter((resource) => resource.desktop && resource.file)
+        .map((resource) => resource.file as string),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
 /**
  * Downloads context-mill skills-mcp-resources.zip (a zip-of-zips), extracts
- * omnibus skills and selected standalone skills, and writes them into targetDir.
+ * skills marked for desktop distribution, and writes them into targetDir.
  * Returns true on success, false on failure (non-fatal).
  */
 async function downloadAndExtractContextMillSkills(
@@ -378,6 +398,7 @@ async function downloadAndExtractContextMillSkills(
 
       const zipData = readFileSync(zipPath);
       const outerEntries = unzipSync(new Uint8Array(zipData));
+      const desktopSkillFiles = getDesktopContextMillSkillFiles(outerEntries);
 
       await mkdir(targetDir, { recursive: true });
 
@@ -387,8 +408,8 @@ async function downloadAndExtractContextMillSkills(
 
         const archiveName = base.replace(/\.zip$/, "");
         if (
-          !archiveName.startsWith("omnibus-") &&
-          archiveName !== "creating-product-tours"
+          !desktopSkillFiles.has(base) &&
+          !archiveName.startsWith("omnibus-")
         ) {
           continue;
         }

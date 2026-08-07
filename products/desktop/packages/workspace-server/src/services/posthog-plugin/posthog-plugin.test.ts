@@ -122,8 +122,21 @@ function simulateExtractZip() {
         // Inner zip bytes are dummy — fflate.unzip is mocked below.
         vol.mkdirSync(extractDir, { recursive: true });
         vol.writeFileSync(`${extractDir}/omnibus-test-skill.zip`, "dummy");
-        vol.writeFileSync(`${extractDir}/creating-product-tours.zip`, "dummy");
-        vol.writeFileSync(`${extractDir}/manifest.json`, "{}");
+        vol.writeFileSync(
+          `${extractDir}/standalone-desktop-skill.zip`,
+          "dummy",
+        );
+        vol.writeFileSync(
+          `${extractDir}/manifest.json`,
+          JSON.stringify({
+            resources: [
+              {
+                file: "standalone-desktop-skill.zip",
+                desktop: true,
+              },
+            ],
+          }),
+        );
         // Non-omnibus zip should be ignored
         vol.writeFileSync(`${extractDir}/other-skill.zip`, "dummy");
       } else {
@@ -384,7 +397,9 @@ describe("PosthogPluginService", () => {
         true,
       );
       expect(
-        vol.existsSync(`${RUNTIME_SKILLS_DIR}/creating-product-tours/SKILL.md`),
+        vol.existsSync(
+          `${RUNTIME_SKILLS_DIR}/standalone-desktop-skill/SKILL.md`,
+        ),
       ).toBe(true);
       expect(vol.existsSync(`${RUNTIME_SKILLS_DIR}/other-skill`)).toBe(false);
 

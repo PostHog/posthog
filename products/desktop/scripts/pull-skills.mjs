@@ -32,6 +32,22 @@ const LOCAL_SKILLS_DIR = join(
   "local-skills",
 );
 
+function getDesktopContextMillSkillFiles(entries) {
+  const manifestData = entries["manifest.json"];
+  if (!manifestData) return new Set();
+
+  try {
+    const manifest = JSON.parse(new TextDecoder().decode(manifestData));
+    return new Set(
+      (manifest.resources ?? [])
+        .filter((resource) => resource.desktop && resource.file)
+        .map((resource) => resource.file),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
 const tempDir = join(tmpdir(), `posthog-code-pull-skills-${Date.now()}`);
 await mkdir(tempDir, { recursive: true });
 
@@ -109,16 +125,14 @@ try {
 
     const cmZipData = readFileSync(cmZipPath);
     const cmOuter = unzipSync(new Uint8Array(cmZipData));
+    const desktopSkillFiles = getDesktopContextMillSkillFiles(cmOuter);
 
     for (const [filename, content] of Object.entries(cmOuter)) {
       const base = filename.replace(/^.*\//, "");
       if (!base.endsWith(".zip")) continue;
 
       const archiveName = base.replace(/\.zip$/, "");
-      if (
-        !archiveName.startsWith("omnibus-") &&
-        archiveName !== "creating-product-tours"
-      ) {
+      if (!desktopSkillFiles.has(base) && !archiveName.startsWith("omnibus-")) {
         continue;
       }
 

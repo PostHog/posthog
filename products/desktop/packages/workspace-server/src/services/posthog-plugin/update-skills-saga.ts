@@ -51,6 +51,25 @@ export interface UpdateSkillsOutput {
   updated: boolean;
 }
 
+async function getDesktopContextMillSkillFiles(
+  extractDir: string,
+): Promise<Set<string>> {
+  try {
+    const manifest = JSON.parse(
+      await readFile(join(extractDir, "manifest.json"), "utf-8"),
+    ) as {
+      resources?: Array<{ desktop?: boolean; file?: string }>;
+    };
+    return new Set(
+      (manifest.resources ?? [])
+        .filter((resource) => resource.desktop && resource.file)
+        .map((resource) => resource.file as string),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
 export class UpdateSkillsSaga extends Saga<
   UpdateSkillsInput,
   UpdateSkillsOutput
@@ -267,8 +286,8 @@ export class UpdateSkillsSaga extends Saga<
   }
 
   /**
-   * Downloads context-mill zip-of-zips, extracts omnibus and selected standalone
-   * skills, strips the "omnibus-" prefix, and merges them into destDir.
+   * Downloads context-mill zip-of-zips, extracts skills marked for desktop
+   * distribution, strips the "omnibus-" prefix, and merges them into destDir.
    */
   private async downloadAndMergeContextMillSkills(
     url: string,
@@ -284,14 +303,12 @@ export class UpdateSkillsSaga extends Saga<
     await extractZip(zipPath, extractDir);
 
     const files = await readdir(extractDir);
+    const desktopSkillFiles = await getDesktopContextMillSkillFiles(extractDir);
     for (const file of files) {
       if (!file.endsWith(".zip")) continue;
 
       const archiveName = file.replace(/\.zip$/, "");
-      if (
-        !archiveName.startsWith("omnibus-") &&
-        archiveName !== "creating-product-tours"
-      ) {
+      if (!desktopSkillFiles.has(file) && !archiveName.startsWith("omnibus-")) {
         continue;
       }
 
