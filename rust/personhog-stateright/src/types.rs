@@ -13,7 +13,6 @@ pub type Partition = u8;
 /// Identity of one handoff attempt — production `HandoffState.handoff_id`.
 /// Acks echo it and quorum checks only count matching acks.
 pub type HandoffId = u8;
-pub type WriteId = u8;
 
 /// The production phase enum, used directly: a new phase added to the
 /// protocol breaks the model's exhaustive matches at compile time.
@@ -136,9 +135,16 @@ pub struct Router {
 }
 
 /// One parked leader-path request.
+///
+/// Deliberately identity-free. A parked write is only ever drained or
+/// dropped, never matched against a particular client, so carrying a write
+/// id would add a dimension to the state space that nothing reads — two
+/// otherwise-identical states would differ only in how many writes had ever
+/// been parked. Order and count still matter, and the per-partition `Vec`
+/// keeps both.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum StashedRequest {
-    Write(WriteId),
+    Write,
     StrongRead,
 }
 
@@ -192,10 +198,11 @@ pub struct SystemState {
     pub router_joins_left: u8,
     /// Deadline cancellations the checker may still inject.
     pub cancels_left: u8,
-    pub next_write_id: WriteId,
-    /// Count of strong reads actually served (reachability evidence for
-    /// the read properties).
-    pub reads_served: u8,
+    /// Whether any strong read was actually served (reachability evidence
+    /// for the read properties). A flag rather than a count: nothing reads
+    /// how many, and a count would split otherwise-identical states by
+    /// their read history.
+    pub read_served: bool,
 
     // ── violation flags (history-free invariant encoding) ──────
     /// Set when a write is acked by a pod while a *different* pod that
