@@ -44,11 +44,11 @@ import {
 } from '~/types'
 
 import { resolveAggregationGroupTypeIndex } from './aggregation'
+import { BlastRadiusErrorMessage } from './BlastRadiusErrorMessage'
 import { MATCHING_ESTIMATE_TOOLTIP } from './constants'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
-    blastRadiusErrorMessage,
     featureFlagReleaseConditionsLogic,
     isBlastRadiusErrorRetryable,
     isDistinctIdFilter,
@@ -466,7 +466,10 @@ export function FeatureFlagReleaseConditions({
                                                 className="basis-full flex items-start gap-2 mt-1 text-secondary"
                                             >
                                                 <IconErrorOutline className="text-danger text-base shrink-0 mt-0.5" />
-                                                <span>{blastRadiusErrorMessage(blastRadiusError, pluralName)}</span>
+                                                <BlastRadiusErrorMessage
+                                                    error={blastRadiusError}
+                                                    pluralName={pluralName}
+                                                />
                                                 {isBlastRadiusErrorRetryable(blastRadiusError) && (
                                                     <LemonButton
                                                         type="secondary"

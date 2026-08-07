@@ -73,6 +73,7 @@ import {
 import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
 import { resolveAggregationGroupTypeIndex } from './aggregation'
+import { BlastRadiusErrorMessage } from './BlastRadiusErrorMessage'
 import { MATCHING_ESTIMATE_TOOLTIP } from './constants'
 import { EarlyExitIndicator } from './EarlyExitIndicator'
 import { FeatureFlagConditionDragHandle } from './FeatureFlagConditionDragHandle'
@@ -83,7 +84,6 @@ import {
     BlastRadiusError,
     FeatureFlagReleaseConditionsLogicProps,
     FeatureFlagGroupTypeWithSortKey,
-    blastRadiusErrorMessage,
     featureFlagReleaseConditionsLogic,
     isBlastRadiusErrorRetryable,
     isDistinctIdFilter,
@@ -684,12 +684,10 @@ const ConditionContent = ({
                                                 className="text-xs text-muted mt-2 flex items-start gap-2"
                                             >
                                                 <IconErrorOutline className="text-danger text-sm shrink-0 mt-0.5" />
-                                                <span>
-                                                    {blastRadiusErrorMessage(
-                                                        blastRadiusErrors[group.sort_key],
-                                                        resolvedTargetName
-                                                    )}
-                                                </span>
+                                                <BlastRadiusErrorMessage
+                                                    error={blastRadiusErrors[group.sort_key]}
+                                                    pluralName={resolvedTargetName}
+                                                />
                                                 {isBlastRadiusErrorRetryable(blastRadiusErrors[group.sort_key]) && (
                                                     <LemonButton
                                                         type="secondary"
