@@ -181,9 +181,10 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         Comment.objects.create(
             team=self.team,
             created_by=other,
-            scope="task",
-            item_id=str(task.id),
-            content="Private task comment",
+            scope="desktop_canvas",
+            item_id="019fddea-b2ac-7000-8527-6b45a615cf4f",
+            item_context={"taskId": str(task.id)},
+            content="Private canvas comment",
         )
 
         response = self.client.get(
@@ -193,6 +194,39 @@ class TestComments(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"] == []
+
+    @parameterized.expand(["true", "True", "1"])
+    def test_task_wide_comment_list_accepts_boolean_query_values(self, include_task_resources: str) -> None:
+        task = self._task_artifact_target()
+        artifact_comment = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="task_artifact",
+            item_id="artifact-1",
+            item_context={"taskId": str(task.id)},
+            content="Artifact comment",
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "scope": "task",
+                "task_id": str(task.id),
+                "include_task_resources": include_task_resources,
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in response.json()["results"]] == [str(artifact_comment.id)]
+
+    def test_task_wide_comment_list_requires_task_id(self) -> None:
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/comments",
+            {"scope": "task", "include_task_resources": "true"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "task_id"
 
     def test_task_comment_list_without_task_resources_keeps_single_target_behavior(self) -> None:
         task = self._task_artifact_target()

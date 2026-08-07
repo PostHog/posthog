@@ -38,6 +38,7 @@ from posthog.models.comment.utils import (
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.tasks.comment_slack_sync import backfill_comment_slack_thread
 from posthog.tasks.email import send_discussions_mentioned
+from posthog.utils import str_to_bool
 
 from products.conversations.backend import reply_dedupe
 
@@ -893,22 +894,24 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             queryset = queryset.filter(deleted=False)
 
         scope = params.get("scope")
-        include_task_resources = scope == "task" and params.get("include_task_resources") == "true"
+        include_task_resources = scope == "task" and str_to_bool(params.get("include_task_resources"))
         if include_task_resources:
             task_id = params.get("task_id")
+            if not task_id:
+                raise exceptions.ValidationError({"task_id": "Task ID is required when including task resources."})
             if not _task_comment_target_is_accessible(
                 team_id=self.team_id,
                 user_id=self.request.user.id,
-                task_id=task_id or "",
+                task_id=task_id,
                 scope="task",
                 item_id=task_id,
             ):
                 return queryset.none()
-            task_id_string = str(task_id)
             queryset = queryset.filter(
-                Q(scope="task", item_id=task_id_string)
-                | Q(scope__in=["task_artifact", "desktop_canvas"], item_context__taskId=task_id_string)
+                Q(scope="task", item_id=task_id)
+                | Q(scope__in=["task_artifact", "desktop_canvas"], item_context__taskId=task_id)
             )
+            params.pop("item_id", None)
         elif scope:
             queryset = queryset.filter(scope=scope)
             if scope in TICKET_COMMENT_SCOPES:
@@ -934,7 +937,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             self._require_ticket_viewer_access_for_pk()
             self._require_task_comment_viewer_access_for_pk()
 
-        if params.get("item_id") and not include_task_resources:
+        if params.get("item_id"):
             queryset = queryset.filter(item_id=params.get("item_id"))
 
         if params.get("search"):
