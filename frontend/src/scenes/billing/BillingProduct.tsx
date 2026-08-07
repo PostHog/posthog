@@ -304,6 +304,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             <div
                                                 className="grid grid-cols-[auto_1fr_130px_100px] gap-4 items-center cursor-pointer rounded hover:bg-fill-highlight-50"
                                                 onClick={() => toggleVariantExpanded(variant.key)}
+                                                data-attr={`billing-product-variant-${variant.key}`}
                                                 role="button"
                                                 tabIndex={0}
                                                 aria-expanded={isVariantExpanded}
