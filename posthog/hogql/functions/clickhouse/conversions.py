@@ -40,6 +40,10 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "accurateCast": HogQLFunctionMeta("accurateCast", 2, 2),
     "accurateCastOrNull": HogQLFunctionMeta("accurateCastOrNull", 2, 2),
     "toInt": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Int64")]),
+    # ClickHouse-name aliases of toInt — the Int mirror of toFloat/toFloatOrNull/toFloat64OrNull.
+    # Both route through the same null-safe Int64 cast as toInt.
+    "toInt64": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Int64")]),
+    "toIntOrNull": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Int64")]),
     "toIntOrZero": HogQLFunctionMeta("toInt64OrZero", 1, 1, signatures=[((StringType(),), IntegerType())]),
     "toIntOrDefault": HogQLFunctionMeta(
         # Mirror of toFloatOrDefault: ClickHouse's toInt64OrDefault requires the default value to
@@ -276,9 +280,54 @@ NULLABILITY_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     ),
 }
 
+# Sized ClickHouse conversion spellings.
+#
+# HogQL exposes unsized casts (toInt, toIntOrZero, toFloat, ...), but models and
+# hand-written queries routinely use the sized ClickHouse names — toInt64OrNull,
+# toInt32OrNull, toFloat64OrZero, and friends. Without these aliases they fall
+# through to the printer's "unsupported function" fallback and the whole query
+# fails. This mirrors the float-alias fix that added toFloat64OrNull.
+#
+# OrNull → accurateCastOrNull(x, '<type>'): accepts any input and yields NULL when
+#   the value doesn't fit, the same route toInt / toFloatOrNull already take.
+# OrZero → the identically-named ClickHouse toXOrZero (String input, like toIntOrZero).
+_SIZED_INT_TYPES = [
+    "Int8",
+    "Int16",
+    "Int32",
+    "Int64",
+    "Int128",
+    "Int256",
+    "UInt8",
+    "UInt16",
+    "UInt32",
+    "UInt64",
+    "UInt128",
+    "UInt256",
+]
+_SIZED_FLOAT_TYPES = ["Float32", "Float64"]
+
+SIZED_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {}
+for _ch_type in _SIZED_INT_TYPES:
+    SIZED_CONVERSION_FUNCTIONS[f"to{_ch_type}OrNull"] = HogQLFunctionMeta(
+        "accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value=_ch_type)]
+    )
+    SIZED_CONVERSION_FUNCTIONS[f"to{_ch_type}OrZero"] = HogQLFunctionMeta(
+        f"to{_ch_type}OrZero", 1, 1, signatures=[((StringType(),), IntegerType())]
+    )
+for _ch_type in _SIZED_FLOAT_TYPES:
+    SIZED_CONVERSION_FUNCTIONS[f"to{_ch_type}OrZero"] = HogQLFunctionMeta(
+        f"to{_ch_type}OrZero", 1, 1, signatures=[((StringType(),), FloatType())]
+    )
+# toFloat64OrNull is already defined above; only the sized Float32 alias is new.
+SIZED_CONVERSION_FUNCTIONS["toFloat32OrNull"] = HogQLFunctionMeta(
+    "accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Float32")]
+)
+
 # Combined conversion functions
 CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     **TYPE_CONVERSION_FUNCTIONS,
     **DATE_CONVERSION_FUNCTIONS,
     **NULLABILITY_FUNCTIONS,
+    **SIZED_CONVERSION_FUNCTIONS,
 }

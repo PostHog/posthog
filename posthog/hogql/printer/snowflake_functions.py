@@ -285,6 +285,35 @@ SNOWFLAKE_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "uniqExactIf": _handle_uniq_if,
 }
 
+# Sized ClickHouse conversion spellings (toInt64OrNull, toFloat64OrZero, ...). HogQL
+# accepts these as aliases of toInt/toFloat, so the dialect printers must too — the
+# integer family casts to BIGINT and the float family to DOUBLE, mirroring the unsized
+# toInt/toFloat handlers above. Kept in sync with SIZED_CONVERSION_FUNCTIONS in
+# posthog/hogql/functions/clickhouse/conversions.py.
+_SIZED_INT_ALIASES = ["toInt64", "toIntOrNull"] + [
+    f"to{t}Or{suffix}"
+    for t in (
+        "Int8",
+        "Int16",
+        "Int32",
+        "Int64",
+        "Int128",
+        "Int256",
+        "UInt8",
+        "UInt16",
+        "UInt32",
+        "UInt64",
+        "UInt128",
+        "UInt256",
+    )
+    for suffix in ("Null", "Zero")
+]
+_SIZED_FLOAT_ALIASES = ["toFloatOrNull", "toFloat32OrNull", "toFloat64OrNull", "toFloat32OrZero", "toFloat64OrZero"]
+for _alias in _SIZED_INT_ALIASES:
+    SNOWFLAKE_FUNCTION_HANDLERS[_alias] = _make_cast_handler("BIGINT")
+for _alias in _SIZED_FLOAT_ALIASES:
+    SNOWFLAKE_FUNCTION_HANDLERS[_alias] = _make_cast_handler("DOUBLE")
+
 # Standard-SQL functions valid in Snowflake verbatim. Anything not here, in a
 # rename, or in a handler raises "not supported in the Snowflake dialect".
 SNOWFLAKE_PASSTHROUGH_FUNCTIONS: frozenset[str] = frozenset(

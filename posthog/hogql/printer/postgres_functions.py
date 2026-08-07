@@ -313,6 +313,35 @@ POSTGRES_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "groupArrayIf": _make_if_combinator_handler("ARRAY_AGG"),
 }
 
+# Sized ClickHouse conversion spellings (toInt64OrNull, toFloat64OrZero, ...). HogQL
+# accepts these as aliases of toInt/toFloat, so the dialect printers must too — the
+# integer family casts to BIGINT and the float family to DOUBLE PRECISION, mirroring
+# the unsized toInt/toFloat handlers above. Kept in sync with SIZED_CONVERSION_FUNCTIONS
+# in posthog/hogql/functions/clickhouse/conversions.py.
+_SIZED_INT_ALIASES = ["toInt64", "toIntOrNull"] + [
+    f"to{t}Or{suffix}"
+    for t in (
+        "Int8",
+        "Int16",
+        "Int32",
+        "Int64",
+        "Int128",
+        "Int256",
+        "UInt8",
+        "UInt16",
+        "UInt32",
+        "UInt64",
+        "UInt128",
+        "UInt256",
+    )
+    for suffix in ("Null", "Zero")
+]
+_SIZED_FLOAT_ALIASES = ["toFloatOrNull", "toFloat32OrNull", "toFloat64OrNull", "toFloat32OrZero", "toFloat64OrZero"]
+for _alias in _SIZED_INT_ALIASES:
+    POSTGRES_FUNCTION_HANDLERS[_alias] = _make_cast_handler("BIGINT")
+for _alias in _SIZED_FLOAT_ALIASES:
+    POSTGRES_FUNCTION_HANDLERS[_alias] = _make_cast_handler("DOUBLE PRECISION")
+
 
 # Case-insensitive lookup maps — keys lowercased for matching against node.name.lower().
 # HogQL allows case-insensitive function calls (NOW(), Count(), etc.) but preserves

@@ -1840,6 +1840,36 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk)
         self.assertEqual(self._expr(expr, context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
 
+    @parameterized.expand(
+        [
+            ("toInt64", "toInt64('1')"),
+            ("toIntOrNull", "toIntOrNull('1')"),
+            ("toInt64OrNull", "toInt64OrNull('1')"),
+            ("toInt32OrNull", "toInt32OrNull('1')"),
+            ("toUInt64OrNull", "toUInt64OrNull('1')"),
+            ("toFloat32OrNull", "toFloat32OrNull('1.3')"),
+        ]
+    )
+    def test_to_sized_or_null_aliases(self, _name: str, expr: str) -> None:
+        # Sized ClickHouse conversion spellings (toInt64OrNull, toInt32OrNull, ...) and the
+        # base toInt64 are accepted aliases that all route through the null-safe accurateCastOrNull
+        # cast, so unparseable input becomes NULL instead of failing the whole query. Without
+        # these aliases they hit the printer's "unsupported function" fallback.
+        context = HogQLContext(team_id=self.team.pk)
+        self.assertEqual(self._expr(expr, context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
+
+    @parameterized.expand(
+        [
+            ("toInt64OrZero", "toInt64OrZero('1')", "toInt64OrZero(%(hogql_val_0)s)"),
+            ("toInt32OrZero", "toInt32OrZero('1')", "toInt32OrZero(%(hogql_val_0)s)"),
+            ("toFloat64OrZero", "toFloat64OrZero('1.5')", "toFloat64OrZero(%(hogql_val_0)s)"),
+        ]
+    )
+    def test_to_sized_or_zero_aliases(self, _name: str, expr: str, expected: str) -> None:
+        # Sized OrZero spellings pass through to the identically-named ClickHouse function.
+        context = HogQLContext(team_id=self.team.pk)
+        self.assertEqual(self._expr(expr, context), expected)
+
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
         self._assert_expr_error("avg(bla)", "Unable to resolve field: bla")
@@ -7652,6 +7682,9 @@ class TestPostgresPrinter(BaseTest):
             ("toFloatOrDefault", "toFloatOrDefault('1.5', 0)", "CAST(%(hogql_val_0)s AS DOUBLE PRECISION)"),
             ("toIntOrZero", "toIntOrZero('42')", "CAST(%(hogql_val_0)s AS BIGINT)"),
             ("toIntOrDefault", "toIntOrDefault('42', 0)", "CAST(%(hogql_val_0)s AS BIGINT)"),
+            # Sized ClickHouse conversion aliases must resolve in the Postgres dialect too.
+            ("toInt64OrNull", "toInt64OrNull('42')", "CAST(%(hogql_val_0)s AS BIGINT)"),
+            ("toFloat64OrZero", "toFloat64OrZero('1.5')", "CAST(%(hogql_val_0)s AS DOUBLE PRECISION)"),
             ("toBool", "toBool(1)", "CAST(1 AS BOOLEAN)"),
             ("toUUID", "toUUID('abc')", "CAST(%(hogql_val_0)s AS UUID)"),
             ("toDecimal", "toDecimal(1, 2)", "CAST(1 AS DECIMAL)"),
@@ -8224,6 +8257,9 @@ SNOWFLAKE_EMIT_CASES: list[tuple[str, str, str]] = [
     # Casts (Snowflake type synonyms; no UUID type → VARCHAR)
     ("toString", "toString(1)", "CAST(1 AS VARCHAR)"),
     ("toFloat", "toFloat('1.5')", "CAST(%(hogql_val_0)s AS DOUBLE)"),
+    # Sized ClickHouse conversion aliases must resolve in the Snowflake dialect too.
+    ("toInt64OrNull", "toInt64OrNull('1')", "CAST(%(hogql_val_0)s AS BIGINT)"),
+    ("toFloat64OrZero", "toFloat64OrZero('1.5')", "CAST(%(hogql_val_0)s AS DOUBLE)"),
     ("toUUID", "toUUID('x')", "CAST(%(hogql_val_0)s AS VARCHAR)"),
     ("toDate", "toDate(now())", "CAST(CURRENT_TIMESTAMP() AS DATE)"),
     # Date extraction (Snowflake EXTRACT unit names)
