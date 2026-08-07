@@ -2085,12 +2085,21 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 False,
             ),
             (
-                "recovered_view_is_skipped",
-                {},
+                # The symptom: an hourly view fails, then its next run recovers before the
+                # digest fires. The failure still ran with stale data, so it must be reported
+                # even though the view's latest job is now COMPLETED.
+                "scheduled_recovered_reported",
+                {"sync_frequency_interval": dt.timedelta(hours=1)},
                 [
                     ("FAILED", dt.timedelta(hours=2), "Some error"),
                     ("COMPLETED", dt.timedelta(hours=1), None),
                 ],
+                True,
+            ),
+            (
+                "unscheduled_view_without_error_is_skipped",
+                {},
+                [("FAILED", dt.timedelta(hours=1), "Some error")],
                 False,
             ),
         ]
@@ -2212,6 +2221,45 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         assert "clickhouse boom" in mocked_email_messages[0].html_body
         assert "duckgres boom" not in mocked_email_messages[0].html_body
+
+    def test_send_matview_failure_digest_reports_failure_error_after_recovery(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
+        self.user.save()
+
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="recovered_view",
+            query={"query": "SELECT 1"},
+            sync_frequency_interval=dt.timedelta(hours=1),
+        )
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query,
+            status=DataModelingJob.Status.FAILED,
+            error="the failure that mattered",
+            last_run_at=timezone.now() - dt.timedelta(hours=2),
+        )
+        # A later run recovered — its COMPLETED job carries no error and must not stand in
+        # for the failure in the digest.
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            error=None,
+            last_run_at=timezone.now() - dt.timedelta(hours=1),
+        )
+
+        send_matview_failure_digest()
+
+        assert len(mocked_email_messages) == 1
+        assert "the failure that mattered" in mocked_email_messages[0].html_body
+        assert mocked_email_messages[0].properties["views"][0]["error"] == "the failure that mattered"
 
     def test_send_matview_failure_digest_not_sent_by_default(self, MockEmailMessage: MagicMock) -> None:
         from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery

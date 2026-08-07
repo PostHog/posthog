@@ -14,6 +14,7 @@ from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_toke
 from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs
 from posthog.tasks.email import (
     EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC,
+    MATVIEW_FAILURE_DIGEST_WINDOW_HOURS,
     send_hog_functions_daily_digest,
     send_matview_failure_digest,
 )
@@ -561,6 +562,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour=matview_digest_hour, minute="0"),
         send_matview_failure_digest.s(),
         name="send matview failure digest",
+    )
+
+    # Catch-up one window after the primary run, in the next dedupe window, so a batch of
+    # failures that arrives after the primary run still sends the same day instead of being
+    # silenced until tomorrow.
+    matview_catchup_hour = str((int(matview_digest_hour) + MATVIEW_FAILURE_DIGEST_WINDOW_HOURS) % 24)
+    sender.add_periodic_task(
+        crontab(hour=matview_catchup_hour, minute="0"),
+        send_matview_failure_digest.s(),
+        name="send matview failure digest catch-up",
     )
 
     # Just after the digest day rolls over (EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC),

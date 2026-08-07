@@ -6,7 +6,7 @@ from urllib.parse import quote
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import OuterRef, Subquery
+from django.db.models import Exists, OuterRef, Subquery
 from django.utils import timezone
 
 import structlog
@@ -827,6 +827,27 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
     return delivered
 
 
+# Digest sends are capped at one email per team per window (not per calendar day), so a
+# second batch of failures later the same day sends in the next window instead of being
+# silenced until tomorrow. The catch-up cron runs one window after the primary run.
+MATVIEW_FAILURE_DIGEST_WINDOW_HOURS = 12
+
+# Failures detected in the fan-out vs. emails actually sent — without this pair there was
+# no way to tell from the outside that the digest was dropping failures. Unlabelled by team
+# to keep Prometheus cardinality bounded; per-team volume is read from MessagingRecord.
+MATVIEW_FAILURE_DIGEST_VIEWS_COUNTER = Counter(
+    "matview_failure_digest_views_total",
+    "Materialized views detected as failed or paused by the digest fan-out, by kind.",
+    labelnames=["kind"],
+)
+
+MATVIEW_FAILURE_DIGEST_EMAIL_COUNTER = Counter(
+    "matview_failure_digest_email_total",
+    "Materialized view failure digest per-team send attempts, by outcome.",
+    labelnames=["outcome"],
+)
+
+
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def send_matview_failure_digest() -> None:
@@ -842,28 +863,31 @@ def send_matview_failure_digest() -> None:
 
     cutoff = timezone.now() - datetime.timedelta(hours=24)
 
-    # Latest DataModelingJob is the failure source of truth — v2 MaterializeViewWorkflow doesn't update SavedQuery.status.
-    # The duckgres shadow shares saved_query_id and finalizes after ClickHouse, so it must not stand in for the serving job.
+    # Key off any FAILED job in the window, not the saved query's current latest-job status:
+    # a scheduled view that fails at 10:00 and succeeds on its 11:00 retry still ran with
+    # stale data and must be reported, but its latest job is COMPLETED so a latest-status
+    # filter would drop it before the digest ever runs. v2 MaterializeViewWorkflow doesn't
+    # update SavedQuery.status, so DataModelingJob rows are the only failure record. The
+    # duckgres shadow shares saved_query_id and isn't the serving job, so it's excluded.
+    failed_job_in_window = DataModelingJob.objects.filter(
+        saved_query_id=OuterRef("id"),
+        status=DataModelingJob.Status.FAILED,
+        last_run_at__gte=cutoff,
+    ).exclude(engine=DataModelingJobEngine.DUCKGRES)
+
+    failed_queries = (
+        DataWarehouseSavedQuery.objects.filter(deleted=False, sync_frequency_interval__isnull=False)
+        .filter(Exists(failed_job_in_window))
+        .select_related("team")
+    )
+
+    # Paused views don't retry, so their latest job's run time is the right recency signal.
+    # The recent-run cutoff avoids nagging about long-term pauses.
     latest_job = (
         DataModelingJob.objects.filter(saved_query_id=OuterRef("id"))
         .exclude(engine=DataModelingJobEngine.DUCKGRES)
         .order_by("-last_run_at")
     )
-
-    failed_queries = (
-        DataWarehouseSavedQuery.objects.filter(deleted=False, sync_frequency_interval__isnull=False)
-        .annotate(
-            latest_job_status=Subquery(latest_job.values("status")[:1]),
-            latest_job_run_at=Subquery(latest_job.values("last_run_at")[:1]),
-        )
-        .filter(
-            latest_job_status=DataModelingJob.Status.FAILED,
-            latest_job_run_at__gte=cutoff,
-        )
-        .select_related("team")
-    )
-
-    # Recent-run cutoff avoids nagging about long-term pauses.
     paused_queries = (
         DataWarehouseSavedQuery.objects.filter(
             deleted=False,
@@ -884,6 +908,13 @@ def send_matview_failure_digest() -> None:
     for paused_sq in paused_queries:
         entry = teams_with_issues.setdefault(paused_sq.team_id, {"team": paused_sq.team, "failed": [], "paused": []})
         entry["paused"].append(paused_sq)
+
+    MATVIEW_FAILURE_DIGEST_VIEWS_COUNTER.labels(kind="failed").inc(
+        sum(len(data["failed"]) for data in teams_with_issues.values())
+    )
+    MATVIEW_FAILURE_DIGEST_VIEWS_COUNTER.labels(kind="paused").inc(
+        sum(len(data["paused"]) for data in teams_with_issues.values())
+    )
 
     if not teams_with_issues:
         logger.info("No matview failures or paused schedules found")
@@ -917,31 +948,45 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
     try:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
+        MATVIEW_FAILURE_DIGEST_EMAIL_COUNTER.labels(outcome="team_missing").inc()
         logger.warning("Team %d not found for matview failure digest", team_id)
         return
 
     memberships_to_email = get_members_to_notify(team, NotificationSetting.MATERIALIZED_VIEW_SYNC_FAILED.value)
     if not memberships_to_email:
+        MATVIEW_FAILURE_DIGEST_EMAIL_COUNTER.labels(outcome="no_recipients").inc()
         return
 
     all_ids = list(set(failed_query_ids + paused_query_ids))
     queries = {str(sq.id): sq for sq in DataWarehouseSavedQuery.objects.filter(id__in=all_ids, team_id=team_id)}
 
-    latest_jobs: dict[str, DataModelingJob] = {}
-    for latest_job in (
-        DataModelingJob.objects.filter(saved_query_id__in=all_ids)
+    # Failed views report the most recent FAILED job even if a later run recovered, so the
+    # error and timestamp describe the failure rather than the recovery that would hide it.
+    failed_jobs: dict[str, DataModelingJob] = {}
+    for job in (
+        DataModelingJob.objects.filter(saved_query_id__in=failed_query_ids, status=DataModelingJob.Status.FAILED)
         .exclude(engine=DataModelingJobEngine.DUCKGRES)
         .order_by("saved_query_id", "-last_run_at")
         .distinct("saved_query_id")
     ):
-        latest_jobs[str(latest_job.saved_query_id)] = latest_job
+        failed_jobs[str(job.saved_query_id)] = job
+
+    # Paused views don't retry; their latest job carries the last run time.
+    paused_jobs: dict[str, DataModelingJob] = {}
+    for job in (
+        DataModelingJob.objects.filter(saved_query_id__in=paused_query_ids)
+        .exclude(engine=DataModelingJobEngine.DUCKGRES)
+        .order_by("saved_query_id", "-last_run_at")
+        .distinct("saved_query_id")
+    ):
+        paused_jobs[str(job.saved_query_id)] = job
 
     views = []
     for qid, paused in [(qid, False) for qid in failed_query_ids] + [(qid, True) for qid in paused_query_ids]:
         sq = queries.get(qid)
         if not sq:
             continue
-        job: DataModelingJob | None = latest_jobs.get(qid)
+        job: DataModelingJob | None = paused_jobs.get(qid) if paused else failed_jobs.get(qid)
         error = (job.error if job else None) or sq.latest_error or "Unknown error"
         if len(error) > 255:
             error = error[:252] + "..."
@@ -959,6 +1004,7 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         )
 
     if not views:
+        MATVIEW_FAILURE_DIGEST_EMAIL_COUNTER.labels(outcome="no_views").inc()
         logger.warning("No failed or paused views found")
         return
 
@@ -967,8 +1013,11 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
     for v in views:
         v.pop("last_run_at_ts", None)
 
-    today = datetime.date.today().strftime("%Y-%m-%d")
-    campaign_key = f"matview_failure_digest_{team_id}_{today}"
+    # Window-based key (not calendar date): caps delivery at one digest per team per window
+    # so a later batch of failures sends in the next window rather than being deduped away
+    # until tomorrow. The catch-up cron runs one window after the primary run.
+    window_index = int(timezone.now().timestamp() // (MATVIEW_FAILURE_DIGEST_WINDOW_HOURS * 3600))
+    campaign_key = f"matview_failure_digest_{team_id}_w{window_index}"
 
     message = EmailMessage(
         campaign_key=campaign_key,
@@ -984,6 +1033,7 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
     for membership in memberships_to_email:
         message.add_user_recipient(membership.user)
     message.send()
+    MATVIEW_FAILURE_DIGEST_EMAIL_COUNTER.labels(outcome="sent").inc()
 
     paused_count = sum(1 for v in views if v["paused"])
     logger.info(
