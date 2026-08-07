@@ -37,19 +37,29 @@ def _mrkdwn_safe_url(url: str) -> str:
 
 
 def _discussion_card_blocks(*, body_mrkdwn: str, author_name: str, item_url: str, item_label: str) -> list[dict]:
-    """A Block Kit card for the thread root: 'New comment on <link> from <author>', the comment
-    body, and an 'Open in PostHog' button. Replies stay plain text since they're threaded under it.
+    """A Block Kit card for the thread root: 'New comment on <link>' with the PostHog logo, the
+    quoted comment body, an 'Open in PostHog' button, and a reply-to-sync hint. Replies stay plain
+    text since they're threaded under it.
     """
     return [
         {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f":speech_balloon: New comment on <{_mrkdwn_safe_url(item_url)}|{escape_slack_mrkdwn(item_label)}>",
+                "text": f"New comment on <{_mrkdwn_safe_url(item_url)}|{escape_slack_mrkdwn(item_label)}> in PostHog:\n\n> {body_mrkdwn or '_(no text)_'}",
             },
         },
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": f"From *{escape_slack_mrkdwn(author_name)}*"}]},
-        {"type": "section", "text": {"type": "mrkdwn", "text": body_mrkdwn or "_(no text)_"}},
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "image",
+                    "image_url": "https://us.posthog.com/static/icons/android-chrome-192x192.png",
+                    "alt_text": "PostHog",
+                },
+                {"type": "mrkdwn", "text": "Replies to this thread will sync to PostHog"},
+            ],
+        },
         {
             "type": "actions",
             "elements": [
