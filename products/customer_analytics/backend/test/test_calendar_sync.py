@@ -150,6 +150,20 @@ class TestCalendarSync(BaseTest):
         self._sync([_pages_response([event])])
         assert Meeting.objects.for_team(self.team.id).get().account_id == account.id
 
+    def test_removed_attendee_is_deleted_on_resync(self):
+        self._sync([_pages_response([_event()])])
+        assert MeetingParticipant.objects.for_team(self.team.id).count() == 2
+
+        only_organizer = _event(
+            attendees=[
+                {"email": "csm@posthog.com", "responseStatus": "accepted"},
+                {"email": "other@acme.com", "responseStatus": "accepted"},
+            ]
+        )
+        self._sync([_pages_response([only_organizer])])
+        emails = set(MeetingParticipant.objects.for_team(self.team.id).values_list("email", flat=True))
+        assert emails == {"csm@posthog.com", "other@acme.com"}
+
     def test_resolved_person_uuid_is_stored_on_participants(self):
         person_uuid = "0198b6f3-0000-0000-0000-000000000001"
         self._sync([_pages_response([_event()])], person_uuids={"jane@acme.com": person_uuid})
