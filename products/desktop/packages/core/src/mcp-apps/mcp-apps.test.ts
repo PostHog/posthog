@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { McpAppsService } from "./mcp-apps";
-import { McpAppsServiceEvent, type McpServerConnectionConfig } from "./schemas";
+import {
+  McpAppsServiceEvent,
+  type McpResourceUiMeta,
+  type McpServerConnectionConfig,
+} from "./schemas";
 
 function makeLogger() {
   const scopedLog = {
@@ -120,15 +124,13 @@ describe("McpAppsService config resolver", () => {
 const UI_MIME_TYPE = "text/html;profile=mcp-app";
 const REVIEW_URI = "ui://posthog/loops-review.html";
 const REVIEW_CSP = { connectDomains: ["https://us.posthog.com"] };
+const REVIEW_PERMISSIONS = { clipboardWrite: {} };
 
-const UI_META = { ui: { csp: REVIEW_CSP } };
-type UiMeta = typeof UI_META;
+const UI_META = { ui: { csp: REVIEW_CSP, permissions: REVIEW_PERMISSIONS } };
 
-/**
- * Servers may advertise a resource's CSP at registration (`resources/list`), on
- * the read response, or both — `cspOn` picks which one this client does.
- */
-function makeClient(cspOn: "list" | "read" = "list") {
+// metaOn picks whether this client advertises `_meta.ui` on resources/list or
+// on the read response.
+function makeClient(metaOn: "list" | "read" = "list") {
   return {
     close: vi.fn(async () => {}),
     listTools: vi.fn(async () => ({
@@ -144,8 +146,8 @@ function makeClient(cspOn: "list" | "read" = "list") {
       resources: [
         {
           uri: REVIEW_URI,
-          ...(cspOn === "list" ? { _meta: UI_META } : {}),
-        } as { uri: string; _meta?: UiMeta },
+          ...(metaOn === "list" ? { _meta: UI_META } : {}),
+        } as { uri: string; _meta?: McpResourceUiMeta["_meta"] },
       ],
     })),
     readResource: vi.fn(async ({ uri }: { uri: string }) => ({
@@ -154,8 +156,13 @@ function makeClient(cspOn: "list" | "read" = "list") {
           uri,
           mimeType: UI_MIME_TYPE,
           text: "<html></html>",
-          ...(cspOn === "read" ? { _meta: UI_META } : {}),
-        } as { uri: string; mimeType: string; text: string; _meta?: UiMeta },
+          ...(metaOn === "read" ? { _meta: UI_META } : {}),
+        } as {
+          uri: string;
+          mimeType: string;
+          text: string;
+          _meta?: McpResourceUiMeta["_meta"];
+        },
       ],
     })),
   };
@@ -166,6 +173,15 @@ function connectClient(service: McpAppsService, client = makeClient()) {
     async (c) => ({ name: c.name, client, transport: {} }),
   );
   return client;
+}
+
+function connectClients(
+  service: McpAppsService,
+  clients: Record<string, ReturnType<typeof makeClient>>,
+) {
+  vi.spyOn(internals(service), "createConnection").mockImplementation(
+    async (c) => ({ name: c.name, client: clients[c.name], transport: {} }),
+  );
 }
 
 describe("McpAppsService lazy discovery", () => {
@@ -341,17 +357,38 @@ describe("McpAppsService lazy discovery", () => {
     ["the resource listing", "list"],
     ["the read response", "read"],
   ] as const)(
-    "attaches CSP metadata advertised on %s to direct URI fetches",
-    async (_label, cspOn) => {
+    "attaches UI metadata advertised on %s to direct URI fetches",
+    async (_label, metaOn) => {
       service.setConfigResolver(async (name) => {
         service.addServerConfigs([config(name)]);
       });
-      connectClient(service, makeClient(cspOn));
+      connectClient(service, makeClient(metaOn));
 
       const resource = await service.getUiResourceByUri("posthog", REVIEW_URI);
       expect(resource?.csp).toEqual(REVIEW_CSP);
+      expect(resource?.permissions).toEqual(REVIEW_PERMISSIONS);
     },
   );
+
+  it("prefers read-response CSP over the listing CSP", async () => {
+    service.setServerConfigs([config("posthog")]);
+    const readCsp = { connectDomains: ["https://eu.posthog.com"] };
+    const client = makeClient("list");
+    client.readResource.mockImplementation(async ({ uri }) => ({
+      contents: [
+        {
+          uri,
+          mimeType: UI_MIME_TYPE,
+          text: "<html></html>",
+          _meta: { ui: { csp: readCsp } },
+        },
+      ],
+    }));
+    connectClient(service, client);
+
+    const resource = await service.getUiResourceByUri("posthog", REVIEW_URI);
+    expect(resource?.csp).toEqual(readCsp);
+  });
 
   it("returns an uncached resource when the metadata warm-up fails", async () => {
     service.setServerConfigs([config("posthog")]);
@@ -368,19 +405,25 @@ describe("McpAppsService lazy discovery", () => {
     expect(client.readResource).toHaveBeenCalledTimes(2);
   });
 
+  it("caches a read-advertised resource despite a failed warm-up", async () => {
+    service.setServerConfigs([config("posthog")]);
+    const client = makeClient("read");
+    client.listTools.mockRejectedValue(new Error("listTools broken"));
+    connectClient(service, client);
+
+    const first = await service.getUiResourceByUri("posthog", REVIEW_URI);
+    expect(first?.csp).toEqual(REVIEW_CSP);
+    await service.getUiResourceByUri("posthog", REVIEW_URI);
+    expect(client.readResource).toHaveBeenCalledTimes(1);
+  });
+
   it("caches same-URI resources separately per server", async () => {
     service.setServerConfigs([config("posthog"), config("staging")]);
     const stagingClient = makeClient();
     stagingClient.readResource.mockImplementation(async ({ uri }) => ({
       contents: [{ uri, mimeType: UI_MIME_TYPE, text: "<html>staging</html>" }],
     }));
-    const clients: Record<string, ReturnType<typeof makeClient>> = {
-      posthog: makeClient(),
-      staging: stagingClient,
-    };
-    vi.spyOn(internals(service), "createConnection").mockImplementation(
-      async (c) => ({ name: c.name, client: clients[c.name], transport: {} }),
-    );
+    connectClients(service, { posthog: makeClient(), staging: stagingClient });
 
     const posthogResource = await service.getUiResourceByUri(
       "posthog",
@@ -393,5 +436,21 @@ describe("McpAppsService lazy discovery", () => {
 
     expect(posthogResource?.html).toBe("<html></html>");
     expect(stagingResource?.html).toBe("<html>staging</html>");
+  });
+
+  it("evicts only the disconnected server's cached resources", async () => {
+    service.setServerConfigs([config("posthog"), config("staging")]);
+    const posthogClient = makeClient();
+    const stagingClient = makeClient();
+    connectClients(service, { posthog: posthogClient, staging: stagingClient });
+
+    await service.getUiResourceByUri("posthog", REVIEW_URI);
+    await service.getUiResourceByUri("staging", REVIEW_URI);
+    await service.disconnectServer("posthog");
+
+    await service.getUiResourceByUri("staging", REVIEW_URI);
+    expect(stagingClient.readResource).toHaveBeenCalledTimes(1);
+    await service.getUiResourceByUri("posthog", REVIEW_URI);
+    expect(posthogClient.readResource).toHaveBeenCalledTimes(2);
   });
 });

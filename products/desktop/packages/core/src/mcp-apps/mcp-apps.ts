@@ -93,6 +93,15 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     return `${serverName}\n${resourceUri}`;
   }
 
+  private evictServerEntries<T>(map: Map<string, T>, serverName: string): void {
+    const keyPrefix = this.resourceKey(serverName, "");
+    for (const key of map.keys()) {
+      if (key.startsWith(keyPrefix)) {
+        map.delete(key);
+      }
+    }
+  }
+
   /**
    * Store server configs for lazy connections later.
    * No connections are created at this point.
@@ -514,12 +523,10 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     const resourceMeta = this.resourceMetaCache.get(
       this.resourceKey(serverName, resourceUri),
     );
-    // The spec carries `ui.csp`/`ui.permissions` alongside the HTML on the read
-    // response; the listing-derived cache is only a fallback for servers that
-    // also advertise them at registration time. Reading the listing alone meant
-    // a server that sends `_meta` on read only got the restrictive default CSP,
-    // which blocks the app's own script and stylesheet and renders a blank frame.
-    const readUi = (textContent as McpResourceUiMeta)._meta?.ui;
+    // Read-response ui.csp/ui.permissions win; the listing-derived cache is a
+    // fallback for servers that only advertise them at registration.
+    const readUi = (textContent as { _meta?: McpResourceUiMeta["_meta"] })._meta
+      ?.ui;
     const listUi = resourceMeta?._meta?.ui;
     const csp = readUi?.csp ?? listUi?.csp;
     const permissions = readUi?.permissions ?? listUi?.permissions;
@@ -536,7 +543,11 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
 
     // A failed warm-up with no known metadata may have produced a CSP-less
     // copy; leave it uncached so a later fetch can attach the real CSP.
-    const cacheable = warmed || resourceMeta !== undefined || csp !== undefined;
+    const cacheable =
+      warmed ||
+      resourceMeta !== undefined ||
+      csp !== undefined ||
+      permissions !== undefined;
     if (cacheable) {
       this.resourceCache.set(
         this.resourceKey(serverName, resourceUri),
@@ -710,17 +721,8 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
       }
     }
 
-    const keyPrefix = this.resourceKey(serverName, "");
-    for (const key of this.resourceCache.keys()) {
-      if (key.startsWith(keyPrefix)) {
-        this.resourceCache.delete(key);
-      }
-    }
-    for (const key of this.resourceMetaCache.keys()) {
-      if (key.startsWith(keyPrefix)) {
-        this.resourceMetaCache.delete(key);
-      }
-    }
+    this.evictServerEntries(this.resourceCache, serverName);
+    this.evictServerEntries(this.resourceMetaCache, serverName);
   }
 
   async cleanup(): Promise<void> {
