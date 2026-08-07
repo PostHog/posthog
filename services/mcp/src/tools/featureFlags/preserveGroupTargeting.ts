@@ -9,6 +9,13 @@
  *
  * When the agent supplies `filters` on update, merge in group-targeting fields
  * from the existing flag whenever the incoming payload left them unset.
+ *
+ * Note on `super_groups`: the backend also stores `filters.super_groups[]` for
+ * legacy multi-condition evaluation. Group-targeted flags used by MCP agents
+ * today put group aggregation on `filters.groups` / flag-level
+ * `aggregation_group_type_index`. We do not rewrite `super_groups` here; if a
+ * future product path stores group properties only under `super_groups`, extend
+ * this helper to walk that array the same way as `groups`.
  */
 
 export type FlagProperty = {
@@ -30,6 +37,8 @@ export type FlagConditionGroup = {
 
 export type FlagFilters = {
     groups?: FlagConditionGroup[] | null
+    /** See file header — not rewritten by preserveGroupTargetingFilters today. */
+    super_groups?: FlagConditionGroup[] | null
     aggregation_group_type_index?: number | null
     multivariate?: unknown
     payloads?: unknown
@@ -45,8 +54,8 @@ function isPresentGroupIndex(index: unknown): index is number {
 }
 
 /**
- * Build a lookup of existing properties by key (and key+operator when available)
- * so we can restore type / group_type_index for matching conditions.
+ * Build a lookup of existing properties by key across all condition groups
+ * so we can restore type / group_type_index when groups are reordered/replaced.
  */
 function indexExistingProperties(existing: FlagFilters | null | undefined): Map<string, FlagProperty[]> {
     const map = new Map<string, FlagProperty[]>()
@@ -116,7 +125,8 @@ function mergeProperty(
 function mergeConditionGroup(
     incoming: FlagConditionGroup,
     existingGroup: FlagConditionGroup | undefined,
-    flagLevelGroupIndex: number | undefined
+    flagLevelGroupIndex: number | undefined,
+    crossGroupPropsByKey: Map<string, FlagProperty[]>
 ): FlagConditionGroup {
     const out: FlagConditionGroup = { ...incoming }
 
@@ -127,19 +137,18 @@ function mergeConditionGroup(
         }
     }
 
-    const effectiveGroupIndex =
-        (isPresentGroupIndex(out.aggregation_group_type_index)
-            ? out.aggregation_group_type_index
-            : undefined) ?? flagLevelGroupIndex
+    const effectiveGroupIndex = isPresentGroupIndex(out.aggregation_group_type_index)
+        ? out.aggregation_group_type_index
+        : flagLevelGroupIndex
 
     if (Array.isArray(out.properties)) {
-        const existingByKey = new Map<string, FlagProperty[]>()
+        const sameGroupByKey = new Map<string, FlagProperty[]>()
         if (Array.isArray(existingGroup?.properties)) {
             for (const p of existingGroup.properties) {
                 if (p && typeof p.key === 'string') {
-                    const list = existingByKey.get(p.key) ?? []
+                    const list = sameGroupByKey.get(p.key) ?? []
                     list.push(p)
-                    existingByKey.set(p.key, list)
+                    sameGroupByKey.set(p.key, list)
                 }
             }
         }
@@ -148,10 +157,13 @@ function mergeConditionGroup(
             if (!prop || typeof prop !== 'object') {
                 return prop
             }
+            if (typeof prop.key !== 'string') {
+                return prop
+            }
+            // Same-group match first, then cross-group-by-key (reordered/collapsed groups).
             const existingProp =
-                typeof prop.key === 'string'
-                    ? pickMatchingExisting(existingByKey.get(prop.key), prop)
-                    : undefined
+                pickMatchingExisting(sameGroupByKey.get(prop.key), prop) ??
+                pickMatchingExisting(crossGroupPropsByKey.get(prop.key), prop)
             return mergeProperty(prop, existingProp, effectiveGroupIndex)
         })
     }
@@ -181,7 +193,7 @@ export function preserveGroupTargetingFilters(
         : undefined
 
     // Preserve flag-level group aggregation (UI "Target by" group type).
-    if (!isPresentGroupIndex(result.aggregation_group_type_index) && existingFlagGroupIndex !== undefined) {
+    if (!isPresentGroupIndex(result.aggregation_group_type_index) && isPresentGroupIndex(existingFlagGroupIndex)) {
         result.aggregation_group_type_index = existingFlagGroupIndex
     }
 
@@ -189,8 +201,7 @@ export function preserveGroupTargetingFilters(
         ? result.aggregation_group_type_index!
         : existingFlagGroupIndex
 
-    // Cross-group property fallback when condition groups are reordered/replaced.
-    const existingPropsByKey = indexExistingProperties(existing)
+    const crossGroupPropsByKey = indexExistingProperties(existing)
 
     if (Array.isArray(result.groups)) {
         const existingGroups = Array.isArray(existing?.groups) ? existing!.groups! : []
@@ -204,23 +215,7 @@ export function preserveGroupTargetingFilters(
                 existingGroups.find((g) => isPresentGroupIndex(g?.aggregation_group_type_index)) ??
                 existingGroups[0]
 
-            const merged = mergeConditionGroup(group, existingGroup, effectiveFlagGroupIndex)
-
-            // If properties still lack type and we only have a key match elsewhere, restore.
-            if (Array.isArray(merged.properties)) {
-                merged.properties = merged.properties.map((prop) => {
-                    if (!prop || typeof prop.key !== 'string') {
-                        return prop
-                    }
-                    if (isPresentType(prop.type) && (prop.type !== 'group' || isPresentGroupIndex(prop.group_type_index))) {
-                        return prop
-                    }
-                    const fallback = pickMatchingExisting(existingPropsByKey.get(prop.key), prop)
-                    return mergeProperty(prop, fallback, effectiveFlagGroupIndex)
-                })
-            }
-
-            return merged
+            return mergeConditionGroup(group, existingGroup, effectiveFlagGroupIndex, crossGroupPropsByKey)
         })
     }
 

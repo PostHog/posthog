@@ -1733,7 +1733,7 @@
         }
     },
     "create-feature-flag": {
-        "description": "Create a feature flag in the current project.",
+        "description": "Create a feature flag in the current project.\nFor group-targeted flags (workspaces/companies/etc.), set filters.aggregation_group_type_index\nand use property type \"group\" with group_type_index on each property. Omitting type defaults to person.\n",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Create feature flag",
@@ -9736,7 +9736,7 @@
         "feature_flag": "tasks"
     },
     "update-feature-flag": {
-        "description": "Update a feature flag by ID in the current project.",
+        "description": "Update a feature flag by ID in the current project.\nWhen updating filters on group-targeted flags, include type \"group\", group_type_index, and\nfilters.aggregation_group_type_index. If those fields are omitted, the tool merges them from the\nexisting flag so group targeting is not silently converted to person targeting.\n",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Update feature flag",

@@ -11,6 +11,7 @@ import experimentListDeprecated from './experiments/listDeprecated'
 // Feature flags (get-definition-by-key + update override are hand-written; other CRUD is codegen)
 import featureFlagGetDefinitionByKey from './featureFlags/getDefinitionByKey'
 import updateFeatureFlagPreservingGroups from './featureFlags/updateFeatureFlag'
+import { mergeToolFactories } from './mergeToolFactories'
 // Feedback
 import submitFeedback from './feedback/submit'
 // Generated tools (from definitions/*.yaml)
@@ -149,9 +150,9 @@ export const getToolsFromContext = async (
     // Check org AI consent to gate tools that use LLMs internally (cached in StateManager)
     const aiConsentGiven = await context.stateManager.getAiConsentGiven()
     const effectiveOptions = aiConsentGiven !== undefined ? { ...options, aiConsentGiven } : options
-    // Hand-written TOOL_MAP entries win over GENERATED_TOOL_MAP so we can
-    // override codegen tools (e.g. update-feature-flag group-targeting merge).
-    const effectiveMap = { ...GENERATED_TOOL_MAP, ...TOOL_MAP }
+    // Hand-written TOOL_MAP entries win over GENERATED_TOOL_MAP so overrides
+    // (e.g. update-feature-flag group-targeting) reach every catalog surface.
+    const effectiveMap = mergeToolFactories(GENERATED_TOOL_MAP, TOOL_MAP)
     const excludeTools = options?.excludeTools ?? []
     const allowedToolNames = getFilteredToolNames(effectiveOptions).filter((name) => !excludeTools.includes(name))
     const toolBases: ToolBase<ZodObjectAny>[] = []

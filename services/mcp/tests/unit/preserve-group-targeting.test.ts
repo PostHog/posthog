@@ -55,7 +55,6 @@ describe('preserveGroupTargetingFilters', () => {
 
         expect(merged.aggregation_group_type_index).toBe(0)
         expect(merged.groups?.[0]?.properties?.[0]?.type).toBe('person')
-        // person props should not inherit group_type_index unless type is group
         expect(merged.groups?.[0]?.properties?.[0]?.group_type_index).toBeUndefined()
     })
 
@@ -116,12 +115,86 @@ describe('preserveGroupTargetingFilters', () => {
         const merged = preserveGroupTargetingFilters(undefined, incoming)
 
         expect(merged.aggregation_group_type_index).toBeUndefined()
-        // Without existing group context we do not invent type: group
         expect(merged.groups?.[0]?.properties?.[0]?.type).toBeUndefined()
     })
 
-    it('accepts group properties in create-shaped payloads (schema regression guard via shape)', () => {
-        // Ensure we never strip type/group_type_index when both are present.
+    it('restores group type via cross-group key match when condition groups collapse', () => {
+        // Existing: person email in groups[0], group plan in groups[1].
+        // Incoming: single group with only partial plan — must hit cross-group fallback.
+        const existing = {
+            aggregation_group_type_index: 0,
+            groups: [
+                {
+                    properties: [{ key: 'email', type: 'person', operator: 'icontains', value: '@corp.com' }],
+                    rollout_percentage: 100,
+                },
+                {
+                    properties: [
+                        {
+                            key: 'plan',
+                            type: 'group',
+                            group_type_index: 0,
+                            operator: 'exact',
+                            value: 'enterprise',
+                        },
+                    ],
+                    rollout_percentage: 50,
+                },
+            ],
+        }
+        const incoming = {
+            groups: [
+                {
+                    properties: [{ key: 'plan', operator: 'exact', value: 'pro' }],
+                    rollout_percentage: 75,
+                },
+            ],
+        }
+
+        const merged = preserveGroupTargetingFilters(existing, incoming)
+
+        expect(merged.aggregation_group_type_index).toBe(0)
+        expect(merged.groups?.[0]?.properties?.[0]?.type).toBe('group')
+        expect(merged.groups?.[0]?.properties?.[0]?.group_type_index).toBe(0)
+        expect(merged.groups?.[0]?.properties?.[0]?.value).toBe('pro')
+    })
+
+    it('prefers operator match then group-typed candidate for duplicate keys', () => {
+        const existing = {
+            aggregation_group_type_index: 0,
+            groups: [
+                {
+                    properties: [
+                        { key: 'name', type: 'person', operator: 'icontains', value: 'acme' },
+                        {
+                            key: 'name',
+                            type: 'group',
+                            group_type_index: 0,
+                            operator: 'exact',
+                            value: 'Acme Corp',
+                        },
+                    ],
+                    rollout_percentage: 100,
+                },
+            ],
+        }
+        const incoming = {
+            groups: [
+                {
+                    properties: [{ key: 'name', operator: 'exact', value: 'New Name' }],
+                    rollout_percentage: 100,
+                },
+            ],
+        }
+
+        const merged = preserveGroupTargetingFilters(existing, incoming)
+
+        expect(merged.groups?.[0]?.properties?.[0]?.type).toBe('group')
+        expect(merged.groups?.[0]?.properties?.[0]?.group_type_index).toBe(0)
+        expect(merged.groups?.[0]?.properties?.[0]?.value).toBe('New Name')
+    })
+
+    it('accepts group properties when both type and index are present (no strip)', () => {
         const incoming = {
             aggregation_group_type_index: 0,
             groups: [
