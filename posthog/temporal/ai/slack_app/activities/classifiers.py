@@ -19,6 +19,7 @@ from products.slack_app.backend.facade.run_preferences import (
     ModelChoice,
     available_model_choices,
     find_model_choice,
+    group_by_runtime,
     is_slack_app_model_classifier_enabled,
 )
 from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -345,10 +346,13 @@ def _model_override_response_format(choices: tuple[ModelChoice, ...]) -> Respons
 
 
 def _render_model_catalogue(choices: tuple[ModelChoice, ...]) -> str:
+    """The models on offer, as the runtime → models tree `group_by_runtime` defines."""
     lines = []
-    for choice in choices:
-        efforts = ", ".join(choice.supported_efforts) if choice.supported_efforts else "no effort setting"
-        lines.append(f"- {choice.model} — {choice.label} (efforts: {efforts})")
+    for group in group_by_runtime(choices):
+        lines.append(f"{group.label} runtime:")
+        for choice in group.choices:
+            efforts = ", ".join(choice.supported_efforts) if choice.supported_efforts else "no effort setting"
+            lines.append(f"- {choice.model} — {choice.label} (efforts: {efforts})")
     return "\n".join(lines)
 
 
@@ -368,7 +372,11 @@ def classify_slack_app_model_override(
     prompt is built around that distinction, and the schema restricts the answer to an
     id from ``choices``.
 
-    Quality on that distinction is measured by the eval suite in
+    Its other job is resolving the shorthand people actually type onto an id. Nobody
+    writes ``gpt-5.6-sol``; they write "sol", or qualify it with the runtime or vendor
+    it belongs to ("codex sol"), or name a family and leave the version off ("opus").
+
+    Quality on both is measured by the eval suite in
     ``products/slack_app/evals/eval_model_classifier.py`` — the unit tests around this
     function cover parsing and validation, not whether the prompt reads a sentence right.
     """
@@ -379,15 +387,31 @@ def classify_slack_app_model_override(
         "Only these models can be selected — copy the id exactly as written:\n"
         f"{_render_model_catalogue(choices)}\n\n"
         "Name a model or effort only when the message instructs how to run this task:\n"
-        '  - "use fable for this one", "run this on opus 5", "do this with max effort".\n'
+        '  - "use fable for this one", "run this on opus 5", "do this with max effort", '
+        '"investigate this on high".\n'
         "  - The instruction can sit alongside the actual request: 'use sonnet and fix "
         "the flaky checkout test'.\n\n"
+        "Once — and only once — you have decided the message is such an instruction, "
+        "resolve its shorthand to an id from the list. Nobody types a model id:\n"
+        '  - A bare nickname is the model: "sol", "luna", "fable".\n'
+        "  - A runtime or vendor in front of it is only a qualifier, and the name beside "
+        'it is the answer: "codex sol" and "openai sol" are both the Sol id; "claude '
+        'opus" and "anthropic opus" are both an Opus id.\n'
+        '  - A family with no version means its newest listed member: "opus" is the '
+        "highest-numbered Opus in the list, not the first one you see. Read the versions "
+        "as decimals — 5 is newer than 4.8, not older.\n"
+        '  - A runtime or vendor standing alone names no model: "run this on codex", '
+        '"use anthropic" → null. A model id that happens to end in "codex" is a '
+        "different thing, and needs its version said out loud to be chosen.\n\n"
         "Answer with nulls when a model or effort is merely part of the subject "
         "matter — this is the common mistake, so check for it:\n"
         '  - "add claude-fable-5 to our model picker" (a code change that names a model).\n'
         '  - "why is gpt-5 slower than opus in our evals?" (a question about models).\n'
         '  - "the opus rollout broke the dashboard" (a topic).\n'
-        '  - "reasoning about this is hard" (the word, not a setting).\n\n'
+        '  - "reasoning about this is hard" (the word, not a setting).\n'
+        '  - "we tried sonnet on this last week and it kept timing out" (an account of a '
+        "run that already happened, not an instruction for this one — past tense is the "
+        "tell).\n\n"
         "Rules for the fields:\n"
         "  - model: an id from the list above, or null if the author named no model (or "
         "named one that isn't listed).\n"
