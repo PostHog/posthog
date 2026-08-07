@@ -387,14 +387,6 @@ export function FreeformCanvasView({
   });
   const headCode = headSource?.project.files[CANVAS_COMPONENT_PATH];
 
-  // The browsed version's source (edit mode only).
-  const { source: browseSource, isLoading: browseSourceLoading } =
-    useCanvasSource({
-      id: browsing ? dashboardId : undefined,
-      versionId: browseVersionId ?? undefined,
-    });
-  const browseCode = browseSource?.project.files[CANVAS_COMPONENT_PATH];
-
   const trpcCapture = trpc.canvasData.captureConfig.queryOptions(undefined, {
     staleTime: 5 * 60_000,
   });
@@ -695,49 +687,10 @@ export function FreeformCanvasView({
                   />
                 </Box>
               </Flex>
-            ) : browseSourceLoading ? (
+            ) : buildsLoading ? (
               <ScrollArea className="h-full">
                 <LoadingState />
               </ScrollArea>
-            ) : browseCode ? (
-              <Flex direction="column" className="h-full">
-                <Flex
-                  align="center"
-                  justify="between"
-                  className="shrink-0 border-b bg-accent-2 px-3 py-1.5"
-                >
-                  <Flex align="center" gap="1" className="text-accent-11">
-                    <ClockCounterClockwiseIcon size={14} />
-                    <Text size="1">
-                      Viewing version — revert to make it live
-                    </Text>
-                  </Flex>
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    disabled={isReverting}
-                    onClick={() => void onRevert()}
-                  >
-                    {isReverting ? "Reverting…" : "Revert"}
-                  </Button>
-                </Flex>
-                <Box className="min-h-0 flex-1">
-                  {/* Reuses the canvas's warm frame with the browsed code. */}
-                  <CanvasFramePlaceholder
-                    dashboardId={dashboardId}
-                    code={browseCode}
-                    analytics={analytics}
-                    onDataRequest={onDataRequest}
-                    onError={onError}
-                    onRendered={onRendered}
-                    onNavigate={onNavigate}
-                    onTextSelection={setTextSelection}
-                    onCommentActivate={activateComment}
-                    commentHighlights={commentHighlights}
-                    clearTextSelectionKey={clearTextSelectionKey}
-                  />
-                </Box>
-              </Flex>
             ) : (
               <ScrollArea className="h-full">
                 <Empty className="h-full border-0">
@@ -745,10 +698,10 @@ export function FreeformCanvasView({
                     <EmptyMedia variant="icon">
                       <ClockCounterClockwiseIcon size={24} />
                     </EmptyMedia>
-                    <EmptyTitle>Multi-file version</EmptyTitle>
+                    <EmptyTitle>Preview unavailable</EmptyTitle>
                     <EmptyDescription>
-                      This version has multiple source files, which render only
-                      after a build — revert to make it live and rebuild it.
+                      This version does not have a saved preview. Revert to
+                      rebuild and view it.
                     </EmptyDescription>
                   </EmptyHeader>
                   <EmptyContent>
