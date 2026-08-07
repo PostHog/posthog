@@ -101,11 +101,13 @@ The same endpoint also **adopts orphan installations**: ones installed on
 GitHub (e.g. an install request approved by a GitHub org admin directly on
 github.com, which never round-trips the setup callback) but not linked to any
 PostHog team. `github/available_installations` surfaces them from the user's
-personal `GET /user/installations`, and adoption always requires the
-personal-token access proof (`adopt_orphan_installation`) — the team-admin
-bypass applies only to installations a sibling project already linked. An
-installation linked solely to projects the caller can't access is refused, not
-offered for adoption.
+personal `GET /user/installations`. Adoption (`adopt_orphan_installation`)
+requires both PostHog project admin — a new installation entering the org is
+held to the setup callback's first-time-connect bar, since adoption has no
+GitHub-side gate on who submits the installation id — and the personal-token
+access proof. Sibling reuse stays member-grade with proof. An installation
+linked solely to projects the caller can't access is refused, not offered for
+adoption.
 
 ## Callback routes
 

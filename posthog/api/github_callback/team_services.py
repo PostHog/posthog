@@ -206,16 +206,31 @@ def authorize_link_existing_installation(
         )
 
 
-def adopt_orphan_installation(*, user: User, team_id: int, installation_id: str) -> Integration:
+GITHUB_ADOPTION_ADMIN_REQUIRED_MESSAGE = (
+    "Linking a GitHub installation that no project has connected yet requires admin access to this "
+    "project. Ask a project admin to link it."
+)
+
+
+def adopt_orphan_installation(*, user: User, team: Team, installation_id: str) -> Integration:
     """Create the team's first ``Integration`` row for a GitHub App installation that exists on
     GitHub but was never linked to any PostHog team — e.g. a non-admin clicked "Connect
     organization", GitHub created an install *request*, and a GitHub org admin approved it
     directly on github.com without completing PostHog's callback.
 
-    Unlike ``authorize_link_existing_installation``, this always requires proof of personal GitHub
-    access: there's no sibling PostHog integration here to imply the org already has legitimate
-    access, so the team-admin bypass must not apply.
+    Introducing a new installation to the org is held to the same bar as a first-time connect
+    through the setup callback: PostHog project admin. On top of that, personal GitHub access
+    proof is always required — unlike sibling reuse, there's no existing PostHog integration to
+    imply the org already has legitimate access, and the admin requirement alone proves nothing
+    on the GitHub side. The create/update flows are additionally gated by GitHub itself (only a
+    GitHub org admin reaches the callback with a valid installation_id); adoption has no such
+    gate, so neither check here can be dropped.
     """
+    if not github_callback_state.has_team_management_access(user, team):
+        raise ValidationError(
+            GITHUB_ADOPTION_ADMIN_REQUIRED_MESSAGE,
+            code="github_adoption_admin_required",
+        )
     token = usable_personal_github_token(user)
     if token is None:
         raise ValidationError(
@@ -229,7 +244,7 @@ def adopt_orphan_installation(*, user: User, team_id: int, installation_id: str)
     if not has_access:
         raise ValidationError("You do not have access to this GitHub installation", code="installation_access_denied")
 
-    instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, user)
+    instance = GitHubIntegration.integration_from_installation_id(installation_id, team.id, user)
 
     login = personal_github_login(user)
     if login:
@@ -525,7 +540,7 @@ def link_existing_team_github_integration(
             target_team = organization.teams.filter(id=team_id).first()
             if target_team is None:
                 raise ValidationError("Target team not found in your organization")
-            return adopt_orphan_installation(user=user, team_id=team_id, installation_id=installation_id_str)
+            return adopt_orphan_installation(user=user, team=target_team, installation_id=installation_id_str)
         source = existing
     else:
         # No source specified: auto-resolve the org's existing GitHub installation. This backs the

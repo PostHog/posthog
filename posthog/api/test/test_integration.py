@@ -3561,15 +3561,18 @@ class TestGitHubTeamIntegrationComplete:
 
     @parameterized.expand([("member",), ("admin",)])
     def test_link_existing_adoption_requires_personal_github_regardless_of_admin(self, role):
-        # The admin bypass in `authorize_link_existing_installation` (team-admin proves the org
-        # already has legitimate access) must not leak into adoption, which has no sibling
-        # integration to imply that — both a plain member and an org admin need personal proof.
+        # Adoption needs both gates: project admin (a new installation entering the org is a
+        # first-time connect, same bar as the setup callback) and personal GitHub proof (admin on
+        # the PostHog side proves nothing about GitHub). A member fails the admin gate outright;
+        # an admin without a personal link still fails the proof gate.
         if role == "admin":
             user = self.user
+            expected_code = GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED
         else:
             user = User.objects.create_and_join(
                 self.organization, "adoption-member@posthog.com", "test", level=OrganizationMembership.Level.MEMBER
             )
+            expected_code = "github_adoption_admin_required"
         assert not UserIntegration.objects.filter(user=user, kind="github").exists()
 
         with pytest.raises(ValidationError) as exc_info:
@@ -3582,7 +3585,31 @@ class TestGitHubTeamIntegrationComplete:
             )
 
         codes = exc_info.value.get_codes()
-        assert isinstance(codes, list) and GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED in codes
+        assert isinstance(codes, list) and expected_code in codes
+        assert not Integration.objects.filter(kind="github", integration_id="424242").exists()
+
+    @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access", return_value=True)
+    def test_link_existing_adoption_refuses_member_even_with_valid_github_proof(self, mock_verify):
+        # Valid personal GitHub access must not let a plain member introduce a new installation to
+        # the org: unlike the create/update flows, adoption has no GitHub-side gate on who submits
+        # the installation id, so the project-admin requirement is what stands in for it.
+        member = User.objects.create_and_join(
+            self.organization, "proof-member@posthog.com", "test", level=OrganizationMembership.Level.MEMBER
+        )
+        self._personal_github_integration(member)
+
+        with pytest.raises(ValidationError) as exc_info:
+            link_existing_team_github_integration(
+                user=member,
+                organization=self.organization,
+                team_id=self.team.pk,
+                source_team_id=None,
+                installation_id_param="424242",
+            )
+
+        codes = exc_info.value.get_codes()
+        assert isinstance(codes, list) and "github_adoption_admin_required" in codes
+        mock_verify.assert_not_called()
         assert not Integration.objects.filter(kind="github", integration_id="424242").exists()
 
     @patch("posthog.api.github_callback.personal_state.github_request")
