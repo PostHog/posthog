@@ -208,7 +208,8 @@ export function CloudArtifactDownloads({
   const renderRow = (group: ArtifactGroup) => {
     const selectedIndex = Math.max(
       group.versions.findIndex(
-        (version) => version.id === selectedVersionByName[group.name],
+        (version) =>
+          runArtifactVersionKey(version) === selectedVersionByName[group.name],
       ),
       0,
     );
@@ -265,7 +266,7 @@ export function CloudArtifactDownloads({
                   onClick={() =>
                     setSelectedVersionByName((current) => ({
                       ...current,
-                      [group.name]: version.id ?? "",
+                      [group.name]: runArtifactVersionKey(version),
                     }))
                   }
                 >

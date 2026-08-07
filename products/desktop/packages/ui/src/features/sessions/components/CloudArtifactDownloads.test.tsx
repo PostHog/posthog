@@ -188,6 +188,36 @@ describe("CloudArtifactDownloads", () => {
     });
   });
 
+  // A manifest entry carries an id only once the upload is finalized, and a
+  // version the picker cannot switch to is worse than no picker at all.
+  it("switches to a version that has no id", () => {
+    fetchedArtifacts = [
+      {
+        name: "report.pdf",
+        type: "output",
+        size: 1_000,
+        storage_path: "tasks/run-1/report-v1.pdf",
+        uploaded_at: "2026-07-27T08:00:00+00:00",
+      },
+      {
+        name: "report.pdf",
+        type: "output",
+        size: 2_000,
+        storage_path: "tasks/run-1/report-v2.pdf",
+        uploaded_at: "2026-07-27T09:00:00+00:00",
+      },
+    ];
+
+    renderDownloads();
+
+    expect(screen.getByText("2 KB")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Choose a version of report.pdf"));
+    fireEvent.click(screen.getByText(/^Version 1/));
+
+    expect(screen.getByText("1 KB")).toBeInTheDocument();
+  });
+
   // Dismissing the row a user sees has to take the versions behind it too,
   // otherwise the file reappears as its own older upload.
   it("dismisses every version of a file", async () => {

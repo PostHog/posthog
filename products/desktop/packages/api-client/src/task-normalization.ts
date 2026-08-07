@@ -10,7 +10,6 @@ import type { Schemas } from "./generated";
 
 export type TaskRunArtifactDTO = Schemas.TaskRunArtifactResponse & {
   metadata?: unknown;
-  dismissed_at?: string | null;
 };
 
 type TaskRunResponseDTO = Partial<
