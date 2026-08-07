@@ -215,6 +215,44 @@ describe('the dashboards model', () => {
         })
     })
 
+    it('replaces the cache on a first-page load so a refetch evicts stale rows', async () => {
+        // Drain the mount-time load, which seeds the cache with the full mock list.
+        await expectLogic(logic).toDispatchActions(['loadDashboardsSuccess'])
+        expect(logic.values.nameSortedDashboards.length).toBeGreaterThan(1)
+
+        // A refetch whose first page no longer contains those rows must drop them. The old merge-only reducer
+        // kept every row for the whole session, so a dashboard deleted elsewhere never disappeared on refetch.
+        await expectLogic(logic, () => {
+            logic.actions.loadDashboardsSuccess({
+                count: 1,
+                next: null,
+                previous: null,
+                results: [{ id: 5, name: 'Only survivor' } as any],
+            })
+        }).toMatchValues({ nameSortedDashboards: [expect.objectContaining({ id: 5, name: 'Only survivor' })] })
+    })
+
+    it('drops the row instead of dead-ending when deleting an already-gone dashboard', async () => {
+        const ghostId = 7
+        await expectLogic(logic)
+            .toDispatchActions(['loadDashboardsSuccess'])
+            .toMatchValues({ nameSortedDashboards: expect.arrayContaining([expect.objectContaining({ id: ghostId })]) })
+
+        // The dashboard is already deleted server-side, so the PATCH 404s. The delete should still resolve and
+        // drop the ghost row rather than raising deleteDashboardFailure and trapping the user behind a red toast.
+        useMocks({
+            patch: {
+                '/api/environments/:team_id/dashboards/:id/': () => [404, { detail: 'Not found' }],
+            },
+        })
+        await expectLogic(logic, () => {
+            logic.actions.deleteDashboard({ id: ghostId, deleteInsights: false })
+        })
+            .toDispatchActions(['deleteDashboardSuccess', 'delayedDeleteDashboard'])
+            .toNotHaveDispatchedActions(['deleteDashboardFailure'])
+        expect(logic.values.rawDashboards[ghostId]).toBeUndefined()
+    })
+
     it('does not clear primary_dashboard when deleting a non-primary dashboard', async () => {
         const primaryDashboardId = 42
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, primary_dashboard: primaryDashboardId })

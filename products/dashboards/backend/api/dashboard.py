@@ -94,7 +94,6 @@ from posthog.utils import (
     filters_override_requested_by_client,
     safe_cache_add,
     safe_cache_delete,
-    str_to_bool,
     variables_override_requested_by_client,
 )
 
@@ -2346,14 +2345,17 @@ class DashboardsViewSet(
             )
         )
 
-        include_deleted = False
-        if self.action in ("partial_update", "update") and hasattr(self, "request"):
-            deleted_value = self.request.data.get("deleted")
-            if deleted_value is not None:
-                include_deleted = not str_to_bool(deleted_value)
+        # Any write that sets `deleted` (a delete or a restore) targets the flag itself, so the row may
+        # already be in that state — e.g. re-deleting a dashboard another tab, a teammate, or a folder
+        # cascade already soft-deleted. Include soft-deleted rows for those writes so the mutation is
+        # idempotent (a no-op delete returns 200) instead of 404ing on an already-deleted dashboard.
+        include_deleted = (
+            self.action in ("partial_update", "update")
+            and hasattr(self, "request")
+            and self.request.data.get("deleted") is not None
+        )
 
         if not include_deleted:
-            # a dashboard can be restored by patching {"deleted": False}
             queryset = queryset.exclude(deleted=True)
 
         queryset = queryset.prefetch_related("sharingconfiguration_set").select_related("created_by")

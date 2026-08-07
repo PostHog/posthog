@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api, { PaginatedResponse } from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { GENERATED_DASHBOARD_PREFIX } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -495,14 +496,28 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 return mergeTileTextUpdatesIntoDashboard(mappedDashboard, payload.tiles)
             },
             deleteDashboard: async ({ id, deleteInsights }) => {
-                const deleted = getQueryBasedDashboard(
-                    await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
-                        deleted: true,
-                        delete_insights: deleteInsights,
-                    })
-                ) as DashboardType<QueryBasedInsightModel>
-                deleteFromTree('dashboard', String(id))
-                return deleted
+                try {
+                    const deleted = getQueryBasedDashboard(
+                        await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
+                            deleted: true,
+                            delete_insights: deleteInsights,
+                        })
+                    ) as DashboardType<QueryBasedInsightModel>
+                    deleteFromTree('dashboard', String(id))
+                    return deleted
+                } catch (error) {
+                    // A 404 means the dashboard is already gone server-side — deleted in another tab, by a
+                    // teammate, or via a project-tree folder cascade — while it lingered in our cache. The delete
+                    // has in effect already happened, so drop the stale row through the normal success path
+                    // instead of dead-ending the user in "Delete dashboard failed: Not found", which they could
+                    // only clear by reloading. Backends that make the delete idempotent never reach this branch.
+                    const known = values.rawDashboards[id]
+                    if (error instanceof ApiError && error.status === 404 && known) {
+                        deleteFromTree('dashboard', String(id))
+                        return known as DashboardType<QueryBasedInsightModel>
+                    }
+                    throw error
+                }
             },
             restoreDashboard: async ({ id }) => {
                 const restored = getQueryBasedDashboard(
@@ -566,11 +581,17 @@ export const dashboardsModel = kea<dashboardsModelType>([
         rawDashboards: [
             {} as Record<string, DashboardBasicType | DashboardType<QueryBasedInsightModel>>,
             {
-                loadDashboardsSuccess: (state, { pagedDashboards }) => {
+                loadDashboardsSuccess: (state, { pagedDashboards, payload: paginationUrl }) => {
                     if (!pagedDashboards) {
                         return state
                     }
-                    return { ...state, ...idToKey(pagedDashboards.results) }
+                    const loaded = idToKey(pagedDashboards.results)
+                    // `payload` is the pagination URL passed to loadDashboards: absent on the first page,
+                    // present for each `next` page. Replace the cache on the first page so a refetch evicts
+                    // dashboards the server no longer returns (deleted in another tab, by a teammate, or via a
+                    // folder cascade); append for later pages. Merging every page kept stale rows for the whole
+                    // session, since a merge can never drop a key.
+                    return paginationUrl ? { ...state, ...loaded } : loaded
                 },
                 // NB! Kea-TypeGen assignes the type of the reducer to the abcSuccess actions.
                 // This means we must get rid of the `| null` manually until it's fixed:
