@@ -290,32 +290,32 @@ class TestRunScan(SimpleTestCase):
 class TestFetchBucketCountsClickhouse(ClickhouseTestMixin, APIBaseTest):
     def test_query_executes_against_clickhouse_and_prunes_days(self):
         base = dt.datetime(2026, 8, 6, 10, 2, tzinfo=UTC)
-        rows = [
+        rows: list[tuple[dt.datetime, str, str]] = [
             # Two error rows in one 5-minute bucket, one info row in the next.
-            {"timestamp": base, "severity_text": "error"},
-            {"timestamp": base + dt.timedelta(minutes=1), "severity_text": "error"},
-            {"timestamp": base + dt.timedelta(minutes=5), "severity_text": "info"},
+            (base, "error", "checkout"),
+            (base + dt.timedelta(minutes=1), "error", "checkout"),
+            (base + dt.timedelta(minutes=5), "info", "checkout"),
             # Outside the fetched ranges: a different day, and a different service.
-            {"timestamp": base - dt.timedelta(days=2), "severity_text": "error"},
-            {"timestamp": base, "severity_text": "error", "service_name": "other-svc"},
+            (base - dt.timedelta(days=2), "error", "checkout"),
+            (base, "error", "other-svc"),
         ]
         payload = "\n".join(
             json.dumps(
                 {
                     "uuid": str(uuid.uuid4()),
                     "team_id": self.team.id,
-                    "timestamp": row["timestamp"].strftime("%Y-%m-%d %H:%M:%S.%f"),
-                    "observed_timestamp": row["timestamp"].strftime("%Y-%m-%d %H:%M:%S.%f"),
+                    "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+                    "observed_timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
                     "body": "scan fixture",
-                    "severity_text": row["severity_text"],
+                    "severity_text": severity,
                     "severity_number": 9,
-                    "service_name": row.get("service_name", "checkout"),
+                    "service_name": service,
                     "resource_attributes": {},
                     "instrumentation_scope": "",
                     "event_name": "",
                 }
-                for row in rows
             )
+            for timestamp, severity, service in rows
         )
         sync_execute(f"INSERT INTO logs FORMAT JSONEachRow {payload}")
 
