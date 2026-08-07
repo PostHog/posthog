@@ -70,6 +70,10 @@ const pushNotificationRescheduledCounter = new Counter({
 const APNS_JWT_CACHE_PREFIX = '@posthog/apns-provider-jwt/'
 const APNS_JWT_TTL_SECONDS = 45 * 60
 
+// One entry per signing key, so the ceiling is the number of APNs integrations routed through this pod.
+// Pruned on write rather than on a timer.
+const APNS_JWT_LOCAL_CACHE_MAX = 500
+
 // A push action fans out to its selected channels within one invocation. Cap the count so a workflow
 // crafted with a huge channel list can't tie up a worker with an unbounded outbound-request loop; a real
 // push targets a handful of provider integrations, not thousands.
@@ -165,6 +169,12 @@ export class PushNotificationService {
         private valkey: RedisV2,
         private messageAssetsService?: MessageAssetsService
     ) {}
+
+    // Both Valkey calls for the APNs token are failOpen, so an outage turns every send into a fresh mint —
+    // the exact pattern Apple answers with 429 TooManyProviderTokenUpdates. This per-pod copy bounds that
+    // to one token per pod per TTL. It is a fallback, not the cache: Valkey is still read first, so the
+    // fleet normally shares one token per key.
+    private apnsJwtLocalCache = new Map<string, { jwt: string; expiresAtMs: number }>()
 
     @instrumented('push-notification.executeSendPushNotification')
     async executeSendPushNotification(
@@ -568,6 +578,11 @@ export class PushNotificationService {
             return cached
         }
 
+        const local = this.apnsJwtLocalCache.get(cacheKey)
+        if (local && local.expiresAtMs > Date.now()) {
+            return local.jwt
+        }
+
         const header = Buffer.from(JSON.stringify({ alg: 'ES256', kid: keyId })).toString('base64url')
         const now = Math.floor(Date.now() / 1000)
         const claims = Buffer.from(JSON.stringify({ iss: teamId, iat: now })).toString('base64url')
@@ -577,10 +592,33 @@ export class PushNotificationService {
         const signature = sign.sign({ key: signingKey, dsaEncoding: 'ieee-p1363' }, 'base64url')
         const jwt = `${signingInput}.${signature}`
 
+        this.rememberApnsJwtLocally(cacheKey, jwt)
         await this.valkey.useClient({ name: 'apns-jwt-write', failOpen: true }, (client) =>
             client.set(cacheKey, jwt, 'EX', APNS_JWT_TTL_SECONDS)
         )
         return jwt
+    }
+
+    private rememberApnsJwtLocally(cacheKey: string, jwt: string): void {
+        const nowMs = Date.now()
+        this.apnsJwtLocalCache.set(cacheKey, { jwt, expiresAtMs: nowMs + APNS_JWT_TTL_SECONDS * 1000 })
+
+        if (this.apnsJwtLocalCache.size <= APNS_JWT_LOCAL_CACHE_MAX) {
+            return
+        }
+        for (const [key, entry] of this.apnsJwtLocalCache) {
+            if (entry.expiresAtMs <= nowMs) {
+                this.apnsJwtLocalCache.delete(key)
+            }
+        }
+        // Map iterates in insertion order, so this drops the least recently minted. Safe because Valkey
+        // is the real cache — a dropped entry only costs a signature during an outage.
+        for (const key of this.apnsJwtLocalCache.keys()) {
+            if (this.apnsJwtLocalCache.size <= APNS_JWT_LOCAL_CACHE_MAX) {
+                break
+            }
+            this.apnsJwtLocalCache.delete(key)
+        }
     }
 
     private buildApnsPayload(payload: PushNotificationPayloadType): Record<string, unknown> {

@@ -79,6 +79,8 @@ export type CdpConfig = ClickhouseConfig & {
     // Comma-separated list of features (see MIRROR_FEATURES in utils/dual-store.ts) whose reads
     // are served from Valkey rather than Redis. `*` selects every feature. Writes always go to
     // both stores regardless, so a feature can be flipped back by removing it from this list.
+    // Check the cdp_valkey_mirror_operations_total mismatch/failed counts for a feature before
+    // flipping it: hog-watcher reads a missing key as healthy with a full token bucket.
     CDP_VALKEY_READ_FEATURES: string
 
     SES_RATE_LIMITER_VALKEY_HOST: string

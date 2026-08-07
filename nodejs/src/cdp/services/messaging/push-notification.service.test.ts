@@ -660,6 +660,42 @@ describe('PushNotificationService', () => {
             )
         })
 
+        it('reuses the pod-local APNS token when Valkey is unavailable', async () => {
+            // Both Valkey calls are failOpen, so an outage makes the read return null. Without the
+            // pod-local fallback every send mints a token and Apple answers 429 TooManyProviderTokenUpdates.
+            const failingValkey = {
+                useClient: jest.fn().mockResolvedValue(null),
+            } as any
+            const offlineService = new PushNotificationService(
+                integrationManager,
+                encryptedFields,
+                fetchUtils,
+                failingValkey
+            )
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: { status: 200, text: () => Promise.resolve(''), dump: () => Promise.resolve() },
+                fetchDuration: 15,
+            })
+            const send = (): Promise<any> =>
+                offlineService.executeSendPushNotification(
+                    createSendPushNotificationInvocation({
+                        '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
+                    })
+                )
+
+            mockTrackedFetch.mockClear()
+            await send()
+            await send()
+
+            const authHeaders = mockTrackedFetch.mock.calls.map(
+                (call: any) => call[0].fetchParams.headers.Authorization
+            )
+            expect(authHeaders).toHaveLength(2)
+            expect(authHeaders[0]).toEqual(expect.stringContaining('bearer '))
+            expect(authHeaders[0]).toBe(authHeaders[1])
+        })
+
         it('sets apns-priority to 5 for passive interruption level', async () => {
             const invocation = createSendPushNotificationInvocation({
                 '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
