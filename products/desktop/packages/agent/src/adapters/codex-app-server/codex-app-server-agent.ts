@@ -261,6 +261,8 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   private lastAgentMessage = "";
   /** True between a contextCompaction item's start and its boundary (dedupes the boundary). */
   private compactionActive = false;
+  /** An accepted steer awaits its consumption boundary (`_posthog/steer_applied`). */
+  private steerAppliedPending = false;
   /** Maps the host's taskRunId to this session, replayed for cloud notifications. */
   private taskRunId?: string;
   /** Deployment environment; on "cloud" a non-danger sandbox would panic, so we skip the override. */
@@ -833,11 +835,10 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       }
       this.turns.onSteered(steerRes?.turnId);
       this.broadcastUserInput(params.prompt);
-      // codex injects the steer into the live turn synchronously, so the
-      // accept point is its consumption boundary for transcript rendering.
-      await this.client.extNotification(POSTHOG_NOTIFICATIONS.STEER_APPLIED, {
-        sessionId: params.sessionId,
-      });
+      // codex folds the steer into the running turn: the in-flight item keeps
+      // streaming and the injected input is only picked up afterward, so the
+      // next item start — not the accept — is the transcript boundary.
+      this.steerAppliedPending = true;
       return { stopReason: "end_turn", _meta: { steer: true } };
     }
     if ((params._meta as { steer?: unknown } | undefined)?.steer === true) {
@@ -1446,6 +1447,19 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       this.interruptQueuedGoalTurn(turnId);
     }
 
+    if (
+      method === APP_SERVER_NOTIFICATIONS.ITEM_STARTED &&
+      this.steerAppliedPending &&
+      this.sessionId
+    ) {
+      this.steerAppliedPending = false;
+      void this.client
+        .extNotification(POSTHOG_NOTIFICATIONS.STEER_APPLIED, {
+          sessionId: this.sessionId,
+        })
+        .catch(() => undefined);
+    }
+
     // codex auto-compaction surfaces as a contextCompaction item: item/started → in progress,
     // item/completed → boundary (codex emits no separate thread/compacted; that's a guarded
     // fallback). compactionActive dedupes to one boundary per compaction.
@@ -1484,6 +1498,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
 
     if (method === APP_SERVER_NOTIFICATIONS.TURN_COMPLETED) {
       this.commandOutputs.clear();
+      this.steerAppliedPending = false;
       const turn = (params as { turn?: { id?: string; status?: string } })
         ?.turn;
       if (turn?.id === this.nativeGoalTurnId) {
