@@ -89,6 +89,11 @@ from products.feature_flags.backend.api.filters_schema import (
     FEATURE_FLAG_PROPERTY_TYPES,
     FEATURE_FLAG_SUPPORTED_OPERATORS,
     FLAG_ID_CONTEXT_KEY,
+    I32_MAX,
+    I32_MIN,
+    I64_MAX,
+    I64_MIN,
+    PRESERVE_UNKNOWN_KEYS_CONTEXT_KEY,
     FeatureFlagFiltersSerializer,
 )
 from products.feature_flags.backend.api.remote_config_shadow import shadow_compare_remote_config
@@ -184,13 +189,15 @@ def _count_filters_violations(stage: str, operation: str, rule_ids: Iterable[str
         FLAG_FILTERS_VIOLATION_COUNTER.labels(stage=stage, rule=rule_id or "unknown", operation=operation).inc()
 
 
-def _count_filters_bypass_once(serializer: serializers.Serializer, operation: str, request: Any) -> None:
-    """A single write can bypass several tiers in log-only mode; count it once."""
+def _mark_filters_bypassed(serializer: serializers.Serializer) -> None:
     root = serializer.root if serializer.root is not None else serializer
-    if getattr(root, "_filters_bypass_counted", False):
-        return
-    root._filters_bypass_counted = True  # type: ignore[attr-defined]
-    _count_filters_write(operation, "bypassed", request)
+    root._filters_bypassed = True  # type: ignore[attr-defined]
+
+
+def _count_filters_write_success(serializer: serializers.Serializer, operation: str, request: Any) -> None:
+    root = serializer.root if serializer.root is not None else serializer
+    outcome = "bypassed" if getattr(root, "_filters_bypassed", False) else "accepted"
+    _count_filters_write(operation, outcome, request)
 
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
@@ -869,16 +876,41 @@ def _reject_serde_unsafe_filters(filters: Any) -> None:
         if value < 0 or value > 100:
             raise serializers.ValidationError(f"{path} must be between 0 and 100, got {value}")
 
-    def _validate_integer(value: Any, path: str) -> None:
+    def _validate_integer(value: Any, path: str, *, min_value: int, max_value: int) -> None:
         # Check bool before int because bool is a subclass of int
         if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
             raise serializers.ValidationError(f"{path} must be an integer or null, got {type(value).__name__}")
+        if value is not None and (value < min_value or value > max_value):
+            raise serializers.ValidationError(f"{path} must be between {min_value} and {max_value}, got {value}")
 
-    _validate_integer(filters.get("aggregation_group_type_index"), "aggregation_group_type_index")
+    _validate_integer(
+        filters.get("aggregation_group_type_index"),
+        "aggregation_group_type_index",
+        min_value=I32_MIN,
+        max_value=I32_MAX,
+    )
 
     early_exit = filters.get("early_exit")
     if early_exit is not None and not isinstance(early_exit, bool):
         raise serializers.ValidationError(f"early_exit must be a boolean or null, got {type(early_exit).__name__}")
+    feature_enrollment = filters.get("feature_enrollment")
+    if feature_enrollment is not None and not isinstance(feature_enrollment, bool):
+        raise serializers.ValidationError(
+            f"feature_enrollment must be a boolean or null, got {type(feature_enrollment).__name__}"
+        )
+
+    holdout = filters.get("holdout")
+    if holdout is not None:
+        if not isinstance(holdout, dict):
+            raise serializers.ValidationError(f"holdout must be a dictionary or null, got {type(holdout).__name__}")
+        _validate_integer(holdout.get("id"), "holdout.id", min_value=I64_MIN, max_value=I64_MAX)
+        if "id" not in holdout or holdout.get("id") is None:
+            raise serializers.ValidationError("holdout.id must be an integer")
+        exclusion_percentage = holdout.get("exclusion_percentage")
+        if isinstance(exclusion_percentage, bool) or not isinstance(exclusion_percentage, int | float):
+            raise serializers.ValidationError("holdout.exclusion_percentage must be a number")
+        if not math.isfinite(exclusion_percentage):
+            raise serializers.ValidationError("holdout.exclusion_percentage must be finite")
 
     groups = filters.get("groups", [])
     if not isinstance(groups, list):
@@ -893,7 +925,10 @@ def _reject_serde_unsafe_filters(filters: Any) -> None:
             )
         _validate_rollout_percentage(group.get("rollout_percentage"), f"groups[{group_index}].rollout_percentage")
         _validate_integer(
-            group.get("aggregation_group_type_index"), f"groups[{group_index}].aggregation_group_type_index"
+            group.get("aggregation_group_type_index"),
+            f"groups[{group_index}].aggregation_group_type_index",
+            min_value=I32_MIN,
+            max_value=I32_MAX,
         )
 
         # `or []` would let a falsy non-list (an empty dict) skip the type check below, and
@@ -911,8 +946,16 @@ def _reject_serde_unsafe_filters(filters: Any) -> None:
                     f"groups[{group_index}].properties[{prop_index}] must be a dictionary, got {type(prop).__name__}"
                 )
             _validate_integer(
-                prop.get("group_type_index"), f"groups[{group_index}].properties[{prop_index}].group_type_index"
+                prop.get("group_type_index"),
+                f"groups[{group_index}].properties[{prop_index}].group_type_index",
+                min_value=I32_MIN,
+                max_value=I32_MAX,
             )
+            negation = prop.get("negation")
+            if negation is not None and not isinstance(negation, bool):
+                raise serializers.ValidationError(
+                    f"groups[{group_index}].properties[{prop_index}].negation must be a boolean or null"
+                )
 
     multivariate = filters.get("multivariate")
     if multivariate is not None and not isinstance(multivariate, dict):
@@ -932,6 +975,9 @@ def _reject_serde_unsafe_filters(filters: Any) -> None:
         # one fails the team's whole hypercache payload rather than just its own flag.
         if not isinstance(variant_item.get("key"), str):
             raise serializers.ValidationError(f"multivariate.variants[{var_index}].key must be a string")
+        name = variant_item.get("name")
+        if name is not None and not isinstance(name, str):
+            raise serializers.ValidationError(f"multivariate.variants[{var_index}].name must be a string or null")
         _validate_rollout_percentage(
             variant_item.get("rollout_percentage"),
             f"multivariate.variants[{var_index}].rollout_percentage",
@@ -1510,7 +1556,10 @@ class FeatureFlagSerializer(
         # violation is fixed; reads and non-filter updates of such flags are untouched.
         structural = FeatureFlagFiltersSerializer(
             data=merged,
-            context={FLAG_ID_CONTEXT_KEY: getattr(self.instance, "id", None)},
+            context={
+                FLAG_ID_CONTEXT_KEY: getattr(self.instance, "id", None),
+                PRESERVE_UNKNOWN_KEYS_CONTEXT_KEY: not enforcement,
+            },
         )
         structurally_valid = structural.is_valid()
         if structurally_valid:
@@ -1525,7 +1574,7 @@ class FeatureFlagSerializer(
             _count_filters_violations("merged_structural", operation, [detail.code for detail in details])
             if enforcement:
                 raise serializers.ValidationError(details)
-            _count_filters_bypass_once(self, operation, self.context.get("request"))
+            _mark_filters_bypassed(self)
             filters_enforcement_logger.warning(
                 "feature_flag_filters_enforcement_bypassed",
                 stage="merged_structural",
@@ -1617,7 +1666,7 @@ class FeatureFlagSerializer(
                             for violation in cross_field_violations
                         ]
                     )
-                _count_filters_bypass_once(self, operation, self.context.get("request"))
+                _mark_filters_bypassed(self)
                 filters_enforcement_logger.warning(
                     "feature_flag_filters_enforcement_bypassed",
                     stage="cross_field",
@@ -1925,7 +1974,7 @@ class FeatureFlagSerializer(
         )
 
         if isinstance(self.initial_data, dict) and "filters" in self.initial_data:
-            _count_filters_write("create", "accepted", request)
+            _count_filters_write_success(self, "create", request)
 
         return instance
 
@@ -2165,7 +2214,7 @@ class FeatureFlagSerializer(
             )
 
         if isinstance(self.initial_data, dict) and "filters" in self.initial_data:
-            _count_filters_write("update", "accepted", request)
+            _count_filters_write_success(self, "update", request)
 
         return instance
 

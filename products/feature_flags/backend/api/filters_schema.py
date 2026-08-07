@@ -8,10 +8,9 @@ Rust poisons the whole team's flag cache, so these serializers reject exactly wh
 reject: no DRF type coercion (`"true"` is not a bool, `"42"` is not an int, `NaN` is not a
 valid rollout percentage).
 
-Wired into `FeatureFlagSerializer.filters` (phase 3 of #50084), so this module is the OpenAPI
-source of truth for flag filters. The OpenAPI-only `FeatureFlagFiltersSchemaSerializer` in
-`posthog/api/documentation.py` survives solely for its experiments/surveys importers and is
-slated for retirement.
+The runtime serializer validates the merged filters state in `FeatureFlagSerializer.validate_filters`.
+The public OpenAPI schema stays permissive until enforcement defaults on, so generated clients
+cannot reject inputs that the staged server rollout still accepts.
 """
 
 import json
@@ -93,6 +92,7 @@ MAX_LOGGED_UNKNOWN_KEY_CHARS = 100
 
 UNKNOWN_KEYS_SINK_CONTEXT_KEY = "unknown_keys_sink"
 FLAG_ID_CONTEXT_KEY = "flag_id"
+PRESERVE_UNKNOWN_KEYS_CONTEXT_KEY = "preserve_unknown_keys"
 
 
 class UnknownKeySink(Protocol):
@@ -135,12 +135,22 @@ class DropsUnknownKeysMixin:
     unknown_key_level: ClassVar[str]
 
     def to_internal_value(self, data: Any) -> Any:
+        unknown_keys: list[str] = []
         if isinstance(data, dict):
             serializer = cast(serializers.Serializer, self)
             unknown_keys = sorted(set(data) - set(serializer.fields))
             if unknown_keys:
                 _record_dropped_unknown_keys(self.unknown_key_level, unknown_keys, serializer.context)
-        return super().to_internal_value(data)  # type: ignore[misc]
+        validated_data = super().to_internal_value(data)  # type: ignore[misc]
+        if (
+            isinstance(data, dict)
+            and isinstance(validated_data, dict)
+            and cast(serializers.Serializer, self).context.get(PRESERVE_UNKNOWN_KEYS_CONTEXT_KEY)
+        ):
+            validated_data.update(
+                {key: data[key] for key in unknown_keys if not is_legacy_unknown_key(self.unknown_key_level, key)}
+            )
+        return validated_data
 
 
 class StrictCharField(serializers.CharField):
@@ -209,7 +219,7 @@ class FiniteFloatField(serializers.FloatField):
     """
 
     def to_internal_value(self, data: Any) -> float:
-        if isinstance(data, bool) or not isinstance(data, (int, float)):
+        if isinstance(data, bool) or not isinstance(data, int | float):
             self.fail("invalid")
         value = float(data)
         if not math.isfinite(value):

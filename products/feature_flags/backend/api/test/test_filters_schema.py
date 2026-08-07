@@ -7,6 +7,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.feature_flags.backend.api.filters_schema import (
+    PRESERVE_UNKNOWN_KEYS_CONTEXT_KEY,
     FeatureFlagFiltersSerializer,
     FlagConditionGroupSerializer,
     FlagMultivariateVariantSerializer,
@@ -326,6 +327,32 @@ class TestFiltersSchema(SimpleTestCase):
             keys=expected_keys,
             flag_id=42,
         )
+
+    def test_log_only_mode_preserves_non_legacy_unknown_keys_at_every_level(self) -> None:
+        filters = {
+            "groups": [{"properties": [{**VALID_PROPERTY, "property_extra": {"a": 1}}], "group_extra": "g"}],
+            "multivariate": {
+                "variants": [{"key": "a", "rollout_percentage": 100, "variant_extra": [1]}],
+                "multivariate_extra": True,
+            },
+            "holdout": {"id": 1, "exclusion_percentage": 10, "holdout_extra": "h"},
+            "filters_extra": "f",
+            "holdout_groups": [],
+        }
+        serializer = FeatureFlagFiltersSerializer(
+            data=filters,
+            context={PRESERVE_UNKNOWN_KEYS_CONTEXT_KEY: True},
+        )
+
+        assert serializer.is_valid(), serializer.errors
+        validated = serializer.validated_data
+        assert validated["filters_extra"] == "f"
+        assert validated["groups"][0]["group_extra"] == "g"
+        assert validated["groups"][0]["properties"][0]["property_extra"] == {"a": 1}
+        assert validated["multivariate"]["multivariate_extra"] is True
+        assert validated["multivariate"]["variants"][0]["variant_extra"] == [1]
+        assert validated["holdout"]["holdout_extra"] == "h"
+        assert "holdout_groups" not in validated
 
     def test_display_passthrough_fields_survive_validation(self) -> None:
         # Guards the #50084 passthrough addendum: if any of these declared fields is removed,

@@ -8600,10 +8600,8 @@ class TestFeatureFlagFiltersEnforcement(APIBaseTest):
         self.assertEqual(flag.filters["groups"][0]["rollout_percentage"], 50)
 
     def test_patch_groups_absent_preserves_but_empty_list_clears_targeting(self):
-        # Pins the locked #50084 merge asymmetry, which hangs on FeatureFlagFiltersField
-        # redeclaring `groups` without the base serializer's default=list: absent `groups`
-        # must merge as "keep stored targeting", while an explicit [] is clear-targeting.
-        # A refactor restoring the default would silently wipe targeting on partial PATCHes.
+        # Pins the locked #50084 merge asymmetry: absent `groups` must merge as "keep stored
+        # targeting", while an explicit [] is clear-targeting.
         flag = self._create_flag_via_orm(
             "clear-targeting-flag", {"groups": [{"properties": [], "rollout_percentage": 50}]}
         )
@@ -8657,22 +8655,22 @@ class TestFeatureFlagFiltersEnforcement(APIBaseTest):
 
     @override_settings(FEATURE_FLAG_FILTERS_ENFORCEMENT=False)
     def test_kill_switch_logs_new_rules_but_still_rejects_serde_unsafe_input(self):
-        # Log-only mode accepts what only the NEW tiers reject — the variant key charset
-        # rule was never enforced before, so it must not 400 during the bake.
+        # An empty variant key is structurally invalid but still deserializes as a Rust String,
+        # so log-only mode records it without widening the cache-poisoning surface.
         new_rule_only = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
                 "key": "bypassed-flag",
                 "filters": {
                     "groups": [{"properties": [], "rollout_percentage": None}],
-                    "multivariate": {"variants": [{"key": "foo bar", "rollout_percentage": 100}]},
+                    "multivariate": {"variants": [{"key": "", "rollout_percentage": 100}]},
                 },
             },
             format="json",
         )
         self.assertEqual(new_rule_only.status_code, status.HTTP_201_CREATED, new_rule_only.json())
         flag = FeatureFlag.objects.get(id=new_rule_only.json()["id"])
-        self.assertEqual(flag.filters["multivariate"]["variants"][0]["key"], "foo bar")
+        self.assertEqual(flag.filters["multivariate"]["variants"][0]["key"], "")
 
         # But the pre-enforcement type/bounds checks stay active: cache-poisoning input is
         # rejected exactly as before enforcement shipped, switch or no switch.
@@ -14212,3 +14210,24 @@ class TestFeatureFlagFiltersMetrics(APIBaseTest):
             )._value.get(),
             violation_before + 1,
         )
+
+    @override_settings(FEATURE_FLAG_FILTERS_ENFORCEMENT=False)
+    def test_bypassed_write_is_not_also_counted_as_accepted(self) -> None:
+        accepted_before = self._write_count("create", "accepted")
+        bypassed_before = self._write_count("create", "bypassed")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "metrics-bypassed",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {"variants": [{"key": "", "rollout_percentage": 100}]},
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(self._write_count("create", "bypassed"), bypassed_before + 1)
+        self.assertEqual(self._write_count("create", "accepted"), accepted_before)
