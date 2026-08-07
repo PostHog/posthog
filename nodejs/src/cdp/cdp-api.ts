@@ -64,10 +64,10 @@ import {
     isSegmentPluginHogFunction,
     sanitizeLogMessage,
 } from './utils'
+import { dualRead, dualWrite } from './utils/dual-store'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 import { buildHogFunctionInvocations } from './utils/invocation-utils'
 import { JWT, PosthogJwtAudience } from './utils/jwt-utils'
-import { mirrorCall, mirrorCompare } from './utils/mirror-call'
 
 // Allowlist of safe content types for webhook responses to prevent XSS
 const SAFE_CONTENT_TYPES = new Set([
@@ -309,7 +309,7 @@ export class CdpApi {
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<void> => {
             const { id } = req.params
-            const summary = await mirrorCompare(
+            const summary = await dualRead(
                 'hog-watcher.getPersistedState',
                 () => this.hogWatcher.getPersistedState(id),
                 () => this.hogWatcherMirror.getPersistedState(id)
@@ -330,7 +330,7 @@ export class CdpApi {
                 return
             }
 
-            const summary = await mirrorCompare(
+            const summary = await dualRead(
                 'hog-watcher.getPersistedState',
                 () => this.hogWatcher.getPersistedState(id),
                 () => this.hogWatcherMirror.getPersistedState(id)
@@ -345,19 +345,18 @@ export class CdpApi {
             // Only allow patching the status if it is different from the current status
 
             if (summary.state !== state) {
-                await Promise.all([
-                    this.hogWatcher.forceStateChange(hogFunction, state),
-                    mirrorCall('hog-watcher.forceStateChange', () =>
-                        this.hogWatcherMirror.forceStateChange(hogFunction, state)
-                    ),
-                ])
+                await dualWrite(
+                    'hog-watcher.forceStateChange',
+                    () => this.hogWatcher.forceStateChange(hogFunction, state),
+                    () => this.hogWatcherMirror.forceStateChange(hogFunction, state)
+                )
             }
 
             // Hacky - wait for a little to give a chance for the state to change
             await delay(100)
 
             res.json(
-                await mirrorCompare(
+                await dualRead(
                     'hog-watcher.getPersistedState',
                     () => this.hogWatcher.getPersistedState(id),
                     () => this.hogWatcherMirror.getPersistedState(id)
@@ -369,7 +368,7 @@ export class CdpApi {
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<void> => {
             try {
-                const allStates = await mirrorCompare(
+                const allStates = await dualRead(
                     'hog-watcher.getAllFunctionStates',
                     () => this.hogWatcher.getAllFunctionStates(),
                     () => this.hogWatcherMirror.getAllFunctionStates()

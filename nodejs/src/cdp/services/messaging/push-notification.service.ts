@@ -6,7 +6,7 @@ import {
     CyclotronInvocationQueueParametersSendPushNotificationType,
     PushNotificationPayloadType,
 } from '~/cdp/schema/cyclotron'
-import { mirrorCall, mirrorCompare } from '~/cdp/utils/mirror-call'
+import { dualRead, dualWrite } from '~/cdp/utils/dual-store'
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -566,7 +566,7 @@ export class PushNotificationService {
         const read = (pool: RedisV2) =>
             pool.useClient({ name: 'apns-jwt-read', failOpen: true }, (client) => client.get(cacheKey))
         const cached = this.redis
-            ? await mirrorCompare(
+            ? await dualRead(
                   'push-notification.apns-jwt-read',
                   () => read(this.redis!),
                   () => read(this.redisMirror)
@@ -589,10 +589,11 @@ export class PushNotificationService {
             pool.useClient({ name: 'apns-jwt-write', failOpen: true }, (client) =>
                 client.set(cacheKey, jwt, 'EX', APNS_JWT_TTL_SECONDS)
             )
-        await Promise.all([
-            this.redis ? write(this.redis) : undefined,
-            mirrorCall('push-notification.apns-jwt-write', () => write(this.redisMirror)),
-        ])
+        await dualWrite(
+            'push-notification.apns-jwt-write',
+            () => (this.redis ? write(this.redis) : Promise.resolve(null)),
+            () => write(this.redisMirror)
+        )
         return jwt
     }
 

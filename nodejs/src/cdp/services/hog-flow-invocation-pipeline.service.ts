@@ -17,7 +17,7 @@ import {
     LogEntry,
     MinimalAppMetric,
 } from '../types'
-import { mirrorCompare } from '../utils/mirror-call'
+import { dualRead } from '../utils/dual-store'
 import { HogFlowExecutorService } from './hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './hogflows/hogflow-manager.service'
 import { shouldBlockHogFlowDueToQuota } from './hogflows/hogflow-quota-limiting'
@@ -105,7 +105,7 @@ export class HogFlowInvocationPipeline {
         ).flat()
 
         const hogFlowIds = possibleInvocations.map((x) => x.hogFlow.id)
-        const states = await mirrorCompare(
+        const states = await dualRead(
             'hog-watcher.getEffectiveStates',
             () =>
                 instrumentFn('cdpConsumer.handleEachBatch.hogWatcher.getEffectiveStates', async () => {
@@ -118,15 +118,15 @@ export class HogFlowInvocationPipeline {
             id: x.hogFlow.id,
             cost: 1,
         }))
-        const rateLimits = await mirrorCompare(
-            'hog-rate-limiter.rateLimitGrouped',
+        const rateLimits = await dualRead(
+            'hog-flow-rate-limiter.rateLimitGrouped',
             () =>
                 instrumentFn('cdpConsumer.handleEachBatch.hogRateLimiter.rateLimitGrouped', async () => {
                     return await this.hogRateLimiter.rateLimitGrouped(rateLimitInputs)
                 }),
             () => this.hogRateLimiterMirror.rateLimitGrouped(rateLimitInputs),
-            (primary, mirror) =>
-                primary.every(([, result], index) => result.isRateLimited === mirror[index]?.[1].isRateLimited)
+            (primary, secondary) =>
+                primary.every(([, result], index) => result.isRateLimited === secondary[index]?.[1].isRateLimited)
         )
         const validInvocations: CyclotronJobInvocationHogFlow[] = []
 
