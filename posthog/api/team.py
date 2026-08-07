@@ -183,6 +183,65 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
+def handle_experiments_config(request: request.Request, team: Team) -> response.Response:
+    """Shared handler for the experiments_config action — exposed under both the
+    team/environment and project routers so both surfaces stay in parity."""
+    # Keeps the products app import off this module's import path.
+    from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig  # noqa: PLC0415
+
+    class TeamExperimentsConfigSerializer(serializers.ModelSerializer):
+        class Meta:
+            model = TeamExperimentsConfig
+            fields = [
+                "experiment_recalculation_time",
+                "default_experiment_confidence_level",
+                "default_experiment_stats_method",
+                "experiment_precomputation_enabled",
+                "default_only_count_matured_users",
+                "default_cuped_enabled",
+                "default_cuped_lookback_days",
+                "default_minimum_detectable_effect",
+                "default_sequential_testing_enabled",
+                "default_sequential_tuning_parameter",
+                "flag_cleanup_repository",
+            ]
+
+        def validate_flag_cleanup_repository(self, value: str | None) -> str | None:
+            # Keeps the sandbox/LLM runtime the repo-selection module pulls in off the
+            # request import path.
+            from products.tasks.backend.facade import repo_selection as tasks_repo_selection  # noqa: PLC0415
+
+            if not value:
+                return None
+            parts = value.split("/")
+            if len(parts) != 2 or not parts[0] or not parts[1]:
+                raise serializers.ValidationError("Repository must be in the format organization/repository")
+            value = value.lower()
+            # Reject repos outside the team's GitHub installation now rather than storing a
+            # default the cleanup resolution would silently ignore.
+            github = tasks_repo_selection.resolve_team_github_integration(team.id, team=team, team_only=True)
+            cached = {
+                full_name.lower()
+                for repo in (github.list_all_cached_repositories(max_repos=1000) if github else [])
+                if (full_name := repo.get("full_name"))
+            }
+            if value not in cached:
+                raise serializers.ValidationError(
+                    "This repository is not connected to the project's GitHub integration."
+                )
+            return value
+
+    config = get_or_create_team_extension(team, TeamExperimentsConfig)
+
+    if request.method == "PATCH":
+        serializer = TeamExperimentsConfigSerializer(config, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return response.Response(serializer.data)
+
+    return response.Response(TeamExperimentsConfigSerializer(config).data)
+
+
 def handle_logs_config(request: request.Request, team: Team) -> response.Response:
     """Shared handler for the logs_config action — exposed under both the team/environment
     and project routers so the canonical /api/projects/ URL resolves alongside the legacy
@@ -2244,36 +2303,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     )
     def experiments_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
         """Manage experiment configuration for this environment."""
-        from rest_framework import serializers
-
-        from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-
-        class TeamExperimentsConfigSerializer(serializers.ModelSerializer):
-            class Meta:
-                model = TeamExperimentsConfig
-                fields = [
-                    "experiment_recalculation_time",
-                    "default_experiment_confidence_level",
-                    "default_experiment_stats_method",
-                    "experiment_precomputation_enabled",
-                    "default_only_count_matured_users",
-                    "default_cuped_enabled",
-                    "default_cuped_lookback_days",
-                    "default_minimum_detectable_effect",
-                    "default_sequential_testing_enabled",
-                    "default_sequential_tuning_parameter",
-                ]
-
-        team = self.get_object()
-        config = get_or_create_team_extension(team, TeamExperimentsConfig)
-
-        if request.method == "PATCH":
-            serializer = TeamExperimentsConfigSerializer(config, data=request.data, partial=True)
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-            return response.Response(serializer.data)
-
-        return response.Response(TeamExperimentsConfigSerializer(config).data)
+        return handle_experiments_config(request, self.get_object())
 
     @extend_schema(
         methods=["POST"],

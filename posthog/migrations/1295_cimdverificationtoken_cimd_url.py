@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1293_commentslackthread_channel_name"),
+        ("posthog", "1294_add_google_calendar_integration_kind"),
     ]
 
     operations = [
