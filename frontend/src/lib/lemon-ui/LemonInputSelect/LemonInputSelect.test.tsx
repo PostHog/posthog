@@ -286,6 +286,26 @@ describe('LemonInputSelect', () => {
         expect(onChange).toHaveBeenCalledWith([])
     })
 
+    it('commits a pending custom value when the control unmounts before it is confirmed', async () => {
+        // Regression: an outside click can tear down the input (e.g. a surrounding popover closing) while the
+        // dropdown still holds focus. The blur path early-returns in that state, so a typed-but-unconfirmed
+        // value used to be silently dropped instead of reaching onChange (the lost internal-user-filter row).
+        const onChange = jest.fn()
+
+        const { container, unmount } = render(
+            <LemonInputSelect<string> mode="single" options={[]} value={[]} onChange={onChange} allowCustomValues />
+        )
+
+        const input = await openDropdown(container)
+        await userEvent.type(input, 'localhost')
+        // Typing alone must not commit — only Enter, clicking a suggestion, or (now) teardown does
+        expect(onChange).not.toHaveBeenCalled()
+
+        unmount()
+
+        expect(onChange).toHaveBeenCalledWith(['localhost'])
+    })
+
     it('single-select mode: focusing with a selected option still shows every option', async () => {
         // Regression: for option-backed single selects the option key is an opaque id (e.g. a UUID).
         // Focusing must not seed the input with that key, which would filter the dropdown down to the

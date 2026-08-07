@@ -538,6 +538,26 @@ export function LemonInputSelect<T = string>({
         onBlur?.()
     }
 
+    // Commit a pending free-text value if the control unmounts before the user confirms it — e.g. a
+    // surrounding popover closing on an outside click tears down the input mid-edit. Otherwise the value
+    // is silently dropped: the blur path early-returns while the dropdown still holds focus, so a typed
+    // value that was never Entered or clicked never reaches onChange. A ref keeps the cleanup pointed at
+    // the latest input state without re-registering the effect on every keystroke.
+    const flushPendingCustomValueRef = useRef<() => void>(() => {})
+    flushPendingCustomValueRef.current = (): void => {
+        const trimmed = inputValue.trim()
+        const hasSelectedAutofilledValue = selectedIndex > 0
+        if (allowCustomValues && !hasSelectedAutofilledValue && trimmed && !stringKeys.includes(trimmed)) {
+            _onActionItem(trimmed, null)
+        }
+    }
+    useEffect(
+        () => () => {
+            flushPendingCustomValueRef.current()
+        },
+        []
+    )
+
     const _onFocus = (): void => {
         // In single mode with a free-text (custom) value, seed the input with the current value
         // so the user can edit it. Don't do this for option-backed selects: there the key is an
