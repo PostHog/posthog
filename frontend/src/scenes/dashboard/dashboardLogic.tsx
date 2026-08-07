@@ -298,7 +298,6 @@ export interface dashboardLogicValues {
     hasUnsavedEditModeChanges: boolean
     hasUnsavedLayoutChanges: boolean
     hasUrlFilters: boolean
-    variablesDirty: boolean
     hasVariables: boolean
     highlightedInsightId: any
     initialVariablesLoaded: boolean
@@ -357,6 +356,7 @@ export interface dashboardLogicValues {
         variables?: unknown
     } | null
     urlVariables: Record<string, HogQLVariable>
+    variablesDirty: boolean
     widgetRefreshStatus: Record<
         number,
         {
@@ -990,7 +990,9 @@ export interface dashboardLogicMeta {
         ) => boolean
         variablesDirty: (
             dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
-            effectiveDashboardVariableOverrides: Record<string, HogQLVariable>
+            effectiveDashboardVariableOverrides: {
+                [x: string]: HogQLVariable
+            }
         ) => boolean
         hasUnsavedEditModeChanges: (
             filtersDirty: boolean,

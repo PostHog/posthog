@@ -6,8 +6,8 @@ import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
 import { DashboardMode } from '~/types'
 
-import { dashboardLogic } from './dashboardLogic'
 import { isDashboardFilterEmpty } from './dashboardFilterEmpty'
+import { dashboardLogic } from './dashboardLogic'
 
 export const DashboardOverridesBanner = (): JSX.Element | null => {
     const { dashboardMode, urlFilters, cancellingPreview } = useValues(dashboardLogic)
