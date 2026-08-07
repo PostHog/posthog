@@ -38,7 +38,9 @@ jest.mock('../../../OnboardingStep', () => ({
             <h1>{title}</h1>
             {actions}
             {children}
-            <button aria-disabled={continueDisabledReason ? 'true' : undefined}>Continue</button>
+            <button data-attr="mock-continue" aria-disabled={continueDisabledReason ? 'true' : undefined}>
+                Continue
+            </button>
         </div>
     ),
 }))
@@ -123,8 +125,7 @@ describe('WizardInstallStep with wizardOverrides', () => {
         expect(await screen.findByText((t) => t.includes('ai-observability') && t.includes('npx'))).toBeInTheDocument()
         expect(document.querySelector('[data-attr="mock-cloud-run-block"]')).toBeNull()
 
-        const continueButton = screen.getByRole('button', { name: /continue/i })
-        expect(continueButton).toHaveAttribute('aria-disabled', 'true')
+        expect(document.querySelector('[data-attr="mock-continue"]')).toHaveAttribute('aria-disabled', 'true')
     })
 
     it('ignores a cloud run queued on an earlier install step: command stays, Continue stays blocked', async () => {
@@ -146,7 +147,6 @@ describe('WizardInstallStep with wizardOverrides', () => {
         expect(await screen.findByText((t) => t.includes('ai-observability') && t.includes('npx'))).toBeInTheDocument()
         expect(document.querySelector('[data-attr="mock-cloud-run-block"]')).toBeNull()
 
-        const continueButton = screen.getByRole('button', { name: /continue/i })
-        expect(continueButton).toHaveAttribute('aria-disabled', 'true')
+        expect(document.querySelector('[data-attr="mock-continue"]')).toHaveAttribute('aria-disabled', 'true')
     })
 })
