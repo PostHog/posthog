@@ -228,11 +228,10 @@ export const LostContact: Story = {
     },
 }
 
-// GROW-?: a run whose tab was closed for its whole duration settles from the REST detail, which
-// carries no step history. `cloudProgress` renders no pipeline steps rather than a literal 'pending'
-// skeleton that would assert stages ran when we have no evidence either way (see
-// installationProgress.ts, cloudProgress). Kept alongside its pre-fix counterpart below so the two
-// render side by side for visual comparison.
+// A run whose tab was closed for its whole duration settles from the REST detail, which carries
+// no step history, so `cloudProgress` renders no pipeline steps rather than a literal 'pending'
+// skeleton asserting stages ran when we have no evidence either way (see installationProgress.ts,
+// cloudProgress).
 export const CompletedNoSteps: Story = {
     args: {
         progress: progress({
@@ -244,7 +243,7 @@ export const CompletedNoSteps: Story = {
     },
 }
 
-// Same fix, error branch: a failed run that never announced any progress steps.
+// The error branch of the same case: a failed run that never announced any progress steps.
 export const FailedNoSteps: Story = {
     args: {
         progress: progress({

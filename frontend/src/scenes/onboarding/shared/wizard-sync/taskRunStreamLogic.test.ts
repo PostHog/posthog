@@ -623,12 +623,10 @@ describe('taskRunStreamLogic transport', () => {
 
     describe('settling from activeCloudRunLogic.serverReportedRun', () => {
         it('settles a terminal status the server reported when the stream never delivered one', async () => {
-            // THE BUG: a run's terminal outcome is published once over SSE. If the tab is closed (or
-            // the stream never reconnects) at that moment, this logic never sees it any other way —
-            // there is no catch-up on reconnect. Before this fix the card stayed on "Setting up
-            // PostHog" with a running clock for up to 24 hours, and Cancel had nothing left to cancel.
-            // No stream was ever opened here, matching a fresh mount of a tab reopened after the run
-            // already finished.
+            // A run's terminal outcome is published once over SSE and there is no catch-up on
+            // reconnect, so a tab that was closed when it landed has only the reconcile poll left to
+            // learn the outcome from. No stream is opened here, matching a fresh mount of a tab
+            // reopened after the run already finished.
             mockRunRetrieve.mockResolvedValue(runDetail({ status: 'failed', error_message: 'boom' }))
             expect(logic.values.taskRunState).toBeNull()
 
@@ -641,11 +639,10 @@ describe('taskRunStreamLogic transport', () => {
         })
 
         it('carries the PR url through a server-reported completion', async () => {
-            // Pins WHERE the settle reads from, not which status it handles. The reconcile payload
-            // carries no output field, so building state from it would still pass the terminal test
-            // above (the status is right either way) while silently dropping the PR link. That is
-            // the regression the reconcileCloudRun docstring is worried about, and this is the only
-            // test that catches it. Do not delete it as redundant with the terminal case.
+            // Pins which source the settle reads from, not which status it handles. The reconcile
+            // payload carries no output field, so a settle built from it satisfies the terminal test
+            // above (the status is right either way) while dropping the PR link the completion
+            // handoff needs. Only an assertion on the url distinguishes the two sources.
             mockRunRetrieve.mockResolvedValue(
                 runDetail({
                     status: 'completed',
