@@ -103,8 +103,6 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertIn("event.preventDefault();event.stopPropagation()", runtime)
         self.assertIn("if(!items.length||timer)return", runtime)
         self.assertNotIn("clearTimeout(timer);timer=setTimeout(()=>render(items),100)", runtime)
-        self.assertIn('document.addEventListener("selectionchange"', runtime)
-        self.assertNotIn('document.addEventListener("mouseup"', runtime)
         self.assertIn('event.data?.type==="clear-text-selection"', runtime)
         self.assertIn("getSelection()?.removeAllRanges()", runtime)
         self.assertIn("if(selection&&!selection.isCollapsed)return", runtime)
@@ -117,6 +115,155 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertIn('url.protocol!=="https:"', runtime)
         self.assertIn('url.hostname.endsWith(".posthog.com")', runtime)
         self.assertIn("serialized.length>16384", runtime)
+
+    def _run_runtime_harness(self, runtime: str, harness: str) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "runtime.js").write_text(runtime)
+            (Path(directory) / "harness.mjs").write_text(harness)
+            process = subprocess.run(
+                [node_executable(), str(Path(directory) / "harness.mjs")],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        self.assertEqual(process.returncode, 0, process.stderr)
+
+    def test_runtime_reports_the_selection_once_it_settles(self) -> None:
+        result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
+
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+        harness = """
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+// A paragraph wrapper box plus two line boxes. The selection ends on the short
+// second line, so only a leaf-box anchor reports right=150, bottom=40.
+const WRAPPER = { left: 0, top: 0, right: 400, bottom: 60, width: 400, height: 60 };
+const FIRST_LINE = { left: 10, top: 0, right: 390, bottom: 20, width: 380, height: 20 };
+const LAST_LINE = { left: 10, top: 20, right: 150, bottom: 40, width: 140, height: 20 };
+
+const listeners = { message: [] };
+const documentListeners = {};
+// Ranges are created in report order: the text before the selection, the text
+// through its end, then the whole document.
+const rangeStrings = ["Hello ", "Hello world", "Hello world!"];
+let rangesCreated = 0;
+
+const container = { nodeType: 1 };
+const selectionRange = {
+    startContainer: container,
+    startOffset: 0,
+    endContainer: container,
+    endOffset: 0,
+    getClientRects: () => [WRAPPER, FIRST_LINE, LAST_LINE],
+    getBoundingClientRect: () => WRAPPER,
+};
+
+globalThis.window = globalThis;
+globalThis.parent = {};
+globalThis.location = { hash: "" };
+globalThis.Element = class Element {
+    constructor(inOverlay = false) { this.inOverlay = inOverlay; }
+    closest(selector) {
+        return this.inOverlay && selector === "[data-selection-comment-overlay]" ? this : null;
+    }
+};
+globalThis.MouseEvent = class MouseEvent {
+    constructor(button, target) {
+        this.button = button;
+        this.target = target;
+    }
+};
+globalThis.MutationObserver = class {
+    observe() {}
+};
+globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 0);
+globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
+globalThis.addEventListener = (type, handler) => (listeners[type] ??= []).push(handler);
+globalThis.getSelection = () => ({
+    isCollapsed: false,
+    rangeCount: 1,
+    getRangeAt: () => selectionRange,
+    removeAllRanges: () => {},
+});
+globalThis.document = {
+    readyState: "complete",
+    body: { contains: () => true },
+    head: { appendChild: () => {} },
+    documentElement: { classList: { toggle: () => {} }, style: {} },
+    defaultView: globalThis,
+    createElement: () => ({}),
+    createTreeWalker: () => ({ nextNode: () => null }),
+    createRange: () => {
+        const value = rangeStrings[rangesCreated++ % rangeStrings.length];
+        return { selectNodeContents: () => {}, setEnd: () => {}, toString: () => value };
+    },
+    addEventListener: (type, handler) => (documentListeners[type] ??= []).push(handler),
+};
+
+new Function(readFileSync(new URL("./runtime.js", import.meta.url), "utf8"))();
+
+const bridge = new MessageChannel();
+const received = [];
+bridge.port1.addEventListener("message", (event) => received.push(event.data));
+bridge.port1.start();
+for (const handler of listeners.message) {
+    handler({ source: globalThis.parent, data: { channel: "posthog-canvas", type: "connect" }, ports: [bridge.port2] });
+}
+
+const fire = (type, event = {}) => {
+    for (const handler of documentListeners[type] ?? []) handler(event);
+};
+const settle = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const selections = () => received.filter((message) => message.type === "text-selection");
+const clears = () => received.filter((message) => message.type === "text-selection-cleared");
+const outside = new Element();
+const overlay = new Element(true);
+
+// Secondary presses must not open the gesture gate, so the following idle
+// selection change still publishes normally.
+fire("pointerdown", new MouseEvent(2, outside));
+fire("selectionchange", {});
+await settle(120);
+assert.equal(selections().length, 1, "right-click left the selection gate open");
+
+// The published action stays visible when its own UI receives pointerdown.
+fire("pointerdown", new MouseEvent(0, overlay));
+await settle(20);
+assert.equal(clears().length, 0, "pressing the comment action cleared its selection");
+received.length = 0;
+
+// A drag: press, several selection updates, release. The gaps are longer than
+// the runtime's own 80ms debounce, so a runtime reporting on raw
+// selectionchange would have published a mid-drag selection by now.
+fire("pointerdown", new MouseEvent(0, outside));
+for (let step = 0; step < 3; step++) {
+    fire("selectionchange", {});
+    await settle(120);
+}
+assert.deepEqual(selections(), [], "the runtime reported a selection while the drag was still in progress");
+
+fire("pointerup", new MouseEvent(0, outside));
+await settle(200);
+
+const reports = selections();
+assert.equal(reports.length, 1, `expected one settled report, got ${reports.length}`);
+assert.equal(reports[0].selection.quote, "world");
+assert.deepEqual(
+    reports[0].selection.rect,
+    { top: LAST_LINE.top, right: LAST_LINE.right, bottom: LAST_LINE.bottom, left: LAST_LINE.left },
+    "the runtime anchored the action to the whole-range box instead of the last selected line"
+);
+
+fire("scroll", {});
+await settle(20);
+assert.equal(clears().length, 2, "scrolling did not clear the published selection");
+fire("scroll", {});
+await settle(20);
+assert.equal(clears().length, 2, "repeated scroll sent a duplicate clear message");
+bridge.port1.close();
+"""
+        self._run_runtime_harness(runtime, harness)
 
     def test_runtime_applies_the_host_theme(self) -> None:
         result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
@@ -178,16 +325,7 @@ assert.equal(style.colorScheme, "light");
 assert.deepEqual(toggles, [["dark", true], ["dark", false]]);
 bridge.port1.close();
 """
-        with tempfile.TemporaryDirectory() as directory:
-            (Path(directory) / "runtime.js").write_text(runtime)
-            (Path(directory) / "harness.mjs").write_text(harness)
-            process = subprocess.run(
-                [node_executable(), str(Path(directory) / "harness.mjs")],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-        self.assertEqual(process.returncode, 0, process.stderr)
+        self._run_runtime_harness(runtime, harness)
 
     def test_freezes_declared_capabilities_into_manifest(self) -> None:
         project = self._project('document.body.textContent = "Hello"')
