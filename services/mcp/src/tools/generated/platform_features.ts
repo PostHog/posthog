@@ -485,6 +485,7 @@ const commentsList = (): ToolBase<typeof CommentsListSchema, Schemas.PaginatedCo
             query: {
                 completed: params.completed,
                 cursor: params.cursor,
+                include_task_resources: params.include_task_resources,
                 item_id: params.item_id,
                 kind: params.kind,
                 scope: params.scope,

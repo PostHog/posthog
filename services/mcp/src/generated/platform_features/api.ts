@@ -377,6 +377,12 @@ export const CommentsListQueryParams = /* @__PURE__ */ zod.object({
             "When kind=task, restrict to open (incomplete) or completed tasks. Ignored when kind is not 'task'. Defaults to 'any' (no filter).\n\n\* `any` - any\n\* `open` - open\n\* `completed` - completed"
         ),
     cursor: zod.string().optional().describe('The pagination cursor value.'),
+    include_task_resources: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true with scope=task and task_id, include comments on the task and its artifacts and canvases.'
+        ),
     item_id: zod.string().min(1).optional().describe('Filter by the ID of the resource being commented on.'),
     kind: zod
         .enum(['any', 'comment', 'task'])

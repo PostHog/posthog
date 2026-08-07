@@ -523,7 +523,7 @@ class CommentErrorSerializer(serializers.Serializer):
 
 
 class CommentPagination(pagination.CursorPagination):
-    ordering = "-created_at"
+    ordering = ("-created_at", "-id")
     page_size = 100
 
 
@@ -538,6 +538,12 @@ class CommentListQueryParamsSerializer(serializers.Serializer):
     item_id = serializers.CharField(required=False, help_text="Filter by the ID of the resource being commented on.")
     task_id = serializers.UUIDField(
         required=False, help_text="Owning task for task, task_artifact, and desktop_canvas comment scopes."
+    )
+    include_task_resources = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "When true with scope=task and task_id, include comments on the task and its artifacts and canvases."
+        ),
     )
     search = serializers.CharField(required=False, help_text="Full-text search within comment content.")
     source_comment = serializers.CharField(required=False, help_text="Filter replies to a specific parent comment.")
@@ -887,7 +893,23 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             queryset = queryset.filter(deleted=False)
 
         scope = params.get("scope")
-        if scope:
+        include_task_resources = scope == "task" and params.get("include_task_resources") == "true"
+        if include_task_resources:
+            task_id = params.get("task_id")
+            if not _task_comment_target_is_accessible(
+                team_id=self.team_id,
+                user_id=self.request.user.id,
+                task_id=task_id or "",
+                scope="task",
+                item_id=task_id,
+            ):
+                return queryset.none()
+            task_id_string = str(task_id)
+            queryset = queryset.filter(
+                Q(scope="task", item_id=task_id_string)
+                | Q(scope__in=["task_artifact", "desktop_canvas"], item_context__taskId=task_id_string)
+            )
+        elif scope:
             queryset = queryset.filter(scope=scope)
             if scope in TICKET_COMMENT_SCOPES:
                 queryset = self._filter_ticket_scoped_queryset(queryset, params.get("item_id"))
@@ -912,7 +934,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             self._require_ticket_viewer_access_for_pk()
             self._require_task_comment_viewer_access_for_pk()
 
-        if params.get("item_id"):
+        if params.get("item_id") and not include_task_resources:
             queryset = queryset.filter(item_id=params.get("item_id"))
 
         if params.get("search"):

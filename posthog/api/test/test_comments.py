@@ -97,6 +97,162 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         )
         assert [row["id"] for row in with_task.json()["results"]] == [created.json()["id"]]
 
+    def test_task_wide_comment_list_includes_all_task_resources_and_excludes_unrelated_comments(self) -> None:
+        task = self._task_artifact_target()
+        other_task = self._task_artifact_target()
+        other_team = self.organization.teams.create(name="Other comment team")
+        task_root = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="task",
+            item_id=str(task.id),
+            content="Task comment",
+        )
+        artifact_root = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="task_artifact",
+            item_id="artifact-1",
+            item_context={"taskId": str(task.id)},
+            content="Artifact comment",
+        )
+        reply = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="task_artifact",
+            item_id="artifact-1",
+            item_context={"taskId": str(task.id)},
+            source_comment=artifact_root,
+            content="Artifact reply",
+        )
+        canvas = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="desktop_canvas",
+            item_id="019fddea-b2ac-7000-8527-6b45a615cf4f",
+            item_context={"taskId": str(task.id)},
+            content="Canvas comment",
+        )
+        Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="task_artifact",
+            item_id="artifact-1",
+            item_context={"taskId": str(task.id), "is_emoji": True},
+            content="👍",
+        )
+        Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="task",
+            item_id=str(other_task.id),
+            content="Another task",
+        )
+        Comment.objects.create(
+            team=other_team,
+            created_by=self.user,
+            scope="task_artifact",
+            item_id="artifact-1",
+            item_context={"taskId": str(task.id)},
+            content="Another team",
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "scope": "task",
+                "task_id": str(task.id),
+                "include_task_resources": "true",
+                "exclude_emoji_reactions": "true",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {row["id"] for row in response.json()["results"]} == {
+            str(task_root.id),
+            str(artifact_root.id),
+            str(reply.id),
+            str(canvas.id),
+        }
+
+    def test_task_wide_comment_list_is_empty_without_task_visibility(self) -> None:
+        other = User.objects.create_and_join(self.organization, "private-list-owner@posthog.com", "password")
+        task = self._task_artifact_target(public=False, creator=other)
+        Comment.objects.create(
+            team=self.team,
+            created_by=other,
+            scope="task",
+            item_id=str(task.id),
+            content="Private task comment",
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/comments",
+            {"scope": "task", "task_id": str(task.id), "include_task_resources": "true"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == []
+
+    def test_task_comment_list_without_task_resources_keeps_single_target_behavior(self) -> None:
+        task = self._task_artifact_target()
+        task_comment = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="task",
+            item_id=str(task.id),
+            content="Task comment",
+        )
+        Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="task_artifact",
+            item_id="artifact-1",
+            item_context={"taskId": str(task.id)},
+            content="Artifact comment",
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/comments",
+            {"scope": "task", "task_id": str(task.id), "item_id": str(task.id)},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in response.json()["results"]] == [str(task_comment.id)]
+
+    def test_task_wide_comment_cursor_paginates_equal_timestamps_without_gaps(self) -> None:
+        task = self._task_artifact_target()
+        comments = Comment.objects.bulk_create(
+            [
+                Comment(
+                    team=self.team,
+                    created_by=self.user,
+                    scope="task" if index % 2 == 0 else "task_artifact",
+                    item_id=str(task.id) if index % 2 == 0 else "artifact-1",
+                    item_context=None if index % 2 == 0 else {"taskId": str(task.id)},
+                    content=f"Comment {index}",
+                )
+                for index in range(101)
+            ]
+        )
+        Comment.objects.filter(id__in=[comment.id for comment in comments]).update(created_at=timezone.now())
+        query = {
+            "scope": "task",
+            "task_id": str(task.id),
+            "include_task_resources": "true",
+        }
+
+        first = self.client.get(f"/api/projects/{self.team.id}/comments", query)
+        second = self.client.get(first.json()["next"])
+        returned_ids = [row["id"] for row in first.json()["results"] + second.json()["results"]]
+
+        assert first.status_code == status.HTTP_200_OK
+        assert second.status_code == status.HTTP_200_OK
+        assert len(returned_ids) == 101
+        assert len(set(returned_ids)) == 101
+        assert set(returned_ids) == {str(comment.id) for comment in comments}
+        assert second.json()["next"] is None
+
     def test_task_comments_list_artifacts_comments_and_one_comment(self) -> None:
         task = self._task_artifact_target()
         task_run_model = apps.get_model("tasks", "TaskRun")

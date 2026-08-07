@@ -80143,6 +80143,10 @@ export namespace Schemas {
      */
     cursor?: string;
     /**
+     * When true with scope=task and task_id, include comments on the task and its artifacts and canvases.
+     */
+    include_task_resources?: boolean;
+    /**
      * Filter by the ID of the resource being commented on.
      * @minLength 1
      */
