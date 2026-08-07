@@ -63,6 +63,13 @@ await buildInParallel(
             ...common,
         },
         {
+            name: 'HogQL Parser Worker',
+            entryPoints: ['src/scenes/data-warehouse/editor/hogqlParserWorker.ts'],
+            format: 'esm',
+            outfile: path.resolve(__dirname, 'dist', 'hogqlParserWorker.js'),
+            ...common,
+        },
+        {
             name: 'Monaco Editor Worker',
             entryPoints: ['src/lib/monaco/workers/editor.worker.ts'],
             format: 'esm',

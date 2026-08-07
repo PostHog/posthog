@@ -7,6 +7,8 @@
 //
 // Reports, per phase, `blockedMs` (sum of each frame gap over the 16.7ms budget) and `maxGapMs`
 // (the longest single stall — the number a user actually feels as a freeze).
+import { readFileSync } from 'node:fs'
+
 import { chromium } from 'playwright'
 
 const args = Object.fromEntries(
@@ -20,6 +22,14 @@ const args = Object.fromEntries(
 )
 const LINES = parseInt(args.lines ?? '900', 10)
 const SCROLL_TICKS = 60
+// Storybook serves the app from vite, but the parser worker is a separate esbuild bundle served
+// from /static in production, so Storybook 404s it and the manager silently falls back to the main
+// thread. Serve a prebuilt bundle to the page so the worker path is the one measured. Build it with:
+//   node_modules/.pnpm/esbuild@*/node_modules/esbuild/bin/esbuild \
+//     frontend/src/scenes/data-warehouse/editor/hogqlParserWorker.ts \
+//     --bundle --format=esm --outfile=/tmp/hogqlParserWorker.js
+// Pass --no-worker to skip that and measure the fallback instead.
+const WORKER_BUNDLE = args['no-worker'] ? null : (args.worker ?? '/tmp/hogqlParserWorker.js')
 
 const STORY =
     'http://localhost:6006/iframe.html?id=scenes-app-data-warehouse-sql-editor--top-tools-per-server&viewMode=story'
@@ -47,6 +57,19 @@ async function main() {
     await page.addInitScript(() => {
         window.__PERF_MONACO_HOOK__ = true
     })
+
+    // Track worker creation so a silent fallback to the main thread cannot be mistaken for a fix.
+    const createdWorkerUrls = []
+    page.on('worker', (w) => createdWorkerUrls.push(w.url()))
+
+    let workerBundleServed = 0
+    if (WORKER_BUNDLE) {
+        const body = readFileSync(WORKER_BUNDLE, 'utf8')
+        await page.route('**/hogqlParserWorker.js', async (route) => {
+            workerBundleServed++
+            await route.fulfill({ body, contentType: 'text/javascript' })
+        })
+    }
 
     await page.goto(STORY, { waitUntil: 'load', timeout: 120000 })
     await page.waitForSelector('.monaco-editor', { timeout: 120000 })
@@ -119,7 +142,13 @@ async function main() {
         ed.setPosition({ lineNumber: line, column: ed.getModel().getLineMaxColumn(line) })
     }, editLine)
 
-    // Let every load-time parse and debounce finish before measuring anything.
+    // Wait for the outline itself, not for the main thread to go quiet. Once the parse runs in a
+    // worker the main thread goes quiet almost immediately, long before the result arrives.
+    await page
+        .waitForFunction(() => document.querySelector('.active-query-outline')?.style.display === 'block', undefined, {
+            timeout: 120000,
+        })
+        .catch(() => {})
     await page.evaluate(() => window.__quiesce(45, 20, 120000))
     await sleep(1000)
 
@@ -139,10 +168,36 @@ async function main() {
     await page.keyboard.press('ArrowUp')
     const cursorQuiesceMs = await page.evaluate(() => window.__quiesce())
 
-    // Phase 2 — one keystroke inside the comment, document stays valid.
+    // Phase 2 — one keystroke inside the comment, document stays valid. Moving the parse off the
+    // main thread trades a freeze for latency, so time how long the outline takes to catch up too.
+    // Re-park the cursor at the end of the edit-target comment. Phase 1's ArrowUp leaves it partway
+    // along a much longer column line, and pressing Enter there splits an expression in two, which
+    // makes the query invalid — the parser then fails fast and the phase measures nothing.
+    await page.evaluate((line) => {
+        const ed = window.__ed()
+        ed.focus()
+        ed.setPosition({ lineNumber: line, column: ed.getModel().getLineMaxColumn(line) })
+    }, editLine)
+    await page.evaluate(() => window.__quiesce())
+    await sleep(1500)
+
+    // Pressing Enter adds a line inside the inner SELECT, so the outline's own height has to grow
+    // by one line. Watching for that (rather than any style change, which a scroll also causes)
+    // is what proves the parse result actually came back and was applied.
+    const heightBeforeEdit = await page.evaluate(() => document.querySelector('.active-query-outline').style.height)
     await page.evaluate(() => window.__mark('edit'))
-    await page.keyboard.type('x')
+    const editAt = Date.now()
+    await page.keyboard.press('Enter')
     const editQuiesceMs = await page.evaluate(() => window.__quiesce())
+    let outlineUpdateMs = null
+    for (let i = 0; i < 300; i++) {
+        const h = await page.evaluate(() => document.querySelector('.active-query-outline').style.height)
+        if (h !== heightBeforeEdit) {
+            outlineUpdateMs = Date.now() - editAt
+            break
+        }
+        await sleep(100)
+    }
 
     // Phase 3 — the scroll burst PR #78998 fixed. Must not regress.
     await page.evaluate(() => window.__ed().setScrollTop(0))
@@ -189,8 +244,19 @@ async function main() {
                 lines: LINES,
                 chars: query.length,
                 outlineHeight: outline.height,
+                parserWorker: {
+                    requested: !!WORKER_BUNDLE,
+                    bundleServed: workerBundleServed,
+                    created: createdWorkerUrls.filter((u) => u.includes('hogqlParserWorker')).length,
+                },
                 cursorMove: { ...seg('cursor-move', 'edit'), settleMs: cursorQuiesceMs },
-                edit: { ...seg('edit', 'scroll-0'), settleMs: editQuiesceMs },
+                edit: {
+                    ...seg('edit', 'scroll-0'),
+                    settleMs: editQuiesceMs,
+                    // How long until the outline reflects the edit. Blocking work makes this small
+                    // but freezes the UI; off-thread work makes it larger and keeps the UI alive.
+                    outlineUpdateMs,
+                },
                 scroll: {
                     blockedMs: scrollTotal,
                     maxGapMs: Math.max(...scrollTicks.map((s) => s.maxGapMs)),
