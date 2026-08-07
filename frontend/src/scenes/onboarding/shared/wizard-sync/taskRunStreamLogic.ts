@@ -446,6 +446,7 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
             // surface asking to reconnect). Only the latter earns a new no-state window below.
             const resumingCycle = cache.reconnectScheduled === true
             cache.reconnectScheduled = false
+            cache.recoveringFromStreamError = false
             // No run to stream — the Installation layer connects this source even in local mode (where
             // there's no TaskRun), so stay idle rather than opening a stream to a non-existent run.
             if (!props.runId) {
@@ -543,13 +544,16 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
                 }
 
                 // One recovery per opened stream: the server may emit its error event more than once
-                // before the close lands, and the run detail only needs fetching once.
-                let recovering = false
+                // before the close lands, and the run detail only needs fetching once. Held on cache
+                // rather than in this closure so the serverReportedRun subscription can see it and
+                // defer, instead of both paths fetching the same run detail at once. Reset by the
+                // `connect` listener, which runs once per opened stream, so the per-stream meaning is
+                // unchanged.
                 const recoverFromStreamError = (reason: string): void => {
-                    if (recovering) {
+                    if (cache.recoveringFromStreamError) {
                         return
                     }
-                    recovering = true
+                    cache.recoveringFromStreamError = true
                     // The server closes cleanly right after this event, which the browser would answer
                     // by reconnecting into the same wait indefinitely. Drop the transport and settle the
                     // run from its REST snapshot instead.
@@ -651,9 +655,21 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
             }
             try {
                 const state = await fetchRunDetailState(projectId, props.taskId, props.runId)
+                // The fetch can outlive the logic: an unmount tears the disposables manager down, and
+                // dispatching here would land on whatever instance a same-key remount has since built.
+                if (!cache.disposables) {
+                    return
+                }
                 actions.taskRunStateUpdated(state)
                 if (isTerminalStatus(state.status)) {
+                    // Nothing further will ever be published for a finished run, so drop the transport
+                    // rather than leaving an EventSource open for the life of the tab. This path can
+                    // reach a terminal run over a stream that is still healthy but silent, which is the
+                    // whole reason it exists, so the close has to happen here and not on the way in:
+                    // disposing before the fetch would kill a working stream if the detail disagrees.
                     actions.streamCompleted()
+                    cache.disposables.dispose('task-run-sync')
+                    cache.disposables.dispose('task-run-reconnect')
                 }
                 logSyncDebug(debugSource, 'event', `run detail → ${state.status} (server reported terminal)`)
             } catch (err) {
@@ -662,7 +678,7 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
                     'error',
                     `run detail unavailable while settling from server status: ${String(err)}`
                 )
-                if (isPermanentPollError(err)) {
+                if (isPermanentPollError(err) && cache.disposables) {
                     // Deleted run, or access revoked: the fetch will never succeed, so stop the
                     // subscription below from retrying it on every 60s reconcile tick for as long as
                     // the server keeps reporting this run terminal (up to 24h), and let the surfaces
@@ -712,6 +728,13 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
             // on every tick. Once the state above settles terminal this subscription stops passing the
             // guard on its own, so the flag only needs to cover the fetch actually in flight.
             if (cache.settlingFromRunDetail) {
+                return
+            }
+            // The stream-error path is already fetching the same run detail, and it does strictly more
+            // than this one does (it also schedules a reconnect when the run turns out non-terminal),
+            // so let it win. If it leaves the run non-terminal, the next reconcile republishes and this
+            // fires again.
+            if (cache.recoveringFromStreamError) {
                 return
             }
             cache.settlingFromRunDetail = true

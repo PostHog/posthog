@@ -664,6 +664,23 @@ describe('taskRunStreamLogic transport', () => {
             expect(logic.values.isComplete).toBe(true)
         })
 
+        it('closes the stream it just declared finished', async () => {
+            // A settle can land on a run whose stream is open but silent, which is the case this
+            // whole path exists for. Declaring the run complete without dropping the transport would
+            // leave the EventSource open for the life of the tab, listening to a run nothing will
+            // ever publish to again. The stream-error path disposes it; this one has to as well.
+            logic.actions.connect()
+            MockEventSource.last().emitOpen()
+            await expectLogic(logic).toDispatchActions(['connectionOpened'])
+            mockRunRetrieve.mockResolvedValue(runDetail({ status: 'completed', completed_at: '2026-01-01T00:06:00Z' }))
+
+            activeCloudRunLogic.actions.serverRunStatusReported('run-1', 'completed')
+            await flushFallback()
+
+            expect(logic.values.taskRunState).toMatchObject({ status: 'completed' })
+            expect(MockEventSource.last().readyState).toBe(MockEventSource.CLOSED)
+        })
+
         it('does not fetch run detail for a non-terminal server-reported status', async () => {
             activeCloudRunLogic.actions.serverRunStatusReported('run-1', 'in_progress')
             await flushFallback()
