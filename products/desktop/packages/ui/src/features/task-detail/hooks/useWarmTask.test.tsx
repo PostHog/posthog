@@ -24,6 +24,7 @@ interface Props {
   workspaceMode: WorkspaceMode;
   selectedRepository?: string | null;
   githubIntegrationId?: number;
+  allowNoRepo?: boolean;
   branch?: string | null;
   editorIsEmpty: boolean;
   runtimeAdapter?: string | null;
@@ -116,6 +117,41 @@ describe("useWarmTask", () => {
     rerender(cloudTyping);
     await flushDebounce();
     expect(mockClient.warmTask).toHaveBeenCalledOnce();
+  });
+
+  it("warms a repo-less cloud task when repositories are optional", async () => {
+    renderHook((props: Props) => useWarmTask(props), {
+      initialProps: {
+        ...cloudTyping,
+        selectedRepository: null,
+        githubIntegrationId: undefined,
+        allowNoRepo: true,
+      },
+    });
+
+    await flushDebounce();
+
+    expect(mockClient.warmTask).toHaveBeenCalledWith({
+      repository: null,
+      github_integration: null,
+      branch: "main",
+      ...NULL_RUNTIME,
+    });
+  });
+
+  it("ignores a stale repository selection for a repo-less cloud task", async () => {
+    renderHook((props: Props) => useWarmTask(props), {
+      initialProps: { ...cloudTyping, allowNoRepo: true },
+    });
+
+    await flushDebounce();
+
+    expect(mockClient.warmTask).toHaveBeenCalledWith({
+      repository: null,
+      github_integration: null,
+      branch: "main",
+      ...NULL_RUNTIME,
+    });
   });
 
   it("does not re-fire for the same selection (backend dedups, client guards)", async () => {
