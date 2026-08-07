@@ -16,7 +16,6 @@ env:
 
 jobs:
     # Job to decide if we should run rust ci
-    # See .github/actions/paths-filter/README.md for filter semantics
     changes:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
@@ -29,41 +28,68 @@ jobs:
         outputs:
             rust: ${{ steps.filter.outputs.rust || 'true' }}
         steps:
-            # For pull requests it's not necessary to checkout the code, but we
-            # also want this to run on master so we need to checkout
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  clean: false
+            # This one gate decides whether the entire Rust CI graph runs, so it must
+            # not depend on GitHub's action-download service. All `uses:` actions in a
+            # job are fetched during "Set up job" before any step (or its `if:` /
+            # `continue-on-error`) is evaluated, so an action-download outage kills the
+            # job at setup — before the `|| 'true'` output fallback below can ever run —
+            # and paints every downstream Rust job red until someone reruns. We keep
+            # exactly one remote action (the app-token mint, which stays off the shared
+            # GITHUB_TOKEN rate-limit bucket; see #56215) and drop the rest: no checkout
+            # and no local paths-filter action, since the filter is a handful of path
+            # prefixes we can match inline with the preinstalled `gh`.
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: ./.github/actions/paths-filter
+            - name: Determine whether Rust checks should run
               id: filter
-              if: github.event_name != 'push' # Run all tests on master push
-              with:
-                  token: ${{ steps.app-token.outputs.token || github.token }}
-                  filters: |
-                      rust:
-                        # Avoid running rust tests for irrelevant changes
-                        - 'rust/**'
-                        - 'proto/**'
-                        - '.github/workflows/ci-rust.yml'
-                        - '.github/workflows/rust.yml'
-                        - '.github/workflows/rust-docker-build.yml'
-                        - '.github/actions/setup-protoc/**'
-                        - '.github/actions/setup-sccache/**'
-                        - 'posthog/management/commands/setup_test_environment.py'
-                        - 'posthog/migrations/**'
-                        - 'ee/migrations/**'
-                        - 'docker-compose.dev.yml'
-                        # Hypercache contract: Python serializer changes may break Rust deserialization
-                        - 'posthog/api/feature_flag.py'
-                        - 'posthog/models/feature_flag/flags_cache.py'
-                        - 'posthog/models/feature_flag/feature_flag.py'
-                        - 'rust/feature-flags/tests/fixtures/hypercache_contract.json'
+              # Only PRs need filtering. push and workflow_dispatch skip this step and
+              # fall through to the `|| 'true'` output default, running the full graph.
+              if: github.event_name == 'pull_request'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  set -euo pipefail
+                  # Paths that make a change Rust-relevant. All are directory prefixes or
+                  # exact files (no exclude globs), so anchored regexes reproduce the
+                  # `dir/**` / exact matching this gate needs. Keep in sync with the rust
+                  # filters in the other CI workflows.
+                  patterns=(
+                      '^rust/'
+                      '^proto/'
+                      '^\.github/workflows/ci-rust\.yml$'
+                      '^\.github/workflows/rust\.yml$'
+                      '^\.github/workflows/rust-docker-build\.yml$'
+                      '^\.github/actions/setup-protoc/'
+                      '^\.github/actions/setup-sccache/'
+                      '^posthog/management/commands/setup_test_environment\.py$'
+                      '^posthog/migrations/'
+                      '^ee/migrations/'
+                      '^docker-compose\.dev\.yml$'
+                      # Hypercache contract: Python serializer changes may break Rust deserialization
+                      '^posthog/api/feature_flag\.py$'
+                      '^posthog/models/feature_flag/flags_cache\.py$'
+                      '^posthog/models/feature_flag/feature_flag\.py$'
+                  )
+                  # API mode (not git diff) matches the vendored filter and avoids
+                  # over-detection on stale-base PRs. On a fetch failure, run everything:
+                  # over-running is a correct-but-slower signal, never a wrong skip.
+                  if ! files="$(gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/files" --jq '.[].filename')"; then
+                      echo "::warning title=rust change detection::could not list changed files; running the full Rust suite"
+                      echo "rust=true" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+                  pattern="$(IFS='|'; printf '%s' "${patterns[*]}")"
+                  if printf '%s\n' "$files" | grep -Eq "$pattern"; then
+                      echo "rust=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "rust=false" >> "$GITHUB_OUTPUT"
+                  fi
 
     # Compute affected crates and test shards. Only runs when Rust changes
     # are detected, keeping the lightweight `changes` job fast for non-Rust PRs.
