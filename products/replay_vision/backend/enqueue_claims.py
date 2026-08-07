@@ -99,6 +99,36 @@ def try_claim_enqueue_slot(
         return True
 
 
+def claim_enqueue_slot_prefix(
+    *,
+    team_id: int,
+    scanner_id: UUID,
+    workflow_ids: list[str],
+    team_in_flight_rows: int,
+    scanner_in_flight_rows: int,
+) -> int:
+    """Claim slots for an ordered batch, returning how many leading ids were admitted.
+
+    The batch variant of `claim_apply_scanner_slot` (which is per-request and re-reads the caps after
+    each claim, far too many queries for a 50-wide fan-out). One row-count read is shared across the
+    batch, which is sound because the Lua script counts claims taken earlier in the same loop itself.
+
+    Stops at the first refusal instead of skipping ahead, so the admitted set is always a prefix of
+    the caller's ordering. A keyset walk can then advance its cursor to the last admitted item and
+    retry the rest, rather than stepping over sessions that were never dispatched.
+    """
+    for admitted, workflow_id in enumerate(workflow_ids):
+        if not try_claim_enqueue_slot(
+            team_id=team_id,
+            scanner_id=scanner_id,
+            workflow_id=workflow_id,
+            team_in_flight_rows=team_in_flight_rows,
+            scanner_in_flight_rows=scanner_in_flight_rows,
+        ):
+            return admitted
+    return len(workflow_ids)
+
+
 def release_enqueue_claim(*, team_id: int, scanner_id: UUID, workflow_id: str, immediately: bool = False) -> None:
     """Decay a claim once its observation row exists (or the start failed); unreleased claims
     self-expire. `immediately` removes it outright, for claims that never covered anything."""

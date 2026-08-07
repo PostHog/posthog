@@ -37,14 +37,12 @@ async def count_in_flight_applies_activity(inputs: CountInFlightAppliesInputs) -
         return 0
 
 
-def count_in_flight(
-    team_id: int, scanner_id: UUID, backfill_id: UUID | None = None, include_claims: bool = True
-) -> dict[str, int]:
-    """Count in-flight (pending/running) observations for a scanner, its whole team, and optionally one backfill.
+def count_in_flight_rows(team_id: int, scanner_id: UUID, backfill_id: UUID | None = None) -> dict[str, int]:
+    """Persisted pending/running rows for a scanner, its whole team, and optionally one backfill.
 
-    Counts DB rows rather than Temporal visibility so concurrency shares the quota system's
-    single notion of in-flight (rows + enqueue claims); the sweep and backfill throttles must
-    both go through here so a new pending source can't update one and drift the other.
+    Rows rather than Temporal visibility, so concurrency shares the quota system's single notion of
+    in-flight. Callers enforcing a cap want `count_in_flight` below; this raw form is for the claim
+    protocol, which adds outstanding claims itself.
     """
     aggregates = {
         "team": Count("id"),
@@ -52,13 +50,14 @@ def count_in_flight(
     }
     if backfill_id is not None:
         aggregates["backfill"] = Count("id", filter=Q(backfill_id=backfill_id))
-    counts = ReplayObservation.in_flight_for_team(team_id).aggregate(**aggregates)
-    if include_claims:
-        # Enqueued-but-not-yet-persisted scans hold claims until their rows exist.
-        counts["team"] += pending_enqueue_claims_for_team(team_id)
-        counts["scanner"] += pending_enqueue_claims_for_scanner(scanner_id)
-    # `include_claims=False` returns pure row counts, which is what `try_claim_enqueue_slot` expects:
-    # its Lua script adds the outstanding claims itself, so pre-adding them would double-count.
+    return ReplayObservation.in_flight_for_team(team_id).aggregate(**aggregates)
+
+
+def count_in_flight(team_id: int, scanner_id: UUID, backfill_id: UUID | None = None) -> dict[str, int]:
+    """Capacity as the caps see it: persisted rows plus slots claimed but not yet persisted."""
+    counts = count_in_flight_rows(team_id, scanner_id, backfill_id)
+    counts["team"] += pending_enqueue_claims_for_team(team_id)
+    counts["scanner"] += pending_enqueue_claims_for_scanner(scanner_id)
     return counts
 
 

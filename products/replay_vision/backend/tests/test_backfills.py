@@ -4,15 +4,12 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from posthog.models import Organization, Team
 
-from products.replay_vision.backend.api.backfills import (
-    MAX_BACKFILL_WINDOW_DAYS,
-    BackfillEnumerationThrottle,
-    ReplayScannerBackfillViewSet,
-)
+from products.replay_vision.backend.api.backfills import MAX_BACKFILL_WINDOW_DAYS, BackfillEnumerationThrottle
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.replay_scanner_backfill import BackfillStatus, ReplayScannerBackfill
@@ -75,9 +72,9 @@ def _make_backfill(scanner: ReplayScanner, **overrides) -> ReplayScannerBackfill
 @pytest.mark.parametrize(
     "scanner_in_flight,team_in_flight,backfill_in_flight,expected",
     [
+        # One case per cap that can win, plus the fully-saturated floor.
         (0, 0, 0, MAX_IN_FLIGHT_APPLIES_PER_BACKFILL),
         (0, 0, MAX_IN_FLIGHT_APPLIES_PER_BACKFILL, 0),
-        (0, 0, 30, MAX_IN_FLIGHT_APPLIES_PER_BACKFILL - 30),
         (MAX_IN_FLIGHT_APPLIES_PER_SCANNER - 10, 0, 0, 10),
         (0, MAX_IN_FLIGHT_APPLIES_PER_TEAM - 5, 0, 5),
     ],
@@ -360,15 +357,22 @@ class TestBackfillsApi(APIBaseTest):
         response = self.client.post(f"{self.base_url}/{running.id}/resume/")
         assert response.status_code == 400
 
-    def test_enumerating_actions_are_throttled_for_session_auth(self) -> None:
-        # The global burst/sustained throttles only cover personal API keys, so dropping this wiring
-        # would leave the synchronous ClickHouse enumeration open to an ordinary UI session.
-        viewset = ReplayScannerBackfillViewSet()
-        for enumerating_action in ("estimate", "create"):
-            viewset.action = enumerating_action
-            assert any(isinstance(t, BackfillEnumerationThrottle) for t in viewset.get_throttles())
-        viewset.action = "cancel"
-        assert not any(isinstance(t, BackfillEnumerationThrottle) for t in viewset.get_throttles())
+    @patch("products.replay_vision.backend.api.backfills.BackfillCandidateQuery")
+    def test_estimate_throttles_a_session_authenticated_caller(self, mock_query: MagicMock) -> None:
+        # The global burst/sustained throttles only cover personal API keys, so without this one a
+        # UI session could resubmit wide windows and saturate the ClickHouse pool.
+        mock_query.return_value.count.return_value = 1
+        cache.clear()
+        with (
+            patch.object(BackfillEnumerationThrottle, "rate", "1/minute"),
+            patch.object(
+                BackfillEnumerationThrottle, "THROTTLE_RATES", {"replay_vision_backfill_enumeration": "1/minute"}
+            ),
+        ):
+            first = self.client.post(f"{self.base_url}/estimate/", self._window_body(), format="json")
+            second = self.client.post(f"{self.base_url}/estimate/", self._window_body(), format="json")
+        assert first.status_code == 200, first.json()
+        assert second.status_code == 429
 
     def test_list_includes_observation_progress_counts(self) -> None:
         backfill = _make_backfill(self.scanner, dispatched_count=3)

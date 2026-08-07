@@ -88,21 +88,18 @@ class BackfillScannerWorkflow(PostHogWorkflow):
             # Deterministic child ids collide with live-sweep applies of the same (scanner, session), so
             # a session observed live is skipped here for free.
             await asyncio.gather(*(self._start_child(inputs, c) for c in find_result.candidates))
-            last = find_result.candidates[-1]
-            advance = AdvanceBackfillCursorInputs(
-                backfill_id=inputs.backfill_id,
-                team_id=inputs.team_id,
-                new_cursor_end_time=last.session_end,
-                new_cursor_session_id=last.session_id,
-                dispatched_delta=len(find_result.candidates),
-                exhausted=not find_result.saturated,
-            )
-        else:
-            # An empty batch means the window is drained only when nothing was held back: a tick that
-            # claimed no slots reports `saturated`, so it leaves the cursor alone and retries later.
-            advance = AdvanceBackfillCursorInputs(
-                backfill_id=inputs.backfill_id, team_id=inputs.team_id, exhausted=not find_result.saturated
-            )
+
+        # An empty batch leaves the cursor where it is, so a tick that dispatched nothing because the
+        # caps were full retries those sessions rather than stepping over them.
+        last = find_result.candidates[-1] if find_result.candidates else None
+        advance = AdvanceBackfillCursorInputs(
+            backfill_id=inputs.backfill_id,
+            team_id=inputs.team_id,
+            new_cursor_end_time=last.session_end if last else None,
+            new_cursor_session_id=last.session_id if last else "",
+            dispatched_delta=len(find_result.candidates),
+            exhausted=not find_result.more_work_below_cursor,
+        )
 
         result = await wf.execute_activity(
             advance_backfill_cursor_activity,

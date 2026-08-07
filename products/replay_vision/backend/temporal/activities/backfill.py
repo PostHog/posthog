@@ -17,7 +17,7 @@ from posthog.schema import RecordingsQuery
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
-from products.replay_vision.backend.enqueue_claims import try_claim_enqueue_slot
+from products.replay_vision.backend.enqueue_claims import claim_enqueue_slot_prefix
 from products.replay_vision.backend.models.replay_scanner_backfill import (
     ACTIVE_BACKFILL_STATUSES,
     BackfillStatus,
@@ -25,7 +25,10 @@ from products.replay_vision.backend.models.replay_scanner_backfill import (
 )
 from products.replay_vision.backend.queries.scanner_candidate_query import BackfillCandidateQuery
 from products.replay_vision.backend.quota import compute_quota_snapshot
-from products.replay_vision.backend.temporal.activities.count_in_flight_applies import count_in_flight
+from products.replay_vision.backend.temporal.activities.count_in_flight_applies import (
+    count_in_flight,
+    count_in_flight_rows,
+)
 from products.replay_vision.backend.temporal.backfill_types import (
     AdvanceBackfillCursorInputs,
     AdvanceBackfillCursorOutput,
@@ -41,6 +44,7 @@ from products.replay_vision.backend.temporal.constants import (
     BACKFILL_SCHEDULE_TYPE,
     backfill_dispatch_budget,
     build_apply_scanner_workflow_id,
+    in_flight_headroom,
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.metrics import record_backfill_tick_outcome
@@ -118,7 +122,14 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         .first()
     )
     if backfill is None:
-        return FindBackfillCandidatesOutput(candidates=[], saturated=False)
+        return FindBackfillCandidatesOutput(candidates=[], more_work_below_cursor=False)
+
+    rows = count_in_flight_rows(inputs.team_id, backfill.scanner_id)
+    if in_flight_headroom(rows["scanner"], rows["team"]) <= 0:
+        # Headroom vanished since the prepare gate; skip the enumeration rather than run the tick's
+        # most expensive query only to refuse every candidate it returns.
+        record_backfill_tick_outcome("throttled")
+        return FindBackfillCandidatesOutput(candidates=[], more_work_below_cursor=True)
 
     snapshot = BackfillScannerSnapshot.load_for_backfill(backfill.id, backfill.scanner_snapshot)
     try:
@@ -142,29 +153,25 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         candidate_limit=inputs.candidate_limit,
     ).run()
 
-    # Claim each slot before the workflow starts its children: a started child is invisible to the
-    # row-count caps until it persists its observation, so concurrent ticks would otherwise all read
-    # the same headroom. `create_observation_activity` releases the claim once the row exists.
-    rows = count_in_flight(inputs.team_id, backfill.scanner_id, include_claims=False)
-    claimed: list[CandidateSessionPayload] = []
-    for candidate in candidates:
-        if not try_claim_enqueue_slot(
-            team_id=inputs.team_id,
-            scanner_id=backfill.scanner_id,
-            workflow_id=build_apply_scanner_workflow_id(backfill.scanner_id, candidate.session_id),
-            team_in_flight_rows=rows["team"],
-            scanner_in_flight_rows=rows["scanner"],
-        ):
-            # Stop at the first refusal so the returned list stays a prefix of the descending walk;
-            # the cursor then advances to the last claimed session and the rest are retried next tick.
-            break
-        claimed.append(CandidateSessionPayload(session_id=candidate.session_id, session_end=candidate.session_end))
+    # Claim a slot per candidate before the workflow starts its children: a started child is
+    # invisible to the row-count caps until it persists its observation, so concurrent ticks would
+    # otherwise all read the same headroom. `create_observation_activity` releases the claim once
+    # the row exists, and unreleased claims expire on their own TTL.
+    admitted = claim_enqueue_slot_prefix(
+        team_id=inputs.team_id,
+        scanner_id=backfill.scanner_id,
+        workflow_ids=[build_apply_scanner_workflow_id(backfill.scanner_id, c.session_id) for c in candidates],
+        team_in_flight_rows=rows["team"],
+        scanner_in_flight_rows=rows["scanner"],
+    )
 
     return FindBackfillCandidatesOutput(
-        candidates=claimed,
-        # More work below the keyset when the query filled the batch, or when the caps truncated it.
-        # Never let a truncated batch look like a drained window, which would complete the backfill.
-        saturated=len(candidates) == inputs.candidate_limit or len(claimed) < len(candidates),
+        candidates=[
+            CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in candidates[:admitted]
+        ],
+        # Held-back candidates are still work below the cursor, so a truncated batch must not look
+        # like a drained window; that would complete the backfill with sessions left unscanned.
+        more_work_below_cursor=len(candidates) == inputs.candidate_limit or admitted < len(candidates),
     )
 
 

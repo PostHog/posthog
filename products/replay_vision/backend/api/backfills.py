@@ -1,6 +1,7 @@
 """API for historical backfills: estimate, create, monitor, cancel, resume."""
 
 import uuid
+import datetime as dt
 from datetime import datetime
 from typing import Any, cast
 
@@ -65,7 +66,7 @@ class BackfillWindowSerializer(serializers.Serializer):
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if attrs["window_start"] >= attrs["window_end"]:
             raise ValidationError("window_start must be before window_end.")
-        if (attrs["window_end"] - attrs["window_start"]).days > MAX_BACKFILL_WINDOW_DAYS:
+        if attrs["window_end"] - attrs["window_start"] > dt.timedelta(days=MAX_BACKFILL_WINDOW_DAYS):
             raise ValidationError(
                 f"Backfill windows are limited to {MAX_BACKFILL_WINDOW_DAYS} days. Pick a shorter range."
             )
@@ -145,18 +146,16 @@ class ReplayScannerBackfillViewSet(
     # `objects` is fail-closed; `safely_get_queryset` re-scopes to the request team and scanner.
     queryset = ReplayScannerBackfill.objects.unscoped()
 
-    _WRITE_ACTIONS = frozenset(scope_object_write_actions)
-    # Both run the ClickHouse enumeration; cancel and resume do not.
-    _ENUMERATING_ACTIONS = frozenset({"estimate", "create"})
-
     def get_throttles(self) -> list[Any]:
-        if self.action in self._ENUMERATING_ACTIONS:
-            return [BackfillEnumerationThrottle()]
+        # Append, never replace: returning only this throttle would drop the global burst and
+        # sustained limits from the two actions that run the heaviest query.
+        if self.action in ("estimate", "create"):
+            return [*super().get_throttles(), BackfillEnumerationThrottle()]
         return super().get_throttles()
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         # Same authorization as /observe/: a backfill dispatches scans, which exposes recording contents.
-        if self.action in self._WRITE_ACTIONS:
+        if self.action in self.scope_object_write_actions:
             return ["replay_scanner:write", "session_recording:read"]
         return ["replay_scanner:read", "session_recording:read"]
 

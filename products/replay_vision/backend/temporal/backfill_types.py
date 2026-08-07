@@ -41,8 +41,9 @@ class FindBackfillCandidatesInputs(BaseModel, frozen=True):
 
 class FindBackfillCandidatesOutput(BaseModel, frozen=True):
     candidates: list[CandidateSessionPayload]
-    # A full batch means there may be more below the keyset; anything less means the walk reached the window start.
-    saturated: bool
+    # False only when the walk genuinely reached the window start: a batch the caps truncated still
+    # has work below the cursor. The tick completes the backfill exactly when this is False.
+    more_work_below_cursor: bool
 
 
 class AdvanceBackfillCursorInputs(BaseModel, frozen=True):
