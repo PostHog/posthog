@@ -42,3 +42,10 @@ export const TASK_COST_FLAG = "posthog-code-task-cost";
  * the legacy stop-polling-once-staged behavior.
  */
 export const STAGED_UPDATES_FLAG = "posthog-desktop-staged-updates";
+/**
+ * Remote in-app announcements. The flag's JSON payload carries the
+ * announcements (schema: `announcements.ts`); rollout % arms the system.
+ * All broad announcements go through this — do not add ad-hoc promo
+ * surfaces (see docs/ANNOUNCEMENTS.md).
+ */
+export const ANNOUNCEMENTS_FLAG = "posthog-desktop-announcements";

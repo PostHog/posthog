@@ -9092,6 +9092,8 @@ export interface ActivityEventsListWidgetCatalogEntryOpenApiApi {
     readonly config_schema: ActivityEventsListWidgetConfigApi
     /** @nullable */
     required_product_access?: string | null
+    /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+    live: boolean
 }
 
 export type ErrorTrackingListWidgetCatalogEntryOpenApiApiWidgetType =
@@ -9111,6 +9113,8 @@ export interface ErrorTrackingListWidgetCatalogEntryOpenApiApi {
     readonly config_schema: ErrorTrackingListWidgetConfigApi
     /** @nullable */
     required_product_access?: string | null
+    /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+    live: boolean
 }
 
 export type SessionReplayListWidgetCatalogEntryOpenApiApiWidgetType =
@@ -9130,6 +9134,8 @@ export interface SessionReplayListWidgetCatalogEntryOpenApiApi {
     readonly config_schema: SessionReplayListWidgetConfigApi
     /** @nullable */
     required_product_access?: string | null
+    /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+    live: boolean
 }
 
 export type ExperimentsListWidgetCatalogEntryOpenApiApiWidgetType =
@@ -9149,6 +9155,8 @@ export interface ExperimentsListWidgetCatalogEntryOpenApiApi {
     readonly config_schema: ExperimentsListWidgetConfigApi
     /** @nullable */
     required_product_access?: string | null
+    /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+    live: boolean
 }
 
 export type ExperimentResultsWidgetCatalogEntryOpenApiApiWidgetType =
@@ -9168,6 +9176,8 @@ export interface ExperimentResultsWidgetCatalogEntryOpenApiApi {
     readonly config_schema: ExperimentResultsWidgetConfigApi
     /** @nullable */
     required_product_access?: string | null
+    /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+    live: boolean
 }
 
 export type SurveyResultsWidgetCatalogEntryOpenApiApiWidgetType =
@@ -9187,6 +9197,8 @@ export interface SurveyResultsWidgetCatalogEntryOpenApiApi {
     readonly config_schema: SurveyResultsWidgetConfigApi
     /** @nullable */
     required_product_access?: string | null
+    /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+    live: boolean
 }
 
 export type LogsListWidgetCatalogEntryOpenApiApiWidgetType =
@@ -9206,6 +9218,8 @@ export interface LogsListWidgetCatalogEntryOpenApiApi {
     readonly config_schema: LogsListWidgetConfigApi
     /** @nullable */
     required_product_access?: string | null
+    /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+    live: boolean
 }
 
 export type WidgetCatalogEntryApi =
