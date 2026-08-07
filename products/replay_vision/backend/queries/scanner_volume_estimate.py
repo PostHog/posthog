@@ -32,6 +32,10 @@ ESTIMATE_WINDOW_DAYS = 30
 _ESTIMATE_SCAN_WINDOW_DAYS = 7
 # Events subqueries additionally SAMPLE users at 10%; matched counts are corrected back up.
 _ESTIMATE_EVENTS_SAMPLE_FACTOR = 0.1
+# Below this many sampled matches the ×10 correction is dominated by sampling noise (a raw count of
+# 3 can only project to 20 or 30 sessions), so we recount exactly — a week of a small team's
+# recordings is cheap to count outright, which is precisely where the correction is most wrong.
+_ESTIMATE_SMALL_N_EXACT_THRESHOLD = 100
 
 # The earliest-recording probe only needs to see past the scan window; anything older clamps identically.
 _EARLIEST_PROBE_LOOKBACK_DAYS = _ESTIMATE_SCAN_WINDOW_DAYS + 1
@@ -47,6 +51,30 @@ class ScannerVolumeEstimate:
     effective_window_days: int
 
 
+def _matched_count_subquery(
+    *,
+    team: Team,
+    windowed: RecordingsQuery,
+    extra_having: list[ast.Expr],
+    sample_factor: float | None,
+) -> tuple[ast.SelectQuery, SessionRecordingListFromQuery]:
+    """Build a `COUNT` over the sessions matching `windowed`, reusing the real list query's compilation."""
+    list_query = SessionRecordingListFromQuery(
+        team=team,
+        query=windowed,
+        extra_having_predicates=extra_having,
+        events_sample_factor=sample_factor,
+    )
+    inner = list_query.get_query()
+    # The inner query groups by session_id, so one row is one session; order is irrelevant to a count.
+    inner.order_by = None
+    subquery = ast.SelectQuery(
+        select=[ast.Alias(alias="matched", expr=ast.Call(name="count", args=[]))],
+        select_from=ast.JoinExpr(table=inner, alias="_matched"),
+    )
+    return subquery, list_query
+
+
 def estimate_scanner_session_volume(
     *,
     team: Team,
@@ -57,11 +85,15 @@ def estimate_scanner_session_volume(
 ) -> ScannerVolumeEstimate:
     """Count sessions matching `query` over the last week, for the scanner cost preview.
 
-    Reuses `SessionRecordingListFromQuery`'s filter compilation (with events subqueries sampled
-    at 10% and corrected back up) wrapped in a COUNT, so the estimate and the real recordings
-    list agree on what "matches"; `project_monthly_observations` extrapolates to 30 days. The team's
-    earliest recent recording is fetched in the same round trip via a CROSS JOIN so the
-    cost-preview widget never pays for two sequential HogQL queries.
+    Reuses `SessionRecordingListFromQuery`'s filter compilation wrapped in a COUNT, so the estimate
+    and the real recordings list agree on what "matches"; `project_monthly_observations` extrapolates
+    to 30 days. The team's earliest recent recording is fetched in the same round trip via a CROSS
+    JOIN so the cost-preview widget never pays for two sequential HogQL queries.
+
+    The user's own selective event/action filters are sampled at 10% and corrected back up so a
+    30-day-equivalent scan stays affordable. Test-account exclusions are never sampled (they are
+    non-selective, so sampling only adds noise). When the sampled count is small enough that the
+    correction would be dominated by that noise, we recount exactly in a second round trip.
     """
     now = dt.datetime.now(dt.UTC)
     window_start = now - dt.timedelta(days=_ESTIMATE_SCAN_WINDOW_DAYS)
@@ -77,19 +109,8 @@ def estimate_scanner_session_volume(
     # Sampling is only sound when every match must pass the sampled events leg; under OR, sessions
     # matched via unsampled branches (persons, cohorts, console logs) would be multiplied by the correction.
     sample_factor = None if windowed.operand == FilterLogicalOperator.OR_ else _ESTIMATE_EVENTS_SAMPLE_FACTOR
-    list_query = SessionRecordingListFromQuery(
-        team=team,
-        query=windowed,
-        extra_having_predicates=extra_having,
-        events_sample_factor=sample_factor,
-    )
-    inner = list_query.get_query()
-    # The inner query groups by session_id, so one row is one session; order is irrelevant to a count.
-    inner.order_by = None
-
-    matched_subquery = ast.SelectQuery(
-        select=[ast.Alias(alias="matched", expr=ast.Call(name="count", args=[]))],
-        select_from=ast.JoinExpr(table=inner, alias="_matched"),
+    matched_subquery, list_query = _matched_count_subquery(
+        team=team, windowed=windowed, extra_having=extra_having, sample_factor=sample_factor
     )
     earliest_subquery = ast.SelectQuery(
         select=[
@@ -131,15 +152,52 @@ def estimate_scanner_session_volume(
         ch_user=ch_user,
     )
     results = response.results or []
-    matched = int(results[0][0]) if results else 0
-    if list_query.events_subqueries_sampled:
-        matched = round(matched / _ESTIMATE_EVENTS_SAMPLE_FACTOR)
+    raw_matched = int(results[0][0]) if results else 0
     earliest = results[0][1] if results else None
+
+    if not list_query.events_subqueries_sampled:
+        matched = raw_matched
+    elif raw_matched < _ESTIMATE_SMALL_N_EXACT_THRESHOLD:
+        # Sampling noise dominates the correction at low counts, so recount exactly. The unsampled
+        # scan is cheap here precisely because so few sessions matched.
+        matched = _count_matched_exactly(
+            team=team,
+            windowed=windowed,
+            extra_having=extra_having,
+            max_execution_seconds=max_execution_seconds,
+            ch_user=ch_user,
+        )
+    else:
+        matched = round(raw_matched / _ESTIMATE_EVENTS_SAMPLE_FACTOR)
 
     return ScannerVolumeEstimate(
         matched_sessions=matched,
         effective_window_days=_clamp_window_days(earliest),
     )
+
+
+def _count_matched_exactly(
+    *,
+    team: Team,
+    windowed: RecordingsQuery,
+    extra_having: list[ast.Expr],
+    max_execution_seconds: int,
+    ch_user: ClickHouseUser,
+) -> int:
+    """Count matching sessions over the scan window with no events sampling, for an exact small-n result."""
+    matched_subquery, _ = _matched_count_subquery(
+        team=team, windowed=windowed, extra_having=extra_having, sample_factor=None
+    )
+    tag_queries(team_id=team.id, product=Product.REPLAY_VISION, feature=Feature.QUERY)
+    response = execute_hogql_query(
+        query=matched_subquery,
+        team=team,
+        query_type="ReplayVisionScannerEstimateExactQuery",
+        settings=HogQLGlobalSettings(max_execution_time=max_execution_seconds),
+        ch_user=ch_user,
+    )
+    results = response.results or []
+    return int(results[0][0]) if results else 0
 
 
 def project_monthly_observations(estimate: ScannerVolumeEstimate, sampling_rate: float) -> int:

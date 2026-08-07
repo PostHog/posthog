@@ -473,11 +473,16 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             test_account_query.actions = None
             test_account_query.console_log_filters = None
 
+            # Never sample the test-account-filter events subquery, even when the caller opts into
+            # sampling for the estimate. Test-account filters are non-selective exclusions (nearly
+            # every session passes them), so a 10% SAMPLE recovers no meaningful cost while turning
+            # an exact count into a noisy one that the ×10 correction then amplifies — enough to make
+            # the scanner cost estimate move the wrong way when the internal-users toggle is flipped.
             test_account_events_builder = ReplayFiltersEventsSubQuery(
                 self._team,
                 test_account_query,
                 self._allow_event_property_expansion,
-                sample_factor=self._events_sample_factor,
+                sample_factor=None,
             )
             for sub_q in test_account_events_builder.get_queries_for_session_id_matching():
                 exprs.append(
@@ -486,7 +491,6 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                     )
                 )
             test_account_negative_blocklist = test_account_events_builder.get_negative_blocklist_query()
-            self.events_subqueries_sampled |= test_account_events_builder.emitted_sampled_subquery
             if test_account_negative_blocklist:
                 exprs.append(
                     ast.CompareOperation(

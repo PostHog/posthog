@@ -107,8 +107,8 @@ def test_estimate_samples_only_positive_events_subqueries(
 @pytest.mark.parametrize(
     "operand, expected_matched",
     [
-        (FilterLogicalOperator.AND_, 50),  # sampled leg gates every match, so the count is corrected up
-        (FilterLogicalOperator.OR_, 5),  # unsampled branches could match alone, so no sampling and no correction
+        (FilterLogicalOperator.AND_, 1500),  # sampled leg gates every match, so the count is corrected up
+        (FilterLogicalOperator.OR_, 150),  # unsampled branches could match alone, so no sampling and no correction
     ],
 )
 def test_estimate_corrects_count_only_when_sampling_is_sound(
@@ -120,12 +120,50 @@ def test_estimate_corrects_count_only_when_sampling_is_sound(
         properties=[{"type": "person", "key": "email", "operator": "icontains", "value": "@"}],
         operand=operand,
     )
+    # Count is above the small-n threshold, so the ×10 correction runs rather than an exact recount.
     with patch(
         "products.replay_vision.backend.queries.scanner_volume_estimate.execute_hogql_query",
-        return_value=MagicMock(results=[[5, None]]),
+        return_value=MagicMock(results=[[150, None]]),
     ):
         estimate = estimate_scanner_session_volume(team=scanner.team, query=query)
     assert estimate.matched_sessions == expected_matched
+
+
+@pytest.mark.django_db
+def test_estimate_recounts_exactly_when_sampled_count_is_small() -> None:
+    scanner = _make_scanner()
+    query = RecordingsQuery(events=[{"id": "$pageview", "type": "events", "name": "$pageview"}])
+    # First call is the sampled count (3, below the threshold); the second is the exact recount.
+    with patch(
+        "products.replay_vision.backend.queries.scanner_volume_estimate.execute_hogql_query",
+        side_effect=[MagicMock(results=[[3, None]]), MagicMock(results=[[21]])],
+    ) as execute:
+        estimate = estimate_scanner_session_volume(team=scanner.team, query=query)
+    # The exact 21 is used, not the noisy round(3 / 0.1) == 30 the blanket correction would produce.
+    assert estimate.matched_sessions == 21
+    assert execute.call_count == 2
+
+
+@pytest.mark.django_db
+def test_test_account_event_filters_are_not_sampled_in_estimate() -> None:
+    org = Organization.objects.create(name="vision-ta-org")
+    team = Team.objects.create(
+        organization=org,
+        name="vision-ta-team",
+        test_account_filters=[{"key": "$host", "type": "event", "value": "example.com", "operator": "exact"}],
+    )
+    # A positive event-typed test-account filter used to route through the sampled events subquery,
+    # so enabling the internal-users toggle silently switched the estimate to a sampled ×10 count.
+    list_query = SessionRecordingListFromQuery(
+        team=team,
+        query=RecordingsQuery(filter_test_accounts=True),
+        events_sample_factor=_ESTIMATE_EVENTS_SAMPLE_FACTOR,
+    )
+    built = list_query.get_query()
+
+    assert list_query.events_subqueries_sampled is False
+    sql = prepare_and_print_ast(built, HogQLContext(team_id=team.pk, enable_select_queries=True), "clickhouse")[0]
+    assert f"SAMPLE {_ESTIMATE_EVENTS_SAMPLE_FACTOR}" not in sql
 
 
 @pytest.mark.parametrize(
