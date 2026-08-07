@@ -137,8 +137,8 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
         getDescription: (_billingPlan: BillingPlan, scrollToProduct: (productType: string) => void) => (
             <>
                 <p>
-                    You'll get $50K in credits every year, forever, until you hit $25M ARR. Your credits will renew
-                    automatically.
+                    You'll get $50K in credits every year, forever, until you hit $25M in funding. Your credits will
+                    renew automatically.
                 </p>
                 <p>
                     If you're growing like crazy, you might want to check out our{' '}
