@@ -3369,6 +3369,9 @@ export const workflowLogic = kea<workflowLogicType>([
                 }
 
                 if (props.id === 'new' && originalWorkflow.id) {
+                    // Key the lookup explicitly. workflowSceneLogic is keyed by id, so an unkeyed
+                    // findMounted() resolves to the last-built key, which after the scene re-keys from
+                    // 'new' to the saved UUID is a different instance and throws mid-redirect.
                     const currentTab = workflowSceneLogic.findMounted({ id: props.id })?.values.currentTab
                     router.actions.replace(urls.workflow(originalWorkflow.id, currentTab || 'workflow'))
                 }
