@@ -1,9 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCalendar, IconUser, IconWarning } from '@posthog/icons'
-import { LemonBanner, LemonCard, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
-
-import { urls } from 'scenes/urls'
+import { IconCalendar, IconQuestion, IconUser, IconWarning } from '@posthog/icons'
+import { LemonBanner, LemonCard, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { ScoutCreateButton } from 'products/signals/frontend/inbox/components/config/scouts/ScoutCreateButton'
 import { ScoutRowCard } from 'products/signals/frontend/inbox/components/config/scouts/ScoutRowCard'
@@ -16,7 +14,6 @@ import {
 } from './aiObservabilityScoutTemplates'
 
 const SCOUTS_DOCS_URL = 'https://posthog.com/docs/self-driving/scouts'
-const SELF_DRIVING_PIPELINE_DOCS_URL = 'https://posthog.com/docs/self-driving/self-improving-loop'
 
 const TEMPLATE_ICONS: Record<AIObservabilityScoutTemplate['key'], JSX.Element> = {
     'daily-digest': <IconCalendar />,
@@ -102,22 +99,23 @@ export function AIObservabilitySelfDriving(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-6">
-            <p className="m-0 max-w-4xl text-sm text-muted">
-                <Link to={SCOUTS_DOCS_URL} target="_blank">
-                    Scouts
-                </Link>{' '}
-                are scheduled agents that explore your AI observability data and surface findings worth reviewing. Their
-                output feeds into the{' '}
-                <Link to={SELF_DRIVING_PIPELINE_DOCS_URL} target="_blank">
-                    self-driving pipeline
-                </Link>
-                , where related signals are grouped into reports. Actionable scout reports appear in your{' '}
-                <Link to={urls.inbox('reports')}>Inbox</Link>.
-            </p>
-
             <section className="flex flex-col gap-2">
                 <div>
-                    <h2 className="m-0 text-base font-semibold">Start with a template</h2>
+                    <div className="flex items-center gap-2">
+                        <h2 className="m-0 text-base font-semibold">Start with a template</h2>
+                        <Tooltip
+                            title="Each template is a pre-defined scout – a scheduled agent that explores your AI observability data and surfaces findings worth reviewing. Actionable scout reports land in your inbox."
+                            docLink={SCOUTS_DOCS_URL}
+                        >
+                            <span
+                                className="inline-flex items-center gap-1 text-xs text-muted hover:text-default cursor-pointer transition-colors"
+                                data-attr="ai-observability-scout-templates-what-is-this"
+                            >
+                                <IconQuestion className="text-sm" />
+                                What is this?
+                            </span>
+                        </Tooltip>
+                    </div>
                     <p className="m-0 text-sm text-muted">
                         Choose a starting point, then review and edit it before saving.
                     </p>
