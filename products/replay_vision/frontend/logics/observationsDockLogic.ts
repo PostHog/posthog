@@ -78,8 +78,8 @@ export interface observationsDockLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         hasObservationsInFlight: (observations: ReplayObservationApi[]) => boolean
-        filteredScanners: (scanners: ReplayScannerApi[], scannerSearch: string) => ReplayScannerApi[]
         seekbarMarks: (observations: ReplayObservationApi[]) => ObservationSeekbarMark[]
+        filteredScanners: (scanners: ReplayScannerApi[], scannerSearch: string) => ReplayScannerApi[]
     }
 }
 
