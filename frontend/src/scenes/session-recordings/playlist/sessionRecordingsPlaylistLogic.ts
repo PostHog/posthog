@@ -541,7 +541,7 @@ export interface sessionRecordingsPlaylistLogicActions {
         loadTime: number,
         filters: RecordingUniversalFilters,
         defaultDurationFilter: RecordingDurationFilter,
-        source?: string
+        source?: string | undefined
     ) => {
         defaultDurationFilter: RecordingDurationFilter
         filters: RecordingUniversalFilters
