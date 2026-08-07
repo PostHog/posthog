@@ -32,6 +32,14 @@ const NUDGE_CTA = 'Set up recurring updates'
 // staying inside the 5s a success toast is left on screen for.
 const SETTLE_MS = 6000
 
+// A nudged toast has to route both actions through the nudge's own row: leaving the way back to the
+// exports panel in ToastContent's slot as well renders it twice, on a second axis.
+function expectButtonRow(): void {
+    const row = document.querySelector('.nudge-button-row')
+    expect(row?.textContent).toEqual(`${NUDGE_CTA}View exports`)
+    expect(screen.getAllByText('View exports')).toHaveLength(1)
+}
+
 // react-toastify and lemonToast are deliberately left unmocked: this suite exists because the
 // completion toast's final rendered state is the only place the regression below is visible.
 describe('export completion toast', () => {
@@ -40,13 +48,17 @@ describe('export completion toast', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         // Mirrors the real nudge's shape: a headline supplied by whichever toast state is showing,
-        // plus the call to action underneath it.
+        // the call to action underneath it, and the secondary action the nudge renders itself
+        // rather than leaving to ToastContent's button slot.
         jest.mocked(claimExportNudgeMessage).mockImplementation((candidate) =>
             candidate
-                ? (headline) => (
+                ? (headline, secondaryAction) => (
                       <span>
                           <span>{headline}</span>
-                          <span>{NUDGE_CTA}</span>
+                          <span className="nudge-button-row">
+                              <button>{NUDGE_CTA}</button>
+                              {secondaryAction && <button>{secondaryAction.label}</button>}
+                          </span>
                       </span>
                   )
                 : null
@@ -116,6 +128,7 @@ describe('export completion toast', () => {
         // Still exporting, and the nudge is already readable rather than waiting for the export.
         expect(screen.getByText('Preparing export…')).toBeTruthy()
         expect(screen.getByText(NUDGE_CTA)).toBeTruthy()
+        expectButtonRow()
 
         finishExport({
             id: 31,
@@ -134,5 +147,6 @@ describe('export completion toast', () => {
         expect(screen.getByText(NUDGE_CTA)).toBeTruthy()
         expect(screen.queryByText('Preparing export…')).toBeNull()
         expect(screen.getAllByText(NUDGE_CTA)).toHaveLength(1)
+        expectButtonRow()
     })
 })

@@ -41,8 +41,10 @@ jest.mock('scenes/dashboard/DashboardExportNudgeToast', () => ({
 }))
 
 // exportsLogic.test.ts is not a .tsx file, so the nudge body stands in as an opaque element. It
-// echoes the headline it was rendered under, which is what distinguishes the toast's states.
-const NUDGE_RENDERER: ExportNudgeRenderer = (headline) => `nudge:${headline}` as unknown as JSX.Element
+// echoes the headline it was rendered under, which is what distinguishes the toast's states, plus
+// the secondary action it was handed, which the nudge renders instead of ToastContent's slot.
+const NUDGE_RENDERER: ExportNudgeRenderer = (headline, secondaryAction) =>
+    `nudge:${headline}${secondaryAction ? ` +${secondaryAction.label}` : ''}` as unknown as JSX.Element
 const NUDGE_WHEN_COMPLETE = 'nudge:Export complete!' as unknown as JSX.Element
 
 const asset = (overrides: Partial<ExportedAssetType> = {}): ExportedAssetType => ({
@@ -256,14 +258,13 @@ describe('exportsLogic', () => {
             // Claimed once, though it is rendered into both of the toast's states.
             expect(claimExportNudgeMessage).toHaveBeenCalledTimes(1)
             // A nudge asks for a decision, so it must outlive the usual few-second success toast.
+            // Its way back to the exports panel goes into the nudge's own button row rather than
+            // ToastContent's slot, so the two buttons end up on one line.
             const exportToastId = jest.mocked(lemonToast.promise).mock.calls[0][2]?.toastId
             expect(lemonToast.updateToSuccess).toHaveBeenCalledWith(
                 exportToastId,
-                NUDGE_WHEN_COMPLETE,
-                expect.objectContaining({
-                    autoClose: false,
-                    button: expect.objectContaining({ label: 'View exports' }),
-                })
+                'nudge:Export complete! +View exports',
+                { autoClose: false }
             )
         })
 
@@ -278,9 +279,12 @@ describe('exportsLogic', () => {
 
             expect(jest.mocked(resolveExportNudgeEligibility).mock.calls).toEqual([[8]])
             expect(lemonToast.success).toHaveBeenCalledWith(
-                NUDGE_WHEN_COMPLETE,
-                expect.objectContaining({ autoClose: false, button: expect.objectContaining({ label: 'Download' }) })
+                'nudge:Export complete! +Download',
+                expect.objectContaining({ autoClose: false })
             )
+            // The Download hand-off moves into the nudge's button row, so leaving it in the slot too
+            // would render it twice.
+            expect(jest.mocked(lemonToast.success).mock.calls.at(-1)![1]).not.toHaveProperty('button')
         })
 
         it('offers a Download button when the create call outlived the user gesture', async () => {

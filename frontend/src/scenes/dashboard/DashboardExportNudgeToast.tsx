@@ -1,7 +1,7 @@
 import { router } from 'kea-router'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { ToastButton, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { ExportNudgeCandidate, claimExportNudge } from 'scenes/dashboard/dashboardExportNudgeLogic'
 
 import {
@@ -19,8 +19,14 @@ export function onDashboardExportNudgeToastCta(dashboardId: number, toastId: str
     })
 }
 
-/** Renders the nudge under whichever headline the toast is currently showing. */
-export type ExportNudgeRenderer = (headline: string) => JSX.Element
+/**
+ * Renders the nudge under whichever headline the toast is currently showing.
+ *
+ * `secondaryAction` is the button the toast would otherwise have put in ToastContent's slot. The
+ * nudge takes it into its own row so both buttons sit on one baseline; pass it, and leave the
+ * toast's `button` option unset.
+ */
+export type ExportNudgeRenderer = (headline: string, secondaryAction?: ToastButton) => JSX.Element
 
 /**
  * Claims the nudge for this export and hands back a renderer for its body, so an eligible exporter
@@ -39,21 +45,38 @@ export function claimExportNudgeMessage(
         return null
     }
 
-    return (headline: string) => (
+    return (headline: string, secondaryAction?: ToastButton) => (
         <span className="flex flex-col items-start gap-1.5 min-w-0">
             <span>{headline}</span>
             <span className="text-xs text-secondary leading-snug">
-                Want this on a schedule? We can email or Slack {candidate.dashboardName || 'this dashboard'} to you
-                every week.
+                Want this on a schedule? We can send you a copy of {candidate.dashboardName || 'this dashboard'} every
+                week.
             </span>
-            <LemonButton
-                type="primary"
-                size="small"
-                data-attr="dashboard-export-nudge-toast-cta"
-                onClick={() => onDashboardExportNudgeToastCta(candidate.dashboardId, toastId)}
-            >
-                Set up recurring updates
-            </LemonButton>
+            {/* The toast body gives every button a horizontal margin, which pulls this row off the
+                text above it and inflates the gap between the two buttons. */}
+            <span className="flex items-center gap-2 *:m-0!">
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    data-attr="dashboard-export-nudge-toast-cta"
+                    onClick={() => onDashboardExportNudgeToastCta(candidate.dashboardId, toastId)}
+                >
+                    Set up recurring updates
+                </LemonButton>
+                {secondaryAction && (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        data-attr={secondaryAction.dataAttr}
+                        className={secondaryAction.className}
+                        // Deliberately leaves the toast up, unlike ToastContent's own button slot: a
+                        // side trip to the exports panel must not silently take the nudge with it.
+                        onClick={() => void secondaryAction.action()}
+                    >
+                        {secondaryAction.label}
+                    </LemonButton>
+                )}
+            </span>
         </span>
     )
 }

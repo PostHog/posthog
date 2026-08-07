@@ -24,7 +24,7 @@ export function ToastCloseButton({ closeToast }: { closeToast?: () => void }): J
     )
 }
 
-interface ToastButton {
+export interface ToastButton {
     label: string
     action: (() => void) | (() => Promise<void>)
     dataAttr?: string
