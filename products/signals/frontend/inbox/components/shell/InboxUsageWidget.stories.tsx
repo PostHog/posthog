@@ -1,4 +1,8 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import type { Meta, StoryObj } from '@storybook/react'
+
+import { OrganizationMembershipLevel } from 'lib/constants'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
@@ -16,6 +20,10 @@ interface InboxState {
     freePrs: number
     usedPrs: number
     limitPrs: number | null
+    /** USD spend cap the org set itself, the `custom_limits_usd` path rather than the product's own. */
+    customLimitUsd?: number
+    /** Anything below admin can't touch billing, so the widget drops to its read-only form. */
+    membershipLevel?: OrganizationMembershipLevel
 }
 
 function inboxProduct({ subscribed, freePrs, usedPrs, limitPrs }: InboxState): BillingProductV2Type {
@@ -42,13 +50,21 @@ function inboxProduct({ subscribed, freePrs, usedPrs, limitPrs }: InboxState): B
 }
 
 function billingFor(state: InboxState): BillingType {
-    return { ...billingJson, products: [inboxProduct(state)], custom_limits_usd: {} }
+    return {
+        ...billingJson,
+        products: [inboxProduct(state)],
+        custom_limits_usd: state.customLimitUsd != null ? { inbox: state.customLimitUsd } : {},
+    }
 }
 
 function StateMocks({ state }: { state: InboxState }): JSX.Element {
     useStorybookMocks({
         get: {
             '/api/billing/': billingFor(state),
+            '/api/organizations/@current/': {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                membership_level: state.membershipLevel ?? MOCK_DEFAULT_ORGANIZATION.membership_level,
+            },
         },
     })
     // Mimic the agents rail's narrow column so the widget lays out as it does in the scene.
@@ -90,4 +106,30 @@ export const ApproachingLimit: Story = {
 
 export const AtLimit: Story = {
     render: () => <StateMocks state={{ subscribed: true, freePrs: 3, usedPrs: 50, limitPrs: 50 }} />,
+}
+
+// Uncapped is what a team gets by default — nothing stops the spend, so the pricing line has to say so.
+export const SubscribedNoLimit: Story = {
+    render: () => <StateMocks state={{ subscribed: true, freePrs: 3, usedPrs: 12, limitPrs: null }} />,
+}
+
+export const SubscribedCustomLimit: Story = {
+    render: () => (
+        <StateMocks state={{ subscribed: true, freePrs: 3, usedPrs: 12, limitPrs: null, customLimitUsd: 60 }} />
+    ),
+}
+
+// A member can't open the limit modal, so this card is the only place the price is written down.
+export const SubscribedNonBillingAdmin: Story = {
+    render: () => (
+        <StateMocks
+            state={{
+                subscribed: true,
+                freePrs: 3,
+                usedPrs: 12,
+                limitPrs: null,
+                membershipLevel: OrganizationMembershipLevel.Member,
+            }}
+        />
+    ),
 }
