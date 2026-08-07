@@ -7578,6 +7578,25 @@ export class SessionService {
     );
   }
 
+  async setCloudRunArtifactsDismissed(
+    taskId: string,
+    runId: string,
+    artifactIds: string[],
+    dismissed: boolean,
+  ): Promise<TaskRunArtifact[]> {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready") {
+      throw new Error("Not signed in to PostHog");
+    }
+
+    return authStatus.auth.client.setTaskRunArtifactsDismissed(
+      taskId,
+      runId,
+      artifactIds,
+      dismissed,
+    );
+  }
+
   private getCloudAttachmentManifest(
     client: AuthClient,
     authIdentity: string,
