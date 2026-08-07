@@ -71,6 +71,7 @@ def _log_row(
     severity: str = "info",
     attributes: dict[str, str] | None = None,
     body: str = "",
+    resource_attributes: dict[str, str] | None = None,
 ) -> dict:
     return {
         "uuid": uuid,
@@ -80,7 +81,7 @@ def _log_row(
         "severity_text": severity,
         "severity_number": 9,
         "service_name": service,
-        "resource_attributes": {},
+        "resource_attributes": resource_attributes or {},
         "attributes_map_str": attributes or {},
     }
 
@@ -1791,7 +1792,9 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
             # the attribute leg.
             _log_row(cls.team.id, "hoist-target-4", "2026-02-03 10:04:40", cls.TARGET_SERVICE, severity="error"),
             # Rows with bodies for body-filter alerts, the only filter class
-            # whose predicate carries an indexHint(...).
+            # whose predicate carries an indexHint(...). The resource attribute
+            # feeds the log_attributes materialized view so resource-attribute
+            # filters resolve to a `resource_fingerprint IN (subquery)` set.
             _log_row(
                 cls.team.id,
                 "hoist-body-1",
@@ -1799,6 +1802,7 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
                 cls.TARGET_SERVICE,
                 severity="error",
                 body="task_crashed",
+                resource_attributes={"deployment.environment": "production"},
             ),
             _log_row(
                 cls.team.id,
@@ -1807,6 +1811,7 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
                 cls.TARGET_SERVICE,
                 severity="error",
                 body="nightly export failed: connection reset by peer",
+                resource_attributes={"deployment.environment": "production"},
             ),
             # Wrong severity: must be excluded by the severity leg.
             _log_row(
@@ -1816,6 +1821,7 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
                 cls.TARGET_SERVICE,
                 severity="info",
                 body="nightly export failed: retrying",
+                resource_attributes={"deployment.environment": "production"},
             ),
         ]
         sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
@@ -2115,6 +2121,37 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
         non_zero = [b for b in batched_bucketed.per_alert[str(alert.id)] if b.count > 0]
         assert non_zero == single_bucketed
 
+    @freeze_time("2026-02-03T10:05:00Z")
+    def test_body_and_resource_attribute_filter_matches_per_alert_path(self):
+        # The full failing shape: the body filter contributes the indexHint and
+        # the resource-attribute filter contributes a `resource_fingerprint IN
+        # (subquery)` prepared set. With both hoisted verbatim into the outer
+        # WHERE, ClickHouse plans the shared expression once, constant-folds
+        # its WHERE use but not its countIf use, and rejects the query with
+        # ILLEGAL_COLUMN. Body-only predicates survive on some ClickHouse
+        # versions; this combination does not.
+        filters = self._body_filters("icontains", "export failed")
+        filters["filterGroup"]["values"][0]["values"].append(
+            {
+                "key": "deployment.environment",
+                "value": "production",
+                "operator": "exact",
+                "type": "log_resource_attribute",
+            }
+        )
+        alert = self._make_alert(filters=filters)
+        date_from = self.NCA - dt.timedelta(minutes=15)
+
+        batched = BatchedAlertCheckQuery(
+            team=self.team, alerts=[alert], date_from=date_from, date_to=self.NCA, projection_eligible=False
+        ).execute_rolling_checks(nca=self.NCA, window_minutes=5, cadence_minutes=5, period_count=3)
+        single = AlertCheckQuery(
+            team=self.team, alert=alert, date_from=date_from, date_to=self.NCA
+        ).execute_rolling_checks(nca=self.NCA, window_minutes=5, cadence_minutes=5, period_count=3)
+
+        assert batched.per_alert[str(alert.id)] == single
+        assert sum(b.count for b in single) == 1
+
     def test_hoisted_where_strips_index_hints(self):
         # The countIf copy keeps its indexHint; only the hoisted WHERE copy
         # drops it. If a refactor hoists the hint again, the equivalence tests
@@ -2129,6 +2166,53 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
         select_part, _, _ = sql.partition(" WHERE ")
         assert "indexHint(" in select_part
         assert "indexHint(" not in self._outer_where_sql(sql)
+
+
+# No fixture rows on purpose: the ILLEGAL_COLUMN plan failure needs the scan
+# to select zero parts, so the constant-folded filter column meets an empty
+# source stream. Seeded classes can never hit it; production hits it whenever
+# a shard has no matching parts for the check window.
+class TestBatchedQueryPredicateHoistingEmptyScan(ClickhouseTestMixin, APIBaseTest):
+    @freeze_time("2026-02-03T10:05:00Z")
+    @patch("products.logs.backend.alert_check_query.HOIST_BATCHED_ALERT_PREDICATES", True)
+    def test_body_and_resource_filter_with_no_matching_logs(self):
+        alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="empty scan",
+            threshold_count=0,
+            threshold_operator="above",
+            window_minutes=5,
+            evaluation_periods=3,
+            filters={
+                "serviceNames": ["quiet_service"],
+                "severityLevels": ["error", "fatal"],
+                "filterGroup": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "message", "value": "export failed", "operator": "icontains", "type": "log"},
+                                {
+                                    "key": "deployment.environment",
+                                    "value": "production",
+                                    "operator": "exact",
+                                    "type": "log_resource_attribute",
+                                },
+                            ],
+                        }
+                    ],
+                },
+            },
+        )
+        nca = datetime(2026, 2, 3, 10, 5, 0, tzinfo=UTC)
+        date_from = nca - dt.timedelta(minutes=15)
+
+        batched = BatchedAlertCheckQuery(
+            team=self.team, alerts=[alert], date_from=date_from, date_to=nca, projection_eligible=False
+        ).execute_rolling_checks(nca=nca, window_minutes=5, cadence_minutes=5, period_count=3)
+
+        assert [b.count for b in batched.per_alert[str(alert.id)]] == [0, 0, 0]
 
 
 class TestFetchLiveLogsCheckpoint(APIBaseTest):
