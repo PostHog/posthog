@@ -411,6 +411,24 @@ class TestCustomSourceAssembleManifest(SimpleTestCase):
         manifest = source._assemble_manifest(config)
         assert manifest["client"]["base_url"] == "https://api.example.com"
 
+    def test_accepts_already_parsed_manifest_object(self):
+        # The create/validate API can hand us the manifest as an already-parsed object rather than a
+        # JSON string; that used to reach json.loads(dict) and raise an uncaught TypeError.
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=_minimal_manifest())  # type: ignore[arg-type]
+        manifest = source._assemble_manifest(config)
+        assert manifest["client"]["base_url"] == "https://api.example.com"
+
+    def test_does_not_mutate_manifest_object_when_injecting_secrets(self):
+        # A dict manifest is deep-copied before secret injection so credentials never leak back into
+        # the caller's (persisted, redacted) config.
+        stored = _minimal_manifest()
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=stored, auth_token="ya29.secret")  # type: ignore[arg-type]
+        assembled = source._assemble_manifest(config)
+        assert assembled["client"]["auth"]["token"] == "ya29.secret"
+        assert "token" not in stored["client"]["auth"]
+
     @parameterized.expand(
         [
             ("bearer", {"type": "bearer"}, {"auth_token": "ya29.secret"}, "token", "ya29.secret"),
@@ -1546,6 +1564,16 @@ class TestManifestRequestHosts(SimpleTestCase):
     def test_unparseable_returns_empty(self, _name, raw):
         assert manifest_request_hosts(raw) == frozenset()
 
+    def test_parsed_object_manifest_reports_hosts(self):
+        # _assemble_manifest accepts a dict manifest, so the re-entry gate must extract hosts from a
+        # dict too — otherwise an update PATCHing a dict manifest that retargets a new host slips past
+        # the gate as "no hosts" and the stored credential is sent to the new host without re-entry.
+        manifest = {
+            "client": {"base_url": "https://api.example.com"},
+            "resources": [{"name": "r", "endpoint": {"path": "https://attacker.example.net/data"}}],
+        }
+        assert manifest_request_hosts(manifest) == frozenset({"api.example.com", "attacker.example.net"})
+
     def test_oauth2_token_url_host_is_tracked(self):
         # The token endpoint receives the stored client_secret, so its host must be in the
         # re-entry set — otherwise an editor who can't read the secret could repoint token_url
@@ -1762,6 +1790,26 @@ class TestCustomSourceNonRetryableErrors(SimpleTestCase):
 
         non_retryable = CustomSource().get_non_retryable_errors()
         assert any(key in str(error) for key in non_retryable)
+
+    def test_dns_resolution_failure_message_is_classified_non_retryable(self):
+        # `_is_host_safe` raises this exact message when a manifest's base_url doesn't
+        # resolve via DNS — a permanent, deterministic failure until the manifest is
+        # edited. Build the real message `validate_manifest_urls` raises (prefix +
+        # `_is_host_safe`'s wording) so this breaks if either side's wording drifts
+        # from the classifier's key.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source._is_host_safe",
+            return_value=(
+                False,
+                "Couldn't resolve the host 'api.example.com'. Check that it's spelled correctly and reachable from the public internet.",
+            ),
+        ):
+            ok, err = validate_manifest_urls(_minimal_manifest(), team_id=999)
+
+        assert not ok
+        assert err is not None
+        non_retryable = CustomSource().get_non_retryable_errors()
+        assert any(key in err for key in non_retryable)
 
     @parameterized.expand(["invalid_client", "invalid_grant"])
     def test_oauth2_permanent_errors_are_classified_non_retryable(self, error_code):

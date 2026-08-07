@@ -89,6 +89,10 @@ export interface SeriesData {
     breakdown_value?: string | number
     compare?: boolean
     compare_label?: string
+    /** Index of the query series this row belongs to — stamped by the mock resolver. */
+    seriesIndex?: number
+    /** Event name of the query series this row belongs to — stamped by the mock resolver. */
+    eventName?: string
 }
 
 type CannedSeries = SeriesData & { labels: string[]; days: string[] }
@@ -112,6 +116,10 @@ export const trendsSeries = {
         { label: 'Thistle', data: [0, 1, 0, 2, 1], days, labels, breakdown_value: 'Thistle' },
         { label: 'Conker', data: [0, 0, 0, 0, 0], days, labels, breakdown_value: 'Conker' },
         { label: 'Prickles', data: [0, 0, 1, 1, 0], days, labels, breakdown_value: 'Prickles' },
+    ] satisfies CannedSeries[],
+    pageviewsByHedgehog: [
+        { label: 'Spike', data: [30, 50, 90, 140, 60], days, labels, breakdown_value: 'Spike' },
+        { label: 'Bramble', data: [15, 32, 44, 70, 35], days, labels, breakdown_value: 'Bramble' },
     ] satisfies CannedSeries[],
     withZeroCounts: [
         { label: 'EmptySeries', data: [0, 0, 0, 0, 0], days, labels },
@@ -153,7 +161,12 @@ interface EventSeriesConfig {
 }
 
 const seriesByEvent: Record<string, EventSeriesConfig> = {
-    $pageview: { default: trendsSeries.pageviews },
+    $pageview: {
+        default: trendsSeries.pageviews,
+        breakdowns: {
+            hedgehog: trendsSeries.pageviewsByHedgehog,
+        },
+    },
     Napped: {
         default: trendsSeries.napped,
         breakdowns: {

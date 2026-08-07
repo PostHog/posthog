@@ -4,6 +4,7 @@ import { OnboardingStepKey } from '~/types'
 
 import { OnboardingUpgradeStep } from './billing/OnboardingUpgradeStep'
 import { OnboardingDataWarehouseSourcesStep } from './data-warehouse/OnboardingDataWarehouseSourcesStep'
+import { OnboardingAIReports } from './notifications/OnboardingAIReports'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { OnboardingFlowContext, OnboardingStepDescriptor } from './types'
 
@@ -43,6 +44,18 @@ export function appendSharedTrailingSteps(
             stepKey: OnboardingStepKey.INVITE_TEAMMATES,
             role: 'primary',
             render: () => <OnboardingInviteTeammates />,
+        })
+    }
+
+    // Last on purpose: the lowest-stakes step, so any drop-off it causes shows up in the
+    // completion metric without blocking higher-value steps.
+    if (ctx.showAIReportsStep) {
+        result.push({
+            id: `${OnboardingStepKey.AI_REPORTS}:${ctx.primary}`,
+            productKey: ctx.primary,
+            stepKey: OnboardingStepKey.AI_REPORTS,
+            role: 'primary',
+            render: () => <OnboardingAIReports />,
         })
     }
 

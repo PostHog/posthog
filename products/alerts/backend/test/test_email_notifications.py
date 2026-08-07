@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, call, patch
 
+from django.template.loader import render_to_string
+
 from products.alerts.backend.email_notifications import send_alert_email
 
 
@@ -39,3 +41,21 @@ def test_send_alert_email_delivers_to_every_recipient(MockEmailMessage: MagicMoc
         call(email="second@example.com"),
     ]
     message.send.assert_called_once_with()
+
+
+def test_alert_firing_email_labels_test_delivery_without_claiming_the_alert_is_firing() -> None:
+    html = render_to_string(
+        "email/alert_check_firing.html",
+        {
+            "match_descriptions": ["This is a test alert. No action is needed."],
+            "insight_url": "/project/1/insights/example",
+            "insight_name": "Example insight",
+            "alert_url": "/project/1/insights/example?alert_id=1",
+            "alert_name": "Example alert",
+            "project_name": "Example project",
+            "is_test": True,
+        },
+    )
+
+    assert "This is a test delivery" in html
+    assert "alert is firing" not in html

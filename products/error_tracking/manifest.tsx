@@ -36,7 +36,7 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/error_tracking': ['ErrorTracking', 'errorTracking'],
-        '/error_tracking/fingerprint/:fingerprint': ['ErrorTrackingFingerprint', 'errorTrackingFingerprint'],
+        '/error_tracking/fingerprint/*': ['ErrorTrackingFingerprint', 'errorTrackingFingerprint'],
         '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
         '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
         '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],

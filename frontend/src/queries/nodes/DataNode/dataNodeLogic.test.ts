@@ -240,7 +240,7 @@ describe('dataNodeLogic', () => {
             nextQuery: setLatestVersionsOnQuery({
                 kind: NodeKind.EventsQuery,
                 select: ['*', 'event', 'timestamp'],
-                before: '2022-12-24T17:00:41.165000Z',
+                before: '2022-12-24T17:00:41.165000Z|01853a90-ba94-0000-8776-e8df5617c3ec',
                 limit: 100,
             }),
             response: partial({ results }),
@@ -269,7 +269,7 @@ describe('dataNodeLogic', () => {
                 nextQuery: setLatestVersionsOnQuery({
                     kind: NodeKind.EventsQuery,
                     select: ['*', 'event', 'timestamp'],
-                    before: '2022-12-24T17:00:41.165000Z',
+                    before: '2022-12-24T17:00:41.165000Z|01853a90-ba94-0000-8776-e8df5617c3ec',
                     limit: 100,
                 }),
                 response: partial({ results }),
@@ -282,7 +282,7 @@ describe('dataNodeLogic', () => {
             nextQuery: setLatestVersionsOnQuery({
                 kind: NodeKind.EventsQuery,
                 select: ['*', 'event', 'timestamp'],
-                before: '2022-12-23T17:00:41.165000Z',
+                before: '2022-12-23T17:00:41.165000Z|new',
                 limit: 100,
             }),
             response: partial({ results: [...results, ...results2] }),

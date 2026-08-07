@@ -71,7 +71,8 @@ jobs:
             # functionality based on whether this is a pull_request, and whether it's from a fork.
             # (PRs run on the *source* but secrets are usually on the *target* -- that's *good*
             # but also really annoying to build CI around when it needs secrets to work right.)
-            - id: plan
+            - name: Plan release with cargo-dist
+              id: plan
               env:
                   DIST_COMMAND: plan
               run: |
@@ -260,7 +261,8 @@ jobs:
             - name: Verify API CLI release bundle
               run: |
                   node -e "const { existsSync, statSync } = require('node:fs'); const path = 'cli/lib/posthog-api-cli.mjs'; if (!existsSync(path) || statSync(path).size <= 0) { console.error('::error::API CLI bundle is missing or empty: ' + path); process.exit(1); }"
-            - id: cargo-dist
+            - name: Build global cargo-dist artifacts
+              id: cargo-dist
               shell: bash
               run: |
                   dist build ${{ needs.plan.outputs.tag-flag }} --output-format=json "--artifacts=global" > dist-manifest.json

@@ -31,11 +31,6 @@ from products.warehouse_sources.backend.models.custom_oauth2_integration import 
     CustomOAuth2Integration,
     get_custom_oauth2_integration,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SortMode,
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     make_tracked_adapter,
@@ -70,6 +65,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     resolve_request_url,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+    SortMode,
+    SourceInputs,
+    SourceResponse,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.custom import CustomSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
@@ -606,13 +606,18 @@ def manifest_request_hosts(manifest_json: Any) -> frozenset[str]:
     the stored secret must not be able to redirect it to a server they control.
     Returns an empty set for anything unparseable — the caller treats "no hosts"
     as "nothing new", and a malformed manifest is rejected elsewhere.
+
+    Accepts both a JSON string and an already-parsed object — the same two shapes
+    `_assemble_manifest` takes — so a dict manifest can never slip past the gate as
+    "no hosts". Read-only: the object is inspected in place, never mutated.
     """
-    if not isinstance(manifest_json, str):
-        return frozenset()
-    try:
-        manifest = json.loads(manifest_json)
-    except json.JSONDecodeError:
-        return frozenset()
+    if isinstance(manifest_json, str):
+        try:
+            manifest = json.loads(manifest_json)
+        except json.JSONDecodeError:
+            return frozenset()
+    else:
+        manifest = manifest_json
     if not isinstance(manifest, dict):
         return frozenset()
 
@@ -895,6 +900,12 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # stop and point at the config the user can change. Matches the stable prefix
             # RESTClientNonRetryableError uses, not the variable URL that follows.
             "Non-JSON response from": "The upstream API returned a non-JSON response (for example an HTML or plain-text error page) instead of data. Check that the resource's URL and path in the manifest point at a JSON API endpoint and that any required authentication is configured, then try again.",
+            # `_is_host_safe` raises this when a manifest's base_url, token_url, or resource
+            # host doesn't resolve via DNS — a hostname the customer typed wrong or a host
+            # that's no longer publicly reachable. Deterministic and permanent until the
+            # manifest is edited, so stop retrying. Match the stable prefix, not the
+            # customer's hostname that follows it.
+            "Couldn't resolve the host": "A host in the manifest (base_url, token_url, or a resource's URL) could not be resolved via DNS. Check that it's spelled correctly and reachable from the public internet, then try again.",
         }
 
     def _assemble_manifest(self, config: CustomSourceConfig) -> dict[str, Any]:
@@ -905,10 +916,20 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         API layer can redact them. This rebuilds the full config the REST
         engine consumes.
         """
-        try:
-            manifest = json.loads(config.manifest_json)
-        except json.JSONDecodeError as exc:
-            raise ManifestValidationError(f"Manifest is not valid JSON: {exc.msg} (line {exc.lineno}, col {exc.colno})")
+        raw: Any = config.manifest_json
+        # `manifest_json` is declared as a JSON string, but the create/validate API can hand us an
+        # already-parsed object when a client submits the manifest as JSON rather than a JSON-encoded
+        # string. Accept both — deep-copy the object so the in-place secret injection below never
+        # writes credentials back into the caller's (persisted) config.
+        if isinstance(raw, str):
+            try:
+                manifest = json.loads(raw)
+            except json.JSONDecodeError as exc:
+                raise ManifestValidationError(
+                    f"Manifest is not valid JSON: {exc.msg} (line {exc.lineno}, col {exc.colno})"
+                )
+        else:
+            manifest = copy.deepcopy(raw)
         # Structural validation only — no resource-graph checks. This runs on
         # every sync and schema listing of already-stored manifests, so a
         # graph problem on one resource must not take down the source's other

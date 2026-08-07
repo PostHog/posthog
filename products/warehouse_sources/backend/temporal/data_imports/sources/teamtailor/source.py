@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -23,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teamtailor import (
     TeamtailorSourceConfig,
 )
@@ -32,6 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.teamtailor
     TEAMTAILOR_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamtailor.teamtailor import (
+    DEFAULT_API_VERSION,
+    SUPPORTED_API_VERSIONS,
     TeamtailorResumeConfig,
     teamtailor_source,
     validate_credentials as _validate_credentials,
@@ -41,8 +40,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TeamtailorSource(ResumableSource[TeamtailorSourceConfig, TeamtailorResumeConfig]):
-    supported_versions = ("20240404",)
-    default_version = "20240404"
+    supported_versions = SUPPORTED_API_VERSIONS
+    default_version = DEFAULT_API_VERSION
     api_docs_url = "https://docs.teamtailor.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -113,8 +112,10 @@ You can create an API key under **Settings → API keys** in Teamtailor. The key
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        # The API key is account-wide, so a single probe validates access to every schema.
-        return _validate_credentials(config.api_key)
+        # The API key is account-wide, so a single probe validates access to every schema. Pre-creation
+        # calls pass no pin and resolve to default_version (what new rows are stamped with); a pinned
+        # source revalidates under its own `X-Api-Version` header.
+        return _validate_credentials(config.api_key, self.resolve_api_version(api_version))
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[TeamtailorResumeConfig]:
         return ResumableSourceManager[TeamtailorResumeConfig](inputs, TeamtailorResumeConfig)
@@ -134,5 +135,6 @@ You can create an API key under **Settings → API keys** in Teamtailor. The key
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             db_incremental_field_last_value=None,  # every Teamtailor endpoint is full refresh
         )

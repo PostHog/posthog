@@ -6,13 +6,30 @@ from unittest.mock import MagicMock, patch
 
 from django.test import Client
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from rest_framework import status
 
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.models.team.team_caching import set_team_in_cache
 
-from products.messaging.backend.api.push_identity_tokens import sign_push_identity_token
+from products.messaging.backend.api.push_identity_tokens import sign_push_identity_token, sign_push_identity_token_es256
+
+
+def _es256_keypair() -> tuple[str, str]:
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    private_pem = private_key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode()
+    public_pem = (
+        private_key.public_key()
+        .public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+        .decode()
+    )
+    return private_pem, public_pem
 
 
 class TestPushSubscriptionsAPI(BaseTest):
@@ -332,6 +349,37 @@ class TestPushSubscriptionsAPI(BaseTest):
 
         assert response.status_code == status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
         mock_capture.assert_not_called()
+
+    def _register_public_key(self, mode: str, public_pem: str):
+        self.firebase_integration.config["push_identity_verification"] = mode
+        self.firebase_integration.config["push_identity_public_keys"] = [public_pem]
+        self.firebase_integration.save()
+        # No shared secret is set: ES256 must verify on the public key alone.
+        set_team_in_cache(self.team.api_token, self.team)
+
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_required_mode_accepts_an_es256_token_signed_by_the_registered_public_key(self, mock_capture: MagicMock):
+        # End to end through the endpoint: the integration holds only the EC public key, the device
+        # presents a token its backend signed with the private key, and registration succeeds. Guards
+        # that the endpoint gathers config["push_identity_public_keys"] and threads them into
+        # verification; the verifier's ES256 path is unit-tested, but nothing else drives it over HTTP.
+        mock_capture.return_value = MagicMock(status_code=200)
+        private_pem, public_pem = _es256_keypair()
+        self._register_public_key("required", public_pem)
+        token = sign_push_identity_token_es256(private_pem, "user-1", "my-firebase-project")
+
+        response = self._post(
+            {
+                "distinct_id": "user-1",
+                "device_token": "fcm-device-token-abc",
+                "platform": "android",
+                "app_id": "my-firebase-project",
+                "identity_token": token,
+            }
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_capture.assert_called_once()
 
     @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
     def test_required_mode_accepts_a_valid_identity_token(self, mock_capture: MagicMock):

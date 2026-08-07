@@ -39,3 +39,11 @@ Notes:
 - Rate limits: most v3 endpoints are generous, but the Email Activity API (`/messages`, deliberately not
   synced here) is capped at ~6 req/min — webhook ingestion is the recommended path for per-event data and
   is left as a follow-up.
+- Scopes are per endpoint, so a key that reads one table often can't read another.
+  `settings.py` records each endpoint's scope as `/v3/scopes` spells it (`suppression.bounces.read`,
+  `asm.groups.read`, `marketing.read`, `templates.read`), and `get_endpoint_permissions` probes them so the
+  schema picker can disable what the key can't reach.
+- `/marketing/lists` is the outlier: it needs `marketing.read` **and** an account with Marketing Campaigns.
+  Accounts without it, and accounts still on legacy Marketing Campaigns (a different API, scoped
+  `marketing_campaigns.read`), return 403 no matter how the key is scoped, so the table can be genuinely
+  unsyncable rather than misconfigured.

@@ -3,7 +3,7 @@ from unittest import mock
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.settings import CLERK_ENDPOINTS, ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.source import ClerkSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clerk import ClerkSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -38,6 +38,7 @@ class TestClerkSource:
         [
             "401 Client Error: Unauthorized for url: https://api.clerk.com",
             "403 Client Error: Forbidden for url: https://api.clerk.com",
+            "422 Client Error: Unprocessable Entity for url: https://api.clerk.com/v1/saml_connections",
         ],
     )
     def test_non_retryable_errors_includes_clerk_key(self, expected_key):
@@ -45,10 +46,16 @@ class TestClerkSource:
 
         assert expected_key in errors
 
-    def test_non_retryable_errors_matches_observed_error_message(self):
-        # Matches the full error string seen in production for the `users` endpoint.
-        observed_error = "401 Client Error: Unauthorized for url: https://api.clerk.com/v1/users?limit=100"
-
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            # `users` endpoint, invalid/revoked secret key.
+            "401 Client Error: Unauthorized for url: https://api.clerk.com/v1/users?limit=100",
+            # `saml_connections` endpoint, SAML/Enterprise SSO not available on the account's plan.
+            "422 Client Error: Unprocessable Entity for url: https://api.clerk.com/v1/saml_connections?limit=100",
+        ],
+    )
+    def test_non_retryable_errors_matches_observed_error_message(self, observed_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
 
@@ -63,6 +70,16 @@ class TestClerkSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
 
         assert not any(key in other_vendor_error for key in non_retryable_errors)
+
+    def test_non_retryable_errors_does_not_match_422_on_other_clerk_endpoints(self):
+        # A 422 from a different endpoint is a genuinely bad request worth investigating, not an
+        # account limitation — the match must stay scoped to `saml_connections`.
+        other_endpoint_error = (
+            "422 Client Error: Unprocessable Entity for url: https://api.clerk.com/v1/users?limit=100"
+        )
+
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_endpoint_error for key in non_retryable_errors)
 
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
@@ -83,6 +100,16 @@ class TestClerkSource:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["nonexistent"])
 
         assert schemas == []
+
+    @pytest.mark.parametrize("endpoint", sorted(CLERK_ENDPOINTS))
+    def test_every_endpoint_is_documented(self, endpoint):
+        # `lists_tables_without_credentials` publishes this catalog to the public docs, so an
+        # endpoint added without a canonical entry ships an undocumented table.
+        entry = self.source.get_canonical_descriptions()[endpoint]
+
+        assert entry["description"]
+        assert entry["docs_url"].startswith("https://clerk.com/")
+        assert entry["columns"]["id"]
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
