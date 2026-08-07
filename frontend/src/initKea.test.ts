@@ -28,6 +28,7 @@ describe('initKea loader failure handling', () => {
     let errorToast: jest.SpyInstance
 
     beforeEach(() => {
+        initKeaTests()
         errorToast = jest.spyOn(lemonToast, 'error').mockImplementation((() => '') as any)
         // The handler console.errors every failure it processes; keep that expected noise out of the log.
         silenceKeaLoadersErrors()
@@ -38,31 +39,27 @@ describe('initKea loader failure handling', () => {
         jest.restoreAllMocks()
     })
 
-    it('suppresses an org-less 404 scope error when there is no current organization', async () => {
-        // organizationLogic is not mounted, so the handler sees no current organization
-        initKeaTests(false)
-        const logic = makeFailingLogic(new ApiError('nope', 404, undefined, { detail: 'Organization not found.' }))
+    it.each([
+        { description: 'suppresses a scope-resolution 404', detail: 'Organization not found.', toastExpected: false },
+        {
+            description: 'suppresses the belong-to-an-organization 404',
+            detail: 'You need to belong to an organization.',
+            toastExpected: false,
+        },
+        {
+            description: 'still toasts an ordinary 404 for a resource inside a valid scope',
+            detail: 'Not found.',
+            toastExpected: true,
+        },
+    ])('$description', async ({ detail, toastExpected }) => {
+        const logic = makeFailingLogic(new ApiError('nope', 404, undefined, { detail }))
         logic.mount()
 
         await expectLogic(logic, () => {
             logic.actions.loadThing()
         }).toDispatchActions(['loadThingFailure'])
 
-        expect(errorToast).not.toHaveBeenCalled()
-        logic.unmount()
-    })
-
-    it('still toasts a 404 scope error when the user has a current organization', async () => {
-        // mountCommonLogic mounts organizationLogic with a current org from the app context
-        initKeaTests()
-        const logic = makeFailingLogic(new ApiError('nope', 404, undefined, { detail: 'Organization not found.' }))
-        logic.mount()
-
-        await expectLogic(logic, () => {
-            logic.actions.loadThing()
-        }).toDispatchActions(['loadThingFailure'])
-
-        expect(errorToast).toHaveBeenCalled()
+        expect(errorToast).toHaveBeenCalledTimes(toastExpected ? 1 : 0)
         logic.unmount()
     })
 })

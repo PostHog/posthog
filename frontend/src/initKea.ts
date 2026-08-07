@@ -17,7 +17,6 @@ import {
     stripTrailingSlash,
 } from 'lib/utils/kea-router'
 import { identifierToHuman } from 'lib/utils/strings'
-import { organizationLogic } from 'scenes/organizationLogic'
 
 import { disposablesPlugin } from '~/kea-disposables'
 
@@ -67,13 +66,15 @@ issues. 500 is intentionally excluded: those are genuine backend exceptions wort
 const TRANSIENT_GATEWAY_STATUSES = [502, 503, 504]
 
 /*
-The 404 details the backend raises (posthog/api/routing.py) when a request has no org/project scope
-to resolve. A user who just left or deleted their last organization, or deleted their account, has
-no current organization, but org- and team-scoped loaders keep firing on mount and each one fails
-with one of these. Toasting and reporting every one stacks a wall of red on a page the user is
-already leaving, so we treat this org-less 404 class as expected control flow instead of a failure.
+The 404 details the backend raises (posthog/api/routing.py) when it cannot resolve the org/project
+scope for a request. A user who just left or deleted their last organization, or deleted their
+account, has no scope to resolve, but org- and team-scoped loaders keep firing on mount and each
+one fails with one of these. Toasting and reporting every one stacks a wall of red on a page the
+user is already leaving. These messages only arise from scope resolution (never from a resource
+lookup inside a valid scope), and the owning scene renders its own unavailable/not-found state, so
+the loader toast is redundant. We treat this class as expected control flow instead of a failure.
 */
-const ORG_SCOPE_NOT_FOUND_DETAILS = new Set([
+const SCOPE_NOT_FOUND_DETAILS = new Set([
     'Organization not found.',
     'You need to belong to an organization.',
     'Project not found.',
@@ -140,14 +141,9 @@ export function initKea({
                 if (error?.name === 'AbortError') {
                     return
                 }
-                // Suppress the org-less 404 class only while there's genuinely no current
-                // organization, so a normal user hitting a real "Project not found." for a bad
-                // project id still gets the toast. `findMounted()` avoids mounting the logic.
-                if (
-                    error?.status === 404 &&
-                    ORG_SCOPE_NOT_FOUND_DETAILS.has(error?.detail) &&
-                    !organizationLogic.findMounted()?.values.currentOrganization
-                ) {
+                // Scope-resolution 404s are expected while offboarding (no org/project to resolve);
+                // the owning scene shows its own unavailable state, so don't toast or report them.
+                if (error?.status === 404 && SCOPE_NOT_FOUND_DETAILS.has(error?.detail)) {
                     return
                 }
                 // Read-only mode (`ReadOnlyModeError`) flows through this path unchanged:
