@@ -845,8 +845,9 @@ test('tool caches beside the products are not products', () => {
 })
 
 // A file at the root of products/ or common/ belongs to no single product or
-// subtree, which used to send it to the full set. Both language families is the
-// honest ceiling: nothing under rust/, nodejs/, or services/ reads any of them.
+// subtree, which used to send it to the full set. Both language families
+// together are the honest ceiling: nothing under rust/, nodejs/, or services/
+// reads any of them.
 test('shared files at the root of products and common claim both language families', () => {
     const bothFamilies = [
         'py:core',

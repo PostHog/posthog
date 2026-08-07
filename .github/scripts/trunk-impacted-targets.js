@@ -193,8 +193,11 @@ const TRIPWIRE_RULES = [
     ['.stylelintrc.js', JAVASCRIPT],
     ['.stylelintignore', JAVASCRIPT],
     ['.kearc', JAVASCRIPT],
-    // The posthog wizard's event schema, whose only output is
-    // frontend/src/lib/posthog-typed.ts. Nothing in Python reads it.
+    // State the posthog-cli schema command writes for this repo, recording the
+    // hash and output path of the generated event definitions. cli/ reads and
+    // rewrites it (cli/src/experimental/schema.rs), and its only generated
+    // output here is frontend/src/lib/posthog-typed.ts, both of which the
+    // javascript domain covers. Nothing in Python reads it.
     ['posthog.json', JAVASCRIPT],
     ['mypy.ini', PYTHON],
     ['pytest.ini', PYTHON],
@@ -377,10 +380,10 @@ const REPO_CONFIG_DIRS = [
 
 // The same class of file, one per root path rather than one per tree: the
 // ignore and rule files belonging to the directories above, the VCS settings,
-// the review bot's config, and the license. No suite reads any of them, and the
-// tools that do — direnv, watchman, the worktree helpers, the desktop MCP
-// client — either run outside CI or are driven by bin/, which is universal and
-// so overlaps this lane already.
+// the review bot's config, and the license. No suite reads any of them. The
+// tools that do read them (direnv, watchman, the worktree helpers, the desktop
+// MCP client) either run outside CI or are driven by bin/, which is universal
+// and so overlaps this lane already.
 //
 // .dockerignore and the .env files are deliberately not here. Both are read by
 // something that every suite runs inside, and both are tripwires above.
@@ -1192,9 +1195,9 @@ function addRustLanes(targets, context) {
     return true
 }
 
-// The nodejs lane on its own. No tripwire resolves to it — a file that can
-// break the ingestion suite can almost always break more than that — but the
-// rust rules below need to name it without dragging in the frontend.
+// The nodejs lane on its own. No tripwire resolves to it, because a file that
+// can break the ingestion suite can almost always break more than that. The
+// rust rules below still need to name it without dragging in the frontend.
 const NODE = 'node'
 
 function addNodeLanes(targets) {
@@ -1239,9 +1242,9 @@ const RUST_NON_CRATE_RULES = [
     ['rust/.config/', [RUST]],
 ]
 
-// A file sitting directly at rust/ configures the cargo workspace itself — the
+// A file sitting directly at rust/ configures the cargo workspace itself (the
 // Dockerfiles its images build from, the compose stack, the dotfiles, the
-// license — so the crates are its readers. That reasoning does not extend to a
+// license), so the crates are its readers. That reasoning does not extend to a
 // subdirectory, which could hold anything, so one the rules above do not name
 // returns false and widens.
 function applyRustNonCrateLanes(file, targets, context) {
