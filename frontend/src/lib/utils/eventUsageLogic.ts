@@ -996,9 +996,6 @@ export interface eventUsageLogicActions {
     reportExperimentBiasWarningShown: (experiment: Experiment) => {
         experiment: Experiment
     }
-    reportExperimentDynamicCohortWarningShown: (experiment: Experiment) => {
-        experiment: Experiment
-    }
     reportExperimentCreated: (
         experiment: Experiment,
         metadata?: {
@@ -1019,6 +1016,9 @@ export interface eventUsageLogicActions {
         dashboardId: number
     ) => {
         dashboardId: number
+        experiment: Experiment
+    }
+    reportExperimentDynamicCohortWarningShown: (experiment: Experiment) => {
         experiment: Experiment
     }
     reportExperimentEndDateChange: (

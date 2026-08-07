@@ -1,6 +1,6 @@
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 import structlog
 from pydantic import BaseModel
@@ -298,9 +298,8 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         # already shaped the collected exposures, and swapping the cohort for a person-property
         # filter and recomputing is still actionable after the experiment ends.
         criteria = self.exposure_criteria
-        if isinstance(criteria, BaseModel):
-            criteria = criteria.model_dump()
-        cohort_ids = _collect_cohort_ids(criteria) if criteria else set()
+        criteria_filters: Any = criteria.model_dump() if isinstance(criteria, BaseModel) else criteria
+        cohort_ids = _collect_cohort_ids(criteria_filters) if criteria_filters else set()
         if not cohort_ids:
             return None
         referenced_cohorts = list(
