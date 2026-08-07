@@ -180,7 +180,7 @@ def _count_filters_write(operation: str, outcome: str, request: Any) -> None:
     FLAG_FILTERS_WRITE_COUNTER.labels(operation=operation, outcome=outcome, source=_flag_write_source(request)).inc()
 
 
-def _count_filters_violations(stage: str, operation: str, rule_ids: Iterable[str]) -> None:
+def _count_filters_violations(stage: str, operation: str, rule_ids: Iterable[str | None]) -> None:
     for rule_id in rule_ids:
         FLAG_FILTERS_VIOLATION_COUNTER.labels(stage=stage, rule=rule_id or "unknown", operation=operation).inc()
 
@@ -929,6 +929,10 @@ def _reject_serde_unsafe_filters(filters: Any) -> None:
             raise serializers.ValidationError(
                 f"multivariate.variants[{var_index}] must be a dictionary, got {type(variant_item).__name__}"
             )
+        # Rust declares MultivariateFlagVariant.key as a required String, so a variant without
+        # one fails the team's whole hypercache payload rather than just its own flag.
+        if not isinstance(variant_item.get("key"), str):
+            raise serializers.ValidationError(f"multivariate.variants[{var_index}].key must be a string")
         _validate_rollout_percentage(
             variant_item.get("rollout_percentage"),
             f"multivariate.variants[{var_index}].rollout_percentage",
@@ -1514,6 +1518,12 @@ class FeatureFlagSerializer(
         else:
             merged = filters
 
+        # Size first: validating a 20MB filters object materializes a violation and a metric
+        # increment per offending entry, so the cheap check has to come before that work
+        # rather than after it. Re-checked post-normalization below, since normalizing
+        # payloads changes the encoded size.
+        self._reject_oversized_filters(merged)
+
         # Re-validate the merged state structurally: the stored side of the merge never went
         # through FeatureFlagFiltersField on this request, and the cross-field collectors
         # below are only safe on structurally valid input. For stored filters that predate
@@ -1702,8 +1712,12 @@ class FeatureFlagSerializer(
                         code="cohort_does_not_exist",
                     )
 
-        # Validate per-flag filter size
-        filter_size = calculate_filter_size_bytes(merged)
+        self._reject_oversized_filters(merged)
+
+        return merged
+
+    def _reject_oversized_filters(self, filters: Any) -> None:
+        filter_size = calculate_filter_size_bytes(filters)
         per_flag_limit = settings.MAX_FEATURE_FLAG_FILTER_SIZE_BYTES
 
         if filter_size > per_flag_limit:
@@ -1712,8 +1726,6 @@ class FeatureFlagSerializer(
                 f"Current size: {format_bytes(filter_size)}. "
                 f"Please simplify conditions or reduce payload sizes."
             )
-
-        return merged
 
     def _validate_flag_reference(self, flag_reference):
         """Validate and convert flag reference to flag key."""

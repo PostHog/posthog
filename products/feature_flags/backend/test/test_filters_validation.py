@@ -325,6 +325,8 @@ class TestRejectSerdeUnsafeFilters(SimpleTestCase):
             ("variants_not_list", {"multivariate": {"variants": {}}}),
             ("variant_not_dict", {"multivariate": {"variants": ["x"]}}),
             ("variant_rollout_null", {"multivariate": {"variants": [{"key": "a", "rollout_percentage": None}]}}),
+            ("variant_key_missing", {"multivariate": {"variants": [{"rollout_percentage": 100}]}}),
+            ("variant_key_not_string", {"multivariate": {"variants": [{"key": 1, "rollout_percentage": 100}]}}),
             ("payloads_not_dict", {"payloads": []}),
             ("payload_string_not_json", {"payloads": {"true": "not json"}}),
         ]
