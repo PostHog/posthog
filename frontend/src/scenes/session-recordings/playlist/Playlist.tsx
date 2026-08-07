@@ -61,6 +61,8 @@ export type PlaylistProps = {
     isSynthetic?: boolean
     description?: string
     selectInitialItem?: boolean
+    // Shape of the collapsed strip: 'vertical' is a thin left-hand bar, 'horizontal' a short bottom bar.
+    collapsedOrientation?: 'vertical' | 'horizontal'
 }
 
 export function Playlist({
@@ -70,6 +72,7 @@ export function Playlist({
     isSynthetic,
     description,
     selectInitialItem,
+    collapsedOrientation = 'vertical',
 }: PlaylistProps): JSX.Element {
     const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
@@ -227,20 +230,36 @@ export function Playlist({
             <ListEmptyState />
         )
 
-    // Show collapsed view
+    // Show collapsed view — a labeled strip so the list is always recoverable, not a bare icon
     if (isPlaylistCollapsed) {
+        const verticalStrip = collapsedOrientation !== 'horizontal'
         return (
             <div
-                className="flex items-start justify-center h-full w-full pt-2 pr-1 cursor-pointer"
+                role="button"
+                tabIndex={0}
+                className={clsx(
+                    'flex h-full w-full cursor-pointer items-center justify-center gap-1.5 rounded border bg-bg-light text-secondary hover:bg-fill-hover',
+                    verticalStrip ? 'flex-col py-2' : 'flex-row px-2'
+                )}
                 onClick={() => setPlaylistCollapsed(false)}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setPlaylistCollapsed(false)
+                    }
+                }}
                 data-attr="expand-playlist"
+                title="Expand recordings list"
             >
-                <LemonButton
-                    icon={<IconSidebarClose className={clsx(!isPlaylistCollapsed && 'rotate-180')} />}
-                    tooltip="Expand playlist"
-                    size="xsmall"
-                    noPadding
-                />
+                <IconSidebarClose className="shrink-0 text-base" />
+                <span
+                    className={clsx(
+                        'select-none text-xs font-semibold uppercase tracking-wide',
+                        verticalStrip && 'rotate-180 [writing-mode:vertical-rl]'
+                    )}
+                >
+                    Recordings
+                </span>
             </div>
         )
     }
@@ -304,7 +323,7 @@ export function Playlist({
                                                 />
                                             }
                                             onClick={() => setPlaylistCollapsed(true)}
-                                            tooltip="Collapse playlist"
+                                            tooltip="Collapse recordings list (Shift+T)"
                                             size="xsmall"
                                             data-attr="collapse-playlist"
                                         />

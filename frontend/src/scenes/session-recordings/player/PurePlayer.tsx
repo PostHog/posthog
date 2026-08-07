@@ -196,7 +196,13 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                 action: () => setShowingClipParams(!showingClipParams),
             },
             t: {
-                action: () => setPlaylistCollapsed(!isPlaylistCollapsed),
+                // Require Shift so a stray "t" can't hide the recordings list
+                action: (e) => {
+                    if (!e.shiftKey) {
+                        return
+                    }
+                    setPlaylistCollapsed(!isPlaylistCollapsed)
+                },
             },
             m: {
                 action: () => setMuted(!isMuted),

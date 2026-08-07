@@ -178,8 +178,8 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             },
         ],
         isPlaylistCollapsed: [
+            // Not persisted: a collapsed list is hard to spot, so we always start expanded on a fresh load.
             false,
-            { persist: true },
             {
                 setPlaylistCollapsed: (_, { collapsed }) => collapsed,
             },
@@ -244,6 +244,9 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             posthog.capture('recording player controls overlay toggled', {
                 player_controls_overlay: playerControlsOverlay,
             })
+        },
+        setPlaylistCollapsed: ({ collapsed }) => {
+            posthog.capture('recording player playlist collapse toggled', { collapsed })
         },
     }),
 

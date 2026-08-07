@@ -7,6 +7,7 @@ import { BindLogic, Provider } from 'kea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { Playlist } from './Playlist'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
@@ -87,5 +88,24 @@ describe('Playlist', () => {
             expect(logic.values.filters.session_ids).toBeUndefined()
         })
         expect(screen.queryByText(/selected recording/)).not.toBeInTheDocument()
+    })
+
+    it('renders a labeled, clickable strip when collapsed so the list stays recoverable', async () => {
+        const settingsLogic = playerSettingsLogic()
+        settingsLogic.mount()
+        settingsLogic.actions.setPlaylistCollapsed(true)
+
+        renderPlaylist()
+
+        // the collapsed strip carries a visible label, not just a bare icon
+        expect(screen.getByText('Recordings')).toBeInTheDocument()
+
+        userEvent.click(screen.getByText('Recordings'))
+
+        await waitFor(() => {
+            expect(settingsLogic.values.isPlaylistCollapsed).toBe(false)
+        })
+
+        settingsLogic.unmount()
     })
 })

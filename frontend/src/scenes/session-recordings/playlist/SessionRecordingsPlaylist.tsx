@@ -84,7 +84,7 @@ function HorizontalLayout({
             <div
                 ref={playlistRef}
                 className={cn('relative flex flex-col shrink-0', {
-                    'w-3': isPlaylistCollapsed,
+                    'w-8': isPlaylistCollapsed,
                 })}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={
@@ -97,7 +97,7 @@ function HorizontalLayout({
                           }
                 }
             >
-                <Playlist {...props} />
+                <Playlist {...props} collapsedOrientation="vertical" />
                 {!isPlaylistCollapsed && (
                     <Resizer {...resizerLogicProps} visible={false} offset="0.25rem" handleClassName="rounded my-1" />
                 )}
@@ -149,8 +149,8 @@ function VerticalLayout({
                     ) : null
                 }
             />
-            <div className={cn('relative flex flex-col min-h-0', isPlaylistCollapsed ? 'h-5' : 'flex-1')}>
-                <Playlist {...props} />
+            <div className={cn('relative flex flex-col min-h-0', isPlaylistCollapsed ? 'h-8' : 'flex-1')}>
+                <Playlist {...props} collapsedOrientation="horizontal" />
             </div>
         </>
     )
