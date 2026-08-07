@@ -17,7 +17,7 @@ import hashlib
 import threading
 from collections import OrderedDict
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from time import monotonic
 from typing import TYPE_CHECKING
@@ -26,6 +26,12 @@ from posthog.hogql.direct_query_metrics import DIRECT_CONNECTION_CACHE_TOTAL
 
 if TYPE_CHECKING:
     import duckdb
+
+    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.motherduck import (
+        MotherduckSourceConfig,
+    )
+    from products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.source import MotherduckSource
+
 
 MOTHERDUCK_CONNECTION_CACHE_TTL_SECONDS = 1800
 # Bound per-thread connection count so a worker that touches many distinct sources
@@ -38,6 +44,7 @@ MOTHERDUCK_LIVENESS_PROBE_TIMEOUT_SECONDS = 5
 
 @dataclass
 class _Entry:
+    cm: AbstractContextManager[duckdb.DuckDBPyConnection]
     connection: duckdb.DuckDBPyConnection
     opened_at: float
 
@@ -62,7 +69,7 @@ def _config_key(token: str, database: str | None) -> str:
 
 def _close_entry(entry: _Entry) -> None:
     try:
-        entry.connection.close()
+        entry.cm.__exit__(None, None, None)
     except Exception:
         pass
 
@@ -99,7 +106,10 @@ def _is_reusable(entry: _Entry, now: float) -> bool:
 
 
 @contextmanager
-def cached_motherduck_connection(token: str, database: str | None) -> Iterator[duckdb.DuckDBPyConnection]:
+def cached_motherduck_connection(
+    source: MotherduckSource,
+    config: MotherduckSourceConfig,
+) -> Iterator[duckdb.DuckDBPyConnection]:
     """Yield a cached open read-only MotherDuck connection for this thread.
 
     The connection is kept open after the block exits so the next query on the same thread
@@ -109,11 +119,7 @@ def cached_motherduck_connection(token: str, database: str | None) -> Iterator[d
     # Function-local: keeps the duckdb driver off the django.setup() path.
     import duckdb  # noqa: PLC0415
 
-    from products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.motherduck import (  # noqa: PLC0415
-        connect,
-    )
-
-    key = _config_key(token, database)
+    key = _config_key(config.access_token, source.normalized_database(config))
     cache = _cache()
     now = monotonic()
 
@@ -125,8 +131,11 @@ def cached_motherduck_connection(token: str, database: str | None) -> Iterator[d
     else:
         if entry is not None:
             _evict(key)
-        connection = connect(token, database)
-        cache[key] = _Entry(connection=connection, opened_at=now)
+        # Drive the source's own connection contextmanager but keep it entered, so the
+        # read-only/SaaS-mode connection settings stay owned by the source.
+        cm = source.direct_query_connection(config)
+        connection = cm.__enter__()
+        cache[key] = _Entry(cm=cm, connection=connection, opened_at=now)
         DIRECT_CONNECTION_CACHE_TOTAL.labels(engine="motherduck", result="opened").inc()
         while len(cache) > MOTHERDUCK_CONNECTION_CACHE_MAX_PER_THREAD:
             _old_key, old_entry = cache.popitem(last=False)

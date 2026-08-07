@@ -14,15 +14,25 @@ from posthog.hogql.motherduck_connection_cache import (
 )
 from posthog.hogql.query import HogQLQueryExecutor
 
-from products.data_warehouse.backend.direct_motherduck import (
+from products.data_warehouse.backend.facade.api import DIRECT_MOTHERDUCK_URL_PATTERN
+from products.data_warehouse.backend.facade.sources import (
     DIRECT_MOTHERDUCK_CATALOG_OPTION,
     DIRECT_MOTHERDUCK_SCHEMA_OPTION,
     DIRECT_MOTHERDUCK_TABLE_OPTION,
-    DIRECT_MOTHERDUCK_URL_PATTERN,
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+from products.warehouse_sources.backend.facade.source_management import SourceRegistry
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
-_TRANSPORT_CONNECT = "products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.motherduck.connect"
+# Patched where it is used: the direct-query path reaches the driver through the name
+# `source.py` binds, so patching the transport module it came from would not intercept.
+_TRANSPORT_CONNECT = "products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.source.connect"
+
+
+def _source_and_config(token: str = "token", database: str = "db"):
+    """The (source, config) pair the adapter hands the cache, built the same way it does."""
+    source = SourceRegistry.get_source(ExternalDataSourceType.MOTHERDUCK)
+    return source, source.parse_config({"access_token": token, "database": database})
 
 
 def _local_duckdb(*_args, **_kwargs) -> duckdb.DuckDBPyConnection:
@@ -143,9 +153,9 @@ class TestMotherDuckConnectionCache(unittest.TestCase):
 
     def test_reuses_connection_across_calls(self):
         with patch(_TRANSPORT_CONNECT, side_effect=lambda *a, **k: duckdb.connect(":memory:")) as mock_connect:
-            with cached_motherduck_connection("token", "db") as first:
+            with cached_motherduck_connection(*_source_and_config()) as first:
                 pass
-            with cached_motherduck_connection("token", "db") as second:
+            with cached_motherduck_connection(*_source_and_config()) as second:
                 pass
         self.assertIs(first, second)
         mock_connect.assert_called_once()
@@ -153,18 +163,18 @@ class TestMotherDuckConnectionCache(unittest.TestCase):
     def test_reopens_after_ttl(self):
         with patch(_TRANSPORT_CONNECT, side_effect=lambda *a, **k: duckdb.connect(":memory:")) as mock_connect:
             with patch("posthog.hogql.motherduck_connection_cache.MOTHERDUCK_CONNECTION_CACHE_TTL_SECONDS", 0):
-                with cached_motherduck_connection("token", "db"):
+                with cached_motherduck_connection(*_source_and_config()):
                     pass
-                with cached_motherduck_connection("token", "db"):
+                with cached_motherduck_connection(*_source_and_config()):
                     pass
         self.assertEqual(mock_connect.call_count, 2)
 
     def test_reopens_when_connection_found_dead(self):
         with patch(_TRANSPORT_CONNECT, side_effect=lambda *a, **k: duckdb.connect(":memory:")) as mock_connect:
-            with cached_motherduck_connection("token", "db") as connection:
+            with cached_motherduck_connection(*_source_and_config()) as connection:
                 pass
             connection.close()
-            with cached_motherduck_connection("token", "db"):
+            with cached_motherduck_connection(*_source_and_config()):
                 pass
         self.assertEqual(mock_connect.call_count, 2)
 
@@ -172,23 +182,23 @@ class TestMotherDuckConnectionCache(unittest.TestCase):
         with patch(_TRANSPORT_CONNECT, side_effect=lambda *a, **k: duckdb.connect(":memory:")) as mock_connect:
             # A SQL-level error (bad table) leaves the connection cached...
             with self.assertRaises(duckdb.Error):
-                with cached_motherduck_connection("token", "db") as connection:
+                with cached_motherduck_connection(*_source_and_config()) as connection:
                     connection.execute("SELECT * FROM missing_table")
-            with cached_motherduck_connection("token", "db"):
+            with cached_motherduck_connection(*_source_and_config()):
                 pass
             self.assertEqual(mock_connect.call_count, 1)
             # ...while a transport-shaped error evicts it.
             with self.assertRaises(duckdb.IOException):
-                with cached_motherduck_connection("token", "db"):
+                with cached_motherduck_connection(*_source_and_config()):
                     raise duckdb.IOException("socket closed")
-            with cached_motherduck_connection("token", "db"):
+            with cached_motherduck_connection(*_source_and_config()):
                 pass
             self.assertEqual(mock_connect.call_count, 2)
 
     def test_different_tokens_use_separate_connections(self):
         with patch(_TRANSPORT_CONNECT, side_effect=lambda *a, **k: duckdb.connect(":memory:")) as mock_connect:
-            with cached_motherduck_connection("token-a", "db"):
+            with cached_motherduck_connection(*_source_and_config("token-a")):
                 pass
-            with cached_motherduck_connection("token-b", "db"):
+            with cached_motherduck_connection(*_source_and_config("token-b")):
                 pass
         self.assertEqual(mock_connect.call_count, 2)

@@ -94,9 +94,7 @@ def duckdb_type_to_clickhouse_type(duckdb_type: object | None) -> str:
 
 def motherduck_error_to_message(error: Exception) -> str:
     # Deferred so the module imports without the driver loaded.
-    from products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.motherduck import (  # noqa: PLC0415
-        translate_motherduck_error,
-    )
+    from products.warehouse_sources.backend.facade.source_management import translate_motherduck_error  # noqa: PLC0415
 
     return translate_motherduck_error(error)
 
@@ -200,10 +198,6 @@ class MotherDuckAdapter:
         """
         import duckdb  # noqa: PLC0415 — keeps the heavy dep off the import path
 
-        from products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.source import (  # noqa: PLC0415
-            MotherduckSource,
-        )
-
         source = request.source
         motherduck_source, source_config = self.validate_source_config(source, request.team)
         settings = request.settings
@@ -222,9 +216,7 @@ class MotherDuckAdapter:
             with request.timings.measure("motherduck_execute"), observe_direct_query("motherduck"):
                 # Reuse a per-thread connection across queries — the extension load + WebSocket
                 # handshake is the dominant cost for interactive use.
-                with cached_motherduck_connection(
-                    source_config.access_token, MotherduckSource.normalized_database(source_config)
-                ) as connection:
+                with cached_motherduck_connection(motherduck_source, source_config) as connection:
                     with _InterruptWatchdog(connection, statement_timeout_seconds) as watchdog:
                         try:
                             connection.execute(sql, values or None)
