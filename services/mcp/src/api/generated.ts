@@ -53273,22 +53273,13 @@ export namespace Schemas {
     }
 
     /**
-     * @nullable
+     * Mapping of rule ID to its new `order_key`. Lower keys are evaluated first. Include every rule you want to move; omitted rules keep their current order.
      */
-    export type PatchedErrorTrackingAssignmentRuleAssignee = {
-      readonly type?: 'user' | 'role';
-      readonly id?: number | string;
-    } | null;
+    export type PatchedErrorTrackingAssignmentRuleReorderRequestOrders = {[key: string]: number};
 
-    export interface PatchedErrorTrackingAssignmentRule {
-      readonly id?: string;
-      filters?: unknown;
-      /** @nullable */
-      readonly assignee?: PatchedErrorTrackingAssignmentRuleAssignee;
-      order_key?: number;
-      disabled_data?: unknown;
-      readonly created_at?: string;
-      readonly updated_at?: string;
+    export interface PatchedErrorTrackingAssignmentRuleReorderRequest {
+      /** Mapping of rule ID to its new `order_key`. Lower keys are evaluated first. Include every rule you want to move; omitted rules keep their current order. */
+      orders?: PatchedErrorTrackingAssignmentRuleReorderRequestOrders;
     }
 
     export interface PatchedErrorTrackingAssignmentRuleUpdateRequest {
@@ -53298,19 +53289,14 @@ export namespace Schemas {
       assignee?: ErrorTrackingAssignmentRuleAssigneeRequest | null;
     }
 
-    export interface PatchedErrorTrackingBypassRule {
-      /** Unique identifier of the bypass rule. */
-      readonly id?: string;
-      /** Property-group filters that define which incoming error events bypass rate limiting. */
-      filters?: unknown;
-      /** Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order. */
-      order_key?: number;
-      /** Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active. */
-      disabled_data?: unknown;
-      /** When the rule was created. */
-      readonly created_at?: string;
-      /** When the rule was last updated. */
-      readonly updated_at?: string;
+    /**
+     * Mapping of rule ID to its new `order_key`. Lower keys are evaluated first. Include every rule you want to move; omitted rules keep their current order.
+     */
+    export type PatchedErrorTrackingBypassRuleReorderRequestOrders = {[key: string]: number};
+
+    export interface PatchedErrorTrackingBypassRuleReorderRequest {
+      /** Mapping of rule ID to its new `order_key`. Lower keys are evaluated first. Include every rule you want to move; omitted rules keep their current order. */
+      orders?: PatchedErrorTrackingBypassRuleReorderRequestOrders;
     }
 
     export interface PatchedErrorTrackingBypassRuleUpdateRequest {
@@ -53319,35 +53305,13 @@ export namespace Schemas {
     }
 
     /**
-     * @nullable
+     * Mapping of rule ID to its new `order_key`. Lower keys are evaluated first. Include every rule you want to move; omitted rules keep their current order.
      */
-    export type PatchedErrorTrackingGroupingRuleAssignee = {
-      readonly type?: 'user' | 'role';
-      readonly id?: number | string;
-    } | null;
+    export type PatchedErrorTrackingGroupingRuleReorderRequestOrders = {[key: string]: number};
 
-    /**
-     * Issue linked to this rule
-     * @nullable
-     */
-    export type PatchedErrorTrackingGroupingRuleIssue = {[key: string]: string} | null;
-
-    export interface PatchedErrorTrackingGroupingRule {
-      readonly id?: string;
-      filters?: unknown;
-      /** @nullable */
-      readonly assignee?: PatchedErrorTrackingGroupingRuleAssignee;
-      /** @nullable */
-      description?: string | null;
-      /**
-         * Issue linked to this rule
-         * @nullable
-         */
-      readonly issue?: PatchedErrorTrackingGroupingRuleIssue;
-      order_key?: number;
-      disabled_data?: unknown;
-      readonly created_at?: string;
-      readonly updated_at?: string;
+    export interface PatchedErrorTrackingGroupingRuleReorderRequest {
+      /** Mapping of rule ID to its new `order_key`. Lower keys are evaluated first. Include every rule you want to move; omitted rules keep their current order. */
+      orders?: PatchedErrorTrackingGroupingRuleReorderRequestOrders;
     }
 
     export interface PatchedErrorTrackingGroupingRuleUpdateRequest {
@@ -53466,14 +53430,14 @@ export namespace Schemas {
       threshold?: number;
     }
 
-    export interface PatchedErrorTrackingSuppressionRule {
-      readonly id?: string;
-      filters?: unknown;
-      order_key?: number;
-      disabled_data?: unknown;
-      sampling_rate?: number;
-      readonly created_at?: string;
-      readonly updated_at?: string;
+    /**
+     * Mapping of rule ID to its new `order_key`. Lower keys are evaluated first. Include every rule you want to move; omitted rules keep their current order.
+     */
+    export type PatchedErrorTrackingSuppressionRuleReorderRequestOrders = {[key: string]: number};
+
+    export interface PatchedErrorTrackingSuppressionRuleReorderRequest {
+      /** Mapping of rule ID to its new `order_key`. Lower keys are evaluated first. Include every rule you want to move; omitted rules keep their current order. */
+      orders?: PatchedErrorTrackingSuppressionRuleReorderRequestOrders;
     }
 
     export interface PatchedErrorTrackingSuppressionRuleUpdateRequest {
