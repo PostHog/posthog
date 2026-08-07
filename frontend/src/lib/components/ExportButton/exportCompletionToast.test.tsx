@@ -77,6 +77,29 @@ describe('export completion toast', () => {
         jest.useRealTimers()
     })
 
+    it('leaves unrelated toasts alone when View exports is clicked', async () => {
+        render(<ToastContainer />)
+        act(() => {
+            toast.info('An unrelated notification', { toastId: 'unrelated' })
+        })
+        logic.actions.createExport({ exportData: { export_format: ExporterFormat.PNG, dashboard: 7 } })
+        await act(async () => {
+            jest.advanceTimersByTime(SETTLE_MS)
+        })
+        expect(screen.queryByText('An unrelated notification')).not.toBeNull()
+
+        const dismiss = jest.spyOn(toast, 'dismiss')
+        act(() => {
+            screen.getByText('View exports').click()
+            jest.advanceTimersByTime(1000)
+        })
+
+        // Without an id the button calls toast.dismiss(undefined), which clears every toast.
+        expect(dismiss).toHaveBeenCalled()
+        expect(dismiss.mock.calls[0][0]).not.toBeUndefined()
+        expect(screen.queryByText('An unrelated notification')).not.toBeNull()
+    })
+
     it('completes the export toast without waiting for the nudge check', async () => {
         jest.mocked(resolveExportNudgeEligibility).mockReturnValue(new Promise(() => {}))
 

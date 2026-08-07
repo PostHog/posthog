@@ -227,17 +227,21 @@ export const lemonToast = {
         // Promise toasts always get random IDs (unless explicitly provided) because
         // different operations often share identical pending text like "Saving..."
         const options = ensureToastId(toastOptions, 'promise')
+        // Without an id the button's onClick dismisses every toast on screen, not just this one.
+        const id = options.toastId
         // see https://fkhadra.github.io/react-toastify/promise
         return toast.promise<string | undefined, ToastError>(
             promise,
             {
                 pending: {
-                    render: <ToastContent type="info" message={messages.pending} button={button} />,
+                    render: <ToastContent type="info" message={messages.pending} button={button} id={id} />,
                     icon: <Spinner />,
                 },
                 success: {
                     render: ({ data }) => {
-                        return <ToastContent type="success" message={data || messages.success} button={button} />
+                        return (
+                            <ToastContent type="success" message={data || messages.success} button={button} id={id} />
+                        )
                     },
                     icon: isChristmas() ? <IconGift className="text-green-600" /> : <IconCheckCircle />,
                 },
@@ -248,6 +252,7 @@ export const lemonToast = {
                                 type="error"
                                 message={withIncidentNote(data?.message || messages.error)}
                                 button={hideErrorButton ? undefined : button}
+                                id={id}
                             />
                         )
                     },
