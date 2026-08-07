@@ -429,7 +429,6 @@ class TestBuildResultsSummaryIncompleteTrailingBuckets:
         assert "latest=1" in summary, reason
         assert "in_progress" not in summary, reason
 
-    # Extrapolating a calendar bucket's end from the previous gap kept partial periods and dropped complete ones.
     @pytest.mark.parametrize(
         "unit,days,query_ran_at,expect_excluded",
         [
@@ -449,7 +448,6 @@ class TestBuildResultsSummaryIncompleteTrailingBuckets:
         summary = build_results_summary("TrendsQuery", results, query_ran_at=query_ran_at, timezone="UTC")
         assert summary.startswith(f"(Excluding 1 {unit}") is expect_excluded
 
-    # daysOfWeek removes buckets mid-axis, so spacing would read a weekdays-only daily trend as 3-day buckets.
     def test_interval_beats_spacing_when_the_axis_has_holes(self):
         results = [
             {
@@ -465,7 +463,25 @@ class TestBuildResultsSummaryIncompleteTrailingBuckets:
         assert "Excluding 1 day at the end of the range" in summary
         assert "latest=14" in summary
 
-    # Total-value displays carry `days` but report one figure, so a note would describe a trim that never happened.
+    # `intervalCount` never reaches the payload, so an "every 2 days" bucket claims to be one day
+    # wide and its unfinished trailing bucket reads complete.
+    def test_multi_unit_buckets_are_measured_from_their_spacing(self):
+        results = [
+            {
+                "label": "Signups",
+                "days": ["2026-08-01", "2026-08-03", "2026-08-05", "2026-08-07"],
+                "data": [100, 100, 100, 40],
+                "filter": self.DAILY_FILTER,
+            }
+        ]
+        summary = build_results_summary(
+            "TrendsQuery", results, query_ran_at="2026-08-08T12:00:00+00:00", timezone="UTC"
+        )
+        # Two days per bucket is not one "day", so the unit stays generic rather than lying.
+        assert summary.startswith("(Excluding 1 interval at the end of the range")
+        assert "latest=100" in summary
+        assert "in_progress=40" in summary
+
     @pytest.mark.parametrize("figure", [{"aggregated_value": 99}, {"count": 42}])
     def test_total_value_series_get_no_exclusion_note(self, figure):
         results = [{"label": "Signups", "days": self.DAILY_DAYS, "data": [], "filter": self.DAILY_FILTER, **figure}]
@@ -508,11 +524,9 @@ class TestBuildResultsSummaryIncompleteTrailingBuckets:
         summary = build_results_summary(
             "TrendsQuery", results, query_ran_at="2026-08-06T12:00:00+00:00", timezone="UTC"
         )
-        # The sample notice comes first, then the exclusion note; truncation can drop neither.
         assert summary.startswith("(These are the ")
         assert "(Excluding 1 day at the end of the range" in summary.splitlines()[1]
 
-    # A model told only afterwards that it was reading a sample still wrote "all series".
     def test_truncation_states_coverage_before_the_data(self):
         results = [{"label": f"Prompt {i}", "data": [1, 2, 3]} for i in range(200)]
         summary = build_results_summary("TrendsQuery", results)
@@ -524,8 +538,7 @@ class TestBuildResultsSummaryIncompleteTrailingBuckets:
         assert all(line.startswith("- Prompt ") and "latest=" in line for line in body)
         assert len(summary) <= MAX_SUMMARY_LENGTH
 
-    # Every series line carries in_progress=, whatever the breakdown's width. A schema that varied
-    # with series count would make the prompt's description of the field true only sometimes.
+    # A schema that varied with series count would make the prompt's description of in_progress= true only sometimes.
     @pytest.mark.parametrize("series_count", [1, 3, 200])
     def test_in_progress_is_on_every_series_line(self, series_count):
         results = [

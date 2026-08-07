@@ -2,12 +2,7 @@ import datetime
 from math import floor
 from typing import Any, Optional, Union
 
-from posthog.bucket_completeness import (
-    PARTIAL_BUCKET_MARKER,
-    parse_bucket_start as parse_bucket_datetime,
-    partial_bucket_flags,
-    partial_bucket_note,
-)
+from posthog.bucket_completeness import parse_bucket_start
 
 
 def format_matrix(matrix: list[list[Any]]) -> str:
@@ -112,9 +107,17 @@ def strip_datetime_seconds(date: str) -> str:
 
 # Re-exported so this module stays the import site for Max's formatters; the logic is shared with
 # subscription summaries, which cannot import through this package's Django-bound __init__.
-__all__ = [
-    "PARTIAL_BUCKET_MARKER",
-    "parse_bucket_datetime",
-    "partial_bucket_flags",
-    "partial_bucket_note",
-]
+# Appended to a bucket's date cell when that bucket is still collecting data.
+PARTIAL_BUCKET_MARKER = " (partial)"
+
+
+def partial_bucket_flags(days: list[str], current_interval_start: datetime.datetime) -> list[bool]:
+    """Flag each bucket that falls in the current (still-collecting) interval or later."""
+    return [(start := parse_bucket_start(day)) is not None and start >= current_interval_start for day in days]
+
+
+def partial_bucket_note(timezone: str) -> str:
+    return (
+        f'Note: rows marked "{PARTIAL_BUCKET_MARKER.strip()}" cover an interval that is still in progress '
+        f"as of the query time, so their values are incomplete. Timezone: {timezone}."
+    )
