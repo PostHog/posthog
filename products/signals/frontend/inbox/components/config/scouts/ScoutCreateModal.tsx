@@ -129,7 +129,10 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
                         {({ value, onChange }) => (
                             <LemonInput
                                 autoFocus
-                                maxLength={SKILL_NAME_MAX_LENGTH - SIGNALS_SCOUT_SKILL_PREFIX.length}
+                                // The browser enforces this before onChange strips the prefix, so capping at the
+                                // scope length would silently drop the tail of a pasted full name. The full-name
+                                // limit cannot truncate anything valid; an over-long scope fails validation instead.
+                                maxLength={SKILL_NAME_MAX_LENGTH}
                                 prefix={
                                     <span className="font-mono text-[11px] text-secondary">
                                         {SIGNALS_SCOUT_SKILL_PREFIX}

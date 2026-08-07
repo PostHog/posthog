@@ -3,6 +3,8 @@ import { cleanup, render } from '@testing-library/react'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { SKILL_NAME_MAX_LENGTH } from 'products/skills/frontend/skillConstants'
+
 import { ScoutCreateModal } from './ScoutCreateModal'
 
 describe('ScoutCreateModal', () => {
@@ -50,8 +52,11 @@ describe('ScoutCreateModal', () => {
 
         expect(await findByText('signals-scout-')).toBeTruthy()
         expect(await findByText('signals-scout-ai-observability-daily-digest')).toBeTruthy()
-        expect(baseElement.querySelector<HTMLInputElement>('[data-attr="scout-create-name"]')?.value).toBe(
-            'ai-observability-daily-digest'
-        )
+
+        const nameInput = baseElement.querySelector<HTMLInputElement>('[data-attr="scout-create-name"]')
+        expect(nameInput?.value).toBe('ai-observability-daily-digest')
+        // The browser truncates a paste before onChange strips the prefix, so a cap of
+        // SKILL_NAME_MAX_LENGTH - prefix would silently shorten a pasted full name.
+        expect(nameInput?.getAttribute('maxlength')).toBe(String(SKILL_NAME_MAX_LENGTH))
     })
 })

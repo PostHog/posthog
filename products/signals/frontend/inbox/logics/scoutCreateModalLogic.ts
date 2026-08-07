@@ -13,7 +13,11 @@ import type {
     SignalScoutCreateApi,
     SignalScoutCreateResponseApi,
 } from 'products/signals/frontend/generated/api.schemas'
-import { SKILL_DESCRIPTION_MAX_LENGTH, validateSkillName } from 'products/skills/frontend/skillConstants'
+import {
+    SKILL_DESCRIPTION_MAX_LENGTH,
+    SKILL_NAME_MAX_LENGTH,
+    validateSkillName,
+} from 'products/skills/frontend/skillConstants'
 
 import {
     dailyCronToTime,
@@ -21,6 +25,7 @@ import {
     ensureScoutPrefix,
     SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
     SCOUT_DAILY_AT_SCHEDULE_MODE,
+    SIGNALS_SCOUT_SKILL_PREFIX,
     stripScoutPrefix,
     timeToDailyCron,
 } from '../utils/scoutRunsWindow'
@@ -82,12 +87,20 @@ function isValidScoutDailyTime(dailyTime: string): boolean {
     return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(dailyTime)
 }
 
+/** The field holds the part after the prefix, so its cap is what the prefix leaves of the skill-name limit. */
+export const MAX_SCOUT_SCOPE_LENGTH = SKILL_NAME_MAX_LENGTH - SIGNALS_SCOUT_SKILL_PREFIX.length
+
 function scoutNameError(name: string): string | undefined {
     const scopeName = stripScoutPrefix(name.trim())
     if (!scopeName) {
         return 'Name is required'
     }
-    // Validate the name the backend receives, so its 64-character cap and slug rules account for the prefix.
+    // Report the field's own limit. validateSkillName would name the full 64, which reads as
+    // wrong against a field showing 55 characters.
+    if (scopeName.length > MAX_SCOUT_SCOPE_LENGTH) {
+        return `Name must be ${MAX_SCOUT_SCOPE_LENGTH} characters or fewer`
+    }
+    // Validate the name the backend receives, so the slug rules account for the prefix.
     return validateSkillName(ensureScoutPrefix(scopeName))
 }
 
