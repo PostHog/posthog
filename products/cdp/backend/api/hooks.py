@@ -8,22 +8,27 @@ from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.cdp.templates.zapier.template_zapier import template as template_zapier
 from posthog.models.user import User
 
 from products.cdp.backend.api.hog_function import HogFunctionSerializer
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hook import HOOK_EVENTS, Hook
 
+ZAPIER_TEMPLATE_ID = "template-zapier"
+
 
 def create_zapier_hog_function(hook: Hook, serializer_context: dict, from_migration: bool = False) -> HogFunction:
-    description = template_zapier.description
+    # The serializer fills name, description and icon_url from the template, so only the
+    # migration note needs the stored description.
+    description = None
     if from_migration:
-        description = f"{description} Migrated from legacy hook {hook.id}."
+        template = HogFunctionTemplate.get_template(ZAPIER_TEMPLATE_ID)
+        description = f"{template.description if template else ''} Migrated from legacy hook {hook.id}."
 
     serializer = HogFunctionSerializer(
         data={
-            "template_id": template_zapier.id,
+            "template_id": ZAPIER_TEMPLATE_ID,
             "type": "destination",
             "name": f"Zapier webhook for action {hook.resource_id}",
             "description": description,
@@ -53,7 +58,6 @@ def create_zapier_hog_function(hook: Hook, serializer_context: dict, from_migrat
                 },
             },
             "enabled": True,
-            "icon_url": template_zapier.icon_url,
         },
         context=serializer_context,
     )
@@ -132,7 +136,7 @@ class HookViewSet(
             # We do this by finding one where the description contains the hook id
             fns = HogFunction.objects.filter(
                 team_id=self.team_id,
-                template_id=template_zapier.id,
+                template_id=ZAPIER_TEMPLATE_ID,
                 description__icontains=f"{instance.id}",
             )
 
@@ -150,7 +154,7 @@ class HookViewSet(
             # Otherwise we try and delete the hog function by id
             try:
                 hog_function = HogFunction.objects.get(
-                    team_id=self.team_id, template_id=template_zapier.id, id=kwargs["pk"]
+                    team_id=self.team_id, template_id=ZAPIER_TEMPLATE_ID, id=kwargs["pk"]
                 )
                 hog_function.enabled = False
                 hog_function.deleted = True

@@ -4,11 +4,9 @@ from typing import Any
 import pytest
 from posthog.test.base import ClickhouseTestMixin
 
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
-from posthog.cdp.templates.zapier.template_zapier import template as template_zapier
-
 from products.actions.backend.models.action import Action
-from products.cdp.backend.api.hooks import create_zapier_hog_function, valid_domain
+from products.cdp.backend.api.hooks import ZAPIER_TEMPLATE_ID, create_zapier_hog_function, valid_domain
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hook import Hook
 
@@ -33,7 +31,25 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
                 }
             ],
         )
-        sync_template_to_db(template_zapier)
+        # The Zapier template lives in the Node service, which these tests do not run,
+        # so seed the row the hook API resolves by template_id.
+        self.zapier_template = HogFunctionTemplate.objects.create(
+            template_id=ZAPIER_TEMPLATE_ID,
+            name="Zapier",
+            description="Trigger Zaps in Zapier based on PostHog events.",
+            type="destination",
+            status="stable",
+            free=True,
+            icon_url="/static/services/zapier.png",
+            category=["Custom"],
+            code_language="hog",
+            code="let res := fetch(f'https://hooks.zapier.com/{inputs.hook}', {'method': 'POST', 'body': inputs.body})",
+            inputs_schema=[
+                {"key": "hook", "type": "string", "required": True},
+                {"key": "body", "type": "json", "required": False},
+                {"key": "debug", "type": "boolean", "required": False},
+            ],
+        )
 
     def test_delete_hook(self):
         hook_id = "abc123"
@@ -72,7 +88,7 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
             "resource_id": self.action.id,
         }
 
-        assert hog_function.description == template_zapier.description
+        assert hog_function.description == self.zapier_template.description
 
         assert hog_function.filters == {
             "source": "events",

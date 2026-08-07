@@ -49,7 +49,6 @@ from .sendgrid.template_sendgrid import (
 from .snapchat_ads.template_pixel import template_snapchat_pixel as snapchat_pixel
 from .tiktok_ads.template_tiktok_pixel import template_tiktok_pixel as tiktok_pixel
 from .userlist.template_userlist import template as userlist
-from .zapier.template_zapier import template as zapier
 
 HOG_FUNCTION_TEMPLATES = [
     blank_site_destination,
@@ -75,7 +74,6 @@ HOG_FUNCTION_TEMPLATES = [
     snapchat_pixel,
     tiktok_pixel,
     userlist,
-    zapier,
     early_access_features,
     hogdesk,
     notification_bar,

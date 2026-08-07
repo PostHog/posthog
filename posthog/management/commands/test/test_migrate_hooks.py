@@ -1,10 +1,10 @@
 from posthog.test.base import BaseTest
 
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
-from posthog.cdp.templates.zapier.template_zapier import template as template_zapier
 from posthog.management.commands.migrate_hooks import migrate_hooks
 
 from products.actions.backend.models.action import Action
+from products.cdp.backend.api.hooks import ZAPIER_TEMPLATE_ID
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hook import Hook
 
@@ -33,7 +33,25 @@ class TestMigrateHooks(BaseTest):
             user_id=self.user.id,
         )
 
-        sync_template_to_db(template_zapier)
+        # The Zapier template lives in the Node service, which these tests do not run,
+        # so seed the row the migration resolves by template_id.
+        self.zapier_template = HogFunctionTemplate.objects.create(
+            template_id=ZAPIER_TEMPLATE_ID,
+            name="Zapier",
+            description="Trigger Zaps in Zapier based on PostHog events.",
+            type="destination",
+            status="stable",
+            free=True,
+            icon_url="/static/services/zapier.png",
+            category=["Custom"],
+            code_language="hog",
+            code="let res := fetch(f'https://hooks.zapier.com/{inputs.hook}', {'method': 'POST', 'body': inputs.body})",
+            inputs_schema=[
+                {"key": "hook", "type": "string", "required": True},
+                {"key": "body", "type": "json", "required": False},
+                {"key": "debug", "type": "boolean", "required": False},
+            ],
+        )
 
     def test_dry_run(self):
         migrate_hooks(hook_ids=[], team_ids=[], dry_run=True)
@@ -64,12 +82,14 @@ class TestMigrateHooks(BaseTest):
             "actions": [{"id": f"{self.action.id}", "name": "", "type": "actions", "order": 0}],
             "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 29],
         }
-        assert hog_function.hog == template_zapier.code
-        assert hog_function.description == f"{template_zapier.description} Migrated from legacy hook {self.hook.id}."
-        assert hog_function.inputs_schema == template_zapier.inputs_schema
-        assert hog_function.template_id == template_zapier.id
+        assert hog_function.hog == self.zapier_template.code
+        assert (
+            hog_function.description == f"{self.zapier_template.description} Migrated from legacy hook {self.hook.id}."
+        )
+        assert hog_function.inputs_schema == self.zapier_template.inputs_schema
+        assert hog_function.template_id == self.zapier_template.template_id
         assert hog_function.bytecode
         assert hog_function.enabled
-        assert hog_function.icon_url == template_zapier.icon_url
+        assert hog_function.icon_url == self.zapier_template.icon_url
 
         assert Hook.objects.count() == 0
