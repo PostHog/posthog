@@ -14,6 +14,42 @@ from temporalio.runtime import Runtime
 from posthog.temporal.common.codec import EncryptionCodec
 
 
+def build_temporal_target(host: str, port: int | str) -> str:
+    """Build and validate the `host:port` target handed to the temporalio Rust bridge.
+
+    The bridge accepts only a bare `host:port` and rejects anything else with an opaque
+    `invalid target URL: invalid port number` error that names neither setting, so a config
+    typo reads as a bridge bug. We validate here — the single point every `connect()` caller
+    shares — and raise an error that names the offending TEMPORAL_HOST/TEMPORAL_PORT value.
+    """
+    normalized_host = host.strip()
+    # Strip a scheme if the host carries one (e.g. "http://temporal", "grpc://temporal").
+    if "://" in normalized_host:
+        normalized_host = normalized_host.split("://", 1)[1]
+    normalized_host = normalized_host.rstrip("/")
+
+    if not normalized_host:
+        raise ValueError(f"TEMPORAL_HOST is empty; expected a hostname but got {host!r}")
+
+    # A host that already embeds a port yields "host:port:port". IPv6 literals are bracketed
+    # ("[::1]"), so only a colon outside the brackets signals an embedded port.
+    host_after_brackets = normalized_host.rsplit("]", 1)[-1] if normalized_host.startswith("[") else normalized_host
+    if ":" in host_after_brackets:
+        raise ValueError(
+            f"TEMPORAL_HOST already includes a port ({host!r}); set the host without a port and use TEMPORAL_PORT"
+        )
+
+    try:
+        port_number = int(str(port).strip())
+    except (TypeError, ValueError):
+        raise ValueError(f"TEMPORAL_PORT must be an integer but got {port!r}") from None
+
+    if not 0 < port_number <= 65535:
+        raise ValueError(f"TEMPORAL_PORT must be between 1 and 65535 but got {port!r}")
+
+    return f"{normalized_host}:{port_number}"
+
+
 async def connect(
     host: str,
     port: int | str,
@@ -57,7 +93,7 @@ async def connect(
         interceptors.append(temporalio.contrib.opentelemetry.TracingInterceptor())
 
     client = await Client.connect(
-        f"{host}:{port}",
+        build_temporal_target(host, port),
         namespace=namespace,
         tls=tls,
         runtime=runtime,
