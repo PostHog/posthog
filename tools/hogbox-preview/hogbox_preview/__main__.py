@@ -63,6 +63,9 @@ def cmd_up(args: argparse.Namespace) -> int:
     stack = build_stack(backend, args)
     url = stack.bring_up()
     print(f"box_id={backend.box_id}")
+    # Empty (not the literal "None") when there's no pen, so the CI parser treats
+    # it as absent rather than rendering an admin link to /pens/None.
+    print(f"pen_id={backend.pen_id or ''}")
     print(f"url={url}")
     if args.destroy:
         backend.destroy()
@@ -109,6 +112,11 @@ def cmd_health(args: argparse.Namespace) -> int:
     backend = build_backend(args)
     backend.provision()
     backend.wait_http_ok("/_health", expect=200, timeout=args.timeout)
+    # /_health only proves the process is up. Run the authed deep-health probe
+    # too so this subcommand catches an unusable app (the personhog-drift 500s
+    # slipped past /_health). --no-seed only tolerates a failed demo login
+    # (genuinely unseeded box); it no longer skips the probe outright.
+    build_stack(backend, args).deep_health()
     print(f"healthy: {backend.web_url}")
     return 0
 
@@ -173,7 +181,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--web-port", type=int, default=8000, help="in-guest port PostHog serves on")
     p.add_argument("--image", default=PostHogPreviewStack.IMAGE, help="published posthog image")
     p.add_argument(
-        "--name", default="posthog-preview", help="box name (must be unique among live boxes; e.g. preview-pr-123)"
+        "--name",
+        default="posthog-preview",
+        help="pen name / preview identity (e.g. preview-pr-123); boxes get a unique suffix",
     )
     # Sizing MUST match the golden snapshot being restored ("omit to inherit" is
     # broken server-side). Defaults match the preview golden (snap-753bb8b3eeef,
@@ -229,9 +239,10 @@ def main(argv: list[str] | None = None) -> int:
     sd.add_argument("--box-id", required=True)
     sd.set_defaults(func=cmd_seed, no_seed=False)
 
-    he = sub.add_parser("health", help="wait for /_health on an existing box")
+    he = sub.add_parser("health", help="wait for /_health, then run the authed deep-health probe")
     he.add_argument("--box-id", required=True)
     he.add_argument("--timeout", type=int, default=600)
+    he.add_argument("--no-seed", action="store_true", help="skip the authed deep-health probe (no demo user seeded)")
     he.set_defaults(func=cmd_health)
 
     de = sub.add_parser("destroy", help="tear a box down")

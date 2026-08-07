@@ -1,13 +1,17 @@
 """Tests for TikTok Ads utility functions."""
 
+import json
 from datetime import date, datetime, timedelta
 from enum import Enum
 from typing import Any, cast
 
 import pytest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+
+from django.test import override_settings
 
 from parameterized import parameterized
+from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.settings import (
     TIKTOK_ADS_CONFIG,
@@ -18,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads
     TikTokAdsPaginator,
     TikTokDateRangeManager,
     TikTokReportResource,
+    list_advertisers,
 )
 
 
@@ -434,6 +439,15 @@ class TestStreamTransformations:
         assert result[0]["advertiser_id"] == "123456"
         assert isinstance(result[0]["create_time"], datetime)
 
+    def test_apply_stream_transformations_asset_endpoint(self):
+        # Creative assets have no operational status. Routing them through the entity
+        # transformation would invent a `current_status` column TikTok never returned.
+        reports = [{"video_id": "v1", "create_time": "2026-01-01 00:00:00"}]
+
+        result = TikTokReportResource.apply_stream_transformations(EndpointType.ASSET, reports)
+
+        assert result == reports
+
     def test_apply_stream_transformations_unknown_endpoint(self):
         """Test stream transformations for unknown endpoint type."""
         reports = [{"data": "test"}]
@@ -808,6 +822,11 @@ class TestHelperFunctions:
             ("campaigns", EndpointType.ENTITY),
             ("ad_groups", EndpointType.ENTITY),
             ("ads", EndpointType.ENTITY),
+            ("campaign_demographic_report", EndpointType.REPORT),
+            ("ad_group_country_report", EndpointType.REPORT),
+            ("ad_platform_report", EndpointType.REPORT),
+            ("creative_videos", EndpointType.ASSET),
+            ("creative_images", EndpointType.ASSET),
         ]
     )
     def test_is_report_endpoint(self, endpoint_name, expected_endpoint_type):
@@ -815,3 +834,124 @@ class TestHelperFunctions:
         config = TIKTOK_ADS_CONFIG.get(endpoint_name)
         assert config is not None, f"Endpoint {endpoint_name} not found in config"
         assert config.endpoint_type == expected_endpoint_type
+
+
+# Metrics TikTok only accepts on a BASIC report. Requesting any of them alongside an
+# audience dimension is rejected outright, which would take the whole breakdown table down.
+_BASIC_ONLY_METRICS = {
+    "app_promotion_type",
+    "billing_event",
+    "campaign_budget",
+    "campaign_dedicate_type",
+    "currency",
+    "gross_impressions",
+    "split_test",
+}
+
+AUDIENCE_REPORT_ENDPOINTS = [
+    ("campaign_demographic_report", ["campaign_id", "stat_time_day", "gender", "age"], "AUCTION_CAMPAIGN"),
+    ("campaign_country_report", ["campaign_id", "stat_time_day", "country_code"], "AUCTION_CAMPAIGN"),
+    ("campaign_platform_report", ["campaign_id", "stat_time_day", "platform"], "AUCTION_CAMPAIGN"),
+    ("ad_group_demographic_report", ["adgroup_id", "stat_time_day", "gender", "age"], "AUCTION_ADGROUP"),
+    ("ad_group_country_report", ["adgroup_id", "stat_time_day", "country_code"], "AUCTION_ADGROUP"),
+    ("ad_group_platform_report", ["adgroup_id", "stat_time_day", "platform"], "AUCTION_ADGROUP"),
+    ("ad_demographic_report", ["ad_id", "stat_time_day", "gender", "age"], "AUCTION_AD"),
+    ("ad_country_report", ["ad_id", "stat_time_day", "country_code"], "AUCTION_AD"),
+    ("ad_platform_report", ["ad_id", "stat_time_day", "platform"], "AUCTION_AD"),
+]
+
+
+def _endpoint_params(endpoint_name: str) -> dict[str, Any]:
+    endpoint = cast(dict[str, Any], TIKTOK_ADS_CONFIG[endpoint_name].resource["endpoint"])
+    return cast(dict[str, Any], endpoint["params"])
+
+
+class TestAudienceReportEndpoints:
+    @parameterized.expand(AUDIENCE_REPORT_ENDPOINTS)
+    def test_breakdown_dimensions_are_part_of_the_primary_key(self, endpoint_name, dimensions, data_level):
+        # TikTok returns one row per (entity, day, breakdown value). Dropping a breakdown
+        # from the key would collapse every value of it onto one row and make each merge
+        # multi-match, so the key has to carry the full dimension list.
+        params = _endpoint_params(endpoint_name)
+
+        assert TIKTOK_ADS_CONFIG[endpoint_name].resource["primary_key"] == dimensions
+        assert json.loads(params["dimensions"]) == dimensions
+        assert params["data_level"] == data_level
+
+    @parameterized.expand(AUDIENCE_REPORT_ENDPOINTS)
+    def test_requests_the_audience_report_with_audience_safe_metrics(self, endpoint_name, dimensions, data_level):
+        # Reusing the BASIC metric list here is the easy mistake, and TikTok rejects the
+        # whole request rather than dropping the unsupported metrics.
+        params = _endpoint_params(endpoint_name)
+        metrics = set(json.loads(params["metrics"]))
+
+        assert params["report_type"] == "AUDIENCE"
+        assert metrics & _BASIC_ONLY_METRICS == set()
+        assert metrics & set(dimensions) == set()
+
+
+class TestListAdvertisers:
+    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils"
+
+    @staticmethod
+    def _session_returning(body: dict) -> Mock:
+        response = Mock()
+        response.json.return_value = body
+        session = Mock()
+        session.get.return_value = response
+        return session
+
+    @override_settings(TIKTOK_ADS_CLIENT_ID="app", TIKTOK_ADS_CLIENT_SECRET="secret")
+    def test_returns_advertiser_list_on_success(self):
+        session = self._session_returning(
+            {"code": 0, "data": {"list": [{"advertiser_id": "1", "advertiser_name": "Acme"}]}}
+        )
+        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
+            result = list_advertisers("token")
+
+        assert result == [{"advertiser_id": "1", "advertiser_name": "Acme"}]
+        # app_id + secret go as query params alongside the user's Access-Token header
+        assert session.get.call_args.kwargs["params"] == {"app_id": "app", "secret": "secret"}
+        # A timeout must be set — this call runs in the oauth_accounts web worker and a hung
+        # TikTok connection would otherwise pin the worker indefinitely.
+        assert session.get.call_args.kwargs["timeout"] == 10
+
+    @override_settings(TIKTOK_ADS_CLIENT_ID="app", TIKTOK_ADS_CLIENT_SECRET="secret")
+    def test_non_zero_code_raises_with_api_code(self):
+        session = self._session_returning({"code": 40105, "message": "Access token is invalid"})
+        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
+            with pytest.raises(TikTokAdsAPIError) as excinfo:
+                list_advertisers("token")
+
+        assert excinfo.value.api_code == 40105
+
+    @override_settings(TIKTOK_ADS_CLIENT_ID="app", TIKTOK_ADS_CLIENT_SECRET="secret")
+    def test_body_without_code_raises_with_none_api_code(self):
+        # A malformed body must not be mistaken for one of the known code sets.
+        session = self._session_returning({"unexpected": "shape"})
+        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
+            with pytest.raises(TikTokAdsAPIError) as excinfo:
+                list_advertisers("token")
+
+        assert excinfo.value.api_code is None
+
+    @override_settings(TIKTOK_ADS_CLIENT_ID="app", TIKTOK_ADS_CLIENT_SECRET="secret")
+    def test_non_json_body_raises_tiktok_error_not_json_decode_error(self):
+        # A proxy answering HTML would otherwise surface as an opaque JSONDecodeError.
+        response = Mock()
+        response.json.side_effect = ValueError("Expecting value")
+        session = Mock()
+        session.get.return_value = response
+        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
+            with pytest.raises(TikTokAdsAPIError):
+                list_advertisers("token")
+
+    @override_settings(TIKTOK_ADS_CLIENT_ID="app", TIKTOK_ADS_CLIENT_SECRET="secret")
+    def test_http_error_status_is_raised(self):
+        response = Mock()
+        response.raise_for_status.side_effect = HTTPError("502 Bad Gateway", response=response)
+        session = Mock()
+        session.get.return_value = response
+        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
+            with pytest.raises(HTTPError):
+                list_advertisers("token")

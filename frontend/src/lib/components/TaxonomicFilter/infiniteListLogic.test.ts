@@ -1,5 +1,6 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { getContext } from 'kea'
 import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -13,6 +14,7 @@ import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
+import { Mocks } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
 import { AppContext, PropertyDefinition, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
@@ -539,7 +541,7 @@ describe('infiniteListLogic', () => {
         beforeEach(silenceKeaLoadersErrors)
         afterEach(resumeKeaLoadersErrors)
 
-        it('falls back to the empty state instead of spinning forever when the fetch fails', async () => {
+        it('surfaces the error state instead of spinning forever or claiming no results', async () => {
             useMocks({
                 get: {
                     '/api/projects/:team/event_definitions': () => [500, { detail: 'server error' }],
@@ -561,18 +563,212 @@ describe('infiniteListLogic', () => {
                 .toFinishAllListeners()
                 .toMatchValues({
                     showLoadingState: false,
-                    showEmptyState: true,
+                    // A failure must not read as "this event doesn't exist" - that sends people
+                    // hunting for a tracking bug instead of retrying.
+                    showEmptyState: false,
+                    showErrorState: true,
                 })
 
-            // The failure lands on the same empty state as a genuine no-match, so telemetry is
-            // the only prod signal that the backend blipped — losing this capture makes the
-            // worst case ("event exists, fetch failed") invisible.
             const failedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter fetch failed')
             expect(failedCalls).toHaveLength(1)
             expect(failedCalls[0][1]).toMatchObject({
                 groupType: TaxonomicFilterGroupType.Events,
                 searchQuery: 'user_signed_up',
             })
+        })
+
+        // Group names go out over the query endpoint instead of the list endpoint, so they need
+        // the abort signal wired separately - without it the watchdog fires against a controller
+        // nobody is listening to and the list keeps spinning.
+        const hangingListCases: { label: string; listGroupType: TaxonomicFilterGroupType; mocks: Mocks }[] = [
+            {
+                label: 'a list endpoint',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                mocks: {
+                    get: { '/api/projects/:team/event_definitions': () => new Promise(() => {}) },
+                },
+            },
+            {
+                label: 'a group name query',
+                listGroupType: `${TaxonomicFilterGroupType.GroupNamesPrefix}_0` as TaxonomicFilterGroupType,
+                mocks: {
+                    get: {
+                        '/api/projects/:team/groups_types': [
+                            { group_type: 'organization', group_type_index: 0, name_singular: null, name_plural: null },
+                        ],
+                    },
+                    post: { '/api/environments/:team_id/query/': () => new Promise(() => {}) },
+                },
+            },
+        ]
+
+        it.each(hangingListCases)('gives up on $label that never responds', async ({ listGroupType, mocks }) => {
+            useMocks(mocks)
+            initKeaTests()
+            jest.useFakeTimers()
+            try {
+                const hangingLogic = infiniteListLogic({
+                    taxonomicFilterLogicKey: 'hangingList',
+                    listGroupType,
+                    taxonomicGroupTypes: [listGroupType],
+                    showNumericalPropsOnly: false,
+                })
+                hangingLogic.mount()
+                // Let the group type list arrive, so a group name list resolves its group index
+                // and takes the query path rather than falling back to the list endpoint.
+                await jest.advanceTimersByTimeAsync(1)
+                hangingLogic.actions.setSearchQuery('user_signed_up')
+
+                // Past the debounce, so the request is in flight rather than still queued.
+                await jest.advanceTimersByTimeAsync(600)
+                expect(hangingLogic.values.showLoadingState).toBe(true)
+
+                await jest.advanceTimersByTimeAsync(30000)
+                expect(hangingLogic.values.showErrorState).toBe(true)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('leaves a search that legitimately found nothing alone once the request timeout elapses', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': () => [200, { results: [], count: 0 }],
+                },
+            })
+            initKeaTests()
+            jest.useFakeTimers()
+            try {
+                const emptyLogic = infiniteListLogic({
+                    taxonomicFilterLogicKey: 'emptyList',
+                    listGroupType: TaxonomicFilterGroupType.Events,
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                    showNumericalPropsOnly: false,
+                })
+                emptyLogic.mount()
+                emptyLogic.actions.setSearchQuery('definitely_not_a_real_event')
+
+                await jest.advanceTimersByTimeAsync(600)
+                expect(emptyLogic.values.showEmptyState).toBe(true)
+
+                // Well past the watchdog: it bounds a request in flight, and this one already
+                // answered. "No results" must not decay into "couldn't load results".
+                await jest.advanceTimersByTimeAsync(31000)
+                expect(emptyLogic.values.showErrorState).toBe(false)
+                expect(emptyLogic.values.showEmptyState).toBe(true)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('clears the error state when a retry succeeds', async () => {
+            let attempts = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': () => {
+                        attempts += 1
+                        return attempts === 1
+                            ? [500, { detail: 'server error' }]
+                            : [200, { results: [{ name: 'user_signed_up', id: 'uuid-1' }], count: 1 }]
+                    },
+                },
+            })
+            initKeaTests()
+            const retryingLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'retryingList',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+            })
+            retryingLogic.mount()
+            await expectLogic(retryingLogic, () => {
+                retryingLogic.actions.setSearchQuery('user_signed_up')
+            })
+                .toDispatchActions(['loadRemoteItemsFailure'])
+                .toFinishAllListeners()
+                .toMatchValues({ showErrorState: true })
+
+            await expectLogic(retryingLogic, () => {
+                retryingLogic.actions.retryRemoteItems()
+            })
+                .toDispatchActions(['retryRemoteItems', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    showErrorState: false,
+                    showEmptyState: false,
+                })
+            expect(retryingLogic.values.totalResultCount).toBeGreaterThan(0)
+        })
+    })
+
+    describe('SuggestedFilters aggregate holds the empty state until sibling groups settle', () => {
+        // Regression for the false "No results" flash while typing on the aggregated "All" tab.
+        // That tab runs no fetch of its own, so it can only tell it has settled by watching its
+        // sibling group lists. It used to gate solely on the transient `anyGroupLoading` boolean,
+        // which dips false in the sub-render between a keystroke and the debounced sibling fetch —
+        // surfacing `showEmptyState` for a query that does have matches. The fix adds an
+        // `anyGroupStale` guard mirroring the per-list `remoteResultsAreFresh` gate: the empty
+        // state must never show while a contributing group is stale for the current query.
+        const groupTypes = [
+            TaxonomicFilterGroupType.Events,
+            TaxonomicFilterGroupType.EventProperties,
+            TaxonomicFilterGroupType.SuggestedFilters,
+        ]
+
+        const mountAggregate = (): {
+            suggested: ReturnType<typeof infiniteListLogic.build>
+            tfl: ReturnType<typeof taxonomicFilterLogic.build>
+        } => {
+            const tfl = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'aggregate-freshness',
+                taxonomicGroupTypes: groupTypes,
+            })
+            tfl.mount()
+            let suggested: ReturnType<typeof infiniteListLogic.build> | undefined
+            for (const gt of groupTypes) {
+                const listLogic = infiniteListLogic({
+                    taxonomicFilterLogicKey: 'aggregate-freshness',
+                    listGroupType: gt,
+                    taxonomicGroupTypes: groupTypes,
+                    showNumericalPropsOnly: false,
+                })
+                listLogic.mount()
+                if (gt === TaxonomicFilterGroupType.SuggestedFilters) {
+                    suggested = listLogic
+                }
+            }
+            return { suggested: suggested!, tfl }
+        }
+
+        it('never shows "No results" while a sibling group is stale for a query that has matches', async () => {
+            const { suggested, tfl } = mountAggregate()
+            // Let the initial empty-query loads settle so every sibling starts fresh.
+            await expectLogic(suggested).toFinishAllListeners()
+
+            // The false-empty condition: the aggregate declaring an empty state in a frame where a
+            // contributing group has not yet caught up to the current search query. Watching every
+            // store transition (not just settled frames) catches the sub-render flash directly.
+            const violations: string[] = []
+            const unsubscribe = getContext().store.subscribe(() => {
+                if (suggested.values.showEmptyState && suggested.values.searchQuery && tfl.values.anyGroupStale) {
+                    violations.push(
+                        `q="${suggested.values.searchQuery}" count=${suggested.values.totalListCount} anyGroupLoading=${tfl.values.anyGroupLoading}`
+                    )
+                }
+            })
+
+            // Type "browser" (matches the mock property $browser), extend to a non-matching query,
+            // then backspace back to the matching one — each keystroke re-stales the siblings.
+            for (const q of ['b', 'br', 'bro', 'brow', 'brows', 'browse', 'browser', 'browserzzz', 'browser']) {
+                tfl.actions.setSearchQuery(q)
+            }
+            await expectLogic(suggested).toFinishAllListeners()
+            unsubscribe()
+
+            expect(violations).toEqual([])
+            // Sanity: the query that has matches ends up showing them, not an empty state.
+            expect(suggested.values.showEmptyState).toBe(false)
+            expect(suggested.values.totalResultCount).toBeGreaterThan(0)
         })
     })
 

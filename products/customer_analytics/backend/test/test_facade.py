@@ -1,3 +1,4 @@
+from typing import cast
 from uuid import uuid4
 
 import pytest
@@ -5,6 +6,8 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
+from django.db import models
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -28,7 +31,7 @@ from products.customer_analytics.backend.models import (
     CustomPropertySource,
     CustomPropertyValue,
 )
-from products.customer_analytics.backend.models.account import AccountAssignment, AccountProperties
+from products.customer_analytics.backend.models.account import AccountProperties
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 from products.customer_analytics.backend.test.factories import create_account
 from products.notebooks.backend.models import Notebook, ResourceNotebook
@@ -45,7 +48,6 @@ class TestCustomerAnalyticsFacade(BaseTest):
             name="Acme Corp",
             external_id="acme-123",
             _properties=AccountProperties(
-                csm=AccountAssignment(id=self.user.id, email=self.user.email),
                 stripe_customer_id="cus_1",
             ).model_dump(mode="json"),
         )
@@ -57,7 +59,6 @@ class TestCustomerAnalyticsFacade(BaseTest):
         assert result.team_id == self.team.id
         assert result.external_id == "acme-123"
         assert result.name == "Acme Corp"
-        assert result.properties.csm == contracts.AccountAssignment(id=self.user.id, email=self.user.email)
         assert result.properties.stripe_customer_id == "cus_1"
 
     def test_get_account_by_external_id_and_missing(self):
@@ -67,6 +68,26 @@ class TestCustomerAnalyticsFacade(BaseTest):
         assert facade.get_account(self.team.id, external_id="nope") is None
         assert facade.get_account(self.team.id, account_id="not-a-uuid") is None
         assert facade.get_account(self.team.id) is None
+
+    def test_get_account_ref_by_slack_channel_id(self):
+        account = create_account(
+            team_id=self.team.id,
+            name="Acme Corp",
+            external_id="acme-123",
+            _properties={"slack_channel_id": "C123"},
+        )
+        create_account(team_id=self.team.id, name="No Channel", external_id="other-1")
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        create_account(team_id=other_team.id, name="Other Team Corp", _properties={"slack_channel_id": "C123"})
+
+        ref = facade.get_account_ref_by_slack_channel_id(self.team.id, "C123")
+        assert ref == contracts.AccountRef(id=str(account.id), name="Acme Corp", external_id="acme-123")
+        assert facade.get_account_ref_by_slack_channel_id(self.team.id, "C999") is None
+        assert facade.get_account_ref_by_slack_channel_id(self.team.id, "") is None
+
+        # Two accounts claiming the same channel is a config error: attribution is ambiguous, so bail.
+        create_account(team_id=self.team.id, name="Acme Duplicate", _properties={"slack_channel_id": "C123"})
+        assert facade.get_account_ref_by_slack_channel_id(self.team.id, "C123") is None
 
     def test_get_account_context_data_bundles_tags_and_notes(self):
         account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-123")
@@ -142,7 +163,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
             name="Acme Corp",
             external_id="acme-1",
             _properties=AccountProperties(
-                csm=AccountAssignment(id=self.user.id, email=self.user.email),
+                stripe_customer_id="cus_1",
             ).model_dump(mode="json"),
         )
         tag = Tag.objects.create(name="enterprise", team_id=self.team.id)
@@ -156,7 +177,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
         assert result.name == "Acme Corp"
         assert result.tags == ["enterprise"]
         assert result.properties == account.properties.model_dump(mode="json")
-        assert result.properties["csm"] == {"id": self.user.id, "email": self.user.email}
+        assert result.properties["stripe_customer_id"] == "cus_1"
 
     def test_get_external_account_missing_and_other_team(self):
         create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
@@ -229,7 +250,6 @@ class TestCustomerAnalyticsFacade(BaseTest):
 
         account.refresh_from_db()
         assert account.properties.stripe_customer_id == "cus_123"
-        assert account.properties.csm is None
 
     def test_update_external_account_rejects_non_member(self):
         definition = self._create_csm_definition()
@@ -321,10 +341,8 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
 
     def _create(self, **kwargs) -> contracts.AccountView:
         return facade.create_account_for_view(
-            team_id=self.team.id,
             team=self.team,
             input=self._create_account_input(**kwargs),
-            organization_id=self.organization.id,
             user=self.user,
             was_impersonated=False,
         )
@@ -783,3 +801,56 @@ class TestCustomPropertySourceFacade(TeamScopedTestMixin, BaseTest):
 
         with pytest.raises(facade.CustomPropertyValueSourceManaged):
             facade.set_custom_property_value(self.team.id, account.id, self.definition.id, 42)
+
+
+class AccountUpdateWriteTest(TeamScopedTestMixin, BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(
+            email="mgr@example.com", password=None, first_name="Mgr", is_email_verified=True
+        )
+
+    def test_update_account_replaces_properties_wholesale(self):
+        account = create_account(
+            team_id=self.team.pk,
+            created_by=self.user,
+            name="Acme",
+            _properties={"sfdc_id": "001xx"},
+        )
+        facade.update_account(account, properties={"stripe_customer_id": "cus_123"})
+        account.refresh_from_db()
+        assert account.properties.sfdc_id is None
+        assert account.properties.stripe_customer_id == "cus_123"
+
+    def test_update_account_leaves_properties_untouched_when_not_passed(self):
+        account = create_account(
+            team_id=self.team.pk,
+            created_by=self.user,
+            name="Acme",
+            _properties={"stripe_customer_id": "cus_123"},
+        )
+
+        facade.update_account(account, name="Renamed")
+
+        account.refresh_from_db()
+        assert account.name == "Renamed"
+        assert account.properties.stripe_customer_id == "cus_123"
+
+    def test_update_account_updates_name_and_external_id(self):
+        account = create_account(team_id=self.team.pk, created_by=self.user, name="Old")
+        facade.update_account(account, name="New", external_id="acme-1")
+        account.refresh_from_db()
+        assert account.name == "New"
+        assert account.external_id == "acme-1"
+
+
+class AccountCapToFieldLengthTest(SimpleTestCase):
+    @parameterized.expand([("name",), ("external_id",)])
+    def test_caps_value_to_field_max_length(self, field_name):
+        max_length = cast(models.CharField, Account._meta.get_field(field_name)).max_length
+        assert max_length is not None
+        result = facade._cap_to_field_length(field_name, "x" * (max_length + 50))
+        assert result == "x" * max_length
+
+    def test_leaves_value_within_limit_unchanged(self):
+        assert facade._cap_to_field_length("name", "Acme") == "Acme"

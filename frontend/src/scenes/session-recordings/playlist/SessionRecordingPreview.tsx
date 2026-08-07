@@ -13,7 +13,7 @@ import {
     IconLive,
     IconPlusSmall,
 } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -363,8 +363,15 @@ const SessionRecordingPreviewBase = memo(
                     {selectable && <ItemCheckbox recording={recording} />}
                     <div className="grow overflow-hidden flex flex-col gap-y-2 ml-1">
                         <div className="flex items-center justify-between gap-x-0.5">
-                            <div className="flex overflow-hidden font-medium ph-no-capture">
+                            <div className="flex overflow-hidden items-center gap-x-1 font-medium ph-no-capture">
                                 <span className="truncate">{asDisplay(recording.person)}</span>
+                                {recording.matches_filters === false && (
+                                    <Tooltip title="This recording is listed only because it's open. It doesn't match the current filters.">
+                                        <LemonTag type="warning" size="small" className="shrink-0">
+                                            Doesn't match filters
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
                             </div>
 
                             {playlistTimestampFormat === TimestampFormat.Relative ? (
@@ -454,6 +461,9 @@ const SessionRecordingPreviewBase = memo(
     },
     (prevProps, nextProps) =>
         prevProps.recording.id === nextProps.recording.id &&
+        // The row renders matches_filters, and the same recording flips in and out of matching
+        // as filters change around an open player, so comparing only the id would keep it stale.
+        prevProps.recording.matches_filters === nextProps.recording.matches_filters &&
         prevProps.isActive === nextProps.isActive &&
         prevProps.selectable === nextProps.selectable &&
         prevProps.order === nextProps.order
@@ -474,6 +484,9 @@ export const SessionRecordingPreview = memo(
     },
     (prevProps, nextProps) =>
         prevProps.recording.id === nextProps.recording.id &&
+        // The row renders matches_filters, and the same recording flips in and out of matching
+        // as filters change around an open player, so comparing only the id would keep it stale.
+        prevProps.recording.matches_filters === nextProps.recording.matches_filters &&
         prevProps.isActive === nextProps.isActive &&
         prevProps.selectable === nextProps.selectable &&
         prevProps.order === nextProps.order

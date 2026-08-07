@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
 
-from posthog.schema import DateRange, IntervalType
+from posthog.schema import DateRange, HogQLFilters, IntervalType
 
 from posthog.hogql.parser import ast
 
@@ -100,7 +100,7 @@ class QueryDateRange:
                 team_week_start_day=self._team.week_start_day,
             )
         elif self._exact_timerange:
-            return date_to
+            return self._clip_incomplete_period(date_to)
 
         if not self._date_range or not self._date_range.explicitDate:
             is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None
@@ -113,7 +113,30 @@ class QueryDateRange:
                     date_to = date_to.replace(second=59, microsecond=999999)
                 elif self.interval_type == IntervalType.SECOND:
                     date_to = (date_to - timedelta(seconds=1)).replace(microsecond=999999)
-        return date_to
+
+        return self._clip_incomplete_period(date_to)
+
+    def _clip_incomplete_period(self, date_to: datetime) -> datetime:
+        """Clip date_to to the end of the last complete interval when the range reaches into the
+        current, still-collecting one (DateRange.excludeIncompletePeriods)."""
+        if not (self._date_range and self._date_range.excludeIncompletePeriods):
+            return date_to
+        if self._interval_count != 1:
+            # Multi-unit buckets don't sit on single-interval boundaries, so a clip here would
+            # truncate the trailing bucket mid-bucket instead of excluding it.
+            return date_to
+        current_interval_start = self.align_with_interval(self.now_with_timezone)
+        if date_to < current_interval_start:
+            return date_to
+        clipped = current_interval_start - timedelta(microseconds=1)
+        # The base implementation is called explicitly: subclasses redefine date_from() in terms of
+        # date_to() (e.g. the previous-period range), which would recurse, and the clip must be
+        # evaluated against the current range's own start regardless.
+        if clipped < QueryDateRange.date_from(self):
+            # No complete interval in range: keep the partial current one rather than inverting the
+            # range (mirrors alerts never dropping the only data point).
+            return date_to
+        return clipped
 
     def get_earliest_timestamp(self) -> datetime:
         if self._earliest_timestamp_fallback:
@@ -342,15 +365,17 @@ class QueryDateRange:
         return self.date_to_start_of_interval_hogql(self.date_from_as_hogql())
 
     def date_from_with_adjusted_start_of_interval_hogql(self) -> ast.Call:
-        if self.interval_name == "week":
-            # in `where` queries with week intervals, we need to return the date_from instead of the start of the week
-            # this ensures that we only fetch records after the date_from
+        if self.interval_name in ("week", "month", "quarter", "year"):
+            # in `where` queries with intervals coarser than a day, filter from the start of `date_from`'s day
+            # rather than the start of the interval bucket. This ensures we only fetch records at or after
+            # date_from, matching how the day interval already behaves and keeping grouped totals consistent
+            # with the selected date range.
             return ast.Call(
                 name="toStartOfInterval",
                 args=[
                     self.date_from_as_hogql(),
                     ast.Call(
-                        name=f"toIntervalDay",
+                        name="toIntervalDay",
                         args=[ast.Constant(value=1)],
                     ),
                 ],
@@ -383,6 +408,19 @@ class QueryDateRange:
                 else self.date_from_as_hogql()
             ),
         }
+
+    def to_hogql_filters(self) -> HogQLFilters:
+        """HogQLFilters carrying this range's bounds as absolute datetimes. The {filters} resolver
+        (posthog.hogql.filters.ReplaceFilters) snaps day-level relative bounds like "-7d" to calendar
+        days to match insights, so a runner that wants this range's exact bounds (logs, tracing) must
+        resolve them here and pass datetimes the resolver uses verbatim."""
+        return HogQLFilters(
+            dateRange=DateRange(
+                date_from=self.date_from().isoformat(),
+                date_to=self.date_to().isoformat(),
+                explicitDate=True,
+            )
+        )
 
 
 class QueryDateRangeWithIntervals(QueryDateRange):

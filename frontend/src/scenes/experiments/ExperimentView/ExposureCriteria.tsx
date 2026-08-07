@@ -13,6 +13,8 @@ import { ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-ge
 import { FilterType } from '~/types'
 
 import { SelectableCard } from '../components/SelectableCard'
+import { experimentLogic } from '../experimentLogic'
+import { EXPOSURE_DEFAULT_EVENT } from '../exposureContract'
 import { commonActionFilterProps } from '../Metrics/Selectors'
 import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
@@ -23,6 +25,7 @@ type ExposureCriteriaModalProps = {
 
 export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): JSX.Element | null {
     const { isExposureCriteriaModalOpen, exposureCriteria } = useValues(exposureCriteriaModalLogic)
+    const { resolvedExposureEvent } = useValues(experimentLogic)
     const { closeExposureCriteriaModal, setExposureCriteria } = useActions(exposureCriteriaModalLogic)
 
     const { currentTeam } = useValues(teamLogic)
@@ -68,7 +71,7 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                     title="Default"
                     description={
                         <>
-                            When a <LemonTag>$feature_flag_called</LemonTag> event is recorded, a user is considered{' '}
+                            When a <LemonTag>{resolvedExposureEvent}</LemonTag> event is recorded, a user is considered{' '}
                             <strong>exposed</strong> to the experiment and included in the analysis.
                         </>
                     }
@@ -84,8 +87,8 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                     title="Custom"
                     description={
                         <>
-                            If you can't rely on the <LemonTag>$feature_flag_called</LemonTag> event, you can select a
-                            custom event to signal that users reached the part of your app where the experiment runs.
+                            If you can't rely on the <LemonTag>{resolvedExposureEvent}</LemonTag> event, you can select
+                            a custom event to signal that users reached the part of your app where the experiment runs.
                             You can also filter out users you would like to exclude from the analysis.
                         </>
                     }
@@ -95,7 +98,7 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                             ...exposureCriteria,
                             exposure_config: {
                                 kind: NodeKind.ExperimentEventExposureConfig,
-                                event: '$feature_flag_called',
+                                event: EXPOSURE_DEFAULT_EVENT,
                                 properties: [],
                             },
                         })

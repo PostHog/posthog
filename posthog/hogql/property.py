@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    AccountCustomPropertyFilter,
     CohortPropertyFilter,
     DataWarehousePersonPropertyFilter,
     DataWarehousePropertyFilter,
@@ -42,6 +43,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.base import AST
+from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES
 from posthog.hogql.database.models import BooleanDatabaseField
 from posthog.hogql.database.schema.sessions_v3 import LAZY_SESSIONS_FIELDS
 from posthog.hogql.errors import NotImplementedError, QueryError
@@ -522,6 +524,24 @@ def _expr_to_compare_op(
                 left=ast.Call(name="toString", args=[expr]),
                 right=ast.Constant(value=f"%{single_value}%"),
             )
+    elif operator in (PropertyOperator.STARTS_WITH, PropertyOperator.NOT_STARTS_WITH):
+        single_value = value[0] if isinstance(value, list) and len(value) == 1 else value
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.ILike
+            if operator == PropertyOperator.STARTS_WITH
+            else ast.CompareOperationOp.NotILike,
+            left=ast.Call(name="toString", args=[expr]),
+            right=ast.Constant(value=f"{single_value}%"),
+        )
+    elif operator in (PropertyOperator.ENDS_WITH, PropertyOperator.NOT_ENDS_WITH):
+        single_value = value[0] if isinstance(value, list) and len(value) == 1 else value
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.ILike
+            if operator == PropertyOperator.ENDS_WITH
+            else ast.CompareOperationOp.NotILike,
+            left=ast.Call(name="toString", args=[expr]),
+            right=ast.Constant(value=f"%{single_value}"),
+        )
     elif operator == PropertyOperator.ICONTAINS_MULTI:
         # Always expect multiple values for multi-contains operator
         if isinstance(value, list):
@@ -726,6 +746,7 @@ def property_to_expr(
         | EventMetadataPropertyFilter
         | PersonMetadataPropertyFilter
         | RevenueAnalyticsPropertyFilter
+        | AccountCustomPropertyFilter
         | CohortPropertyFilter
         | RecordingPropertyFilter
         | LogEntryPropertyFilter
@@ -876,6 +897,7 @@ def property_to_expr(
         or property.type == "span_attribute"
         or property.type == "span_resource_attribute"
         or property.type == "revenue_analytics"
+        or property.type == "account_custom_property"
         or property.type == "workflow_variable"
     ):
         if (
@@ -884,6 +906,9 @@ def property_to_expr(
             or (scope != "event" and property.type == "event_metadata")
             or (scope == "revenue_analytics" and property.type != "revenue_analytics")
             or (property.type == "revenue_analytics" and scope != "revenue_analytics")
+            # Account custom properties resolve inside customer analytics queries only;
+            # no generic HogQL scope can join them, so fail loudly instead of no-oping.
+            or property.type == "account_custom_property"
         ):
             raise QueryError(f"The '{property.type}' property filter does not work in '{scope}' scope")
 
@@ -940,6 +965,8 @@ def property_to_expr(
                     operator == PropertyOperator.NOT_ICONTAINS
                     or operator == PropertyOperator.NOT_REGEX
                     or operator == PropertyOperator.IS_NOT
+                    or operator == PropertyOperator.NOT_STARTS_WITH
+                    or operator == PropertyOperator.NOT_ENDS_WITH
                 ):
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
@@ -1002,12 +1029,9 @@ def property_to_expr(
             # Use the all_urls array field to filter for pages visited during recording.
             all_urls_field = ast.Call(name="groupUniqArrayArray", args=[ast.Field(chain=["all_urls"])])
 
-        is_exception_string_array_property = property.type == "event" and property.key in [
-            "$exception_types",
-            "$exception_values",
-            "$exception_sources",
-            "$exception_functions",
-        ]
+        is_exception_string_array_property = (
+            property.type == "event" and property.key in EXCEPTION_STRING_ARRAY_PROPERTIES
+        )
 
         if is_exception_string_array_property:
             # if materialized these columns will be strings so we need to extract them
@@ -1024,6 +1048,8 @@ def property_to_expr(
             PropertyOperator.NOT_BETWEEN,
             PropertyOperator.ICONTAINS,
             PropertyOperator.NOT_ICONTAINS,
+            # starts_with/ends_with intentionally excluded: no ClickHouse anchored multi-search
+            # primitive exists, so multi-value use falls through to per-value ILIKE scans below.
         ):
             if len(value) == 0:
                 return ast.Constant(value=1)
@@ -1108,6 +1134,8 @@ def property_to_expr(
                     operator == PropertyOperator.NOT_ICONTAINS
                     or operator == PropertyOperator.NOT_REGEX
                     or operator == PropertyOperator.IS_NOT
+                    or operator == PropertyOperator.NOT_STARTS_WITH
+                    or operator == PropertyOperator.NOT_ENDS_WITH
                 ):
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
@@ -1175,6 +1203,8 @@ def property_to_expr(
                     operator == PropertyOperator.IS_NOT
                     or operator == PropertyOperator.NOT_ICONTAINS
                     or operator == PropertyOperator.NOT_REGEX
+                    or operator == PropertyOperator.NOT_STARTS_WITH
+                    or operator == PropertyOperator.NOT_ENDS_WITH
                 ):
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
@@ -1522,6 +1552,8 @@ def operator_is_negative(operator: PropertyOperator) -> bool:
         PropertyOperator.IS_NOT,
         PropertyOperator.NOT_ICONTAINS,
         PropertyOperator.NOT_ICONTAINS_MULTI,
+        PropertyOperator.NOT_STARTS_WITH,
+        PropertyOperator.NOT_ENDS_WITH,
         PropertyOperator.NOT_REGEX,
         PropertyOperator.IS_NOT_SET,
         PropertyOperator.NOT_BETWEEN,

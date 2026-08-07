@@ -100,14 +100,20 @@ export function createComboScales(
     const yAxes: ComboScaleSet['yAxes'] = {}
     for (const { axisId, position } of axisPositions) {
         const axisSeries = seriesByAxis.get(axisId) ?? []
-        // Per-axis contributions: bars contribute their stacked-top values when stacked, raw
-        // otherwise; lines/areas always contribute raw. The value scale spans the union.
-        const axisValueSeries: Series[] = axisSeries.map((s) => {
+        // Per-axis contributions: bars contribute their stacked-band edges when stacked, raw
+        // otherwise; lines/areas always contribute raw. The value scale spans the union. Both
+        // band edges count: tops extend the domain upward, bottoms extend it below zero for
+        // diverging stacks (a non-diverging bottom never leaves [0, top], so including it is
+        // harmless there).
+        const axisValueSeries: Series[] = axisSeries.flatMap((s) => {
             const stacked = barStackedData?.get(s.key)
             if (seriesTypeOf(s) === 'bar' && (barLayout === 'stacked' || barLayout === 'percent') && stacked) {
-                return { ...s, data: stacked.top }
+                return [
+                    { ...s, data: stacked.top },
+                    { ...s, key: `${s.key}__bottom`, data: stacked.bottom },
+                ]
             }
-            return s
+            return [s]
         })
         // `createYScale` applies the shared overlay baseline clamp, degenerate `min === max`
         // guard, log fallback, and `{ include }` goal-line domain extension — primary axis only.

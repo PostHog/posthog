@@ -18,6 +18,7 @@ from posthog.models.activity_logging.activity_log import (
     changes_between,
     log_activity,
 )
+from posthog.models.activity_logging.model_activity import get_current_trigger
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 
@@ -57,6 +58,9 @@ def handle_signal_scout_config_change(
         detail=Detail(
             changes=changes_between(scope, previous=before_update, current=after_update),
             name=instance.skill_name,
+            # Set by system-driven saves (the inactivity sweep) so an entry with no user reads as
+            # "this job did it" rather than as an unattributed edit.
+            trigger=get_current_trigger(),
             context=SignalScoutConfigContext(skill_name=instance.skill_name),
         ),
     )

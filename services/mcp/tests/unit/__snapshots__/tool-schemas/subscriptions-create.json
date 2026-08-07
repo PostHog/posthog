@@ -73,7 +73,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday."
+            "description": "Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday."
         },
         "count": {
             "anyOf": [
@@ -100,7 +100,7 @@
             "description": "Dashboard ID to subscribe to (mutually exclusive with insight on create)."
         },
         "dashboard_export_insights": {
-            "description": "List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.",
+            "description": "List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10.",
             "items": {
                 "type": "number"
             },
@@ -153,6 +153,10 @@
                 }
             ],
             "description": "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
+        },
+        "send_test_now": {
+            "description": "Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected.",
+            "type": "boolean"
         },
         "start_date": {
             "description": "When to start delivering (ISO 8601 datetime).",

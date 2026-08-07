@@ -5,8 +5,6 @@ import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { PointClickData, Series, TimeSeriesLineChartConfig, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -22,8 +20,8 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { chartStyleCurve } from '../../shared/chartStyleAdapter'
+import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
-import { INSIGHT_TOOLTIP_CONFIG_LEGACY } from '../../shared/tooltipConfig'
 import { makeChartErrorHandler } from '../../trends/shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../../trends/shared/getTrendsSeriesDisplayLabel'
 import {
@@ -31,7 +29,6 @@ import {
     resolveGroupTypeLabel,
     type TrendsSeriesMeta,
 } from '../../trends/shared/trendsSeriesMeta'
-import { TrendsTooltip } from '../../trends/shared/TrendsTooltip'
 import { useInsightsLegendConfig } from '../../trends/shared/useInsightsLegendConfig'
 import { handleStickinessChartClick } from './handleStickinessChartClick'
 import {
@@ -52,12 +49,9 @@ const handleChartError = makeChartErrorHandler('stickiness-line-chart')
 export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.Element | null {
     const theme = useChartTheme()
     const { insightProps } = useValues(insightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
-    const tooltipConfig = quillTooltipEnabled ? STICKINESS_TOOLTIP_CONFIG : INSIGHT_TOOLTIP_CONFIG_LEGACY
+    const tooltipConfig = STICKINESS_TOOLTIP_CONFIG
 
     const legendConfig = useInsightsLegendConfig({ insightProps })
-    const quillLegendEnabled = !!legendConfig
 
     const {
         indexedResults,
@@ -66,12 +60,10 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
         yAxisScaleType,
         showMultipleYAxes,
         getTrendsColor,
-        getTrendsHidden,
         currentPeriodResult,
         breakdownFilter,
         trendsFilter,
         stickinessFilter,
-        formula,
         labelGroupType,
         hasPersonsModal,
         querySource,
@@ -97,10 +89,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
     const bucketCount = currentPeriodResult?.labels?.length ?? 0
     const labels = useMemo(() => buildStickinessLabels(bucketCount, interval), [bucketCount, interval])
 
-    const hasData =
-        indexedResults &&
-        indexedResults[0]?.data &&
-        indexedResults.filter((result: IndexedTrendResult) => result.count !== 0).length > 0
+    const hasData = hasTrendsChartData(indexedResults)
 
     const series: Series<TrendsSeriesMeta>[] = useMemo(
         () =>
@@ -108,13 +97,13 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
                 showMultipleYAxes: showMultipleYAxes ?? undefined,
                 display: display ?? undefined,
                 getColor: getTrendsColor,
-                // With the quill legend on, hidden series stay listed (dimmed) and are excluded via
-                // config.legend.hiddenKeys instead of being dropped here, so the legend can restore them.
-                getHidden: quillLegendEnabled ? undefined : getTrendsHidden,
+                // Hidden series stay listed (dimmed) and are excluded via config.legend.hiddenKeys
+                // instead of being dropped here, so the legend can restore them.
+                getHidden: undefined,
                 getLabel,
                 buildMeta: buildTrendsSeriesMeta,
             }),
-        [indexedResults, display, getTrendsColor, getTrendsHidden, getLabel, showMultipleYAxes, quillLegendEnabled]
+        [indexedResults, display, getTrendsColor, getLabel, showMultipleYAxes]
     )
 
     const chartConfig: TimeSeriesLineChartConfig = useChartConfig(
@@ -177,21 +166,19 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
                 onRowClick,
                 altTitle,
             }
-            return quillTooltipEnabled ? <InsightSeriesTooltip {...sharedProps} /> : <TrendsTooltip {...sharedProps} />
+            return <InsightSeriesTooltip {...sharedProps} />
         },
         [
             timezone,
             interval,
             breakdownFilter,
             trendsFilter,
-            formula,
             baseCurrency,
             resolvedGroupTypeLabel,
             context?.formatCompareLabel,
             canHandleClick,
             clickDeps,
             altTitle,
-            quillTooltipEnabled,
         ]
     )
 

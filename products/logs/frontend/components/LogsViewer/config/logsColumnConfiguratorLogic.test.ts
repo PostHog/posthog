@@ -82,4 +82,36 @@ describe('logsColumnConfiguratorLogic', () => {
         logic.actions.moveDraftColumn(0, 2)
         expect(logic.values.draft.at(-1)?.type).toBe('message')
     })
+
+    it('submitNewColumn appends from the form and resets it; invalid custom is blocked', () => {
+        // Custom without expression: blocked, nothing added
+        const before = logic.values.draft.length
+        logic.actions.submitNewColumn()
+        expect(logic.values.newColumnError).toBe('Custom columns need an expression')
+        expect(logic.values.draft).toHaveLength(before)
+
+        // Built-in type with a name override — the form clears once the add lands
+        logic.actions.setNewColumnType('level')
+        logic.actions.setNewColumnName('Severity')
+        logic.actions.submitNewColumn()
+        const added = logic.values.draft.find((c) => c.type === 'level')
+        expect(added?.name).toBe('Severity')
+        expect(logic.values.newColumn).toEqual({ type: 'custom', name: '', expression: '' })
+
+        // Custom with expression round-trips through the same path
+        logic.actions.setNewColumnExpression('attributes.http.url')
+        logic.actions.submitNewColumn()
+        expect(logic.values.draft.find((c) => c.expression === 'attributes.http.url')).toBeTruthy()
+    })
+
+    it('adding a column from the available-columns list preserves an in-progress add-column form', () => {
+        logic.actions.setNewColumnType('custom')
+        logic.actions.setNewColumnName('Status')
+        logic.actions.setNewColumnExpression('attributes.http.status')
+
+        // The available-columns picker dispatches addDraftColumn directly, without submitting the form
+        logic.actions.addDraftColumn({ type: 'custom', name: 'trace', expression: 'trace_id' })
+
+        expect(logic.values.newColumn).toEqual({ type: 'custom', name: 'Status', expression: 'attributes.http.status' })
+    })
 })

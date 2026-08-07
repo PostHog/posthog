@@ -44,9 +44,7 @@ test.describe('Signup', () => {
                 config: {
                     enable_collect_everything: true,
                 },
-                featureFlags: {
-                    'passkey-signup-enabled': true,
-                },
+                featureFlags: {},
                 isAuthenticated: false,
             }
             await route.fulfill({ json: response })
@@ -101,7 +99,7 @@ test.describe('Signup', () => {
         await page.locator('[data-attr=signup-organization-name]').fill('Hogflix SpinOff')
         await expect(page.locator('[data-attr=signup-organization-name]')).toHaveValue('Hogflix SpinOff')
         await page.locator('[data-attr=signup-role-at-organization]').click()
-        await page.locator('.Popover li:first-child').click()
+        await page.locator('.Popover li').filter({ hasText: 'Engineering' }).click()
         await expect(page.locator('[data-attr=signup-role-at-organization]')).toContainText('Engineering')
         await page.locator('[data-attr=signup-submit]').click()
 
@@ -127,7 +125,7 @@ test.describe('Signup', () => {
         await page.locator('[data-attr=signup-name]').fill('Alice Bob')
         await expect(page.locator('[data-attr=signup-name]')).toHaveValue('Alice Bob')
         await page.locator('[data-attr=signup-role-at-organization]').click()
-        await page.locator('.Popover li:first-child').click()
+        await page.locator('.Popover li').filter({ hasText: 'Engineering' }).click()
         await expect(page.locator('[data-attr=signup-role-at-organization]')).toContainText('Engineering')
 
         // Wait for the signup request to complete
@@ -156,7 +154,7 @@ test.describe('Signup', () => {
         await page.locator('[data-attr=signup-name]').fill('Alice Bob')
         await expect(page.locator('[data-attr=signup-name]')).toHaveValue('Alice Bob')
         await page.locator('[data-attr=signup-role-at-organization]').click()
-        await page.locator('.Popover li:first-child').click()
+        await page.locator('.Popover li').filter({ hasText: 'Engineering' }).click()
         await expect(page.locator('[data-attr=signup-role-at-organization]')).toContainText('Engineering')
         const retrySignupPromise = page.waitForResponse('/api/signup/')
         await page.locator('[data-attr=signup-submit]').click()
@@ -178,7 +176,7 @@ test.describe('Signup', () => {
         await page.locator('[data-attr=signup-name]').fill('Alice')
         await expect(page.locator('[data-attr=signup-name]')).toHaveValue('Alice')
         await page.locator('[data-attr=signup-role-at-organization]').click()
-        await page.locator('.Popover li:first-child').click()
+        await page.locator('.Popover li').filter({ hasText: 'Engineering' }).click()
         await expect(page.locator('[data-attr=signup-role-at-organization]')).toContainText('Engineering')
 
         // Wait for the signup request to complete
@@ -205,7 +203,7 @@ test.describe('Signup', () => {
         await page.locator('[name=organization_name]').fill('Hogflix SpinOff')
         await expect(page.locator('[name=organization_name]')).toHaveValue('Hogflix SpinOff')
         await page.locator('[data-attr=signup-role-at-organization]').click()
-        await page.locator('.Popover li:first-child').click()
+        await page.locator('.Popover li').filter({ hasText: 'Engineering' }).click()
         await expect(page.locator('[data-attr=signup-role-at-organization]')).toContainText('Engineering')
         await page.locator('[type=submit]').click()
         await expect(page.locator('.Toastify [data-attr="error-toast"]')).toContainText(
@@ -259,7 +257,7 @@ test.describe('Signup', () => {
         await page.locator('[data-attr=signup-organization-name]').fill('Hogflix SpinOff')
         await expect(page.locator('[data-attr=signup-organization-name]')).toHaveValue('Hogflix SpinOff')
         await page.locator('[data-attr=signup-role-at-organization]').click()
-        await page.locator('.Popover li:first-child').click()
+        await page.locator('.Popover li').filter({ hasText: 'Engineering' }).click()
         await expect(page.locator('[data-attr=signup-role-at-organization]')).toContainText('Engineering')
         await page.locator('[data-attr=signup-submit]').click()
 

@@ -201,6 +201,7 @@
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."hide_mcp_hints",
+         "posthog_user"."ui_configuration",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -240,6 +241,7 @@
          T4."shortcut_position",
          T4."passkeys_enabled_for_2fa",
          T4."hide_mcp_hints",
+         T4."ui_configuration",
          T4."onboarding_skipped_at",
          T4."onboarding_skipped_reason",
          T4."onboarding_skipped_organization_id",
@@ -327,6 +329,7 @@
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."hide_mcp_hints",
+         "posthog_user"."ui_configuration",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -357,9 +360,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -494,9 +499,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -544,9 +551,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -590,7 +599,8 @@
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
+         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+             AND "posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
@@ -619,9 +629,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -834,6 +846,7 @@
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."hide_mcp_hints",
+         "posthog_user"."ui_configuration",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -873,6 +886,7 @@
          T4."shortcut_position",
          T4."passkeys_enabled_for_2fa",
          T4."hide_mcp_hints",
+         T4."ui_configuration",
          T4."onboarding_skipped_at",
          T4."onboarding_skipped_reason",
          T4."onboarding_skipped_organization_id",
@@ -995,6 +1009,7 @@
          "posthog_datawarehousesavedquery"."team_id",
          "posthog_datawarehousesavedquery"."latest_error",
          "posthog_datawarehousesavedquery"."columns",
+         "posthog_datawarehousesavedquery"."column_order",
          "posthog_datawarehousesavedquery"."external_tables",
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
@@ -1040,6 +1055,7 @@
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."hide_mcp_hints",
+         "posthog_user"."ui_configuration",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -1062,6 +1078,7 @@
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
+         "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
@@ -1094,6 +1111,7 @@
          "posthog_datawarehousesavedquery"."team_id",
          "posthog_datawarehousesavedquery"."latest_error",
          "posthog_datawarehousesavedquery"."columns",
+         "posthog_datawarehousesavedquery"."column_order",
          "posthog_datawarehousesavedquery"."external_tables",
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
@@ -1139,6 +1157,7 @@
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."hide_mcp_hints",
+         "posthog_user"."ui_configuration",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -1161,6 +1180,7 @@
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
+         "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib"
@@ -1205,6 +1225,7 @@
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."hide_mcp_hints",
+         "posthog_user"."ui_configuration",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -1233,6 +1254,7 @@
          "posthog_externaldatasource"."sync_frequency",
          "posthog_externaldatasource"."status",
          "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."api_version",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."connection_metadata",
          "posthog_externaldatasource"."are_tables_created",
@@ -1241,6 +1263,8 @@
          "posthog_externaldatasource"."created_via",
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."direct_query_enabled",
+         "posthog_externaldatasource"."auto_sync_new_schemas",
+         "posthog_externaldatasource"."auto_sync_schema_patterns",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -1269,6 +1293,7 @@
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
+         "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
@@ -1303,6 +1328,7 @@
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."hide_mcp_hints",
+         "posthog_user"."ui_configuration",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -1354,6 +1380,7 @@
          "posthog_propertydefinition"."property_type",
          "posthog_propertydefinition"."type",
          "posthog_propertydefinition"."group_type_index",
+         "posthog_propertydefinition"."warehouse_origin",
          "posthog_propertydefinition"."property_type_format",
          "posthog_propertydefinition"."volume_30_day",
          "posthog_propertydefinition"."query_usage_30_day"
@@ -1408,6 +1435,7 @@
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."hide_mcp_hints",
+         "posthog_user"."ui_configuration",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -1438,9 +1466,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -1575,9 +1605,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -1625,9 +1657,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -1671,7 +1705,8 @@
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
+         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+             AND "posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
@@ -1693,9 +1728,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -1742,9 +1779,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -1930,6 +1969,7 @@
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."hide_mcp_hints",
+         "posthog_user"."ui_configuration",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -1969,6 +2009,7 @@
          T4."shortcut_position",
          T4."passkeys_enabled_for_2fa",
          T4."hide_mcp_hints",
+         T4."ui_configuration",
          T4."onboarding_skipped_at",
          T4."onboarding_skipped_reason",
          T4."onboarding_skipped_organization_id",
@@ -2189,9 +2230,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -2224,15 +2267,6 @@
      WHERE "ee_single_session_summary"."team_id" = 99999) subquery
   '''
 # ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.51
-  '''
-  SELECT COUNT(*)
-  FROM
-    (SELECT DISTINCT "ee_single_session_summary"."session_id" AS "session_id"
-     FROM "ee_single_session_summary"
-     WHERE "ee_single_session_summary"."team_id" = 99999) subquery
-  '''
-# ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.6
   '''
   SELECT "posthog_organizationmembership"."id",
@@ -2257,9 +2291,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -2303,7 +2339,8 @@
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
+         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+             AND "posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
@@ -2332,9 +2369,11 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",

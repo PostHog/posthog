@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import random
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -12,6 +13,7 @@ from django.utils import timezone
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.testing import ActivityEnvironment
 
@@ -22,6 +24,7 @@ from posthog.sync import database_sync_to_async
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, sync_canonical_skills
+from products.signals.backend.scout_harness.limits import AUTO_PAUSE_PROBE_INTERVAL_S
 
 # The flag-payload read + per-team cap resolution live in `scout_harness/team_limits.py`; helpers
 # defined there are imported and patched there (see `_PAYLOAD_PATH` / `_IS_CLOUD_PATH`).
@@ -34,6 +37,7 @@ from products.signals.backend.scout_harness.team_limits import (
     _parse_enrollment,
     _read_flag_payload,
     _resolve_enrolled,
+    _resolve_github_read_access,
     _resolve_global_max_runs_per_tick,
     _resolve_max_runs_per_day,
     _resolve_withheld_skills,
@@ -48,7 +52,10 @@ from products.signals.backend.temporal.agentic.scout_coordinator import (
     SignalsScoutCoordinatorWorkflow,
     StampDispatchedRunsInput,
     _allocate_tick_budget,
+    _breaker_paused_configs_by_team,
+    _collect_probe_runs,
     _DueRun,
+    _overdue_seconds,
     fetch_enabled_signals_scout_runs_activity,
     stamp_dispatched_signals_scout_runs_activity,
 )
@@ -280,6 +287,30 @@ async def test_wildcard_dispatches_team_with_enabled_config(ateam):
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.flag_off
+async def test_wildcard_keeps_a_fully_breaker_paused_team_enrolled_for_probes(ateam):
+    # A wildcard team whose ONLY scout the breaker paused has no enabled config left, so an
+    # enabled-only wildcard scan would drop the team from participation before probe collection
+    # ever ran — the promised recovery probe could never dispatch and the lane would stay paused
+    # until a human noticed.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-errors")
+    await database_sync_to_async(_create_config)(
+        ateam,
+        "signals-scout-errors",
+        status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+        pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+        consecutive_failure_count=5,
+        last_run_at=timezone.now() - timedelta(seconds=AUTO_PAUSE_PROBE_INTERVAL_S + 60),
+    )
+
+    with patch(_PAYLOAD_PATH, return_value={"guaranteed_team_ids": ["*"]}):
+        planned = await _run_activity()
+
+    assert any(p.team_id == ateam.id and p.skill_name == "signals-scout-errors" for p in planned)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.flag_off
 async def test_wildcard_does_not_auto_seed_a_config_less_team(ateam):
     # Under "*" a team participates only if it ALREADY has configs — the wildcard never seeds from
     # nothing (that's the explicit-id path). A team with a scout skill but no config row is left
@@ -469,6 +500,223 @@ async def test_config_whose_skill_is_gone_is_skipped(ateam):
 
 
 # ── Schedule: deterministic due-check, no sampling ──────────────────────────────
+
+
+@pytest.mark.django_db
+class TestFailureStreakProbeCollection:
+    # The half-open side of the breaker. The pause itself removes the lane from the normal
+    # `enabled=True` dispatch query, so if probe collection regresses — wrong reason scope,
+    # wrong cooldown arithmetic, a human pause probed — a wedged lane either never recovers
+    # or a deliberately-paused scout keeps burning sandbox leases.
+    @parameterized.expand(
+        [
+            (
+                "cooldown_elapsed_probes",
+                SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+                SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+                AUTO_PAUSE_PROBE_INTERVAL_S + 60,
+                True,
+            ),
+            (
+                "inside_cooldown_holds",
+                SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+                SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+                AUTO_PAUSE_PROBE_INTERVAL_S - 60,
+                False,
+            ),
+            (
+                "user_pause_is_never_probed",
+                SignalScoutConfig.Status.PAUSED_BY_USER,
+                None,
+                AUTO_PAUSE_PROBE_INTERVAL_S + 60,
+                False,
+            ),
+            (
+                "another_writers_pause_is_never_probed",
+                SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+                SignalScoutConfig.PauseReason.NO_OUTPUT,
+                AUTO_PAUSE_PROBE_INTERVAL_S + 60,
+                False,
+            ),
+        ]
+    )
+    def test_only_the_breakers_own_cooled_down_pauses_are_probed(
+        self,
+        _name: str,
+        status: SignalScoutConfig.Status,
+        pause_reason: SignalScoutConfig.PauseReason | None,
+        last_run_seconds_ago: int,
+        expect_probe: bool,
+    ) -> None:
+        now = timezone.now()
+        team = Team.objects.create(organization=Organization.objects.create(name="probe-org"), name="probe-team")
+        with team_scope(team.id, canonical=True):
+            _create_config(
+                team,
+                "signals-scout-general",
+                status=status,
+                pause_reason=pause_reason,
+                consecutive_failure_count=5,
+                last_run_at=now - timedelta(seconds=last_run_seconds_ago),
+            )
+
+        paused_by_team = _breaker_paused_configs_by_team()
+        probes = _collect_probe_runs(paused_by_team.get(team.id, []), {"signals-scout-general"}, now)
+
+        assert [p.skill_name for p in probes] == (["signals-scout-general"] if expect_probe else [])
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_planning_dispatches_a_probe_for_a_breaker_paused_lane(ateam):
+    # Wiring guard for the whole half-open path: a lane the breaker paused is invisible to the
+    # `enabled=True` dispatch query, so only `_collect_probe_runs` inside `_collect_planned_runs`
+    # can bring it back — if that call is dropped, a wedged lane whose cause was fixed stays
+    # paused forever with no human in the loop.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-broken")
+    await database_sync_to_async(_create_config)(
+        ateam,
+        "signals-scout-broken",
+        status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+        pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+        consecutive_failure_count=5,
+        last_run_at=timezone.now() - timedelta(seconds=AUTO_PAUSE_PROBE_INTERVAL_S + 60),
+    )
+
+    planned = await _run_activity()
+
+    assert [p.skill_name for p in planned] == ["signals-scout-broken"]
+
+
+class TestCronScheduleDueCheck:
+    @parameterized.expand(
+        [
+            (
+                "before_project_local_slot",
+                "America/Toronto",
+                "2026-07-21T12:59:00+00:00",
+                "2026-07-20T13:05:00+00:00",
+                "2026-07-20T12:00:00+00:00",
+                "0 9 * * *",
+                None,
+            ),
+            (
+                "after_project_local_slot",
+                "America/Toronto",
+                "2026-07-21T13:01:00+00:00",
+                "2026-07-20T13:05:00+00:00",
+                "2026-07-20T12:00:00+00:00",
+                "0 9 * * *",
+                60.0,
+            ),
+            (
+                "after_spring_dst_change",
+                "America/Toronto",
+                "2026-03-08T13:01:00+00:00",
+                "2026-03-07T14:05:00+00:00",
+                "2026-03-07T13:00:00+00:00",
+                "0 9 * * *",
+                60.0,
+            ),
+            (
+                "deferred_across_next_day_keeps_original_slot",
+                "America/Toronto",
+                "2026-07-22T13:01:00+00:00",
+                "2026-07-20T13:05:00+00:00",
+                "2026-07-20T12:00:00+00:00",
+                "0 9 * * *",
+                86460.0,
+            ),
+            (
+                "schedule_saved_after_today_slot",
+                "America/Toronto",
+                "2026-07-21T15:00:00+00:00",
+                "2026-07-20T13:05:00+00:00",
+                "2026-07-21T14:00:00+00:00",
+                "0 9 * * *",
+                None,
+            ),
+            (
+                "midnight_catch_up_does_not_skip_next_day",
+                "America/Toronto",
+                "2026-07-23T03:46:00+00:00",
+                "2026-07-22T04:01:00+00:00",
+                "2026-07-20T12:00:00+00:00",
+                "45 23 * * *",
+                60.0,
+            ),
+            (
+                "twice_daily_second_slot_becomes_due_same_day",
+                "America/Toronto",
+                "2026-07-21T21:01:00+00:00",
+                "2026-07-21T13:05:00+00:00",
+                "2026-07-20T12:00:00+00:00",
+                "0 9,17 * * *",
+                60.0,
+            ),
+            (
+                "weekday_schedule_not_due_on_weekend",
+                "America/Toronto",
+                "2026-07-25T14:00:00+00:00",
+                "2026-07-24T13:05:00+00:00",
+                "2026-07-20T12:00:00+00:00",
+                "0 9 * * 1-5",
+                None,
+            ),
+        ]
+    )
+    def test_cron_schedule_uses_project_timezone_and_schedule_slots(
+        self,
+        _name: str,
+        timezone_name: str,
+        now_iso: str,
+        last_run_iso: str,
+        schedule_changed_at_iso: str,
+        run_cron_schedule: str,
+        expected_overdue_seconds: float | None,
+    ) -> None:
+        config = SignalScoutConfig(
+            run_interval_minutes=1440,
+            run_cron_schedule=run_cron_schedule,
+            last_run_at=datetime.fromisoformat(last_run_iso),
+            schedule_changed_at=datetime.fromisoformat(schedule_changed_at_iso),
+        )
+
+        overdue_seconds = _overdue_seconds(config, datetime.fromisoformat(now_iso), ZoneInfo(timezone_name))
+
+        assert overdue_seconds == expected_overdue_seconds
+
+    def test_unrelated_edit_does_not_defer_overdue_scheduled_run(self) -> None:
+        # An emit/enabled-only save bumps `updated_at` but not `schedule_changed_at` — the
+        # due-check must keep measuring from the missed slot, not re-anchor to the edit.
+        config = SignalScoutConfig(
+            run_interval_minutes=1440,
+            run_cron_schedule="0 9 * * *",
+            last_run_at=datetime.fromisoformat("2026-07-20T13:05:00+00:00"),
+            schedule_changed_at=datetime.fromisoformat("2026-07-19T12:00:00+00:00"),
+            updated_at=datetime.fromisoformat("2026-07-21T14:00:00+00:00"),
+        )
+
+        overdue_seconds = _overdue_seconds(
+            config, datetime.fromisoformat("2026-07-21T15:00:00+00:00"), ZoneInfo("America/Toronto")
+        )
+
+        assert overdue_seconds == 7200.0
+
+    def test_invalid_cron_expression_falls_back_to_rolling_interval(self) -> None:
+        # Only reachable via out-of-band writes (the API validates on write), but a bad row
+        # must degrade to the rolling schedule instead of killing the coordinator tick.
+        config = SignalScoutConfig(
+            run_interval_minutes=1440,
+            run_cron_schedule="not a cron",
+            last_run_at=datetime.fromisoformat("2026-07-20T12:00:00+00:00"),
+        )
+
+        overdue_seconds = _overdue_seconds(
+            config, datetime.fromisoformat("2026-07-21T13:00:00+00:00"), ZoneInfo("America/Toronto")
+        )
+
+        assert overdue_seconds == 3600.0
 
 
 @pytest.mark.asyncio
@@ -1088,6 +1336,23 @@ def test_resolve_max_runs_per_day(team_configs, default_cfg, expected):
 )
 def test_resolve_withheld_skills(team_configs, default_cfg, expected):
     assert _resolve_withheld_skills(7, team_configs, default_cfg) == expected
+
+
+@pytest.mark.parametrize(
+    "team_configs,default_cfg,expected",
+    [
+        ({}, {}, True),  # nothing set → on ("just works" for every enrolled team)
+        ({}, {"github_read_access": False}, False),  # fleet-wide kill switch
+        ({7: {"github_read_access": False}}, {}, False),  # per-team revoke
+        # per-team explicit True wins over a fleet-wide revoke (re-grant one team without a deploy)
+        ({7: {"github_read_access": True}}, {"github_read_access": False}, True),
+        # only literal booleans are honored — a non-bool must never flip the posture either way
+        ({7: {"github_read_access": "false"}}, {}, True),
+        ({7: {"github_read_access": 0}}, {"github_read_access": False}, False),
+    ],
+)
+def test_resolve_github_read_access(team_configs, default_cfg, expected):
+    assert _resolve_github_read_access(7, team_configs, default_cfg) is expected
 
 
 def _due_run(team_id: int, skill_name: str, overdue_s: float) -> _DueRun:

@@ -3,9 +3,7 @@ import { useValues } from 'kea'
 import { normalizeAxisLabel } from '@posthog/quill-charts'
 
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -61,10 +59,10 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         showConfidenceIntervals,
         showMovingAverage,
     } = useValues(trendsDataLogic(insightProps))
-    const { featureFlags } = useValues(featureFlagLogic)
-    const hideWeekendsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS]
-    const quillLegendEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]
-    const styleRefreshEnabled = !!featureFlags[FEATURE_FLAGS.QUILL_CHART_STYLE_REFRESH]
+    // Hide weekends is superseded by the days-of-week date filter and is being sunset: the option
+    // only renders on insights that already have it on, so it can be turned off but not on. Gating
+    // on the value rather than the key matters — the key is persisted as false on most insights.
+    const hasHideWeekends = !!trendsFilter?.hideWeekends
 
     // The slope graph shows the first vs last interval, so it drops the options that need the points
     // between them (smoothing, multiple axes, alert/annotation overlays, statistical analysis).
@@ -95,18 +93,16 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     // of the legacy show/hide checkbox. usesInChartLegend is the single source of truth (same
     // selector used by InsightVizDisplay to suppress the side legend). Funnel trends with breakdown
     // also get the position selector since they render the quill legend via config.legend.
-    const useQuillLegendOptions = usesInChartLegend || (quillLegendEnabled && showFunnelLegendConfig)
+    const useQuillLegendOptions = usesInChartLegend || showFunnelLegendConfig
 
     const showDisplaySection =
         (isTrends && !isCalendarHeatmap) || isRetention || isTrendsFunnel || isStickiness || isLifecycle
     const showYAxisScale = !hideContinuousChartOptions && isTrends && !isCalendarHeatmap
     // Only the quill line charts (trends/stickiness line and area, retention and funnel-trends
-    // graphs) draw curves, and only the style-refresh flag curves lines by default — without it
-    // there's no curvature to straighten. Retention and funnel trends default to their line graph
-    // when display is unset.
+    // graphs) draw curves, so they're the only ones with curvature to straighten. Retention and
+    // funnel trends default to their line graph when display is unset.
     const isLineChartInsight = isLineDisplay || ((isRetention || isTrendsFunnel) && !display)
-    const showLineStyleConfig =
-        (isTrends || isStickiness || isRetention || isTrendsFunnel) && isLineChartInsight && styleRefreshEnabled
+    const showLineStyleConfig = (isTrends || isStickiness || isRetention || isTrendsFunnel) && isLineChartInsight
 
     // The box plot and slope graph only show a couple of options each; everything else falls
     // through to the full shared list.
@@ -166,7 +162,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         if (isTrendsFunnel && !hideContinuousChartOptions) {
             displayItems.push(DisplayOptions.HideIncompleteFunnelPeriods)
         }
-        if (isTrends && !hideContinuousChartOptions && hideWeekendsEnabled) {
+        if (isTrends && !hideContinuousChartOptions && hasHideWeekends) {
             displayItems.push(DisplayOptions.HideWeekends)
         }
         if (showAnnotationsConfig) {
@@ -266,7 +262,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.xAxisLabel) ? 1 : 0) +
         (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.yAxisLabel) ? 1 : 0) +
         (showMultipleYAxes ? 1 : 0) +
-        (trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0) +
+        (hasHideWeekends ? 1 : 0) +
         (showAnnotationsConfig && showAnnotations === false ? 1 : 0) +
         (isMetric && trendsFilter?.metricShowChange === false ? 1 : 0) +
         (isMetric && trendsFilter?.metricColorByDirection ? 1 : 0) +

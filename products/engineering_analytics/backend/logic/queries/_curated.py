@@ -14,6 +14,7 @@ into these fragments.
 """
 
 import math
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from posthog.schema import HogQLQueryResponse
@@ -27,10 +28,25 @@ from posthog.clickhouse.workload import Workload
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.logic.sources import GitHubTables, resolve_github_tables
-from products.engineering_analytics.backend.logic.views import pull_requests, workflow_jobs, workflow_runs
+from products.engineering_analytics.backend.logic.views import (
+    issue_events,
+    job_costs,
+    pull_requests,
+    team_members,
+    workflow_jobs,
+    workflow_runs,
+)
 
 if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
+
+
+@dataclass(frozen=True, kw_only=True)
+class IssueEventsWindow:
+    """The observed issue-event range's edges as scalar subquery strings."""
+
+    start: str
+    end: str
 
 
 class CuratedGitHubSource:
@@ -54,13 +70,25 @@ class CuratedGitHubSource:
         """The team this handle reads for — query builders need it for timezone-aware date parsing."""
         return self._team
 
+    @property
+    def repository(self) -> str:
+        """The selected source's ``owner/name`` identity for reads outside the warehouse."""
+        return self._tables.repository
+
     @classmethod
     def for_team(
-        cls, team: Team, *, source_id: str | None = None, user_access_control: "UserAccessControl | None" = None
+        cls,
+        team: Team,
+        *,
+        source_id: str | None = None,
+        repo: str | None = None,
+        user_access_control: "UserAccessControl | None" = None,
     ) -> "CuratedGitHubSource":
         return cls(
             team=team,
-            tables=resolve_github_tables(team=team, source_id=source_id, user_access_control=user_access_control),
+            tables=resolve_github_tables(
+                team=team, source_id=source_id, repo=repo, user_access_control=user_access_control
+            ),
             user_access_control=user_access_control,
         )
 
@@ -68,15 +96,90 @@ class CuratedGitHubSource:
         """Curated pull-requests ``SELECT``, parenthesised for use as a subquery."""
         return f"({pull_requests.build_query(self._tables.pull_requests)})"
 
-    def run_source(self) -> str:
-        """Curated workflow-runs ``SELECT``, parenthesised for use as a subquery."""
-        return f"({workflow_runs.build_query(self._tables.workflow_runs)})"
+    def run_source(self, *, started_floor: bool = False) -> str:
+        """Curated workflow-runs ``SELECT``, parenthesised for use as a subquery. ``started_floor``
+        adds the raw-string scan floor — callers must register {run_started_floor} (see
+        run_started_floor_constant)."""
+        query = workflow_runs.build_query(
+            self._tables.workflow_runs,
+            pull_requests_table=self._tables.pull_requests,
+            started_floor=started_floor,
+        )
+        return f"({query})"
 
     def jobs_source(self) -> str | None:
         """Curated workflow-jobs ``SELECT`` subquery, or None when the optional jobs table isn't synced."""
         if not self._tables.workflow_jobs:
             return None
         return f"({workflow_jobs.build_query(self._tables.workflow_jobs)})"
+
+    def members_source(self) -> str | None:
+        """Curated team-membership ``SELECT`` subquery, or None when the optional table isn't synced."""
+        if not self._tables.team_members:
+            return None
+        return f"({team_members.build_query(self._tables.team_members)})"
+
+    def issue_events_source(self) -> str | None:
+        """Curated PR draft/ready transitions ``SELECT`` subquery, or None when the optional
+        issue-events table isn't synced."""
+        if not self._tables.issue_events:
+            return None
+        return f"({issue_events.build_query(self._tables.issue_events)})"
+
+    def issue_events_window(self) -> "IssueEventsWindow | None":
+        """Scalar subqueries bounding the observed issue-event range, or None when the table
+        isn't synced. The desc walk lands a contiguous range, so the min and max landed
+        timestamps are its edges; both are NULL over an empty table, so comparisons against
+        them are never-true."""
+        if not self._tables.issue_events:
+            return None
+        return IssueEventsWindow(
+            start=f"({issue_events.build_window_start_query(self._tables.issue_events)})",
+            end=f"({issue_events.build_window_end_query(self._tables.issue_events)})",
+        )
+
+    def ready_by_pr_cte(self) -> str | None:
+        """CTE: each PR's last observed draft-state transition, or None when the table isn't synced.
+
+        Only the LAST switch counts: for a merged PR the newest transition is necessarily the ready
+        that preceded the merge (a draft can't merge); an open PR goes false while re-drafted. The
+        event id breaks same-second ties (GitHub timestamps are second-coarse). Keyed on
+        ``pr_number`` alone, unlike ``runs_by_pr``: a run's association can list the fork network's
+        PRs (which is why that rollup needs the repo qualifier), whereas every row of a resolved
+        issue-events table belongs to that one repo by table construction.
+        """
+        source = self.issue_events_source()
+        if source is None:
+            return None
+        return f"""
+            ready_by_pr AS (
+                SELECT
+                    pr_number,
+                    argMax(event, tuple(created_at, id)) = '{issue_events.READY_FOR_REVIEW_EVENT}' AS last_is_ready,
+                    max(created_at) AS last_transition_at
+                FROM {source} AS se
+                GROUP BY pr_number
+            )
+        """
+
+    def job_cost_source(self) -> str | None:
+        """Per-job cost ``SELECT`` subquery — the same view body ``engineering_analytics_job_costs``
+        exposes, but with the endpoint-only run pass-through columns (``run_started_at`` /
+        ``run_head_branch``). None when the jobs table isn't synced, exactly like ``jobs_source``.
+
+        This is the single cost-computation path: ``provider`` / ``os`` / ``vcpu`` / ``billable_seconds``
+        / ``estimated_cost_usd`` are rendered from ``logic.cost`` in ClickHouse, so every endpoint cost
+        query aggregates the same per-job figures the exposed view (and the parity test) do — there is
+        no separate Python cost rollup to drift.
+        """
+        if not self._tables.workflow_jobs:
+            return None
+        query = job_costs.build_query(
+            jobs_table=self._tables.workflow_jobs,
+            runs_table=self._tables.workflow_runs,
+            include_run_columns=True,
+        )
+        return f"({query})"
 
     def runs_cte(self) -> str:
         """CTE materializing the curated workflow-runs source once.
@@ -137,6 +240,12 @@ class CuratedGitHubSource:
         (CI triggers), ``rerun_cycles`` the runs that were a 2nd+ attempt. Fork-PR runs have no
         association (``pr_number = 0``) and are excluded.
 
+        Merge-queue gate runs are excluded too, even though the runs builder credits them to the PR
+        they were landing. This rollup measures what the *author* did to the PR, and a gate branch's
+        head SHA is a rebase the queue made — counting it would report a push nobody made, once per
+        merge attempt. Cost and CI-health surfaces keep the gate run; they measure spend and outcomes,
+        not authoring activity.
+
         Keyed on ``(repo_owner, repo_name, pr_number)``, not ``pr_number`` alone: PR numbers
         restart per repository, so the PR-list join is qualified by repo to stay correct — as
         repo-safe as the head-SHA join in ``ci_rollup_cte``. A resolved source is a single repo
@@ -153,14 +262,20 @@ class CuratedGitHubSource:
                     count(DISTINCT head_sha) AS pushes,
                     countIf(run_attempt > 1) AS rerun_cycles
                 FROM runs AS r
-                WHERE pr_number > 0
+                WHERE pr_number > 0 AND NOT is_merge_queue
                 GROUP BY repo_owner, repo_name, pr_number
             )
         """
 
     def pr_list_rollup_query(self, select: str) -> str:
-        """``pr_rollup_query`` plus the per-PR runs rollup (pushes / re-run cycles)."""
-        return self._compose_pr_query([self.runs_cte(), self.ci_rollup_cte(), self.runs_by_pr_cte()], select)
+        """``pr_rollup_query`` plus the per-PR runs rollup and, when the issue-events table is
+        synced, the ``ready_by_pr`` rollup; reference it only when ``issue_events_source()``
+        is non-None."""
+        ctes = [self.runs_cte(), self.ci_rollup_cte(), self.runs_by_pr_cte()]
+        ready_cte = self.ready_by_pr_cte()
+        if ready_cte is not None:
+            ctes.append(ready_cte)
+        return self._compose_pr_query(ctes, select)
 
     def _compose_pr_query(self, ctes: list[str], select: str) -> str:
         """Prefix ``select`` with the given CTEs and fill its ``__PR_SOURCE__`` placeholder with the PR source."""

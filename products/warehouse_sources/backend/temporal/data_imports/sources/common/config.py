@@ -329,7 +329,23 @@ def to_config(
             else:
                 inputs[field.name] = _convert_value(convert, value, field.name)
 
-    return config_cls(**inputs)
+    try:
+        return config_cls(**inputs)
+    except TypeError as e:
+        # Stored job inputs that don't supply a required (no-default) field make
+        # `config_cls(**inputs)` raise the opaque builtin
+        # `TypeError: X.__init__() missing 1 required positional argument: 'y'`, which is
+        # impossible to triage from error tracking. Re-raise naming the missing field(s) — only
+        # the field names, never their values, so no secret leaks. Kept a TypeError so the
+        # union-config recursion above still catches it and tries the remaining arms.
+        missing = [
+            f.name
+            for f in fields
+            if f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING and f.name not in inputs
+        ]
+        if not missing:
+            raise
+        raise TypeError(f"Cannot build '{config_cls.__name__}': missing required field(s) {missing}") from e
 
 
 def _resolve_field_type(field: dataclasses.Field[typing.Any], module_path: str) -> type:
@@ -687,6 +703,32 @@ def str_to_optional_int(s: str | int | float | None) -> int | None:
         return None
     else:
         return int(s)
+
+
+def str_to_optional_list(s: str | list[typing.Any] | None) -> list[str] | None:
+    """A converter to return an optional list of strings from a list, a JSON-array string,
+    or a comma-separated string. Empty inputs normalize to None."""
+    if s is None:
+        return None
+    if isinstance(s, list):
+        values = [str(item).strip() for item in s]
+    else:
+        stripped = s.strip()
+        if stripped == "":
+            return None
+        if stripped.startswith("["):
+            try:
+                parsed = json.loads(stripped)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, list):
+                values = [str(item).strip() for item in parsed]
+            else:
+                values = [stripped]
+        else:
+            values = [item.strip() for item in stripped.split(",")]
+    values = [value for value in values if value]
+    return values or None
 
 
 _DefaultType = typing.TypeVar("_DefaultType")

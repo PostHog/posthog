@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Literal
 
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
 import yaml
 
@@ -53,7 +54,7 @@ _ALLOWED_BUNDLE_SUBDIRS = ("references", "scripts")
 # from this module's call sites. Keep the values in sync with skill_services.py.
 _MAX_SKILL_BODY_BYTES = 1_000_000
 _MAX_SKILL_FILE_BYTES = 1_000_000
-_MAX_SKILL_FILE_COUNT = 50
+_MAX_SKILL_FILE_COUNT = 200
 # Matches `LLMSkillFile.path` model `max_length` — checked at parse time so an oversized
 # canonical path fails with a clear error instead of a Postgres `value too long` DataError.
 _MAX_SKILL_FILE_PATH_LENGTH = 500
@@ -613,10 +614,12 @@ def sync_canonical_skills(
                 diverged.append(row.name)
                 continue
             # Re-scope the soft-delete to seeded rows too, so a team-authored row sharing the
-            # name is never caught by the bulk update.
+            # name is never caught by the bulk update. `updated_at=now` matters: queryset updates
+            # bypass auto_now, and the marketplace plugin version is Max(updated_at) over ALL team
+            # rows — without the bump the cached repo keeps serving the pruned skill.
             LLMSkill.objects.filter(
                 team=team, name=row.name, deleted=False, metadata__seeded_by=HARNESS_SEEDED_BY
-            ).update(deleted=True, is_latest=False)
+            ).update(deleted=True, is_latest=False, updated_at=timezone.now())
             pruned.append(row.name)
 
     if created or updated or pruned:

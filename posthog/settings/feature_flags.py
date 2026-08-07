@@ -107,3 +107,10 @@ MAX_FEATURE_FLAG_FILTER_SIZE_BYTES: int = get_from_env(
 
 # Team ID for the local-evaluation canary. Unset disables the canary task.
 FEATURE_FLAGS_CANARY_TEAM_ID: int | None = get_from_env("FEATURE_FLAGS_CANARY_TEAM_ID", optional=True, type_cast=int)
+
+# Project secret API key (PSAK) scoped to team 2, used only by the EU cross-region
+# dogfood flags sync (products/feature_flags/backend/cross_region_flag_sync.py) to
+# poll team 2's flag definitions from the US region, since team 2 lives only in the
+# US Postgres. Unset disables the sync. Not needed on US, where team 2's HyperCache
+# entry is built locally via the normal signal-driven path.
+POSTHOG_FLAGS_PROJECT_SECRET_TOKEN: str = get_from_env("POSTHOG_FLAGS_PROJECT_SECRET_TOKEN", "")

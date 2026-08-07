@@ -87,6 +87,17 @@ async def delete_data_modeling_schedules_activity(inputs: TeamDataActivityInputs
 
 
 @temporalio.activity.defn
+async def delete_loop_trigger_schedules_activity(inputs: TeamDataActivityInputs) -> None:
+    """Tear down loops' Temporal Schedules for the teams. CASCADE removes the LoopTrigger rows but
+    never talks to Temporal, so without this the Schedules keep firing forever into deleted triggers."""
+    async with Heartbeater():
+        from products.tasks.backend.facade.loops import delete_team_loop_schedules
+
+        for team_id in inputs.team_ids:
+            await database_sync_to_async_pool(delete_team_loop_schedules)(team_id)
+
+
+@temporalio.activity.defn
 async def delete_team_records_activity(inputs: TeamDataActivityInputs) -> None:
     async with Heartbeater():
         from posthog.models.team.util import delete_team_records
@@ -140,6 +151,24 @@ async def delete_project_record_activity(inputs: ProjectRecordInputs) -> None:
         from posthog.models.team.util import delete_project_record
 
         await database_sync_to_async_pool(delete_project_record)(inputs.project_id)
+
+
+def _deprovision_managed_warehouse(organization_id: str) -> None:
+    from products.managed_warehouse.backend.facade.api import deprovision_for_org_deletion
+
+    deprovision_for_org_deletion(organization_id)
+
+
+@temporalio.activity.defn
+async def deprovision_managed_warehouse_activity(inputs: OrganizationRecordInputs) -> None:
+    """Deprovision the org's managed duckgres warehouse (no-op for orgs without one).
+
+    Must run before ``delete_organization_record_activity``: the org-record cascade
+    destroys the ``DuckgresServer`` row, after which the warehouse would be orphaned
+    alive (ingestion, metering, and credentials all still working) with no pointer left.
+    """
+    async with Heartbeater():
+        await database_sync_to_async_pool(_deprovision_managed_warehouse)(inputs.organization_id)
 
 
 def _delete_organization_record(organization_id: str, user_id: int) -> None:

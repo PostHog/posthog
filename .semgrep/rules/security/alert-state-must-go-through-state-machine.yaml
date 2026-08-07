@@ -1,0 +1,61 @@
+# Products decide whether an alert is triggered. Shared lifecycle code owns state
+# transitions, notification decisions, snoozing, and enable/disable behavior.
+rules:
+    - id: logs-alert-state-direct-mutation
+      patterns:
+          - pattern-either:
+                - pattern: $ALERT.state = $VALUE
+                - pattern: $ALERT.consecutive_failures = $VALUE
+                - pattern: $ALERT.enabled = $VALUE
+                - pattern: $QUERY.update(..., state=$VALUE, ...)
+                - pattern: $QUERY.update(..., consecutive_failures=$VALUE, ...)
+                - pattern: $QUERY.update(..., enabled=$VALUE, ...)
+      message: |
+          Direct mutation of a logs alert's lifecycle fields bypasses its state
+          machine adapter. Route the change through
+          products.logs.backend.alert_state_machine.
+      languages: [python]
+      severity: ERROR
+      metadata:
+          category: correctness
+          subcategory: audit
+          confidence: HIGH
+      paths:
+          include:
+              - '/products/logs/backend/**/*.py'
+              - '/.semgrep/rules/security/tests/logs-alert-state-must-go-through-state-machine.py'
+          exclude:
+              - '/products/logs/backend/alert_state_machine.py'
+              - '/products/logs/backend/test/**'
+              - '/products/logs/backend/**/test_*.py'
+
+    - id: insight-alert-state-direct-mutation
+      patterns:
+          - pattern-either:
+                - pattern: $ALERT.state = $VALUE
+                - pattern: $ALERT.enabled = $VALUE
+                - pattern: $QUERY.update(..., state=$VALUE, ...)
+                - pattern: $QUERY.update(..., enabled=$VALUE, ...)
+      message: |
+          Direct mutation of an insight alert's lifecycle fields bypasses its state
+          machine adapter. Route the change through
+          products.alerts.backend.insight_alert_state_machine.
+      languages: [python]
+      severity: ERROR
+      metadata:
+          category: correctness
+          subcategory: audit
+          confidence: HIGH
+      paths:
+          include:
+              - '/products/alerts/backend/api/alert.py'
+              - '/products/alerts/backend/facade/api.py'
+              - '/products/alerts/backend/max_tools.py'
+              - '/products/alerts/backend/models/alert.py'
+              - '/posthog/tasks/alerts/**/*.py'
+              - '/posthog/temporal/alerts/**/*.py'
+              - '/.semgrep/rules/security/tests/insight-alert-state-must-go-through-state-machine.py'
+          exclude:
+              - '/products/alerts/backend/api/test/**'
+              - '/products/alerts/backend/**/test_*.py'
+              - '/posthog/tasks/alerts/test/**'

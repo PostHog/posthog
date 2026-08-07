@@ -7,6 +7,10 @@
             "minimum": -9007199254740991,
             "type": "integer"
         },
+        "confirm_token": {
+            "description": "The confirm_token from the same workflows-blast-radius preview whose count the user confirmed. The API rejects schedule creation without it, and it goes stale when the audience filters change or after 15 minutes - re-preview to refresh.",
+            "type": "string"
+        },
         "rrule": {
             "description": "iCalendar RRULE (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour.",
             "type": "string"
@@ -32,6 +36,6 @@
             "type": "string"
         }
     },
-    "required": ["workflow_id", "rrule", "starts_at", "acknowledged_affected_count"],
+    "required": ["workflow_id", "rrule", "starts_at", "acknowledged_affected_count", "confirm_token"],
     "type": "object"
 }

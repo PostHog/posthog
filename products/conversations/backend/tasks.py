@@ -4,7 +4,7 @@ import html as html_mod
 import json
 from datetime import datetime, timedelta
 from email.utils import formataddr
-from typing import Any, cast
+from typing import Any, cast, get_args
 from urllib.parse import quote, urlparse
 from uuid import UUID
 
@@ -19,9 +19,16 @@ from django.utils import timezone
 import requests
 import structlog
 from celery import shared_task
-from celery.exceptions import MaxRetriesExceededError
+from celery.exceptions import MaxRetriesExceededError, Retry
 
+from posthog.comment.formatting import (
+    extract_images_from_rich_content,
+    rich_content_to_html,
+    rich_content_to_markdown,
+    rich_content_to_slack_payload,
+)
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.helpers.slack_identity import resolve_slack_avatar_by_email
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.comment import Comment as CommentModel
 from posthog.models.github_integration_base import GitHubIntegrationError
@@ -32,12 +39,6 @@ from posthog.storage import object_storage
 
 from products.conversations.backend.cache import NUDGE_DISMISS_TTL, suppress_nudge
 from products.conversations.backend.events import capture_ticket_status_changed
-from products.conversations.backend.formatting import (
-    extract_images_from_rich_content,
-    rich_content_to_html,
-    rich_content_to_markdown,
-    rich_content_to_slack_payload,
-)
 from products.conversations.backend.mailgun import (
     MailgunDomainNotRegistered,
     MailgunNotConfigured,
@@ -59,6 +60,9 @@ from products.conversations.backend.services.attachments import CONVERSATIONS_MA
 from products.conversations.backend.slack import (
     TICKET_CONFIRM_ACTION_DISMISS,
     TICKET_CONFIRM_ACTION_OPEN,
+    NudgeClassifierVerdict,
+    NudgeFunnelVerdict,
+    capture_nudge_event,
     create_ticket_from_confirmation,
     get_bot_user_id,
     get_safe_ticket_emoji,
@@ -68,7 +72,7 @@ from products.conversations.backend.slack import (
     handle_support_mention,
     handle_support_message,
     handle_support_reaction,
-    resolve_slack_avatar_by_email,
+    nudge_event_properties,
     ticket_created_text,
 )
 from products.conversations.backend.support_teams import (
@@ -93,9 +97,9 @@ from products.conversations.backend.teams import (
     post_teams_channel_message_via_graph,
 )
 from products.conversations.backend.teams_attachments import extract_teams_graph_images
-from products.conversations.backend.teams_formatting import rich_content_to_teams_html
+from products.conversations.backend.teams_formatting import build_teams_reply_html
 
-from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES
+from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, supporthog_missing_file_scopes
 
 logger = structlog.get_logger(__name__)
 SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS = 6 * 60
@@ -181,13 +185,15 @@ def _delete_supporthog_prompt(team: Team, channel: str, message_ts: str) -> None
         logger.warning("supporthog_interactivity_prompt_delete_failed", exc_info=True)
 
 
-def _update_supporthog_prompt(team: Team, channel: str, message_ts: str, text: str) -> None:
-    """Replace the "open a ticket?" prompt in place with a final status line (buttons removed).
+def _update_supporthog_prompt(team: Team, channel: str, message_ts: str, text: str) -> bool:
+    """Replace the "open a ticket?" prompt in place with a new status line (buttons removed).
 
-    Best-effort: a failure here never blocks the ticket creation that already ran.
+    Never raises — a failure here must not block the ticket creation that already ran —
+    but reports success so callers can retry updates that must not be lost (the final
+    confirmation/error state, as opposed to the best-effort progress placeholder).
     """
     if not channel or not message_ts:
-        return
+        return False
     try:
         get_slack_client(team).chat_update(
             channel=channel,
@@ -195,8 +201,10 @@ def _update_supporthog_prompt(team: Team, channel: str, message_ts: str, text: s
             text=text,
             blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": text}}],
         )
+        return True
     except Exception:
         logger.warning("supporthog_interactivity_prompt_update_failed", exc_info=True)
+        return False
 
 
 def _post_dismiss_acknowledgment(team: Team, channel: str, user: str, thread_ts: str) -> None:
@@ -257,6 +265,16 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
             value = {}
         source_channel = value.get("channel", "")
         source_message_ts = value.get("message_ts", "")
+        # Echoed back from the prompt's button value, normalized at the trust boundary: the
+        # value round-trips through Slack, and prompts posted before the verdict was stamped
+        # in lack the key entirely — anything off-vocabulary becomes "unknown" so the funnel
+        # property never carries junk. slack_user_id here is the clicker, not necessarily
+        # the nudged author — buttons are clickable by anyone in the channel.
+        raw_verdict = value.get("classifier")
+        classifier_verdict: NudgeFunnelVerdict = (
+            raw_verdict if raw_verdict in get_args(NudgeClassifierVerdict) else "unknown"
+        )
+        click_properties = nudge_event_properties(source_channel, source_message_ts, clicker, classifier_verdict)
 
         if action_id == TICKET_CONFIRM_ACTION_DISMISS:
             _delete_supporthog_prompt(team, prompt_channel, prompt_ts)
@@ -264,10 +282,24 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
             # Don't pester them again in this channel for a while.
             if clicker:
                 suppress_nudge(team.pk, prompt_channel, clicker, NUDGE_DISMISS_TTL)
+            capture_nudge_event(team, "support nudge dismissed", click_properties)
             return
         if action_id == TICKET_CONFIRM_ACTION_OPEN:
             ticket = None
             if source_channel and source_message_ts:
+                # Ticket creation takes several seconds (Slack fetches + backfill) and the
+                # click may have crossed a region on the way here — replace the buttons with
+                # a progress line right away so the click visibly landed and repeat clicks
+                # stop. First attempt only, and only while no sibling delivery has already
+                # resolved the prompt (a stale placeholder must not overwrite a confirmation).
+                is_retry = bool(getattr(cast(Any, process_supporthog_interactivity).request, "retries", 0))
+                ticket_already_open = Ticket.objects.filter(
+                    team=team, slack_channel_id=source_channel, slack_thread_ts=source_message_ts
+                ).exists()
+                if not is_retry and not ticket_already_open:
+                    _update_supporthog_prompt(
+                        team, prompt_channel, prompt_ts, ":hourglass_flowing_sand: Opening a ticket…"
+                    )
                 try:
                     ticket = create_ticket_from_confirmation(
                         team=team,
@@ -275,6 +307,18 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
                         slack_channel_id=source_channel,
                         message_ts=source_message_ts,
                     )
+                    if ticket is None:
+                        # A duplicate delivery (double click or webhook retry) can lose the
+                        # per-thread create lock to a concurrent sibling and see None while
+                        # the sibling's ticket is mid-create. Retry instead of reporting a
+                        # false failure — the re-run resolves to the committed ticket via
+                        # the existing-ticket check in create_ticket_from_confirmation.
+                        # Genuine failures exhaust retries into the error update below.
+                        raise cast(Any, process_supporthog_interactivity).retry()
+                except Retry:
+                    raise
+                except MaxRetriesExceededError:
+                    pass
                 except Exception as e:
                     logger.exception("supporthog_interactivity_create_failed", error=str(e))
                     # Retry transient failures — the retried run redoes the whole handler,
@@ -293,7 +337,27 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
             else:
                 emoji = get_safe_ticket_emoji(support_settings)
                 text = f":warning: Couldn't open a ticket — react with :{emoji}: or @mention us to try again."
-            _update_supporthog_prompt(team, prompt_channel, prompt_ts, text)
+            final_update_ok = _update_supporthog_prompt(team, prompt_channel, prompt_ts, text)
+            if not final_update_ok and prompt_channel and prompt_ts:
+                # The progress placeholder must never be the prompt's last word — if the
+                # final update fails transiently, retry the task (creation is idempotent,
+                # the re-run re-attempts just this update). Once retries are exhausted,
+                # fall through so the funnel event still records the outcome.
+                try:
+                    raise cast(Any, process_supporthog_interactivity).retry()
+                except MaxRetriesExceededError:
+                    pass
+            # Captured after all retry exits (each retry re-raise leaves the task first),
+            # so the event fires once with the final outcome.
+            capture_nudge_event(
+                team,
+                "support nudge open ticket clicked",
+                {
+                    **click_properties,
+                    "ticket_created": ticket is not None,
+                    "ticket_id": str(ticket.id) if ticket else None,
+                },
+            )
             return
 
 
@@ -326,7 +390,9 @@ def post_reply_to_slack(
         )
         return
 
-    slack_text, slack_blocks = rich_content_to_slack_payload(rich_content, content, include_images=False)
+    slack_text, slack_blocks = rich_content_to_slack_payload(
+        rich_content, content, include_images=False, organization_id=team.organization_id
+    )
     rich_images = extract_images_from_rich_content(rich_content)
     logger.info(
         "🧵 slack_reply_payload_prepared",
@@ -435,6 +501,7 @@ def post_reply_to_slack(
                     ticket_id=ticket_id,
                     channel=slack_channel_id,
                     fallback_count=len(unique_urls),
+                    missing_file_scopes=supporthog_missing_file_scopes(team),
                 )
 
         logger.info(
@@ -717,17 +784,21 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
 
     from_email = formataddr((config.from_name or author_name, config.from_email))
 
+    # Tickets created before To/Cc participant filtering may still have the requester
+    # persisted in cc_participants; drop them here so they aren't delivered to twice.
+    cc = [addr for addr in (ticket.cc_participants or []) if addr.lower() != ticket.email_from.lower()]
+
     email_message = mail.EmailMultiAlternatives(
         subject=subject,
         body=txt_body,
         from_email=from_email,
         to=[ticket.email_from],
-        cc=ticket.cc_participants or [],
+        cc=cc,
         headers=headers,
     )
     email_message.attach_alternative(html_body, "text/html")
 
-    recipients = [ticket.email_from, *(ticket.cc_participants or [])]
+    recipients = [ticket.email_from, *cc]
     mime_bytes = email_message.message().as_bytes(linesep="\r\n")
 
     try:
@@ -932,7 +1003,7 @@ def post_reply_to_teams(
         logger.warning("teams_reply_no_bot_token", team_id=team_id)
         return
 
-    reply_html = rich_content_to_teams_html(rich_content, content)
+    reply_html = build_teams_reply_html(rich_content, content, author_name)
     display_text = f"{author_name}: {content[:200]}" if author_name else content[:200]
 
     payload: dict[str, Any] = {
@@ -1001,9 +1072,7 @@ def post_reply_to_teams_via_graph(
         logger.warning("teams_graph_reply_team_not_found", team_id=team_id)
         return
 
-    reply_html = rich_content_to_teams_html(rich_content, content)
-    if author_name:
-        reply_html = f"<p><b>{html_mod.escape(author_name)}</b></p>{reply_html}"
+    reply_html = build_teams_reply_html(rich_content, content, author_name)
 
     status, _message_id = post_teams_channel_message_via_graph(
         team=team,
@@ -1150,7 +1219,7 @@ def _sync_one_ticket_thread_replies(
                     activity=activity,
                     tenant_id=tenant_id,
                     is_thread_reply=True,
-                    images=reply_images,
+                    attachments=reply_images,
                 )
             except Exception:
                 logger.exception(
@@ -1423,7 +1492,7 @@ def _poll_one_shared_channel(
                         # Shared channel: confirm via Graph (bot connector can't post here),
                         # reusing the token we already hold for the delta read.
                         graph_post_context={"teams_team_id": teams_team_id, "token": token},
-                        images=images,
+                        attachments=images,
                     )
                 except Exception:
                     logger.exception(

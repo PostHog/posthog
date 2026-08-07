@@ -7,6 +7,8 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from django.db.models import QuerySet
+
 import posthoganalytics
 
 from posthog.event_usage import groups
@@ -123,6 +125,23 @@ def list_issues(team_id: int) -> list[contracts.ErrorTrackingIssuePreview]:
 def list_issues_created_since(team_id: int, since: datetime, limit: int) -> list[contracts.ErrorTrackingIssuePreview]:
     issues = logic.list_issues_created_since(team_id=team_id, since=since, limit=limit)
     return [_to_issue_preview(issue) for issue in issues]
+
+
+def query_new_error_issues(period_start: datetime, period_end: datetime) -> QuerySet:
+    # "New this week" = issue first created within the digest window. Only active issues
+    # (not archived/resolved/suppressed) are worth surfacing as a new production error.
+    # Cross-team batch query for the weekly digest — callers execute it off the request path.
+    # Issue names are attacker-controlled (created from exception ingestion), so callers must
+    # cap how many they surface per team; newest-first ordering makes a per-team slice safe.
+    return (
+        ErrorTrackingIssue.objects.filter(
+            created_at__gt=period_start,
+            created_at__lte=period_end,
+            status=ErrorTrackingIssue.Status.ACTIVE,
+        )
+        .order_by("-created_at")
+        .values("team_id", "name", "id")
+    )
 
 
 def get_issue(issue_id: UUID, team_id: int) -> contracts.ErrorTrackingIssue:
@@ -536,6 +555,18 @@ def get_fingerprint(team_id: int, fingerprint_id: UUID) -> contracts.ErrorTracki
     return _to_fingerprint(fingerprint)
 
 
+def get_fingerprint_by_value(team_id: int, fingerprint: str) -> contracts.ErrorTrackingFingerprint | None:
+    resolved = logic.get_fingerprint_by_value(team_id=team_id, fingerprint=fingerprint)
+    if resolved is None:
+        return None
+    return _to_fingerprint(resolved)
+
+
+def get_issue_permalink(team_id: int, issue_id: UUID) -> str:
+    """Absolute, merge-stable link to an issue for durable surfaces (emails, external tools)."""
+    return logic.get_issue_permalink_by_fingerprint(team_id=team_id, issue_id=issue_id)
+
+
 def list_external_references(team_id: int) -> list[contracts.ErrorTrackingExternalReference]:
     references = logic.list_external_references(team_id=team_id)
     return [_to_external_reference(reference) for reference in references]
@@ -554,6 +585,7 @@ def create_external_reference(
     issue_id: UUID,
     integration_id: int,
     config: dict[str, Any],
+    distinct_id: int | str,
 ) -> contracts.ErrorTrackingExternalReference:
     reference = logic.create_external_reference(
         team_id=team_id,
@@ -564,6 +596,7 @@ def create_external_reference(
 
     posthoganalytics.capture(
         "error_tracking_external_issue_created",
+        distinct_id=distinct_id,
         groups=groups(reference.issue.team.organization, reference.issue.team),
         properties={
             "issue_id": reference.issue_id,

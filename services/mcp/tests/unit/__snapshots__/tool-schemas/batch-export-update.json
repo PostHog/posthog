@@ -264,7 +264,7 @@
                             "type": "object"
                         },
                         "integration_id": {
-                            "description": "ID of an aws-s3-kind Integration providing AWS credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.",
+                            "description": "ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.",
                             "type": "number"
                         },
                         "type": {
@@ -272,7 +272,7 @@
                             "type": "string"
                         }
                     },
-                    "required": ["type", "config"],
+                    "required": ["type", "integration_id", "config"],
                     "type": "object"
                 },
                 {
@@ -333,11 +333,61 @@
                             "type": "object"
                         },
                         "integration_id": {
-                            "description": "ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Preferred over inline credentials. Use the integrations-list MCP tool to find one.",
+                            "description": "ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Required when creating a batch export. Use the integrations-list MCP tool to find one.",
                             "type": "number"
                         },
                         "type": {
                             "enum": ["S3Compatible"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type", "integration_id", "config"],
+                    "type": "object"
+                },
+                {
+                    "description": "Request shape for creating or updating a Snowflake batch-export destination.",
+                    "properties": {
+                        "config": {
+                            "description": "Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products/batch_exports/backend/service.py`.",
+                            "properties": {
+                                "database": {
+                                    "description": "Snowflake database to write to.",
+                                    "type": "string"
+                                },
+                                "role": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Optional Snowflake role to assume for the session."
+                                },
+                                "schema": {
+                                    "description": "Schema inside the database containing the destination table.",
+                                    "type": "string"
+                                },
+                                "table_name": {
+                                    "default": "events",
+                                    "description": "Destination table name.",
+                                    "type": "string"
+                                },
+                                "warehouse": {
+                                    "description": "Snowflake compute warehouse to use.",
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["database", "warehouse", "schema"],
+                            "type": "object"
+                        },
+                        "integration_id": {
+                            "description": "ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.",
+                            "type": "number"
+                        },
+                        "type": {
+                            "enum": ["Snowflake"],
                             "type": "string"
                         }
                     },
@@ -357,8 +407,8 @@
             "type": "string"
         },
         "model": {
-            "description": "Which data model to export (events, persons, sessions).\n\n* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions",
-            "enum": ["events", "persons", "sessions"],
+            "description": "Which data model to export (events, persons, sessions).\n\n* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions\n* `hogql` - Hogql",
+            "enum": ["events", "persons", "sessions", "hogql"],
             "type": "string"
         },
         "name": {

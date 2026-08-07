@@ -82,6 +82,28 @@ def test_str_to_optional_int(value, expected):
     "value,expected",
     [
         (None, None),
+        ("", None),
+        ("   ", None),
+        ([], None),
+        (["a/b", " c/d ", ""], ["a/b", "c/d"]),
+        # job_inputs are JSON so lists usually arrive natively, but double-encoded configs
+        # (the same failure mode from_dict guards elsewhere) arrive as a JSON-array string.
+        ('["a/b", "c/d"]', ["a/b", "c/d"]),
+        ("a/b, c/d", ["a/b", "c/d"]),
+        ("a/b", ["a/b"]),
+        # A malformed bracket-prefixed string must fall back to a single value, not crash.
+        ("[not-json", ["[not-json"]),
+    ],
+)
+def test_str_to_optional_list(value, expected):
+    """`str_to_optional_list` must accept lists, JSON-array strings, and comma-separated strings."""
+    assert config.str_to_optional_list(value) == expected
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (None, None),
         ("5432", 5432),
         (5432.0, 5432),
     ],
@@ -556,6 +578,20 @@ def test_to_config_optional_config_does_not_retain_unparseable_dict():
     assert cfg.auth is None
 
 
+@pytest.mark.parametrize("config_dict", [{}, {"unrelated_key": "value"}])
+def test_from_dict_missing_required_field_raises_clear_error(config_dict):
+    # Stored job inputs that don't supply a required (no-default) field used to surface the
+    # opaque builtin `TypeError: SourceConfig.__init__() missing 1 required positional argument:
+    # 'api_key'`, which is impossible to triage from error tracking. It must name the field
+    # instead, and must not leak the (absent) secret value.
+    @config.config
+    class SourceConfig(config.Config):
+        api_key: str
+
+    with pytest.raises(TypeError, match=r"Cannot build 'SourceConfig': missing required field\(s\) \['api_key'\]"):
+        SourceConfig.from_dict(config_dict)
+
+
 @config.config
 class _SecretFieldConfig(config.Config):
     password: str | None = None
@@ -652,7 +688,9 @@ def test_repr_redacts_nested_config_secrets():
 
 
 def test_repr_redacts_real_postgres_source_config():
-    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
+        PostgresSourceConfig,
+    )
 
     cfg = PostgresSourceConfig(
         host="fadevpn-11499.example.cloud",

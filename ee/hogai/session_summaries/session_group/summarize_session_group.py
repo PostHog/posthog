@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -112,23 +113,36 @@ def generate_session_group_patterns_combination_prompt(
     )
 
 
-def partition_sessions_by_recording_existence(session_ids: list[str], team: Team) -> tuple[list[str], list[str]]:
-    """Split session_ids into (found, missing) based on whether a replay row exists for the team.
+@dataclass(frozen=True, kw_only=True, slots=True)
+class SessionRecordingPartition:
+    found_session_ids: list[str]
+    missing_session_ids: list[str]
+
+
+def partition_sessions_by_recording_existence(session_ids: list[str], team: Team) -> SessionRecordingPartition:
+    """Split session_ids into found/missing based on whether a replay row exists for the team.
 
     Used by flows that want to surface per-session "no recording" errors instead of failing the
     whole batch — see ``find_sessions_timestamps`` for the strict variant used by the group flow.
     """
     replay_events = SessionReplayEvents()
-    sessions_found, _, _ = replay_events.sessions_found_with_timestamps(session_ids, team)
+    sessions_found = replay_events.sessions_found_with_timestamps(session_ids, team).session_ids
     found = [sid for sid in session_ids if sid in sessions_found]
     missing = [sid for sid in session_ids if sid not in sessions_found]
-    return found, missing
+    return SessionRecordingPartition(found_session_ids=found, missing_session_ids=missing)
 
 
-def find_sessions_timestamps(session_ids: list[str], team: Team) -> tuple[datetime, datetime]:
+@dataclass(frozen=True, kw_only=True, slots=True)
+class SessionsTimestampRange:
+    min_timestamp: datetime
+    max_timestamp: datetime
+
+
+def find_sessions_timestamps(session_ids: list[str], team: Team) -> SessionsTimestampRange:
     """Validate that all session IDs exist and belong to the team and return min/max timestamps for the entire list of sessions"""
     replay_events = SessionReplayEvents()
-    sessions_found, min_timestamp, max_timestamp = replay_events.sessions_found_with_timestamps(session_ids, team)
+    result = replay_events.sessions_found_with_timestamps(session_ids, team)
+    sessions_found = result.session_ids
     # Check for missing sessions. The replay_events table is the source of truth for "did we capture a recording";
     # a missing row most commonly means the session never produced a recording or the recording has aged out
     # of retention, not that the caller is hitting the wrong team.
@@ -141,8 +155,8 @@ def find_sessions_timestamps(session_ids: list[str], team: Team) -> tuple[dateti
         logger.error(msg, team_id=team.id, signals_type="session-summaries")
         raise exceptions.ValidationError(msg)
     # Check for missing timestamps
-    if min_timestamp is None or max_timestamp is None:
-        msg = f"Failed to get min ({min_timestamp}) or max ({max_timestamp}) timestamps for sessions: {', '.join(session_ids)}"
+    if result.min_timestamp is None or result.max_timestamp is None:
+        msg = f"Failed to get min ({result.min_timestamp}) or max ({result.max_timestamp}) timestamps for sessions: {', '.join(session_ids)}"
         logger.error(msg, team_id=team.id, signals_type="session-summaries")
         raise exceptions.ValidationError(msg)
-    return min_timestamp, max_timestamp
+    return SessionsTimestampRange(min_timestamp=result.min_timestamp, max_timestamp=result.max_timestamp)

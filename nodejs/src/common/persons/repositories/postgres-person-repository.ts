@@ -44,6 +44,25 @@ import { RawPostgresPersonRepository } from './raw-postgres-person-repository'
 const DEFAULT_PERSON_PROPERTIES_TRIM_TARGET_BYTES = 512 * 1024
 const DEFAULT_PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES = 655360
 
+// Person write paths return these explicit columns instead of *: the persons
+// schema carries personhog-only columns (is_deleted) that must not leak into
+// ingestion's InternalPerson objects.
+const PERSON_COLUMN_NAMES = [
+    'id',
+    'uuid',
+    'created_at',
+    'team_id',
+    'properties',
+    'properties_last_updated_at',
+    'properties_last_operation',
+    'is_user_id',
+    'version',
+    'is_identified',
+    'last_seen_at',
+]
+export const PERSON_COLUMNS = PERSON_COLUMN_NAMES.join(', ')
+const PERSON_COLUMNS_PREFIXED = PERSON_COLUMN_NAMES.map((column) => `p.${column}`).join(', ')
+
 function queryTag(base: string, callerTag?: string): string {
     return callerTag ? `${base}:${callerTag}` : base
 }
@@ -251,7 +270,9 @@ export class PostgresPersonRepository
             WHERE
                 posthog_person.team_id = $1
                 AND posthog_persondistinctid.team_id = $1
-                AND posthog_persondistinctid.distinct_id = $2`
+                AND posthog_persondistinctid.distinct_id = $2
+                AND posthog_persondistinctid.is_deleted = false
+                AND posthog_person.is_deleted = false`
         if (options.forUpdate) {
             // Locks the teamId and distinctId tied to this personId + this person's info
             queryString = queryString.concat(` FOR UPDATE`)
@@ -316,13 +337,70 @@ export class PostgresPersonRepository
             )
             JOIN UNNEST($1::integer[], $2::text[]) AS batch(team_id, distinct_id)
                 ON posthog_persondistinctid.team_id = batch.team_id
-                AND posthog_persondistinctid.distinct_id = batch.distinct_id`
+                AND posthog_persondistinctid.distinct_id = batch.distinct_id
+            WHERE
+                posthog_persondistinctid.is_deleted = false
+                AND posthog_person.is_deleted = false`
 
         const { rows } = await this.postgres.query<RawPerson & { distinct_id: string }>(
             useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE,
             queryString,
             [teamIds, distinctIds],
             queryTag('fetchPersonsByDistinctIds', callerTag)
+        )
+
+        return rows.map((row) => ({
+            ...this.toPerson(row),
+            distinct_id: row.distinct_id,
+        }))
+    }
+
+    async fetchPersonsForUpdateByDistinctIds(
+        teamId: number,
+        distinctIds: string[],
+        callerTag?: string
+    ): Promise<InternalPersonWithDistinctId[]> {
+        if (distinctIds.length === 0) {
+            return []
+        }
+
+        const uniqueDistinctIds = [...new Set(distinctIds)]
+
+        // ORDER BY person id gives concurrent multi-row lockers a deterministic
+        // lock order, minimizing deadlocks between folded merges on overlapping
+        // persons.
+        const queryString = `SELECT
+                posthog_person.id,
+                posthog_person.uuid,
+                posthog_person.created_at,
+                posthog_person.team_id,
+                posthog_person.properties,
+                posthog_person.properties_last_updated_at,
+                posthog_person.properties_last_operation,
+                posthog_person.is_user_id,
+                posthog_person.version,
+                posthog_person.is_identified,
+                posthog_person.last_seen_at,
+                posthog_persondistinctid.distinct_id
+            FROM posthog_person
+            JOIN posthog_persondistinctid ON (
+                posthog_persondistinctid.person_id = posthog_person.id
+                AND posthog_persondistinctid.team_id = posthog_person.team_id
+            )
+            WHERE
+                posthog_person.team_id = $1
+                AND posthog_persondistinctid.team_id = $1
+                AND posthog_persondistinctid.distinct_id = ANY($2::text[])
+                AND posthog_persondistinctid.is_deleted = false
+                AND posthog_person.is_deleted = false
+            ORDER BY posthog_person.id
+            FOR UPDATE`
+
+        const { rows } = await this.postgres.query<RawPerson & { distinct_id: string }>(
+            PostgresUse.PERSONS_WRITE,
+            queryString,
+            [teamId, uniqueDistinctIds],
+            queryTag('fetchPersonsForUpdateByDistinctIds', callerTag)
         )
 
         return rows.map((row) => ({
@@ -370,7 +448,8 @@ export class PostgresPersonRepository
                 posthog_person.is_identified,
                 posthog_person.last_seen_at
             FROM posthog_person
-            WHERE (posthog_person.team_id, posthog_person.uuid) IN (SELECT * FROM UNNEST($1::integer[], $2::uuid[]))`
+            WHERE (posthog_person.team_id, posthog_person.uuid) IN (SELECT * FROM UNNEST($1::integer[], $2::uuid[]))
+                AND posthog_person.is_deleted = false`
 
         const { rows } = await this.postgres.query<RawPerson>(
             useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE,
@@ -402,7 +481,7 @@ export class PostgresPersonRepository
             JOIN LATERAL (
                 SELECT distinct_id, id AS pdi_id
                 FROM posthog_persondistinctid
-                WHERE team_id = $1 AND person_id = p.id
+                WHERE team_id = $1 AND person_id = p.id AND is_deleted = false
                 ORDER BY id ASC
                 LIMIT $3::bigint
             ) pdi ON true`
@@ -529,7 +608,7 @@ export class PostgresPersonRepository
                 `WITH inserted_person AS (
                         INSERT INTO posthog_person (${columns.join(', ')})
                         VALUES (${valuePlaceholders})
-                        RETURNING *
+                        RETURNING ${PERSON_COLUMNS}
                     )` +
                 distinctIdsCTE +
                 ` SELECT * FROM inserted_person;`
@@ -639,6 +718,49 @@ export class PostgresPersonRepository
             kafkaMessages = [generateKafkaPersonUpdateMessage({ ...person, version: Number(row.version || 0) }, true)]
         }
         return kafkaMessages
+    }
+
+    async deletePersons(persons: InternalPerson[], tx?: TransactionClient): Promise<PersonMessage[]> {
+        if (persons.length === 0) {
+            return []
+        }
+
+        // All persons in a folded merge belong to one team.
+        const teamId = persons[0].team_id
+        const personById = new Map(persons.map((person) => [person.id, person]))
+        // Postgres acquires the row locks in index scan order (btree scans sort
+        // the id keys ascending), not in array-parameter order, so concurrent
+        // folds deleting overlapping persons lock in a consistent order either
+        // way; sorting here just keeps the parameter and logs deterministic.
+        const personIds = [...personById.keys()].sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : 1))
+
+        let rows: { id: string; version: string }[] = []
+        try {
+            const result = await this.postgres.query<{ id: string; version: string }>(
+                tx ?? PostgresUse.PERSONS_WRITE,
+                'DELETE FROM posthog_person WHERE team_id = $1 AND id = ANY($2::bigint[]) RETURNING id, version',
+                [teamId, personIds],
+                'deletePersons'
+            )
+            rows = result.rows
+        } catch (error) {
+            if (error.code === '40P01') {
+                // Deadlock detected — assume someone else is deleting and skip.
+                logger.warn('🔒', 'Deadlock detected — assume someone else is deleting and skip.', {
+                    team_id: teamId,
+                    person_ids: personIds,
+                })
+            }
+            throw error
+        }
+
+        return rows.flatMap((row) => {
+            const person = personById.get(String(row.id))
+            if (!person) {
+                return []
+            }
+            return [generateKafkaPersonUpdateMessage({ ...person, version: Number(row.version || 0) }, true)]
+        })
     }
 
     async addDistinctId(
@@ -776,20 +898,111 @@ export class PostgresPersonRepository
         }
     }
 
+    async countDistinctIdsForPersons(
+        teamId: number,
+        personIds: string[],
+        tx?: TransactionClient
+    ): Promise<Map<string, number>> {
+        if (personIds.length === 0) {
+            return new Map()
+        }
+        const { rows } = await this.postgres.query<{ person_id: string; count: string }>(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            `SELECT person_id, count(*) AS count
+                FROM posthog_persondistinctid
+                WHERE team_id = $1 AND person_id = ANY($2::bigint[]) AND is_deleted = false
+                GROUP BY person_id`,
+            [teamId, personIds],
+            'countDistinctIdsForPersons'
+        )
+        return new Map(rows.map((row) => [String(row.person_id), Number(row.count)]))
+    }
+
+    async moveDistinctIdsFromPersons(
+        sources: InternalPerson[],
+        target: InternalPerson,
+        tx?: TransactionClient
+    ): Promise<MoveDistinctIdsResult> {
+        if (sources.length === 0) {
+            return { success: true, messages: [], distinctIdsMoved: [] }
+        }
+
+        // Sorted ids keep the row-lock acquisition order deterministic across
+        // concurrent folded merges touching overlapping source persons.
+        const sourceIds = sources.map((source) => source.id).sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : 1))
+
+        let movedDistinctIdResult: QueryResult<any> | null = null
+        try {
+            movedDistinctIdResult = await this.postgres.query(
+                tx ?? PostgresUse.PERSONS_WRITE,
+                `UPDATE posthog_persondistinctid
+                    SET person_id = $1, version = COALESCE(version, 0)::numeric + 1
+                    WHERE person_id = ANY($2::bigint[])
+                      AND team_id = $3
+                    RETURNING *`,
+                [target.id, sourceIds, target.team_id],
+                'updateDistinctIdPersonFold'
+            )
+        } catch (error) {
+            if (
+                (error as Error).message.includes(
+                    'insert or update on table "posthog_persondistinctid" violates foreign key constraint'
+                )
+            ) {
+                // Same race as moveDistinctIds: the target person was deleted
+                // between fetch and update; the caller retries with fresh data.
+                logger.warn('😵', 'Target person no longer exists', {
+                    team_id: target.team_id,
+                    person_id: target.id,
+                })
+                moveDistinctIdsCountHistogram.observe(0)
+                return {
+                    success: false,
+                    error: 'TargetNotFound',
+                }
+            }
+
+            throw error
+        }
+
+        // Unlike the single-source variant, zero moved rows for a source is not
+        // a failure here: a concurrently completed merge may have already moved
+        // it, which the folded merge treats as satisfied.
+        const kafkaMessages = []
+        for (const row of movedDistinctIdResult.rows) {
+            const { id, version: versionStr, ...usefulColumns } = row as PersonDistinctId
+            const version = Number(versionStr || 0)
+            kafkaMessages.push({
+                output: PERSON_DISTINCT_IDS_OUTPUT,
+                value: Buffer.from(
+                    JSON.stringify({ ...usefulColumns, version, person_id: target.uuid, is_deleted: 0 })
+                ),
+            })
+        }
+
+        moveDistinctIdsCountHistogram.observe(movedDistinctIdResult.rows.length)
+
+        return {
+            success: true,
+            messages: kafkaMessages,
+            distinctIdsMoved: movedDistinctIdResult.rows.map((row) => row.distinct_id),
+        }
+    }
+
     async fetchPersonDistinctIds(person: InternalPerson, limit?: number, tx?: TransactionClient): Promise<string[]> {
         const hasLimit = limit !== undefined
         const queryString = hasLimit
             ? `
                 SELECT distinct_id
                 FROM posthog_persondistinctid
-                WHERE person_id = $1 AND team_id = $2
+                WHERE person_id = $1 AND team_id = $2 AND is_deleted = false
                 ORDER BY id
                 LIMIT $3
             `
             : `
                 SELECT distinct_id
                 FROM posthog_persondistinctid
-                WHERE person_id = $1 AND team_id = $2
+                WHERE person_id = $1 AND team_id = $2 AND is_deleted = false
                 ORDER BY id
             `
 
@@ -965,14 +1178,14 @@ export class PostgresPersonRepository
         ).map(
             (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
         )} WHERE id = $${idParamIndex} AND team_id = $${teamIdParamIndex}
-        RETURNING *, COALESCE(pg_column_size(properties)::bigint, 0::bigint) as properties_size_bytes
+        RETURNING ${PERSON_COLUMNS}, COALESCE(pg_column_size(properties)::bigint, 0::bigint) as properties_size_bytes
         /* operation='updatePersonWithPropertiesSize',purpose='${tag || 'update'}' */`
 
         // Potentially overriding values badly if there was an update to the person after computing updateValues above
         const queryString = `UPDATE posthog_person SET version = ${versionString}, ${Object.keys(update).map(
             (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
         )} WHERE id = $${idParamIndex} AND team_id = $${teamIdParamIndex}
-        RETURNING *
+        RETURNING ${PERSON_COLUMNS}
         /* operation='updatePerson',purpose='${tag || 'update'}' */`
 
         const shouldCalculatePropertiesSize =
@@ -1052,7 +1265,7 @@ export class PostgresPersonRepository
                     last_seen_at = $5,
                     version = COALESCE(version, 0)::numeric + 1
                 WHERE team_id = $6 AND uuid = $7 AND version = $8
-                RETURNING *
+                RETURNING ${PERSON_COLUMNS}
                 `,
                 [
                     JSON.stringify(finalProperties),
@@ -1178,7 +1391,7 @@ export class PostgresPersonRepository
                     $8::text[]
                 ) AS batch(batch_uuid, batch_team_id, new_properties, new_properties_last_updated_at, new_properties_last_operation, new_is_identified, new_created_at, new_last_seen_at)
                 WHERE p.uuid = batch.batch_uuid AND p.team_id = batch.batch_team_id
-                RETURNING p.*
+                RETURNING ${PERSON_COLUMNS_PREFIXED}
                 `,
                 [
                     uuids,
@@ -1284,6 +1497,40 @@ export class PostgresPersonRepository
                 ON CONFLICT DO NOTHING`,
             [targetPersonID, sourcePersonID, teamID],
             'updateCohortAndFeatureFlagsPeople'
+        )
+    }
+
+    async updateCohortsAndFeatureFlagsForMergeBatch(
+        teamID: Team['id'],
+        sourcePersonIDs: InternalPerson['id'][],
+        targetPersonID: InternalPerson['id'],
+        tx?: TransactionClient
+    ): Promise<void> {
+        if (sourcePersonIDs.length === 0) {
+            return
+        }
+
+        // Multi-source variant of updateCohortsAndFeatureFlagsForMerge — same
+        // two operations, one round-trip for all folded source persons.
+        await this.postgres.query(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            `WITH cohort_update AS (
+                UPDATE posthog_cohortpeople
+                SET person_id = $1
+                WHERE person_id = ANY($2::bigint[])
+                RETURNING person_id
+            ),
+            deletions AS (
+                DELETE FROM posthog_featureflaghashkeyoverride
+                WHERE team_id = $3 AND person_id = ANY($2::bigint[])
+                RETURNING team_id, person_id, feature_flag_key, hash_key
+            )
+            INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+                SELECT team_id, $1, feature_flag_key, hash_key
+                FROM deletions
+                ON CONFLICT DO NOTHING`,
+            [targetPersonID, sourcePersonIDs, teamID],
+            'updateCohortAndFeatureFlagsPeopleBatch'
         )
     }
 

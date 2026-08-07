@@ -120,6 +120,7 @@ export const SubscriptionApiByweekdayItem = {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -132,6 +133,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -192,7 +194,7 @@ export interface SubscriptionApi {
     readonly insight_short_id: string | null
     /** @nullable */
     readonly resource_name: string | null
-    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6. */
+    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10. */
     dashboard_export_insights?: number[]
     /**
      * Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.
@@ -222,7 +224,7 @@ export interface SubscriptionApi {
      */
     interval: number
     /**
-     * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+     * Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
      * @nullable
      */
     byweekday?: SubscriptionApiByweekdayItem[] | null
@@ -273,6 +275,8 @@ export interface SubscriptionApi {
      * @nullable
      */
     invite_message?: string | null
+    /** Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected. */
+    send_test_now?: boolean
     /** Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated. */
     summary_enabled?: boolean
     /**
@@ -338,7 +342,7 @@ export interface PatchedSubscriptionApi {
     readonly insight_short_id?: string | null
     /** @nullable */
     readonly resource_name?: string | null
-    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6. */
+    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10. */
     dashboard_export_insights?: number[]
     /**
      * Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.
@@ -368,7 +372,7 @@ export interface PatchedSubscriptionApi {
      */
     interval?: number
     /**
-     * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+     * Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
      * @nullable
      */
     byweekday?: PatchedSubscriptionApiByweekdayItem[] | null
@@ -419,6 +423,8 @@ export interface PatchedSubscriptionApi {
      * @nullable
      */
     invite_message?: string | null
+    /** Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected. */
+    send_test_now?: boolean
     /** Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated. */
     summary_enabled?: boolean
     /**
@@ -472,7 +478,7 @@ export interface SubscriptionDeliveryApi {
     readonly temporal_workflow_id: string
     /** Dedupes activity retries for the same logical run. */
     readonly idempotency_key: string
-    /** Why the run started (e.g. scheduled, manual, target_change). */
+    /** Why the run started (e.g. scheduled, manual, subscription update). */
     readonly trigger_type: string
     /**
      * Planned send time when applicable.
@@ -551,9 +557,17 @@ export type SubscriptionsListParams = {
      */
     dashboard?: number
     /**
+     * Filter to subscriptions on insights that are tiles of the given dashboard ID.
+     */
+    dashboard_tiles?: number
+    /**
      * Filter by insight ID.
      */
     insight?: number
+    /**
+     * Filter by a comma-separated list of insight IDs.
+     */
+    insights?: string
     /**
      * Number of results to return per page.
      */

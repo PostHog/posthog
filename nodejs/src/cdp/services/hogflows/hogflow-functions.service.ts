@@ -7,7 +7,7 @@ import {
     HogFunctionType,
 } from '~/cdp/types'
 
-import { HogExecutorExecuteAsyncOptions, HogExecutorService } from '../hog-executor.service'
+import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from '../hog-executor-async.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 
 type FunctionActionType = 'function' | 'function_email' | 'function_sms'
@@ -18,7 +18,7 @@ export class HogFlowFunctionsService {
     constructor(
         private siteUrl: string,
         private hogFunctionTemplateManager: HogFunctionTemplateManagerService,
-        private hogFunctionExecutor: HogExecutorService
+        private hogFunctionExecutor: HogExecutorAsyncService
     ) {}
 
     async buildHogFunction(hogFlow: HogFlow, configuration: Action['config']): Promise<HogFunctionType> {
@@ -51,6 +51,38 @@ export class HogFlowFunctionsService {
         return hogFunction
     }
 
+    // Collect the decrypted secret input values across a flow's function actions, so a test
+    // invocation with mocked async functions can redact them from the fetch args it echoes into logs
+    // (otherwise a workflow editor could read a stored credential they were never shown).
+    async getSensitiveValues(hogFlow: HogFlow): Promise<string[]> {
+        const functionActionTypes: FunctionActionType[] = ['function', 'function_email', 'function_sms']
+        const values: string[] = []
+        for (const action of hogFlow.actions ?? []) {
+            if (!functionActionTypes.includes(action.type as FunctionActionType)) {
+                continue
+            }
+            const config = (action as Action).config
+            const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(config.template_id)
+            for (const schema of template?.inputs_schema ?? []) {
+                if (!schema.secret) {
+                    continue
+                }
+                const value = config.inputs?.[schema.key]?.value
+                if (typeof value === 'string') {
+                    values.push(value)
+                } else if (value && typeof value === 'object') {
+                    // e.g. a headers dict {Authorization: "Bearer <key>"} - mask each string leaf
+                    Object.values(value).forEach((leaf) => {
+                        if (typeof leaf === 'string') {
+                            values.push(leaf)
+                        }
+                    })
+                }
+            }
+        }
+        return values
+    }
+
     async buildHogFunctionInvocation(
         invocation: CyclotronJobInvocationHogFlow,
         hogFunction: HogFunctionType,
@@ -78,7 +110,10 @@ export class HogFlowFunctionsService {
             ...invocation,
             hogFunction,
             state: invocation.state.currentAction?.hogFunctionState ?? {
-                globals: await this.hogFunctionExecutor.buildInputsWithGlobals(hogFunction, globalsWithSource),
+                globals: await this.hogFunctionExecutor.hogExecutor.buildInputsWithGlobals(
+                    hogFunction,
+                    globalsWithSource
+                ),
                 timings: [],
                 attempts: 0,
                 actionId: invocation.state.currentAction?.id,

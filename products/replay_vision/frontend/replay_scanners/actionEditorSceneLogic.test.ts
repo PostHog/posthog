@@ -21,14 +21,46 @@ const existingAction = {
     delivery_config: [{ type: 'slack', integration_id: 5, channel: 'C123' }],
 } as unknown as VisionActionApi
 
+const existingAlert = {
+    ...existingAction,
+    id: 'al1',
+    name: 'alert-a',
+    mode: 'alert',
+    selection: { tags: ['rage-click'] },
+    alert_config: { frequency: 'on_breach', metric: 'count', threshold: 3, direction: 'below', window_days: 7 },
+} as unknown as VisionActionApi
+
+const summarizerAlert = {
+    ...existingAlert,
+    id: 'al2',
+    scanner: 's2',
+    selection: {},
+} as unknown as VisionActionApi
+
+const webhookAction = {
+    ...existingAction,
+    id: 'wh',
+    delivery_config: [{ type: 'webhook', url: 'https://example.com/hook' }],
+} as unknown as VisionActionApi
+
 describe('actionEditorSceneLogic', () => {
     let logic: ReturnType<typeof actionEditorSceneLogic.build>
 
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team/vision/actions/:id/': existingAction,
-                '/api/projects/:team/vision/scanners/:id/': { id: 's1', name: 'Checkout scanner' },
+                '/api/projects/:team/vision/actions/:id/': ({ params }) =>
+                    params.id === 'al1'
+                        ? existingAlert
+                        : params.id === 'al2'
+                          ? summarizerAlert
+                          : params.id === 'wh'
+                            ? webhookAction
+                            : existingAction,
+                '/api/projects/:team/vision/scanners/:id/': ({ params }) =>
+                    params.id === 's2'
+                        ? { id: 's2', name: 'Digest scanner', scanner_type: 'summarizer' }
+                        : { id: 's1', name: 'Checkout scanner', scanner_type: 'monitor' },
             },
             post: {
                 '/api/projects/:team/vision/actions/': () => [201, { ...existingAction, id: 'created' }],
@@ -50,8 +82,21 @@ describe('actionEditorSceneLogic', () => {
                 scannerId: 's1',
                 effectiveScannerId: 's1',
                 scannerName: 'Checkout scanner',
-                actionForm: expect.objectContaining({ name: '', prompt_guide: '', integration_id: null }),
+                // No ?mode= param opens the summary form.
+                actionForm: expect.objectContaining({
+                    name: '',
+                    prompt_guide: '',
+                    integration_id: null,
+                    mode: 'group_summary',
+                }),
             })
+    })
+
+    it('the new-action route opens the alert form when ?mode=alert', async () => {
+        router.actions.push(urls.replayVisionActionNew('s1', 'alert'))
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ actionForm: expect.objectContaining({ mode: 'alert' }) })
     })
 
     it('the edit route loads the action and seeds the form from it', async () => {
@@ -68,12 +113,20 @@ describe('actionEditorSceneLogic', () => {
                     cadence: { weekdays: [0, 2], hour: 14, minute: 30 },
                     timezone: 'Europe/Prague',
                     prompt_guide: 'focus on checkout',
+                    delivery_type: 'slack',
                     integration_id: 5,
                     channel: 'C123',
+                    webhook_url: '',
                     verdict: ['yes'],
                     tags: [],
                     min_score: 2,
                     max_score: null,
+                    mode: 'group_summary',
+                    alert_frequency: 'every_match',
+                    alert_metric: 'count',
+                    alert_threshold: 1,
+                    alert_direction: 'above',
+                    alert_window_days: 1,
                 },
             })
 
@@ -83,6 +136,53 @@ describe('actionEditorSceneLogic', () => {
         await expectLogic(logic).toMatchValues({
             actionForm: expect.objectContaining({ verdict: [], tags: [], min_score: null, max_score: null }),
         })
+    })
+
+    it('the edit route seeds the webhook delivery type and url from a webhook action', async () => {
+        router.actions.push(urls.replayVisionActionEdit('wh'))
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({
+                actionForm: expect.objectContaining({
+                    delivery_type: 'webhook',
+                    webhook_url: 'https://example.com/hook',
+                }),
+            })
+    })
+
+    it('editing an alert seeds the mode and condition instead of flipping to summary', async () => {
+        router.actions.push(urls.replayVisionActionEdit('al1'))
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({
+                targetingMode: 'filtered',
+                actionForm: expect.objectContaining({
+                    mode: 'alert',
+                    alert_frequency: 'on_breach',
+                    alert_metric: 'count',
+                    alert_threshold: 3,
+                    alert_direction: 'below',
+                    alert_window_days: 7,
+                    tags: ['rage-click'],
+                }),
+            })
+    })
+
+    it('summarizer scanners force alerts to every-match', async () => {
+        // Summarizer observations have no verdict/tags/score, so a stored on_breach threshold config
+        // must normalize to every_match — otherwise the editor shows "every new summary" while the
+        // submit would silently keep the threshold condition.
+        router.actions.push(urls.replayVisionActionEdit('al2'))
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({
+                scannerType: 'summarizer',
+                actionForm: expect.objectContaining({
+                    mode: 'alert',
+                    alert_frequency: 'every_match',
+                    alert_metric: 'count',
+                }),
+            })
     })
 
     it('creating an action submits and navigates to the new action page', async () => {

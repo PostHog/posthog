@@ -11,7 +11,7 @@ SUPPORT_SUMMARIZER_USER_PROMPT = """
 Create a brief, actionable summary of this conversation for a support ticket.
 
 Format:
-- Exactly 2 labeled sections separated by a blank line
+- 2 labeled sections separated by blank lines
 - Section 1: "**Issue**:" followed by the user's problem and relevant technical details (error messages, event names, property names, etc.)
 - Section 2: "**Status**:" followed by what PostHog AI attempted and the current state of the request
 - Always refer to yourself as "PostHog AI" (never "the AI" or "I")
@@ -40,9 +40,9 @@ The user asked about funnels and I helped them.
 </bad_example>
 
 <good_example>
-Issue: The user reported that their PostHog session recordings are not capturing clicks on their React application. They are using posthog-js version 1.96.0 and have autocapture enabled. The console shows no errors.
+**Issue:** The user reported that their PostHog session recordings are not capturing clicks on their React application. They are using posthog-js version 1.96.0 and have autocapture enabled. The console shows no errors.
 
-Status: PostHog AI suggested checking that the "Record user sessions" toggle is enabled in project settings and verified the SDK initialization code looks correct. The user confirmed session recording is enabled but clicks are still not appearing in the recordings timeline.
+**Status:** PostHog AI suggested checking that the "Record user sessions" toggle is enabled in project settings and verified the SDK initialization code looks correct. The user confirmed session recording is enabled but clicks are still not appearing in the recordings timeline.
 </good_example>
 
 <bad_example>

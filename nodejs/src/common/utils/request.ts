@@ -20,7 +20,9 @@ import { URL } from 'url'
 import { getExternalRequestConfig } from '~/common/config'
 
 import { isProdEnv } from './env-utils'
+import { fetchAttribution } from './fetch-attribution'
 import { parseJSON } from './json-parse'
+import { logger } from './logger'
 
 const requestConfig = getExternalRequestConfig()
 
@@ -48,6 +50,7 @@ export type FetchOptions = {
     headers?: HeadersInit
     body?: string | Buffer
     timeoutMs?: number
+    allowH2?: boolean
 }
 
 export type FetchResponse = {
@@ -79,6 +82,17 @@ export class ResolutionError extends Error {
         super(message)
         this.name = 'ResolutionError'
     }
+}
+
+// Logged only when a check blocks the request. The check runs inside undici's connect flow
+// where the thrown error can't carry caller context, so attribution comes from the ALS store;
+// it reflects the request that opened the connection (keep-alive reuse skips the check).
+function logBlockedUrlValidation(hostname: string, resolvedIps: string[]): void {
+    logger.warn('[SSRF] Request blocked by URL validation check', {
+        hostname,
+        resolvedIps,
+        ...fetchAttribution.getStore(),
+    })
 }
 
 function validateUrl(url: string): URL {
@@ -128,6 +142,7 @@ function validateHostnameIPLiteral(hostname: string, allowUnsafe: boolean): void
     } else {
         if (!isGlobalIPv6(parsed)) {
             unsafeRequestCounter.inc({ reason: 'internal_ip_literal' })
+            logBlockedUrlValidation(hostname, [bare])
             throw new SecureRequestError('Hostname is not allowed')
         }
         return
@@ -135,6 +150,7 @@ function validateHostnameIPLiteral(hostname: string, allowUnsafe: boolean): void
 
     if (!isGlobalIPv4(ipv4)) {
         unsafeRequestCounter.inc({ reason: 'internal_ip_literal' })
+        logBlockedUrlValidation(hostname, [bare])
         throw new SecureRequestError('Hostname is not allowed')
     }
 }
@@ -177,6 +193,7 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
     } catch {
         throw new ResolutionError('Invalid hostname')
     }
+    const resolvedIps = addrinfo.map((a) => a.address)
     for (const addrInfo of addrinfo) {
         const parsed = ipaddr.parse(addrInfo.address)
 
@@ -191,6 +208,7 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
             const allowUnsafe = !isProdEnv()
             if (!allowUnsafe && !isGlobalIPv6(parsed)) {
                 unsafeRequestCounter.inc({ reason: 'internal_hostname' })
+                logBlockedUrlValidation(hostname, resolvedIps)
                 throw new SecureRequestError('Hostname is not allowed')
             }
             validAddrinfo.push(addrInfo)
@@ -203,12 +221,14 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
         // Check if the IPv4 address is global
         if (!allowUnsafe && !isGlobalIPv4(ipv4)) {
             unsafeRequestCounter.inc({ reason: 'internal_hostname' })
+            logBlockedUrlValidation(hostname, resolvedIps)
             throw new SecureRequestError('Hostname is not allowed')
         }
         validAddrinfo.push(addrInfo)
     }
     if (validAddrinfo.length === 0) {
         unsafeRequestCounter.inc({ reason: 'unable_to_resolve' })
+        logBlockedUrlValidation(hostname, resolvedIps)
         throw new ResolutionError(`Unable to resolve ${hostname}`)
     }
 
@@ -278,6 +298,19 @@ function makeSecureDispatcher(): Dispatcher {
 }
 
 const sharedSecureAgent = makeSecureDispatcher()
+// Unlike `makeSecureDispatcher`, this agent deliberately skips the ProxyAgent branch: CDP workers don't
+// set the proxy env vars, and SSRF stays covered via `httpStaticLookup`. If CDP egress ever moves behind
+// the proxy (see #49170), swap this for a `ProxyAgent` — undici's `ProxyAgent` supports `allowH2` — so
+// H2 traffic (e.g. APNs) doesn't silently keep going direct.
+const sharedSecureH2Agent = new Agent({
+    keepAliveTimeout: Number(requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS),
+    connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
+    allowH2: true,
+    connect: {
+        lookup: httpStaticLookup,
+        timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
+    },
+})
 const sharedInsecureAgent = new InsecureAgent()
 
 /**
@@ -371,7 +404,8 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
     validateHostnameIPLiteral(parsed.hostname, !isProdEnv())
     inflightExternalRequests.inc()
     try {
-        return await _fetch(url, options, sharedSecureAgent)
+        const dispatcher = options.allowH2 ? sharedSecureH2Agent : sharedSecureAgent
+        return await _fetch(url, options, dispatcher)
     } finally {
         inflightExternalRequests.dec()
     }

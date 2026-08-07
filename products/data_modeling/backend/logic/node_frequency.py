@@ -9,11 +9,13 @@ typed column.
 
 import uuid
 import dataclasses
+from collections.abc import Iterable
 from datetime import timedelta
 
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 
-from products.data_modeling.backend.logic.freshness import STREAMING
+from products.data_modeling.backend.logic.cohort_scheduling import MINUTES_PER_WEEK
+from products.data_modeling.backend.logic.freshness import STREAMING, all_source_floors, normalize_seed_target
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
@@ -23,6 +25,7 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable,
 _SYSTEM_KEY = "system"
 _FREQUENCY_KEY = "frequency"
 _TARGET_SECONDS_KEY = "target_seconds"
+_ANCHOR_MINUTES_KEY = "anchor_minutes"
 
 # `resolve_dependency_to_node` stamps this on source (TABLE) nodes at creation.
 _ORIGIN_KEY = "origin"
@@ -37,6 +40,25 @@ def get_declared_target(node: Node) -> timedelta | None:
     return timedelta(seconds=seconds) if seconds is not None else None
 
 
+def declared_targets_by_saved_query(team_id: int, saved_query_ids: Iterable[str | uuid.UUID]) -> dict[str, timedelta]:
+    """Declared freshness target per saved query id, for those whose node carries one.
+
+    Batched for callers that render many saved queries at once. A saved query can hold nodes in
+    several DAGs, but `apply_saved_query_frequency_target` writes the same target to all of them,
+    so the first one found wins.
+    """
+    ids = [str(saved_query_id) for saved_query_id in saved_query_ids]
+    if not ids:
+        return {}
+
+    targets: dict[str, timedelta] = {}
+    for node in Node.objects.filter(team_id=team_id, saved_query_id__in=ids).only("saved_query_id", "properties"):
+        target = get_declared_target(node)
+        if target is not None:
+            targets.setdefault(str(node.saved_query_id), target)
+    return targets
+
+
 def set_declared_target(node: Node, target: timedelta | None) -> None:
     """Set (or clear, with None) the node's declared target without touching sibling system state."""
     properties = node.properties or {}
@@ -45,6 +67,25 @@ def set_declared_target(node: Node, target: timedelta | None) -> None:
         frequency.pop(_TARGET_SECONDS_KEY, None)
     else:
         frequency[_TARGET_SECONDS_KEY] = int(target.total_seconds())
+    node.properties = properties
+    node.save(update_fields=["properties"])
+
+
+def get_declared_anchor(node: Node) -> int | None:
+    """Return the node's declared schedule anchor (minutes past Monday 00:00 UTC), or None."""
+    return (node.properties or {}).get(_SYSTEM_KEY, {}).get(_FREQUENCY_KEY, {}).get(_ANCHOR_MINUTES_KEY)
+
+
+def set_declared_anchor(node: Node, anchor_minutes: int | None) -> None:
+    """Set (or clear, with None) the node's schedule anchor without touching sibling system state."""
+    if anchor_minutes is not None and not 0 <= anchor_minutes < MINUTES_PER_WEEK:
+        raise ValueError(f"anchor_minutes must be in [0, {MINUTES_PER_WEEK}), got {anchor_minutes}")
+    properties = node.properties or {}
+    frequency = properties.setdefault(_SYSTEM_KEY, {}).setdefault(_FREQUENCY_KEY, {})
+    if anchor_minutes is None:
+        frequency.pop(_ANCHOR_MINUTES_KEY, None)
+    else:
+        frequency[_ANCHOR_MINUTES_KEY] = anchor_minutes
     node.properties = properties
     node.save(update_fields=["properties"])
 
@@ -134,6 +175,7 @@ class FrequencyGraph:
     nodes: set[str]  # schedulable (non-TABLE) node ids
     edges: list[tuple[str, str]]  # (upstream_id, downstream_id), includes source tables
     declared_targets: dict[str, timedelta]  # declared per-node targets
+    declared_anchors: dict[str, int]  # declared per-node schedule anchors (minutes past Monday 00:00 UTC)
     source_intervals: dict[str, timedelta]  # per source (TABLE) node
     best_effort_source_ids: set[str]  # sources treated as STREAMING but not guaranteed
 
@@ -148,10 +190,14 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
 
     schedulable = {str(node.id) for node in nodes if node.type != NodeType.TABLE}
     declared_targets: dict[str, timedelta] = {}
+    declared_anchors: dict[str, int] = {}
     for node in nodes:
         target = get_declared_target(node)
         if target is not None:
             declared_targets[str(node.id)] = target
+        anchor = get_declared_anchor(node)
+        if anchor is not None:
+            declared_anchors[str(node.id)] = anchor
 
     source_nodes = [node for node in nodes if node.type == NodeType.TABLE]
     source_intervals, best_effort = resolve_source_intervals(source_nodes)
@@ -160,9 +206,38 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
         nodes=schedulable,
         edges=edges,
         declared_targets=declared_targets,
+        declared_anchors=declared_anchors,
         source_intervals=source_intervals,
         best_effort_source_ids=best_effort,
     )
+
+
+def schedulable_nodes(dag: DAG) -> QuerySet[Node]:
+    """The DAG's schedulable nodes: everything that carries a live saved query (not a source
+    table, not a soft-deleted query). The one definition of "what gets a freshness target"."""
+    return Node.objects.filter(dag=dag).exclude(type=NodeType.TABLE).exclude(saved_query__deleted=True)
+
+
+def persist_seed_targets(dag: DAG, default: timedelta | None = None) -> int:
+    """Persist a seed target on every schedulable node lacking one; never overwrites. Each seed is
+    normalized (see `normalize_seed_target`) so the persisted target equals what the scheduler will
+    run. `default` is the operator escape hatch for scheduled DAGs with no interval metadata
+    anywhere. Returns how many targets were written.
+    """
+    graph = build_frequency_graph(dag)
+    floors = all_source_floors(graph.edges, graph.source_intervals)
+    seeds = seed_targets(dag)
+    written = 0
+    for node in schedulable_nodes(dag):
+        node_id = str(node.id)
+        if get_declared_target(node) is not None:
+            continue
+        raw = seeds.get(node_id, default)
+        if raw is None:
+            continue
+        set_declared_target(node, normalize_seed_target(raw, floors.get(node_id, STREAMING)))
+        written += 1
+    return written
 
 
 def seed_targets(dag: DAG) -> dict[str, timedelta]:
@@ -175,12 +250,7 @@ def seed_targets(dag: DAG) -> dict[str, timedelta]:
     the preview overlays these in memory, and a backfill can persist them.
     """
     seeds: dict[str, timedelta] = {}
-    for node in (
-        Node.objects.filter(dag=dag)
-        .exclude(type=NodeType.TABLE)
-        .exclude(saved_query__deleted=True)
-        .select_related("saved_query")
-    ):
+    for node in schedulable_nodes(dag).select_related("saved_query"):
         interval = None
         if node.saved_query is not None and node.saved_query.sync_frequency_interval is not None:
             interval = node.saved_query.sync_frequency_interval

@@ -1,3 +1,5 @@
+import './Nav.scss'
+
 import { Tabs } from '@base-ui/react/tabs'
 import { cva } from 'cva'
 import { useActions, useMountedLogic, useValues } from 'kea'
@@ -13,8 +15,10 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -32,8 +36,9 @@ import {
     PanelLayoutNavIdentifier,
     panelLayoutLogic,
 } from '~/layout/panel-layout/panelLayoutLogic'
+import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
 
-import { NavSearchButton } from '../../../lib/components/NavSearchButton/NavSearchButton'
+import { NavSearchBar, NavSearchButton } from '../../../lib/components/NavSearchButton/NavSearchButton'
 import { navigation3000Logic } from '../../navigation-3000/navigationLogic'
 import { CreateMenu } from '../menus/CreateMenu'
 import { NavBarFooter } from '../NavBarFooter'
@@ -129,7 +134,11 @@ export function Nav(): JSX.Element {
     } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { toggleCommand } = useActions(commandLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { sidebarDensity } = useValues(uiCustomizationLogic)
     const showCreateButton = useFeatureFlag('CREATE_BUTTON_NAV_EXPERIMENT', 'test')
+    // When expanded, the search-bar variant swaps the icon-only search button for a full-width bar below the header
+    const showNavSearchBar = featureFlags[FEATURE_FLAGS.CMD_K_NAV_EXPERIMENT] === 'search-bar' && !isLayoutNavCollapsed
 
     const resizerLogicProps: ResizerLogicProps = {
         logicKey: 'panel-layout-navbar',
@@ -180,6 +189,7 @@ export function Nav(): JSX.Element {
                     }),
                     isLayoutNavCollapsed && 'gap-px'
                 )}
+                data-nav-density={sidebarDensity}
                 ref={containerRef}
             >
                 <div
@@ -195,7 +205,12 @@ export function Nav(): JSX.Element {
                     >
                         <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />
 
-                        <NavSearchButton isLayoutNavCollapsed={isLayoutNavCollapsed} toggleCommand={toggleCommand} />
+                        {!showNavSearchBar && (
+                            <NavSearchButton
+                                isLayoutNavCollapsed={isLayoutNavCollapsed}
+                                toggleCommand={toggleCommand}
+                            />
+                        )}
 
                         {isLayoutNavCollapsed && (
                             <ButtonPrimitive
@@ -235,6 +250,12 @@ export function Nav(): JSX.Element {
                         )}
                     </div>
                 </div>
+
+                {showNavSearchBar && (
+                    <div className="px-2 py-1">
+                        <NavSearchBar toggleCommand={toggleCommand} />
+                    </div>
+                )}
 
                 {showCreateButton && (
                     <div className={cn('px-2 py-1', isLayoutNavCollapsed && 'flex justify-center px-0')}>

@@ -1,5 +1,5 @@
 /* eslint-disable react/forbid-dom-props -- dynamic pixel positions from d3 scales */
-import React, { useMemo } from 'react'
+import React, { useMemo, useState } from 'react'
 
 import { useChartLayout } from '../core/chart-context'
 import { TOOLTIP_FALLBACK_BG, TOOLTIP_FALLBACK_COLOR } from './TooltipSurface'
@@ -66,6 +66,11 @@ const VARIANT_DEFAULTS: Record<ReferenceLineVariant, ResolvedStyle> = {
 const LABEL_HEIGHT = 20
 /** Padding between the label and the plot edge. */
 const LABEL_PADDING = 4
+/** Thickness of the invisible hover target centered on the line (height for horizontal lines, width
+ *  for vertical). The stroked line itself is only a couple of pixels, so hovering it to reveal the
+ *  value would be near-impossible without a wider hit area — this restores the legacy behavior where
+ *  hovering anywhere on a goal line surfaces its number, even when the line has no visible label. */
+const HOVER_HIT_THICKNESS = 12
 
 function resolveStyle(variant: ReferenceLineVariant, style: ReferenceLineStyle | undefined): ResolvedStyle {
     const defaults = VARIANT_DEFAULTS[variant]
@@ -106,6 +111,8 @@ export function ReferenceLine(props: ReferenceLineProps): React.ReactElement | n
         fillOpacity: style?.fillOpacity ?? 0.1,
         label: props.label,
         labelPosition: props.labelPosition ?? 'end',
+        // Numeric lines (goal thresholds) reveal their value on hover; vertical marker lines don't.
+        valueText: typeof props.value === 'number' ? props.value.toLocaleString() : undefined,
     }
 
     if (orientation === 'horizontal') {
@@ -127,6 +134,8 @@ interface ResolvedProps {
     fillOpacity: number
     label: string | undefined
     labelPosition: ReferenceLineLabelPosition
+    /** Formatted value shown appended to the label on hover. Undefined for non-numeric lines. */
+    valueText: string | undefined
 }
 
 function HorizontalReferenceLine({
@@ -138,6 +147,7 @@ function HorizontalReferenceLine({
     fillOpacity,
     label,
     labelPosition,
+    valueText,
 }: ResolvedProps & { y: number; yAxisId?: string }): React.ReactElement | null {
     const { scales, dimensions } = useChartLayout()
     const { plotLeft, plotTop, plotWidth, plotHeight, width: containerWidth } = dimensions
@@ -178,13 +188,21 @@ function HorizontalReferenceLine({
         fillRect = { left: plotLeft, top: y, width: plotWidth, height: plotBottom - y }
     }
 
+    // Numeric lines reveal their value on hover, so give the line a full-width hover target.
+    const hitAreaStyle: React.CSSProperties | null =
+        valueText != null
+            ? { left: plotLeft, top: y - HOVER_HIT_THICKNESS / 2, width: plotWidth, height: HOVER_HIT_THICKNESS }
+            : null
+
     return (
         <ReferenceLineView
             fillRect={fillRect}
             fillColor={fillColor}
             fillOpacity={fillOpacity}
             lineStyle={lineStyle}
+            hitAreaStyle={hitAreaStyle}
             label={label}
+            valueText={valueText}
             labelStyle={labelStyle}
         />
     )
@@ -206,6 +224,7 @@ function VerticalStripe({
     fillOpacity,
     label,
     labelPosition,
+    valueText,
 }: Omit<ResolvedProps, 'fillSide'> & {
     x: number
     fillBefore: boolean
@@ -243,13 +262,21 @@ function VerticalStripe({
         fillRect = { left: x, top: plotTop, width: plotRight - x, height: plotHeight }
     }
 
+    // Numeric lines reveal their value on hover, so give the line a full-height hover target.
+    const hitAreaStyle: React.CSSProperties | null =
+        valueText != null
+            ? { left: x - HOVER_HIT_THICKNESS / 2, top: plotTop, width: HOVER_HIT_THICKNESS, height: plotHeight }
+            : null
+
     return (
         <ReferenceLineView
             fillRect={fillRect}
             fillColor={fillColor}
             fillOpacity={fillOpacity}
             lineStyle={lineStyle}
+            hitAreaStyle={hitAreaStyle}
             label={label}
+            valueText={valueText}
             labelStyle={labelStyle}
         />
     )
@@ -294,22 +321,32 @@ function ReferenceLineView({
     fillColor,
     fillOpacity,
     lineStyle,
+    hitAreaStyle,
     label,
+    valueText,
     labelStyle,
 }: {
     fillRect: React.CSSProperties | null
     fillColor: string
     fillOpacity: number
     lineStyle: React.CSSProperties
+    hitAreaStyle: React.CSSProperties | null
     label: string | undefined
+    valueText: string | undefined
     labelStyle: React.CSSProperties
 }): React.ReactElement {
     const { theme } = useChartLayout()
+    const [hovered, setHovered] = useState(false)
     const resolvedLabelStyle: React.CSSProperties = {
         ...labelStyle,
         backgroundColor: theme.tooltipBackground ?? TOOLTIP_FALLBACK_BG,
         color: theme.tooltipColor ?? TOOLTIP_FALLBACK_COLOR,
     }
+    // Hovering the line (or its label) reveals the value, appended to its text label (or shown alone).
+    const content = hovered && valueText ? (label ? `${label}: ${valueText}` : valueText) : label
+    // The overlay layer is pointer-events-none, so anything that needs to catch hover must opt back in.
+    const setHoveredOn = (): void => setHovered(true)
+    const setHoveredOff = (): void => setHovered(false)
     return (
         <>
             {fillRect && (
@@ -319,14 +356,27 @@ function ReferenceLineView({
                 />
             )}
             <div data-attr="hog-chart-reference-line" className="absolute pointer-events-none" style={lineStyle} />
-            {label && (
+            {content && (
                 <div
                     data-attr="hog-chart-reference-line-label"
-                    className="absolute pointer-events-none whitespace-nowrap font-medium text-[11px] rounded px-1 py-0.5"
+                    className="absolute pointer-events-auto whitespace-nowrap font-medium text-[11px] rounded px-1 py-0.5 cursor-default"
                     style={resolvedLabelStyle}
+                    onMouseEnter={setHoveredOn}
+                    onMouseLeave={setHoveredOff}
                 >
-                    {label}
+                    {content}
                 </div>
+            )}
+            {/* Rendered last so the transparent hover target sits above the line and label, catching
+                hover anywhere along the line — the label reads through it since it has no background. */}
+            {hitAreaStyle && (
+                <div
+                    data-attr="hog-chart-reference-line-hit-area"
+                    className="absolute pointer-events-auto"
+                    style={hitAreaStyle}
+                    onMouseEnter={setHoveredOn}
+                    onMouseLeave={setHoveredOff}
+                />
             )}
         </>
     )
