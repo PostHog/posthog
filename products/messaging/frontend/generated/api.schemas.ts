@@ -70,12 +70,13 @@ export interface AddOptOutRequestApi {
 }
 
 export interface MessagePreferencesApi {
+    /** Server-assigned UUID for this recipient's preference record. */
     readonly id: string
     /** The recipient identifier (e.g. email address). */
     identifier: string
     /** When the preference was last updated. */
     updated_at: string
-    /** Map of category ID to preference status. */
+    /** Map of category ID to preference status (`OPTED_IN`, `OPTED_OUT` or `NO_PREFERENCE`). The reserved `$all` key covers every marketing message. */
     preferences: unknown
 }
 
@@ -112,6 +113,19 @@ export interface MessagingErrorApi {
     error: string
 }
 
+export interface GenerateLinkRequestApi {
+    /**
+     * Recipient to generate the link for. Defaults to the requesting user's own email address.
+     * @maxLength 512
+     */
+    recipient?: string
+}
+
+export interface PreferencesLinkApi {
+    /** Token-gated URL where the recipient can manage their preferences. */
+    preferences_url: string
+}
+
 /**
  * OpenAPI shape for the paginated opt-outs response, so the generated clients get the
  * {count, next, previous, results} envelope instead of an untyped object.
@@ -130,6 +144,21 @@ export interface PaginatedOptOutsApi {
      */
     previous: string | null
     results: MessagePreferencesApi[]
+}
+
+export interface RemoveOptOutRequestApi {
+    /**
+     * The recipient identifier to opt back in (e.g. email address).
+     * @maxLength 512
+     */
+    identifier: string
+    /** Optional message category key. If omitted, the recipient is opted back in to all marketing messages. */
+    category_key?: string
+}
+
+export interface WebhookUrlApi {
+    /** URL to register in Customer.io so it posts subscription changes to PostHog. */
+    url: string
 }
 
 export interface AddSuppressionRequestApi {
