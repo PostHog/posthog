@@ -9,14 +9,17 @@ import { visionScannersListLogic } from './visionScannersListLogic'
 describe('observationsDockLogic', () => {
     let logic: ReturnType<typeof observationsDockLogic.build>
     let observeCalls: number
+    let scannerFetches: number
     let releaseObserve: () => void
     let releaseScanners: () => void
 
     beforeEach(() => {
         observeCalls = 0
+        scannerFetches = 0
         useMocks({
             get: {
                 '/api/projects/:team/vision/scanners/': async () => {
+                    scannerFetches += 1
                     await new Promise<void>((resolve) => {
                         releaseScanners = resolve
                     })
@@ -58,11 +61,19 @@ describe('observationsDockLogic', () => {
     })
 
     // Regression guard: the list loaded only once on mount, so a scanner created in the "create one"
-    // tab never showed up in the picker on return. Opening the picker must refetch it.
-    it('refetches the scanner list each time the picker opens', async () => {
-        await expectLogic(visionScannersListLogic, () => {
-            logic.actions.setScannerPickerOpen(true)
-        }).toDispatchActions(['loadScanners'])
+    // tab never showed up in the picker on return. Opening the picker must refetch it — but closing
+    // it must not, or every dismissal fires a redundant fetch.
+    it.each([
+        ['opens', true, 1],
+        ['closes', false, 0],
+    ])('refetches the scanner list only when the picker %s', async (_label, open, extraFetches) => {
+        const before = scannerFetches
+        logic.actions.setScannerPickerOpen(open)
+        // Let the listener and the loader reach (or skip) the request before counting.
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(scannerFetches - before).toBe(extraFetches)
     })
 
     it('starts one observation when the same scanner row is clicked twice', async () => {
