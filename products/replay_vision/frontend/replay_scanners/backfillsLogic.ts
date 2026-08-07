@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -169,102 +170,119 @@ export const backfillsLogic = kea<backfillsLogicType>([
         ],
     }),
 
-    listeners(({ actions, props, values, cache }) => ({
-        loadBackfills: async () => {
-            const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
-                return
-            }
-            try {
-                const response = await visionScannersBackfillsList(String(teamId), props.scannerId, { limit: 100 })
-                actions.loadBackfillsSuccess(response.results ?? [])
-            } catch {
-                actions.loadBackfillsFailure()
-                lemonToast.error('Couldn’t load backfills. Refresh the page to try again.')
-            }
-        },
-        loadBackfillsSuccess: () => {
-            if (values.backfills.some((b) => b.status === 'running')) {
-                cache.disposables.add(() => {
-                    const timerId = window.setTimeout(() => actions.loadBackfills(true), ACTIVE_POLL_INTERVAL_MS)
-                    return () => window.clearTimeout(timerId)
-                }, 'backfillPoll')
-            } else {
-                cache.disposables.dispose('backfillPoll')
-            }
-        },
-        requestEstimate: async ({ windowStart, windowEnd }, breakpoint) => {
-            const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
-                return
-            }
-            await breakpoint(250)
-            try {
-                const estimate = await visionScannersBackfillsEstimateCreate(String(teamId), props.scannerId, {
-                    window_start: windowStart,
-                    window_end: windowEnd,
-                })
-                breakpoint()
-                actions.requestEstimateSuccess(estimate)
-            } catch (error: any) {
-                breakpoint()
-                actions.requestEstimateFailure()
-                lemonToast.error(estimateErrorMessage(error))
-            }
-        },
-        createBackfill: async ({ windowStart, windowEnd }) => {
-            const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
-                actions.createBackfillDone()
-                return
-            }
-            try {
-                await visionScannersBackfillsCreate(String(teamId), props.scannerId, {
-                    window_start: windowStart,
-                    window_end: windowEnd,
-                })
-                lemonToast.success('Backfill started')
-                actions.loadBackfills()
-            } catch (error: any) {
-                lemonToast.error(estimateErrorMessage(error))
-            } finally {
-                actions.createBackfillDone()
-            }
-        },
-        cancelBackfill: async ({ id }) => {
+    listeners(({ actions, props, values, cache }) => {
+        /** Cancel and resume differ only in which endpoint they call and what to say when it fails. */
+        const transitionBackfill = async (
+            id: string,
+            request: (teamId: string, scannerId: string, backfillId: string) => Promise<unknown>,
+            errorMessage: string
+        ): Promise<void> => {
             const teamId = teamLogic.values.currentTeamId
             try {
                 if (teamId) {
-                    await visionScannersBackfillsCancelCreate(String(teamId), props.scannerId, id)
+                    await request(String(teamId), props.scannerId, id)
                     actions.loadBackfills(true)
                 }
-            } catch {
-                lemonToast.error('Couldn’t cancel the backfill. Try again.')
+            } catch (error) {
+                lemonToast.error(apiErrorMessage(error, errorMessage))
             } finally {
                 actions.transitionBackfillDone(id)
             }
-        },
-        resumeBackfill: async ({ id }) => {
-            const teamId = teamLogic.values.currentTeamId
-            try {
-                if (teamId) {
-                    await visionScannersBackfillsResumeCreate(String(teamId), props.scannerId, id)
-                    actions.loadBackfills(true)
+        }
+        return {
+            loadBackfills: async () => {
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    return
                 }
-            } catch (error: any) {
-                lemonToast.error(estimateErrorMessage(error, 'Couldn’t resume the backfill. Try again.'))
-            } finally {
-                actions.transitionBackfillDone(id)
-            }
-        },
-    })),
+                try {
+                    const response = await visionScannersBackfillsList(String(teamId), props.scannerId, { limit: 100 })
+                    actions.loadBackfillsSuccess(response.results ?? [])
+                } catch {
+                    actions.loadBackfillsFailure()
+                    lemonToast.error('Couldn’t load backfills. Refresh the page to try again.')
+                }
+            },
+            loadBackfillsSuccess: () => {
+                if (values.backfills.some((b) => b.status === 'running')) {
+                    cache.disposables.add(() => {
+                        const timerId = window.setTimeout(() => actions.loadBackfills(true), ACTIVE_POLL_INTERVAL_MS)
+                        return () => window.clearTimeout(timerId)
+                    }, 'backfillPoll')
+                } else {
+                    cache.disposables.dispose('backfillPoll')
+                }
+            },
+            requestEstimate: async ({ windowStart, windowEnd }, breakpoint) => {
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    return
+                }
+                await breakpoint(250)
+                try {
+                    const estimate = await visionScannersBackfillsEstimateCreate(String(teamId), props.scannerId, {
+                        window_start: windowStart,
+                        window_end: windowEnd,
+                    })
+                    breakpoint()
+                    actions.requestEstimateSuccess(estimate)
+                } catch (error: any) {
+                    breakpoint()
+                    actions.requestEstimateFailure()
+                    lemonToast.error(apiErrorMessage(error))
+                }
+            },
+            createBackfill: async ({ windowStart, windowEnd }) => {
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    actions.createBackfillDone()
+                    return
+                }
+                try {
+                    await visionScannersBackfillsCreate(String(teamId), props.scannerId, {
+                        window_start: windowStart,
+                        window_end: windowEnd,
+                    })
+                    lemonToast.success('Backfill started')
+                    actions.loadBackfills()
+                } catch (error: any) {
+                    lemonToast.error(apiErrorMessage(error))
+                } finally {
+                    actions.createBackfillDone()
+                }
+            },
+            cancelBackfill: async ({ id }) => {
+                await transitionBackfill(
+                    id,
+                    visionScannersBackfillsCancelCreate,
+                    'Couldn’t cancel the backfill. Try again.'
+                )
+            },
+            resumeBackfill: async ({ id }) => {
+                await transitionBackfill(
+                    id,
+                    visionScannersBackfillsResumeCreate,
+                    'Couldn’t resume the backfill. Try again.'
+                )
+            },
+        }
+    }),
 
     afterMount(({ actions }) => {
         actions.loadBackfills()
     }),
 ])
 
-function estimateErrorMessage(error: any, fallback = 'Something went wrong. Try again.'): string {
-    const detail = error?.data?.detail ?? (Array.isArray(error?.data) ? error.data[0] : null)
+function apiErrorMessage(error: unknown, fallback = 'Something went wrong. Try again.'): string {
+    if (error instanceof ApiError) {
+        // The estimate endpoint is throttled, so 429s are a routine outcome worth naming.
+        if (error.formattedRetryAfter) {
+            return `Too many requests. Try again in ${error.formattedRetryAfter}.`
+        }
+        if (error.detail) {
+            return error.detail
+        }
+    }
+    const detail = (error as any)?.data?.detail ?? (Array.isArray((error as any)?.data) ? (error as any).data[0] : null)
     return typeof detail === 'string' && detail.length > 0 ? detail : fallback
 }

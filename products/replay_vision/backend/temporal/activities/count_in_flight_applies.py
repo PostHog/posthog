@@ -7,11 +7,7 @@ from temporalio import activity
 
 from posthog.temporal.common.client import async_connect
 
-from products.replay_vision.backend.enqueue_claims import (
-    pending_enqueue_claims_for_backfill,
-    pending_enqueue_claims_for_scanner,
-    pending_enqueue_claims_for_team,
-)
+from products.replay_vision.backend.enqueue_claims import pending_enqueue_claims
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.temporal.constants import in_flight_headroom
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -54,15 +50,19 @@ def count_in_flight_rows(team_id: int, scanner_id: UUID, backfill_id: UUID | Non
     return ReplayObservation.in_flight_for_team(team_id).aggregate(**aggregates)
 
 
-def count_in_flight(team_id: int, scanner_id: UUID, backfill_id: UUID | None = None) -> dict[str, int]:
-    """Capacity as the caps see it: persisted rows plus slots claimed but not yet persisted."""
-    counts = count_in_flight_rows(team_id, scanner_id, backfill_id)
-    counts["team"] += pending_enqueue_claims_for_team(team_id)
-    counts["scanner"] += pending_enqueue_claims_for_scanner(scanner_id)
-    if backfill_id is not None:
-        # Without this the sub-cap only ever sees persisted rows, so the next tick re-spends the
-        # slots this one took while its children were still queued.
-        counts["backfill"] += pending_enqueue_claims_for_backfill(backfill_id)
+def count_in_flight(
+    team_id: int, scanner_id: UUID, backfill_id: UUID | None = None, rows: dict[str, int] | None = None
+) -> dict[str, int]:
+    """Capacity as the caps see it: persisted rows plus slots claimed but not yet persisted.
+
+    Pass `rows` when the caller already has the raw counts, so the aggregate runs once rather than twice.
+    """
+    counts = dict(rows) if rows is not None else count_in_flight_rows(team_id, scanner_id, backfill_id)
+    # The backfill claims matter as much as the others: without them the sub-cap only ever sees persisted
+    # rows, so the next tick re-spends the slots this one took while its children were still queued.
+    claims = pending_enqueue_claims(team_id, scanner_id, backfill_id)
+    for scope, pending in claims.items():
+        counts[scope] += pending
     return counts
 
 

@@ -99,6 +99,7 @@ class BackfillScannerWorkflow(PostHogWorkflow):
             expected_cursor_end_time=find_result.started_from_cursor_end_time,
             expected_cursor_session_id=find_result.started_from_cursor_session_id,
             dispatched_delta=len(find_result.candidates),
+            skipped_delta=find_result.skipped_delta,
             exhausted=not find_result.more_work_below_cursor,
         )
 

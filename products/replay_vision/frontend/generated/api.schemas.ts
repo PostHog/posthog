@@ -1127,6 +1127,8 @@ export interface ReplayScannerBackfillApi {
     /** Unobserved candidates enumerated at creation; the ceiling is total_count x credits_per_observation. */
     readonly total_count: number
     readonly dispatched_count: number
+    /** Candidates the walk stepped over because this scanner had already tried them. Counted at creation but never dispatched, so progress and remaining spend both have to account for them. */
+    readonly skipped_count: number
     /** Per-observation credit price frozen at creation from the snapshot model. */
     readonly credits_per_observation: number
     /** Observations from this backfill that succeeded. */

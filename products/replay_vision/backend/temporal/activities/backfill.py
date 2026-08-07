@@ -125,7 +125,7 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         return FindBackfillCandidatesOutput(candidates=[], more_work_below_cursor=False)
 
     rows = count_in_flight_rows(inputs.team_id, backfill.scanner_id, backfill.id)
-    capacity = count_in_flight(inputs.team_id, backfill.scanner_id, backfill.id)
+    capacity = count_in_flight(inputs.team_id, backfill.scanner_id, backfill.id, rows=rows)
     if backfill_dispatch_budget(capacity["scanner"], capacity["team"], capacity["backfill"]) <= 0:
         # Headroom vanished since the prepare gate; skip the enumeration rather than run the tick's
         # most expensive query only to have every candidate refused by the claim below. Checked
@@ -189,12 +189,19 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
     else:
         walked_to = candidates[-1]
 
+    # Everything the cursor passes is accounted for, dispatched or not. Without counting the skipped ones
+    # `dispatched_count` could never reach `total_count` on a window this scanner has already partly tried,
+    # which strands progress short of complete and leaves phantom credits in the org's projected spend.
+    walked_through = candidates.index(walked_to) + 1 if walked_to is not None else 0
+    skipped = walked_through - admitted
+
     return FindBackfillCandidatesOutput(
         started_from_cursor_end_time=backfill.cursor_end_time,
         started_from_cursor_session_id=backfill.cursor_session_id,
         candidates=[
             CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in dispatchable[:admitted]
         ],
+        skipped_delta=skipped,
         next_cursor_end_time=walked_to.session_end if walked_to else None,
         next_cursor_session_id=walked_to.session_id if walked_to else "",
         # Held-back candidates are still work below the cursor, so a truncated batch must not look
@@ -210,7 +217,10 @@ def advance_backfill_cursor_activity(inputs: AdvanceBackfillCursorInputs) -> Adv
 
     Filtered to RUNNING rows so a concurrent cancel or pause wins over the advance.
     """
-    updates: dict[str, object] = {"dispatched_count": F("dispatched_count") + inputs.dispatched_delta}
+    updates: dict[str, object] = {
+        "dispatched_count": F("dispatched_count") + inputs.dispatched_delta,
+        "skipped_count": F("skipped_count") + inputs.skipped_delta,
+    }
     if inputs.new_cursor_end_time is not None:
         updates["cursor_end_time"] = inputs.new_cursor_end_time
         updates["cursor_session_id"] = inputs.new_cursor_session_id

@@ -99,6 +99,24 @@ def eligibility_predicates() -> list[ast.Expr]:
     ]
 
 
+def _execute_candidate_query(
+    query: ast.SelectQuery, *, team: Team, query_type: str, max_execution_time_seconds: int
+) -> list[list]:
+    """One home for the candidate queries' ClickHouse execution policy.
+
+    The dedicated user keeps sweep and backfill admission out of the contended shared `default` pool.
+    """
+    with tags_context(product=Product.REPLAY_VISION, feature=Feature.ENRICHMENT):
+        response = execute_hogql_query(
+            query=query,
+            team=team,
+            query_type=query_type,
+            settings=HogQLGlobalSettings(max_execution_time=max_execution_time_seconds),
+            ch_user=ClickHouseUser.REPLAY_VISION,
+        )
+    return response.results or []
+
+
 @dataclass(frozen=True)
 class CandidateSession:
     session_id: str
@@ -159,16 +177,13 @@ class ScannerCandidateQuery:
 
     @tracer.start_as_current_span("ScannerCandidateQuery.run")
     def run(self) -> list[CandidateSession]:
-        with tags_context(product=Product.REPLAY_VISION, feature=Feature.ENRICHMENT):
-            response = execute_hogql_query(
-                query=self.get_query(),
-                team=self._team,
-                query_type="ReplayVisionScannerCandidateQuery",
-                settings=HogQLGlobalSettings(max_execution_time=self._max_execution_time_seconds),
-                # Dedicated user keeps sweep admission out of the contended shared `default` pool.
-                ch_user=ClickHouseUser.REPLAY_VISION,
-            )
-        return [CandidateSession(session_id=row[0], session_end=row[1]) for row in (response.results or [])]
+        rows = _execute_candidate_query(
+            self.get_query(),
+            team=self._team,
+            query_type="ReplayVisionScannerCandidateQuery",
+            max_execution_time_seconds=self._max_execution_time_seconds,
+        )
+        return [CandidateSession(session_id=row[0], session_end=row[1]) for row in rows]
 
     def get_query(self) -> ast.SelectQuery:
         # `_inner.get_query()` re-parses every call, so in-place mutation is safe.
@@ -315,16 +330,13 @@ class BackfillCandidateQuery:
 
     @tracer.start_as_current_span("BackfillCandidateQuery.run")
     def run(self) -> list[CandidateSession]:
-        with tags_context(product=Product.REPLAY_VISION, feature=Feature.ENRICHMENT):
-            response = execute_hogql_query(
-                query=self.get_query(),
-                team=self._team,
-                query_type="ReplayVisionBackfillCandidateQuery",
-                settings=HogQLGlobalSettings(max_execution_time=self._max_execution_time_seconds),
-                # Dedicated user keeps backfill admission out of the contended shared `default` pool.
-                ch_user=ClickHouseUser.REPLAY_VISION,
-            )
-        return [CandidateSession(session_id=row[0], session_end=row[1]) for row in (response.results or [])]
+        rows = _execute_candidate_query(
+            self.get_query(),
+            team=self._team,
+            query_type="ReplayVisionBackfillCandidateQuery",
+            max_execution_time_seconds=self._max_execution_time_seconds,
+        )
+        return [CandidateSession(session_id=row[0], session_end=row[1]) for row in rows]
 
     @tracer.start_as_current_span("BackfillCandidateQuery.count")
     def count(self) -> int:
@@ -332,15 +344,13 @@ class BackfillCandidateQuery:
             select=[ast.Call(name="count", args=[])],
             select_from=ast.JoinExpr(table=self._windowed_candidates(), alias="candidates"),
         )
-        with tags_context(product=Product.REPLAY_VISION, feature=Feature.ENRICHMENT):
-            response = execute_hogql_query(
-                query=counted,
-                team=self._team,
-                query_type="ReplayVisionBackfillCountQuery",
-                settings=HogQLGlobalSettings(max_execution_time=self._max_execution_time_seconds),
-                ch_user=ClickHouseUser.REPLAY_VISION,
-            )
-        return int(response.results[0][0]) if response.results else 0
+        rows = _execute_candidate_query(
+            counted,
+            team=self._team,
+            query_type="ReplayVisionBackfillCountQuery",
+            max_execution_time_seconds=self._max_execution_time_seconds,
+        )
+        return int(rows[0][0]) if rows else 0
 
     def get_query(self) -> ast.SelectQuery:
         query = self._windowed_candidates()

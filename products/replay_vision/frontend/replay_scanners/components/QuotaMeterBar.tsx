@@ -50,11 +50,25 @@ export function fitSegmentWidths(pcts: number[]): number[] {
     return pcts.map((pct) => Math.max(pct, 0) * scale)
 }
 
-/** Widths for `[free, billed, ...projected]`, with the free slice clamped inside the used slice. The bar and its
- * legends both derive widths from this, so a legend chip can never outlive its segment. */
-export function quotaMeterWidths(usedPct: number, usedFreePct: number, projectedPcts: number[]): number[] {
+/**
+ * Layout for `[free, billed, ...projected]`, with the free slice clamped inside the used slice.
+ *
+ * The bar, its legends and the limit marker all read one object, so the segment composition lives in a single
+ * place: a legend chip can never outlive its segment, and the marker can never disagree with the widths.
+ */
+export function quotaMeterLayout(
+    usedPct: number,
+    usedFreePct: number,
+    projectedPcts: number[]
+): { widths: number[]; limitMarkerPct: number } {
     const freePct = Math.max(Math.min(usedFreePct, usedPct), 0)
-    return fitSegmentWidths([freePct, usedPct - freePct, ...projectedPcts])
+    const pcts = [freePct, usedPct - freePct, ...projectedPcts]
+    return { widths: fitSegmentWidths(pcts), limitMarkerPct: 10000 / meterScale(pcts) }
+}
+
+/** Widths alone, for callers that only size legend chips. */
+export function quotaMeterWidths(usedPct: number, usedFreePct: number, projectedPcts: number[]): number[] {
+    return quotaMeterLayout(usedPct, usedFreePct, projectedPcts).widths
 }
 
 /** Quota meter: solid used segment plus projection segments, rescaled with a limit marker when they overshoot. */
@@ -68,12 +82,12 @@ export function QuotaMeterBar({
     limitLabel = 'Spend limit',
     className,
 }: QuotaMeterBarProps): JSX.Element {
-    const pcts = projected.map((segment) => segment.pct)
-    const widths = quotaMeterWidths(usedPct, usedFreePct, pcts)
-    // Where the limit falls once the bar has rescaled past it. At or under the limit that is the far end, so the
-    // marker would sit on the bar's own edge and is left off.
-    const freePct = Math.max(Math.min(usedFreePct, usedPct), 0)
-    const limitMarkerPct = 10000 / meterScale([freePct, usedPct - freePct, ...pcts])
+    const { widths, limitMarkerPct } = quotaMeterLayout(
+        usedPct,
+        usedFreePct,
+        projected.map((segment) => segment.pct)
+    )
+    // At or under the limit the marker lands on the bar's own edge, so it is left off.
     const overshoots = limitMarkerPct < 100
     // Keep the caption inside the card when the marker sits near either end, instead of centering it off the edge.
     const captionAnchor = limitMarkerPct > 85 ? 'translateX(-100%)' : limitMarkerPct < 15 ? 'none' : 'translateX(-50%)'

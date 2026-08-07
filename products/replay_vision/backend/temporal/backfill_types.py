@@ -49,6 +49,9 @@ class FindBackfillCandidatesOutput(BaseModel, frozen=True):
     # Cursor the walk started from, threaded into the advance so it can match on it.
     started_from_cursor_end_time: dt.datetime | None = None
     started_from_cursor_session_id: str = Field(default="", max_length=MAX_SESSION_ID_LENGTH)
+    # Candidates the walk stepped over as already tried. Defaults to 0 so replays of pre-change
+    # histories decode, and they simply do not credit the skips.
+    skipped_delta: int = 0
     # False only when the walk genuinely reached the window start: a batch the caps truncated still
     # has work below the cursor. The tick completes the backfill exactly when this is False.
     more_work_below_cursor: bool
@@ -65,6 +68,7 @@ class AdvanceBackfillCursorInputs(BaseModel, frozen=True):
     new_cursor_end_time: dt.datetime | None = None
     new_cursor_session_id: str = Field(default="", max_length=MAX_SESSION_ID_LENGTH)
     dispatched_delta: int = 0
+    skipped_delta: int = 0
     # True when the batch came back short: the window is fully walked and the backfill completes.
     exhausted: bool
 

@@ -187,6 +187,23 @@ def pending_enqueue_claims_for_scanner(scanner_id: UUID) -> int:
     return _pending(_scanner_key(scanner_id))
 
 
+def pending_enqueue_claims(team_id: int, scanner_id: UUID, backfill_id: UUID | None = None) -> dict[str, int]:
+    """The three claim counts a cap check needs, in one round-trip instead of three."""
+    keys = {"team": _team_key(team_id), "scanner": _scanner_key(scanner_id)}
+    if backfill_id is not None:
+        keys["backfill"] = _backfill_key(backfill_id)
+    try:
+        pipeline = redis.get_client().pipeline()
+        cutoff = f"({time.time()}"
+        for key in keys.values():
+            pipeline.zcount(key, cutoff, "+inf")
+        return dict(zip(keys, (int(count) for count in pipeline.execute())))
+    except Exception:
+        record_enqueue_claim_failure("count")
+        logger.warning("replay_vision.enqueue_claim.count_failed", keys=list(keys.values()), exc_info=True)
+        return dict.fromkeys(keys, 0)
+
+
 def _pending(key: str) -> int:
     try:
         return int(redis.get_client().zcount(key, f"({time.time()}", "+inf"))

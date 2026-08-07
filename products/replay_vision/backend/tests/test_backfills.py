@@ -240,6 +240,33 @@ class TestBackfillTickActivities:
         backfill.refresh_from_db()
         assert backfill.dispatched_count == 5
 
+    def test_skipped_candidates_count_toward_progress_and_release_their_commitment(self) -> None:
+        # Sessions the scanner already tried are counted at creation but never dispatched, so without
+        # crediting them progress can never reach total_count and the untouched remainder keeps
+        # inflating the org's projected spend for the whole run.
+        scanner = _make_scanner()
+        backfill = _make_backfill(scanner)
+        ReplayScannerBackfill.objects.for_team(backfill.team_id).filter(pk=backfill.id).update(
+            total_count=10, credits_per_observation=5
+        )
+
+        advance_backfill_cursor_activity(
+            AdvanceBackfillCursorInputs(
+                backfill_id=backfill.id,
+                team_id=backfill.team_id,
+                new_cursor_end_time=_WINDOW_END - dt.timedelta(days=1),
+                new_cursor_session_id="sess-10",
+                dispatched_delta=6,
+                skipped_delta=4,
+                exhausted=False,
+            )
+        )
+
+        backfill.refresh_from_db()
+        assert (backfill.dispatched_count, backfill.skipped_count) == (6, 4)
+        assert backfill.dispatched_count + backfill.skipped_count == backfill.total_count
+        assert sum_active_backfill_remaining_credits(scanner.team.organization_id) == 0
+
     def test_advance_updates_cursor_and_short_batch_completes(self) -> None:
         scanner = _make_scanner()
         backfill = _make_backfill(scanner)

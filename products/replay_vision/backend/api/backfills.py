@@ -114,6 +114,7 @@ class ReplayScannerBackfillSerializer(serializers.ModelSerializer):
             "window_end",
             "total_count",
             "dispatched_count",
+            "skipped_count",
             "credits_per_observation",
             "succeeded_count",
             "failed_count",
@@ -190,7 +191,7 @@ class ReplayScannerBackfillViewSet(
             .order_by("-created_at")
         )
 
-    def _clamped_window(self, scanner: ReplayScanner, data: dict[str, Any]) -> tuple[datetime, datetime]:
+    def _clamped_window(self, data: dict[str, Any]) -> tuple[datetime, datetime]:
         """The requested window, bounded above by now.
 
         Deliberately not clamped to the scanner's sweep watermark. Overlapping the live sweep is safe:
@@ -257,7 +258,7 @@ class ReplayScannerBackfillViewSet(
         scanner = self._scanner_for_url()
         window = BackfillWindowSerializer(data=request.data)
         window.is_valid(raise_exception=True)
-        window_start, window_end = self._clamped_window(scanner, window.validated_data)
+        window_start, window_end = self._clamped_window(window.validated_data)
         total = self._unobserved_count(scanner, window_start, window_end)
         price = observation_credits_for_model(scanner.model)
         quota = compute_quota_snapshot(scanner.team.organization_id)
@@ -285,7 +286,7 @@ class ReplayScannerBackfillViewSet(
         scanner = self._scanner_for_url()
         window = BackfillWindowSerializer(data=request.data)
         window.is_valid(raise_exception=True)
-        window_start, window_end = self._clamped_window(scanner, window.validated_data)
+        window_start, window_end = self._clamped_window(window.validated_data)
         if ReplayScannerBackfill.objects.filter(scanner=scanner, status__in=ACTIVE_BACKFILL_STATUSES).exists():
             raise ValidationError("This scanner already has an active backfill.")
 

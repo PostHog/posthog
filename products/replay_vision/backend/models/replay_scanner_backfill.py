@@ -47,6 +47,13 @@ class ReplayScannerBackfill(TeamScopedRootMixin, UUIDModel):
         help_text="Unobserved candidates enumerated at creation; the ceiling is total_count x credits_per_observation."
     )
     dispatched_count = models.PositiveIntegerField(default=0)
+    skipped_count = models.PositiveIntegerField(
+        default=0,
+        help_text=(
+            "Candidates the walk stepped over because this scanner had already tried them. Counted at creation "
+            "but never dispatched, so progress and remaining spend both have to account for them."
+        ),
+    )
 
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
@@ -71,13 +78,6 @@ class ReplayScannerBackfill(TeamScopedRootMixin, UUIDModel):
         indexes = [
             models.Index(fields=["team", "created_at"], name="rvb_team_created_idx"),
         ]
-
-    @property
-    def remaining_commitment_credits(self) -> int:
-        """Credits the backfill can still spend; feeds the org quota prognosis while active."""
-        if self.status not in ACTIVE_BACKFILL_STATUSES:
-            return 0
-        return max(0, self.total_count - self.dispatched_count) * self.credits_per_observation
 
     def save(self, *args, **kwargs) -> None:
         # Tenant invariant: backfill.team_id must match scanner.team_id.

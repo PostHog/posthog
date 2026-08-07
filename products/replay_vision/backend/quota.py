@@ -159,9 +159,11 @@ def sum_active_backfill_remaining_credits(organization_id: UUID) -> int:
     rows = (
         ReplayScannerBackfill.objects.unscoped()
         .filter(team__organization_id=organization_id, status__in=ACTIVE_BACKFILL_STATUSES)
-        .values_list("total_count", "dispatched_count", "credits_per_observation")
+        .values_list("total_count", "dispatched_count", "skipped_count", "credits_per_observation")
     )
-    return sum(max(0, total - dispatched) * price for total, dispatched, price in rows)
+    # Skipped candidates were counted at creation but will never be dispatched, so they are not a
+    # commitment; leaving them in strands phantom credits in the projection for the whole run.
+    return sum(max(0, total - dispatched - skipped) * price for total, dispatched, skipped, price in rows)
 
 
 def _billing_synced_limit(organization: Organization | None) -> tuple[bool, int | None]:
