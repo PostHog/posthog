@@ -10,7 +10,6 @@ import {
     activityLogLogic,
     describerFor,
     ensureActivityDescribersLoaded,
-    isActivityScopeBillingExempt,
 } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
@@ -177,20 +176,6 @@ describe('the activity log logic', () => {
                     true
                 )
             }).not.toThrow()
-        })
-    })
-
-    describe('billing exempt scopes', () => {
-        test.each([
-            [ActivityScope.FEATURE_FLAG, true],
-            [ActivityScope.EXPERIMENT, true],
-            [ActivityScope.INSIGHT, false],
-            [[ActivityScope.FEATURE_FLAG, ActivityScope.EXPERIMENT], true],
-            [[ActivityScope.FEATURE_FLAG, ActivityScope.INSIGHT], false],
-            [[], false],
-            [undefined, false],
-        ])('%s is exempt: %s', (scope, expected) => {
-            expect(isActivityScopeBillingExempt(scope)).toBe(expected)
         })
     })
 })

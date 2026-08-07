@@ -9,11 +9,8 @@ import { Suspense, useEffect, useRef, useState } from 'react'
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTabs, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import {
-    ActivityLogLogicProps,
-    activityLogLogic,
-    isActivityScopeBillingExempt,
-} from 'lib/components/ActivityLog/activityLogLogic'
+import { ActivityLogLogicProps, activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
+import { isActivityScopeBillingExempt } from 'lib/components/ActivityLog/billingExemptScopes'
 import { ActivityChange, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'

@@ -1,7 +1,7 @@
 import { MakeLogicType, connect, kea, listeners, path, selectors } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
 
-import { isActivityScopeBillingExempt } from 'lib/components/ActivityLog/activityLogLogic'
+import { isActivityScopeBillingExempt } from 'lib/components/ActivityLog/billingExemptScopes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
