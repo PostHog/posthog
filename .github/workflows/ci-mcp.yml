@@ -133,7 +133,7 @@ jobs:
                         - '!products/*/backend/**/conftest.py'
     build:
         name: Build Package
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 10
         needs: changes
         if: needs.changes.outputs.mcp == 'true'
@@ -214,7 +214,7 @@ jobs:
 
     unit-tests:
         name: Unit Tests
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 10
         needs: changes
         if: needs.changes.outputs.mcp == 'true'
