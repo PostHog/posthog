@@ -35,6 +35,7 @@ import { template as makeTemplate } from './_destinations/make/make.template'
 import { template as microsoftAdsTemplate } from './_destinations/microsoft_ads/microsoft.template'
 import { template as teamsTemplate } from './_destinations/microsoft_teams/teams.template'
 import { template as nativeWebhookTemplate } from './_destinations/native_webhook/webhook.template'
+import { template as onesignalTemplate } from './_destinations/onesignal/onesignal.template'
 import { template as openaiAdsTemplate } from './_destinations/openai_ads/openai.template'
 import { template as posthogCaptureTemplate } from './_destinations/posthog_capture/posthog-capture.template'
 import { template as posthogGroupIdentifyTemplate } from './_destinations/posthog_capture/posthog-group-identify.template'
@@ -138,6 +139,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     zendeskTemplate,
     makeTemplate,
     teamsTemplate,
+    onesignalTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
