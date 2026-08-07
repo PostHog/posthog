@@ -9,8 +9,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { IntegrationType } from '~/types'
 
-import type { EmailSenderDomainStatus } from '../../../../../frontend/src/types'
-
 export interface EmailSetupModalLogicProps {
     integration?: IntegrationType | null
     onComplete: (integrationId?: number) => void
@@ -138,12 +136,12 @@ export interface emailSetupModalLogicActions {
         errorObject?: any
     }
     verifyDomainSuccess: (
-        verification: EmailSenderDomainStatus | undefined,
+        verification: any,
         payload?: {
             value: true
         }
     ) => {
-        verification: EmailSenderDomainStatus | undefined
+        verification: any
         payload?: {
             value: true
         }
