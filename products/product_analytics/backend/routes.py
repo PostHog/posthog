@@ -5,6 +5,7 @@ from posthog.settings import EE_AVAILABLE
 import products.alerts.backend.api.alert as alert
 from products.product_analytics.backend.api.insight import InsightViewSet
 from products.product_analytics.backend.api.insight_variable import InsightVariableViewSet
+from products.product_analytics.backend.api.paths_v2 import PathsV2ViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -42,5 +43,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"insight_variables",
         InsightVariableViewSet,
         "project_insight_variables",
+        ["team_id"],
+    )
+
+    routers.projects.register(
+        r"paths_v2",
+        PathsV2ViewSet,
+        "project_paths_v2",
         ["team_id"],
     )

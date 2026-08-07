@@ -56,23 +56,3 @@ CLEAR_CLICKHOUSE_DELETED_PERSON_SCHEDULE_CRON = get_from_env(
     # Every third month 5AM UTC on 1st of the month
     "0 5 1 */3 *",
 )
-
-# Cohort selection for the Python realtime cohort calculation coordinator, which no longer has a
-# schedule (rust/cohort-stream-processor replaced it). These survive only because the coordinator
-# still parses them, and go away with the Python implementation. Unrelated to
-# REALTIME_COHORT_TEAM_ALLOWLIST, which is the live setting Rust and Django both read.
-# Teams that should process all their cohorts (comma-separated team IDs)
-# Example: "2,42" means team 2 and team 42 process all cohorts
-REALTIME_COHORT_CALCULATION_TEAMS: set[int] = {
-    int(team_id.strip())
-    for team_id in get_from_env("REALTIME_COHORT_CALCULATION_TEAMS", "2").split(",")
-    if team_id.strip()
-}
-
-# Global percentage for teams not in REALTIME_COHORT_CALCULATION_TEAMS (0.0 to 1.0)
-# Example: 0.5 means 50% of cohorts for all other teams
-REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE: float = get_from_env(
-    "REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE",
-    0.0,
-    type_cast=float,
-)

@@ -278,6 +278,7 @@ rules:
                               |SharingConfiguration
                               |SignalEmissionRecord
                               |SignalReport
+                              |SignalReportAction
                               |SignalReportArtefact
                               |SignalReportRefund
                               |SignalReportTask
@@ -294,8 +295,6 @@ rules:
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
                               |SourceBatch
-                              |SourceBatchDuckgresApply
-                              |SourceDuckgresGroupLease
                               |SourceGroupLease
                               |StreamlitApp
                               |Subscription
@@ -308,6 +307,7 @@ rules:
                               |Task
                               |TaskActivity
                               |TaskArtifact
+                              |TaskCommentActivity
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
@@ -618,6 +618,7 @@ rules:
                         |SharingConfiguration
                         |SignalEmissionRecord
                         |SignalReport
+                        |SignalReportAction
                         |SignalReportArtefact
                         |SignalReportRefund
                         |SignalReportTask
@@ -634,8 +635,6 @@ rules:
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
                         |SourceBatch
-                        |SourceBatchDuckgresApply
-                        |SourceDuckgresGroupLease
                         |SourceGroupLease
                         |StreamlitApp
                         |Subscription
@@ -648,6 +647,7 @@ rules:
                         |Task
                         |TaskActivity
                         |TaskArtifact
+                        |TaskCommentActivity
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun

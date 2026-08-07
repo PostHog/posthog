@@ -214,8 +214,7 @@ def get_utm_campaign_catalogue(
     return utm_map
 
 
-# Same reason as `run_utm_audit_async` above: both read team config through the ORM and run HogQL
-# inline, and the async callers — `mapping_suggester`, `setup_plan` — gather them with coroutines.
+# Same reason as `run_utm_audit_async`: sync ORM and HogQL, gathered by async callers.
 get_campaigns_with_spend_async = database_sync_to_async(get_campaigns_with_spend)
 get_utm_campaign_catalogue_async = database_sync_to_async(get_utm_campaign_catalogue)
 
@@ -438,21 +437,12 @@ def _mapping_candidates(
 ) -> dict[tuple[str, str], str]:
     """(integration, target match value) -> the orphaned `utm_campaign` the suggester maps onto it.
 
-    Keyed by match value rather than campaign name because that is what a proposal names and what
-    `_compute_campaign_stats` already resolved per campaign — matching on the display name would
-    silently miss every integration that joins on id.
+    Keyed by match value, not campaign name, because that is what a proposal names and what
+    id-matching integrations join on. The integration is half the key because a name is unique only
+    within a platform — without it, one platform's candidate explained another's unlinked campaign.
 
-    The integration is half the key because a campaign name is only unique within a platform.
-    Keying on the value alone attached one platform's candidate to every platform running a
-    campaign of that name, so a shared "brand" told the user that Meta's unlinked campaign was
-    explained by traffic the suggester had attributed to Google's.
-
-    Only confident proposals: `ambiguous` and `unresolved` are excluded by construction, since the
-    suggester puts a near-tie there precisely because picking one could misattribute spend. A
-    campaign with two plausible typos therefore gets no candidate here, which is the honest answer.
-
-    Contained: this is advisory decoration on an audit that has to keep working, so a failure
-    leaves every issue exactly as it was rather than taking the audit down.
+    Only confident proposals: `ambiguous` and `unresolved` are excluded by construction. Contained,
+    so a broken suggester leaves every issue exactly as it was.
     """
     try:
         proposals = suggest_campaign_name_mappings(campaigns, utm_events, mappings).proposals
@@ -460,8 +450,7 @@ def _mapping_candidates(
         logger.exception("utm_audit.mapping_candidates_failed")
         return {}
 
-    # Highest event count wins when several orphans point at one campaign: it is the one whose
-    # traffic the user is most likely to recognise, and the mapping is offered one at a time.
+    # Highest event count wins when several orphans point at one campaign.
     best: dict[tuple[str, str], str] = {}
     best_count: dict[tuple[str, str], int] = {}
     for proposal in proposals:
@@ -503,10 +492,7 @@ def _cross_reference(
         if stats.exact_count > 0:
             exact_matches_by_name.setdefault(stats.campaign_name_lower, set()).add(stats.source_name_lower)
 
-    # "No pageviews for this campaign" is where the audit runs out of road: it can see the
-    # campaign is unlinked but not why, so its only advice is "fix your ad URLs". The fuzzy
-    # suggester holds the other half — that a typo'd value with real traffic points at it — so
-    # ask it once here rather than leaving the two facts in separate services.
+    # The audit sees a campaign is unlinked but not why; the suggester holds the other half.
     mapping_candidates = _mapping_candidates(campaigns, utm_events, mappings)
 
     results: list[CampaignAuditResult] = []
@@ -516,9 +502,8 @@ def _cross_reference(
 
         issue = _build_issue(stats, shared_with, known_sources)
         if issue is not None and issue.kind == UtmIssueKind.NOT_LINKED:
-            # Same key the proposals were bucketed under: `get_match_value` is the lowercased form
-            # of the `clean_name` a proposal carries, so name-matching and id-matching integrations
-            # both look up correctly, and the integration keeps a shared name from crossing over.
+            # Same key the proposals were bucketed under, so id-matching integrations look up
+            # correctly and a shared name can't cross platforms.
             native = native_for_primary_source(stats.campaign.source_name)
             candidate = (
                 mapping_candidates.get((native.value, get_match_value(stats.campaign, mappings)))
@@ -527,8 +512,7 @@ def _cross_reference(
             )
             if candidate:
                 issue.mapping_candidate = candidate
-                # Appended, not prepended: fixing the URL is still the cure, the mapping is a
-                # band-aid, and the ordering of `suggested_actions` is the recommendation order.
+                # Appended: the order is the recommendation order, and the URL fix is the cure.
                 issue.suggested_actions.append(SuggestedAction.ADD_CAMPAIGN_NAME_MAPPING)
         issues = [issue] if issue is not None else []
 

@@ -27,6 +27,7 @@ import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
 import { chartStyleCurve } from '../../shared/chartStyleAdapter'
+import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
@@ -104,10 +105,7 @@ export function TrendsLineChart({
 
     const labels = currentPeriodResult?.labels ?? []
 
-    const hasData =
-        indexedResults &&
-        indexedResults[0]?.data &&
-        indexedResults.filter((result: IndexedTrendResult) => result.count !== 0).length > 0
+    const hasData = hasTrendsChartData(indexedResults)
 
     const valueLabelFormatter = useCallback(
         (value: number) => {

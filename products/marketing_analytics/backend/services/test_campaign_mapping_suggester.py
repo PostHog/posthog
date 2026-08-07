@@ -182,6 +182,33 @@ class TestProposals:
         assert result.proposals == []
         assert [u.raw_utm_campaign for u in result.unresolved] == ["spring_sale_202"]
 
+    def test_a_period_sibling_refusal_names_the_campaign_it_refused(self):
+        # The generic reason claims nothing was within the cutoff, which reads as false when the
+        # campaign is right there at 93.3 and was refused on purpose.
+        campaigns = [_campaign("holiday_push_q4")]
+        utm_events = _events(("holiday_push_q3", "google", 500))
+
+        result = suggest_campaign_name_mappings(campaigns, utm_events, NO_MAPPINGS)
+
+        assert result.proposals == []
+        reason = result.unresolved[0].reason
+        assert "holiday_push_q4" in reason
+        assert "period" in reason
+        assert "similarity" not in reason
+
+    def test_a_candidate_between_the_ranking_floor_and_the_cutoff_is_no_match(self):
+        # 85.7: survives MARGIN_FLOOR's 73 and gets ranked, then fails SCORE_CUTOFF's 88. The
+        # module's headline threshold, and the only line applying it had no test — every other
+        # refusal here goes through the period guard or the margin instead.
+        campaigns = [_campaign("spring_sale_2024")]
+        utm_events = _events(("sprig_sl_204", "google", 500))
+
+        result = suggest_campaign_name_mappings(campaigns, utm_events, NO_MAPPINGS)
+
+        assert result.proposals == []
+        assert result.ambiguous == []
+        assert [u.raw_utm_campaign for u in result.unresolved] == ["sprig_sl_204"]
+
     def test_orders_proposals_by_spend_at_stake(self):
         campaigns = [_campaign("cheap_campaign", spend=10.0), _campaign("costly_campaign", "2", spend=50000.0)]
         utm_events = _events(("cheap_campaig", "google", 900), ("costly_campaig", "google", 100))
@@ -384,3 +411,22 @@ class TestScale:
         # Or the timing would pass for a suggester that bailed out. All 100 land in `ambiguous`:
         # 500 names one digit apart is a wall of near-ties, i.e. the slowest path.
         assert len(result.proposals) + len(result.ambiguous) + len(result.unresolved) == 100
+
+    def test_oversized_values_cannot_slow_the_fuzzy_pass(self):
+        # `utm_campaign` comes off an event property, which has no length bound. At the documented
+        # caps but 20k characters a side this took 309 seconds; the length cap is what holds it at
+        # milliseconds, so the assertion is the point of the test rather than the timing.
+        pad = "y" * 20_000
+        campaigns = [_campaign(f"{pad}_camp_{i:04d}", str(i), spend=float(i)) for i in range(500)]
+        utm_events = _events(*[(f"{pad}_camp_{i:04d}z", "google", 100) for i in range(100)])
+
+        started = time.perf_counter()
+        result = suggest_campaign_name_mappings(campaigns, utm_events, NO_MAPPINGS)
+        elapsed = time.perf_counter() - started
+
+        assert elapsed < 2.0, f"took {elapsed:.2f}s"
+        # Dropped outright rather than truncated: a mapping has to carry the whole raw value to
+        # apply, and a 20k-character utm_campaign is not a typo of any real campaign name.
+        assert result.proposals == []
+        assert result.ambiguous == []
+        assert result.unresolved == []

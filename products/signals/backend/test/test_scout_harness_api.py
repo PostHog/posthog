@@ -1115,6 +1115,79 @@ class TestScoutHarnessConfigStructuredOutputSchemaAPI(APIBaseTest):
         assert config.structured_output_schema is None
 
 
+class TestScoutHarnessConfigModelAPI(APIBaseTest):
+    _FLAG_PATH = "products.signals.backend.scout_harness.serializers.scout_model_config_enabled"
+
+    def _detail_url(self, config_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/configs/{config_id}/"
+
+    def test_patch_persists_model_when_flag_on(self) -> None:
+        # Wiring guard: the viewset routes `model` through the update serializer and the read
+        # shape returns it for a team inside the `scouts-model-config` dogfood.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-judge")
+        with patch(self._FLAG_PATH, return_value=True):
+            response = self.client.patch(
+                self._detail_url(str(config.id)), data={"model": "claude-opus-4-5"}, format="json"
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["model"] == "claude-opus-4-5"
+        config.refresh_from_db()
+        assert config.model == "claude-opus-4-5"
+
+    def test_patch_rejects_model_outside_the_flag(self) -> None:
+        # The dogfood gate on the write path: without the flag a pin can't be stored at all.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-judge")
+        with patch(self._FLAG_PATH, return_value=False):
+            response = self.client.patch(
+                self._detail_url(str(config.id)), data={"model": "claude-opus-4-5"}, format="json"
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        config.refresh_from_db()
+        assert config.model is None
+
+    @parameterized.expand([("null_clears", None), ("blank_normalizes_to_null", "  ")])
+    def test_clearing_model_stays_ungated(self, _name: str, cleared_value: str | None) -> None:
+        # A team that leaves the preview must still be able to remove a stored pin.
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-judge", model="claude-opus-4-5"
+        )
+        with patch(self._FLAG_PATH, return_value=False):
+            response = self.client.patch(self._detail_url(str(config.id)), data={"model": cleared_value}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        assert config.model is None
+
+    def test_resending_stored_model_unchanged_stays_ungated(self) -> None:
+        # Clients resend whole config objects, so after a team leaves the preview an unchanged
+        # stored pin must not 400 an unrelated edit.
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-judge", model="claude-opus-4-5"
+        )
+        with patch(self._FLAG_PATH, return_value=False):
+            response = self.client.patch(
+                self._detail_url(str(config.id)),
+                data={"model": "claude-opus-4-5", "emit": False},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        assert config.model == "claude-opus-4-5"
+        assert config.emit is False
+
+    def test_patch_rejects_model_outside_catalog(self) -> None:
+        # A typo'd pin would fail every scheduled run until cleared, so the write names the
+        # available models instead of storing it.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-judge")
+        with patch(self._FLAG_PATH, return_value=True):
+            response = self.client.patch(
+                self._detail_url(str(config.id)), data={"model": "claude-opus-4-55"}, format="json"
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Available models" in str(response.json())
+        config.refresh_from_db()
+        assert config.model is None
+
+
 class TestScoutHarnessScratchpadAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()

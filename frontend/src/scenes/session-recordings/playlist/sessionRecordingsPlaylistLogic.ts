@@ -24,12 +24,7 @@ import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/constants'
-import {
-    isActionFilter,
-    isEventFilter,
-    isEventPropertyFilter,
-    isRecordingPropertyFilter,
-} from 'lib/components/UniversalFilters/utils'
+import { isActionFilter, isEventFilter, isEventPropertyFilter } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
@@ -1707,9 +1702,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 const eventFilters = filterValues.filter(isEventFilter)
                 const eventPropertyFilters = filterValues.filter(isEventPropertyFilter)
                 const actionFilters = filterValues.filter(isActionFilter)
-                const hasVisitedPageFilter = filterValues
-                    .filter(isRecordingPropertyFilter)
-                    .some((f) => f.key === 'visited_page')
 
                 const hasEvents = !!eventFilters.length
                 const hasEventsProperties = !!eventPropertyFilters.length
@@ -1720,7 +1712,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     .filter(Boolean) as string[]
                 const hasSimpleEventsFilters = !!simpleEventsFilters.length
 
-                if (hasActions || hasVisitedPageFilter) {
+                if (hasActions) {
                     return { matchType: 'backend', filters }
                 }
 
