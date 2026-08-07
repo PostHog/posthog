@@ -77,9 +77,9 @@ export function buildActiveEnvironmentContextPrompt(
  * callable name to reach for. `render-ui` is listed only where it is mounted.
  */
 export function buildAvailableToolsBlock(renderUiEnabled?: boolean): string {
-    const lines = ['`exec` — run any PostHog command; its `command` description has the syntax.']
+    const lines = ['exec – run any PostHog command; its `command` description has the syntax.']
     if (renderUiEnabled) {
-        lines.push('`render-ui` — show a tool result as an interactive app.')
+        lines.push('render-ui – show a tool result as an interactive app.')
     }
     return lines.join('\n')
 }

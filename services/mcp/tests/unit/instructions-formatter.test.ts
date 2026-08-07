@@ -141,9 +141,9 @@ describe('InstructionsFormatter', () => {
             const withUi = formatter.buildExecInstructions({ ...fullCtx, renderUiEnabled: true })
             const withoutUi = formatter.buildExecInstructions({ ...fullCtx, renderUiEnabled: false })
 
-            expect(withUi).toContain('`exec` — run any PostHog command')
-            expect(withUi).toContain('`render-ui` — show a tool result as an interactive app.')
-            expect(withoutUi).toContain('`exec` — run any PostHog command')
+            expect(withUi).toContain('exec – run any PostHog command')
+            expect(withUi).toContain('render-ui – show a tool result as an interactive app.')
+            expect(withoutUi).toContain('exec – run any PostHog command')
             expect(withoutUi).not.toContain('render-ui')
         })
 

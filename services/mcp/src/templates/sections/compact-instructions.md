@@ -1,9 +1,9 @@
-Below are tools available in the MCP. Prioritize skills over tools.
+# PostHog `exec` covers
+
+{tool_domains}
 
 # Tools
 
 {available_tools}
 
-# Tool domains
-
-{tool_domains}
+Prioritize skills over tools.

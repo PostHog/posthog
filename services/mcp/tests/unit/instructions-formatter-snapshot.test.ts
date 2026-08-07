@@ -52,6 +52,13 @@ const STATIC_CTX: InstructionsContext = {
     renderUiEnabled: true,
 }
 
+/** The domain index is the only pipe-delimited line in the compact payload. */
+const domainsIn = (payload: string): string[] =>
+    payload
+        .split('\n')
+        .find((line) => line.includes('|'))
+        ?.split('|') ?? []
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const SNAPSHOT_DIR = path.resolve(__dirname, '__snapshots__', 'instructions')
 
@@ -229,7 +236,7 @@ describe('InstructionsFormatter prompt snapshots', () => {
             })),
         }
         const rendered = new InstructionsFormatter().buildExecInstructions(ctx)
-        const domains = rendered.split('\n').at(-1)?.split('|') ?? []
+        const domains = domainsIn(rendered)
 
         expect(rendered.length).toBeLessThanOrEqual(MCP_INSTRUCTIONS_CHAR_BUDGET)
         // Domains past the old cutoff point, i.e. the ones a truncated payload lost.
@@ -255,6 +262,6 @@ describe('InstructionsFormatter prompt snapshots', () => {
 
         const rendered = formatter.buildExecInstructions({ guidelines: '', tools })
         expect(rendered.length).toBeLessThanOrEqual(MCP_INSTRUCTIONS_CHAR_BUDGET)
-        expect(rendered.split('\n').at(-1)?.split('|')).toHaveLength(40)
+        expect(domainsIn(rendered)).toHaveLength(40)
     })
 })

@@ -1,10 +1,10 @@
-Below are tools available in the MCP. Prioritize skills over tools.
+# PostHog `exec` covers
+
+dashboard|execute-sql|feature-flag|query
 
 # Tools
 
-`exec` — run any PostHog command; its `command` description has the syntax.
-`render-ui` — show a tool result as an interactive app.
+exec – run any PostHog command; its `command` description has the syntax.
+render-ui – show a tool result as an interactive app.
 
-# Tool domains
-
-dashboard|execute-sql|feature-flag|query
+Prioritize skills over tools.
