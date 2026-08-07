@@ -1,6 +1,10 @@
 import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { router } from 'kea-router'
+
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'lib/posthog-typed'
 import {
@@ -17,6 +21,7 @@ import { AvailableFeature, UserType } from '~/types'
 import { subscriptionsList } from 'products/subscriptions/frontend/generated/api'
 
 import { claimExportNudge, dashboardExportNudgeLogic, resolveExportNudgeEligibility } from './dashboardExportNudgeLogic'
+import { claimExportNudgeMessage } from './DashboardExportNudgeToast'
 
 jest.mock('lib/posthog-typed', () => ({
     __esModule: true,
@@ -176,6 +181,54 @@ describe('dashboardExportNudgeLogic', () => {
 
             expect(await considerNudge()).toBe(false)
             expect(capturesOf('dashboard export nudge check failed')[0][1]).toMatchObject({ step: 'limit' })
+        })
+    })
+
+    describe('nudge toast message', () => {
+        const TOAST_ID = 'export-toast'
+        const CANDIDATE = { dashboardId: DASHBOARD_ID, dashboardName: 'Weekly numbers' }
+        let dismiss: jest.SpyInstance
+
+        beforeEach(() => {
+            dismiss = jest.spyOn(lemonToast, 'dismiss').mockImplementation(() => {})
+        })
+
+        afterEach(() => {
+            cleanup()
+            dismiss.mockRestore()
+        })
+
+        it('renders nothing without a candidate', () => {
+            expect(claimExportNudgeMessage(null, TOAST_ID)).toBeNull()
+        })
+
+        it('renders nothing for an exporter outside the test variant', () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DASHBOARD_EXPORT_NUDGE]: 'control' })
+
+            expect(claimExportNudgeMessage(CANDIDATE, TOAST_ID)).toBeNull()
+        })
+
+        it('the CTA dismisses the toast and routes to the prefilled new-subscription form', () => {
+            const renderer = claimExportNudgeMessage(CANDIDATE, TOAST_ID)
+            render(renderer!('Export complete!'))
+
+            fireEvent.click(screen.getByText('Set up recurring updates'))
+
+            expect(dismiss).toHaveBeenCalledWith(TOAST_ID)
+            expect(router.values.location.pathname).toMatch(new RegExp(`/dashboard/${DASHBOARD_ID}/subscriptions/new$`))
+            expect(router.values.searchParams).toMatchObject({ prefill: 'nudge', via: 'export' })
+        })
+
+        it('keeps the toast up when the secondary action fires', () => {
+            const action = jest.fn()
+            const renderer = claimExportNudgeMessage(CANDIDATE, TOAST_ID)
+            render(renderer!('Preparing export…', { label: 'View exports', action }))
+
+            fireEvent.click(screen.getByText('View exports'))
+
+            expect(action).toHaveBeenCalled()
+            // A side trip to the exports panel must not silently take the nudge with it.
+            expect(dismiss).not.toHaveBeenCalled()
         })
     })
 })
