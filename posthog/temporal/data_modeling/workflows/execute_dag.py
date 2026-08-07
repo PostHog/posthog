@@ -14,8 +14,11 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.data_modeling.activities import (
     GetDAGStructureInputs,
     PreemptDAGRunInputs,
+    RecordSkippedDataModelingJobsInputs,
+    SkippedDataModelingNode,
     get_dag_structure_activity,
     preempt_dag_run_activity,
+    record_skipped_data_modeling_jobs_activity,
 )
 from posthog.temporal.data_modeling.activities.utils import strip_hostname_from_error
 from posthog.temporal.data_modeling.metrics import (
@@ -32,6 +35,7 @@ from posthog.temporal.data_modeling.workflows.materialize_view import (
 from products.data_modeling.backend.facade.models import DataModelingJobEngine
 
 MAX_CONCURRENT_CHILDREN = 10
+PERSIST_SKIPPED_JOBS_PATCH = "persist-skipped-data-modeling-jobs-2026-08"
 
 
 class EmptyDAGOrCycleError(Exception):
@@ -273,6 +277,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         ).value
         suspended_node_set: set[str] = set(dag_structure.suspended_nodes.get(serving_engine, []))
         downstreams = _get_downstream_lookup(edge_lookup)
+        skipped_jobs: list[SkippedDataModelingNode] = []
         # execute child workflows with bounded concurrency using a sliding window;
         # the semaphore limits how many child workflows run simultaneously across
         # all levels to be a friendlier neighbor to duckgres and clickhouse infrastructure
@@ -285,23 +290,37 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             execute_nodes = []
             skip_nodes = []
             ephemeral_nodes = []
-            # failed_node_set only grows between levels, so the blocked set is stable within one
-            blocked_node_set = failed_node_set | suspended_node_set
             for node_id in level:
                 should_skip = False
                 skip_reason = None
+                failed_upstream: list[str] = []
+                suspended_upstream: list[str] = []
                 if node_id in suspended_node_set:
+                    # a node paused for its own failures keeps its Failed job as the latest one, which
+                    # is what the resume banner and the failure digest both read
                     should_skip = True
                     skip_reason = "Node suspended after repeated materialization failures"
                 else:
-                    for blocked_id in blocked_node_set:
-                        if node_id in downstreams[blocked_id]:
+                    for blocked_id in sorted(failed_node_set) + sorted(suspended_node_set):
+                        if node_id not in downstreams[blocked_id]:
+                            continue
+                        suspended = blocked_id in suspended_node_set
+                        if blocked_id in (suspended_upstream if suspended else failed_upstream):
+                            continue
+                        (suspended_upstream if suspended else failed_upstream).append(blocked_id)
+                        if not should_skip:
                             should_skip = True
-                            verb = "suspended" if blocked_id in suspended_node_set else "failed"
-                            skip_reason = f"Upstream node {blocked_id} {verb}"
-                            break
+                            skip_reason = f"Upstream node {blocked_id} {'suspended' if suspended else 'failed'}"
                 if should_skip:
                     skip_nodes.append((node_id, skip_reason))
+                    if node_id not in ephemeral_node_set and (failed_upstream or suspended_upstream):
+                        skipped_jobs.append(
+                            SkippedDataModelingNode(
+                                node_id=node_id,
+                                failed_upstream_node_ids=failed_upstream,
+                                suspended_upstream_node_ids=suspended_upstream,
+                            )
+                        )
                 elif node_id in ephemeral_node_set:
                     ephemeral_nodes.append(node_id)
                 else:
@@ -389,6 +408,19 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 node_results.append(nr)
                 if not nr.success:
                     failed_node_set.add(nr.node_id)
+
+        if skipped_jobs and temporalio.workflow.patched(PERSIST_SKIPPED_JOBS_PATCH):
+            await temporalio.workflow.execute_activity(
+                record_skipped_data_modeling_jobs_activity,
+                RecordSkippedDataModelingJobsInputs(
+                    team_id=inputs.team_id,
+                    dag_id=inputs.dag_id,
+                    engine=serving_engine,
+                    skipped_nodes=skipped_jobs,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+            )
 
         # compute summary
         end_time = temporalio.workflow.now()
