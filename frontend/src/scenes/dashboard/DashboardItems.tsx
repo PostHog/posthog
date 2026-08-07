@@ -13,6 +13,7 @@ import { getDashboardWidgetFetchDisplayError } from '@posthog/products-dashboard
 import { ApiError } from 'lib/api'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { EditModeEdge, useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
+import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -227,7 +228,17 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             observer.disconnect()
         }
     }, [mounted, containerRef])
-    const isMobileView = !!width && width <= BREAKPOINTS['sm']
+    // True once the grid has reflowed to a single column. Driven by the container width, which chrome (navbar,
+    // side panel) shrinks, so it's the wrong signal for "is the screen too small to edit". The grid background
+    // and inline-insert overlay assume the 12-column layout, so they stand down while the container is narrow.
+    const isNarrowContainer = !!width && width <= BREAKPOINTS['sm']
+
+    // Whether editing is genuinely unusable. Gate this on the viewport width, not the container width: opening
+    // the side panel shrinks the container but not the screen, and editing still works after react-grid-layout
+    // reflows. Only a truly small window disables drag and resize.
+    const { windowSize } = useWindowSize()
+    const isScreenTooSmallToEdit = !!windowSize.width && windowSize.width <= BREAKPOINTS['sm']
+
     const isEditablePlacement = [
         DashboardPlacement.Dashboard,
         DashboardPlacement.ProjectHomepage,
@@ -235,7 +246,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     ].includes(placement)
 
     const canEnterEditModeFromEdge =
-        !!dashboard && canEditDashboard && !layoutEditMode && !isMobileView && isEditablePlacement
+        !!dashboard && canEditDashboard && !layoutEditMode && !isScreenTooSmallToEdit && isEditablePlacement
 
     const isLayoutZoomToggled = layoutEditMode && layoutZoom !== 1
 
@@ -266,7 +277,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         ]
     )
 
-    const showResizeHandles = layoutEditMode && !isMobileView && isEditablePlacement && !isLayoutZoomToggled
+    const showResizeHandles = layoutEditMode && !isScreenTooSmallToEdit && isEditablePlacement && !isLayoutZoomToggled
     const showEditingControls = isEditablePlacement || layoutEditMode
     const showDetailsControls =
         placement !== DashboardPlacement.Export &&
@@ -275,23 +286,23 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     const dragConfig = useMemo(
         () => ({
-            enabled: layoutEditMode && !isMobileView,
+            enabled: layoutEditMode && !isScreenTooSmallToEdit,
             handle: '.CardMeta,.TextCard__body,.ButtonTileCard__body,.WidgetCard__header,.drag-handle',
             cancel: 'a,table,button,input,.Popover',
             bounded: true,
         }),
-        [layoutEditMode, isMobileView]
+        [layoutEditMode, isScreenTooSmallToEdit]
     )
 
     const resizeConfig = useMemo(
         () => ({
-            enabled: layoutEditMode && !isMobileView && !isLayoutZoomToggled,
+            enabled: layoutEditMode && !isScreenTooSmallToEdit && !isLayoutZoomToggled,
             handles: ['s', 'e', 'se', 'n', 'w', 'nw', 'ne', 'sw'] as const,
         }),
-        [layoutEditMode, isMobileView, isLayoutZoomToggled]
+        [layoutEditMode, isScreenTooSmallToEdit, isLayoutZoomToggled]
     )
 
-    useResizeHandleScrollbarPassThrough(layoutEditMode && !isMobileView)
+    useResizeHandleScrollbarPassThrough(layoutEditMode && !isScreenTooSmallToEdit)
 
     const onEnterEditModeFromEdge = useMemo(
         () =>
@@ -472,15 +483,15 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     return (
         <div className="dashboard-items-wrapper" ref={containerRef as RefObject<HTMLDivElement>}>
-            {layoutEditMode && isMobileView && (
+            {layoutEditMode && isScreenTooSmallToEdit && (
                 <LemonBanner type="warning" className="mb-4">
-                    Layout editing is disabled on smaller screens. Please zoom out or use a larger screen to move or
+                    Layout editing isn't available on small screens. Open the dashboard on a larger screen to move or
                     resize tiles.
                 </LemonBanner>
             )}
             {mounted && (
                 <div className="relative">
-                    {layoutEditMode && !isMobileView && (
+                    {layoutEditMode && !isNarrowContainer && (
                         <GridBackground
                             width={gridWidth}
                             cols={BREAKPOINT_COLUMN_COUNTS.sm}
@@ -706,7 +717,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                             marginX={margin[0]}
                             marginY={margin[1]}
                             canEditDashboard={canEditDashboard}
-                            isMobileView={isMobileView}
+                            isMobileView={isNarrowContainer}
                             disabled={resizingTileId !== null}
                             getMenuItems={getInsertMenuItems}
                         />

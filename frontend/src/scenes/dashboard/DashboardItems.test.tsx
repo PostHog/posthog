@@ -265,6 +265,32 @@ describe('DashboardItems', () => {
         expect(container.firstChild).toMatchSnapshot()
     })
 
+    // The grid container is mocked at 1200px throughout. Editing must track the viewport width, not the
+    // container, so chrome (navbar, side panel) shrinking the grid doesn't silently disable drag on a
+    // normal-sized screen. A container-based gate would keep drag on at a 500px viewport and fail the second case.
+    it.each([
+        ['a viewport wide enough to edit', 1400, 'true', false],
+        ['a viewport too small to edit', 500, 'false', true],
+    ])('gates layout editing on the viewport width: %s', (_name, innerWidth, expectedDragEnabled, expectBanner) => {
+        const originalWidth = window.innerWidth
+        Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: innerWidth })
+        try {
+            const { container, queryByText } = render(<DashboardItems />)
+            expect(container.querySelector('[data-attr="react-grid-layout"]')).toHaveAttribute(
+                'data-drag-enabled',
+                expectedDragEnabled
+            )
+            const banner = queryByText(/Layout editing isn't available on small screens/)
+            if (expectBanner) {
+                expect(banner).toBeInTheDocument()
+            } else {
+                expect(banner).not.toBeInTheDocument()
+            }
+        } finally {
+            Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: originalWidth })
+        }
+    })
+
     it('shows widget tiles on public dashboards', () => {
         const widgetTile = {
             id: 2,
