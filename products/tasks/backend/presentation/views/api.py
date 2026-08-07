@@ -1054,6 +1054,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _user_id(self) -> int | None:
         return getattr(self.request.user, "id", None)
 
+    def _is_sandbox_agent_request(self, task_id: str) -> bool:
+        authenticator = self.request.successful_authenticator
+        if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+            return False
+        application = authenticator.access_token.application
+        return bool(
+            application is not None
+            and application.client_id in POSTHOG_CODE_OAUTH_APP_CLIENT_IDS
+            and authenticator.access_token.sandbox_task_id == UUID(task_id)
+        )
+
     # Actions that only read run state. Everything else mutates or drives the
     # run, so it requires task control (not just visibility): public-channel
     # visibility lets teammates watch a run, never command it. connection_token
@@ -1620,8 +1631,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def artifacts_finalize_upload(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
+        is_agent_upload = self._is_sandbox_agent_request(task_id)
         finalized_entries, error = tasks_facade.finalize_task_run_artifact_uploads(
-            pk, task_id, self.team_id, artifacts=request.validated_data["artifacts"]
+            pk,
+            task_id,
+            self.team_id,
+            artifacts=request.validated_data["artifacts"],
+            uploaded_by="agent" if is_agent_upload else "user",
+            uploaded_by_user_id=None if is_agent_upload else self._user_id(),
         )
         if finalized_entries is None and error is None:
             raise NotFound()

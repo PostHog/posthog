@@ -2788,7 +2788,13 @@ def prepare_task_run_artifact_uploads(
 
 
 def finalize_task_run_artifact_uploads(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifacts: list[dict]
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    artifacts: list[dict],
+    uploaded_by: Literal["agent", "user"],
+    uploaded_by_user_id: int | None,
 ) -> tuple[list[dict] | None, str | None]:
     """Verify directly-uploaded S3 objects and attach them to the run manifest.
 
@@ -2852,6 +2858,9 @@ def finalize_task_run_artifact_uploads(
             uploaded_at=django_timezone.now().isoformat(),
             metadata=artifact.get("metadata"),
         )
+        entry["uploaded_by"] = uploaded_by
+        if uploaded_by == "user" and uploaded_by_user_id is not None:
+            entry["uploaded_by_user_id"] = uploaded_by_user_id
         manifest.append(entry)
         new_entries.append(entry)
         finalized_entries.append(entry)

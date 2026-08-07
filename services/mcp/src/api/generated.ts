@@ -49991,6 +49991,18 @@ export namespace Schemas {
       schema_version: number;
     }
 
+    /**
+     * * `agent` - agent
+     * * `user` - user
+     */
+    export type UploadedByEnum = typeof UploadedByEnum[keyof typeof UploadedByEnum];
+
+
+    export const UploadedByEnum = {
+      Agent: 'agent',
+      User: 'user',
+    } as const;
+
     export interface TaskRunArtifactResponse {
       /** Stable identifier for the artifact within this run */
       id?: string;
@@ -50010,6 +50022,16 @@ export namespace Schemas {
       storage_path: string;
       /** Timestamp when the artifact was uploaded */
       uploaded_at: string;
+      /** Whether the artifact version was uploaded by the task agent or an interactive user.
+       *
+       * * `agent` - agent
+       * * `user` - user */
+      uploaded_by?: UploadedByEnum | null;
+      /**
+         * User id for an interactive user upload. Absent for agent uploads and legacy entries.
+         * @nullable
+         */
+      uploaded_by_user_id?: number | null;
       /** Timestamp when a user dismissed the artifact. Absent while the artifact is shown. */
       dismissed_at?: string;
       /** Stable download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file; it redirects to a fresh presigned URL on each request and is not persisted on the manifest. */
