@@ -13,6 +13,18 @@ from posthog.slo.types import SloConfig
 UNDISCLOSED_QUERY_ERROR_TYPES = frozenset({"ClickHouseQueryMemoryLimitExceeded"})
 
 
+def undisclosed_query_error_type(exc: BaseException) -> typing.Optional[str]:
+    seen: set[int] = set()
+    current: typing.Optional[BaseException] = exc
+    while current is not None and id(current) not in seen:
+        type_name = type(current).__name__
+        if type_name in UNDISCLOSED_QUERY_ERROR_TYPES:
+            return type_name
+        seen.add(id(current))
+        current = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
+    return None
+
+
 def safe_error_message(exc: BaseException) -> typing.Optional[str]:
     """Owner-safe snippet of an exception, or None when the text may carry team-scoped data.
 

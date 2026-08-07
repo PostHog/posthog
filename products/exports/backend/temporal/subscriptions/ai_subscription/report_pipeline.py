@@ -45,7 +45,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     build_enriched_prompt,
     build_frozen_prompt,
 )
-from products.exports.backend.temporal.subscriptions.types import UNDISCLOSED_QUERY_ERROR_TYPES, safe_error_message
+from products.exports.backend.temporal.subscriptions.types import safe_error_message, undisclosed_query_error_type
 
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.llm import MaxChatOpenAI
@@ -448,6 +448,7 @@ async def _run_steps(
 
         # type only — ClickHouse errors can echo team-scoped identifiers
         type_name = type(last_exc).__name__ if last_exc is not None else "UnknownError"
+        undisclosed_type = undisclosed_query_error_type(last_exc) if last_exc is not None else None
         logger.warning(
             "ai_report.query_failed",
             trace_correlation_id=trace_correlation_id,
@@ -457,14 +458,14 @@ async def _run_steps(
         )
         if last_exc is not None:
             capture_exception(last_exc, {"trace_correlation_id": trace_correlation_id, "stage": "query"})
-        cause = "" if type_name in UNDISCLOSED_QUERY_ERROR_TYPES else f" ({type_name})"
+        cause = "" if undisclosed_type is not None else f" ({type_name})"
         return (
             f"### {safe_description}\n\n_{QUERY_FAILED_PREFIX}{cause} — metric not computed, not empty data._",
             QueryStepDiagnostic(
                 description=safe_description,
                 hogql=window.render_window_filter(current_hogql),
                 ok=False,
-                error_type=type_name,
+                error_type=undisclosed_type or type_name,
                 human_readable_error=safe_error_message(last_exc) if last_exc is not None else None,
             ),
         )

@@ -2,6 +2,8 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -112,24 +114,37 @@ class TestSubscriptionAssetErrorMessage(APIBaseTest):
         super().setUp()
         self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
 
-    def test_passes_through_non_oom_exception_text(self) -> None:
-        asset = self._asset("Unknown table 'nonexistent_table'")
-        assert subscription_asset_error_message(asset) == "Unknown table 'nonexistent_table'"
-
-    def test_replaces_out_of_memory_text_with_generic_message(self) -> None:
-        asset = self._asset(
-            "This query ran out of memory before it could finish, usually because it's scanning too much data."
-        )
-        assert subscription_asset_error_message(asset) == ASSET_GENERATION_FAILED_MESSAGE
-
-    def test_replaces_out_of_memory_regardless_of_casing(self) -> None:
-        asset = self._asset("Query Ran Out Of Memory")
-        assert subscription_asset_error_message(asset) == ASSET_GENERATION_FAILED_MESSAGE
-
-    def test_replaces_memory_limit_exception_by_type(self) -> None:
-        asset = self._asset("Memory limit (for query) exceeded", "ClickHouseQueryMemoryLimitExceeded")
-        assert subscription_asset_error_message(asset) == ASSET_GENERATION_FAILED_MESSAGE
-
-    def test_falls_back_to_generic_message_when_no_exception(self) -> None:
-        asset = self._asset(None)
-        assert subscription_asset_error_message(asset) == ASSET_GENERATION_FAILED_MESSAGE
+    @parameterized.expand(
+        [
+            (
+                "passes_through_non_oom_text",
+                "Unknown table 'nonexistent_table'",
+                None,
+                "Unknown table 'nonexistent_table'",
+            ),
+            (
+                "replaces_out_of_memory_text",
+                "This query ran out of memory before it could finish, usually because it's scanning too much data.",
+                None,
+                ASSET_GENERATION_FAILED_MESSAGE,
+            ),
+            (
+                "replaces_out_of_memory_regardless_of_casing",
+                "Query Ran Out Of Memory",
+                None,
+                ASSET_GENERATION_FAILED_MESSAGE,
+            ),
+            (
+                "replaces_memory_limit_exception_by_type",
+                "Memory limit (for query) exceeded",
+                "ClickHouseQueryMemoryLimitExceeded",
+                ASSET_GENERATION_FAILED_MESSAGE,
+            ),
+            ("falls_back_when_no_exception", None, None, ASSET_GENERATION_FAILED_MESSAGE),
+        ]
+    )
+    def test_subscription_asset_error_message(
+        self, _name: str, exception: str | None, exception_type: str | None, expected: str
+    ) -> None:
+        asset = self._asset(exception, exception_type)
+        assert subscription_asset_error_message(asset) == expected

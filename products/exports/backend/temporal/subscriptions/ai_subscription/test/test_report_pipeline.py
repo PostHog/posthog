@@ -33,6 +33,8 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
 )
 from products.exports.backend.temporal.subscriptions.types import safe_error_message
 
+from ee.hogai.tool_errors import MaxToolRetryableError
+
 _RP = "products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline"
 _SG = "products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator"
 # slo_operation emits through posthoganalytics.capture; patch that boundary to inspect the SLO events.
@@ -272,6 +274,23 @@ async def test_run_steps_placeholder_omits_undisclosed_error_type(mock_executor_
     assert rendered[0] == f"### s0\n\n_{QUERY_FAILED_PREFIX} — metric not computed, not empty data._"
     assert diagnostics[0].error_type == "ClickHouseQueryMemoryLimitExceeded"
     assert diagnostics[0].human_readable_error is None
+
+
+@patch(f"{_RP}.AssistantQueryExecutor")
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
+async def test_run_steps_placeholder_omits_wrapped_undisclosed_error_type(
+    mock_hogql_fix: AsyncMock, mock_executor_cls: MagicMock
+) -> None:
+    error = MaxToolRetryableError("Memory limit exceeded")
+    error.__cause__ = ClickHouseQueryMemoryLimitExceeded()
+    mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=error)
+
+    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
+
+    assert failed == 1
+    assert rendered[0] == f"### s0\n\n_{QUERY_FAILED_PREFIX} — metric not computed, not empty data._"
+    assert diagnostics[0].error_type == "ClickHouseQueryMemoryLimitExceeded"
+    mock_hogql_fix.assert_awaited_once()
 
 
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
