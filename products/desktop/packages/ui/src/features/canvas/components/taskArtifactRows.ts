@@ -168,12 +168,14 @@ export function buildRows(
   // revise a deliverable and upload it again under the same name, so keeping
   // every copy would bury the current one under its own drafts.
   const newestByName = new Map<string, { file: RunArtifact; runId: string }>();
+  const undismissedNames = new Set<string>();
   for (const run of allRuns) {
     for (const outputPr of readPrUrls(run.output)) {
       addPr(outputPr, `output-pr:${outputPr}`);
     }
     for (const file of readRunOutputs(run)) {
       if (!file.name) continue;
+      if (!file.dismissed_at) undismissedNames.add(file.name);
       const previous = newestByName.get(file.name);
       const isNewer =
         !previous ||
@@ -182,6 +184,9 @@ export function buildRows(
     }
   }
   for (const [name, { file, runId }] of newestByName) {
+    // A file goes only when every version of it is dismissed, so dismissing the
+    // one on show cannot resurface the copy it replaced.
+    if (!undismissedNames.has(name)) continue;
     rows.push({
       kind: "file",
       key: `file:${file.id ?? file.storage_path ?? name}`,
