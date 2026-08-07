@@ -138,17 +138,17 @@ function slackTriggerInvalidMessage(
     return `'${badChannel}' isn't a Slack channel ID. Use the ID, like C0123ABCDEF, not the channel name.`;
   }
   const posters = config.allowed_posters;
-  if (
-    posters?.mode === "slack_user_ids" &&
-    (posters.slack_user_ids ?? []).length === 0
-  ) {
-    return "Add at least one Slack user, bot or app ID that's allowed to trigger this loop.";
-  }
-  const badActor = (posters?.slack_user_ids ?? []).find(
-    (id) => !isSlackActorId(id),
-  );
-  if (badActor) {
-    return `'${badActor}' isn't a Slack ID. Use a user ID (U…), bot ID (B…) or app ID (A…).`;
+  if (posters?.mode === "slack_user_ids") {
+    const allowed = posters.slack_user_ids ?? [];
+    if (allowed.length === 0) {
+      return "Add at least one Slack user, bot or app ID that's allowed to trigger this loop.";
+    }
+    // Only the allowlist mode sends these, so a list left behind by a mode switch must not
+    // report as the reason a trigger in another mode is unfinished.
+    const badActor = allowed.find((id) => !isSlackActorId(id));
+    if (badActor) {
+      return `'${badActor}' isn't a Slack ID. Use a user ID (U…), bot ID (B…) or app ID (A…).`;
+    }
   }
   return "Fill in a path and a value for each message condition, or remove the empty rows.";
 }

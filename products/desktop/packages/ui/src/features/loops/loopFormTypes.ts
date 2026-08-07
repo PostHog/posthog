@@ -420,8 +420,11 @@ export function isTriggerDraftValid(trigger: LoopTriggerDraft): boolean {
       config.slack_integration_id > 0 &&
       config.channel_ids.length > 0 &&
       config.channel_ids.every(isSlackChannelId) &&
+      // Shape-check the allowlist, not just that it is non-empty: a channel ID pasted into a
+      // field asking for a user, bot or app ID looks filled in and is rejected by the API.
       (posters?.mode !== "slack_user_ids" ||
-        (posters.slack_user_ids ?? []).length > 0) &&
+        ((posters.slack_user_ids ?? []).length > 0 &&
+          (posters.slack_user_ids ?? []).every(isSlackActorId))) &&
       (config.filters?.payload ?? []).every(isPayloadConditionValid)
     );
   }

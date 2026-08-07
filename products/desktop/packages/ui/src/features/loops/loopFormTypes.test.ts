@@ -3,6 +3,7 @@ import { systemTimezone } from "@posthog/ui/primitives/timezone";
 import { describe, expect, it } from "vitest";
 import {
   defaultLoopBehaviors,
+  defaultLoopTriggerOfType,
   emptyLoopFormValues,
   formValuesToLoopWrite,
   githubTriggerActionOptions,
@@ -633,6 +634,29 @@ describe("slack triggers", () => {
       },
       expected: false,
     },
+    // Both fields ask for "a Slack ID", so pasting a channel ID into the allowlist is easy.
+    // It looks filled in, and only the API would reject it.
+    {
+      name: "a channel id on the allowlist",
+      config: {
+        allowed_posters: {
+          mode: "slack_user_ids" as const,
+          slack_user_ids: ["C0CHANNEL01"],
+        },
+      },
+      expected: false,
+    },
+    // A list left behind by a mode switch is never sent, so it must not block save.
+    {
+      name: "a stale allowlist under another mode",
+      config: {
+        allowed_posters: {
+          mode: "org_members" as const,
+          slack_user_ids: ["C0CHANNEL01"],
+        },
+      },
+      expected: true,
+    },
     {
       name: "a half-filled message condition",
       config: { filters: { payload: [{ path: "subtype", equals: "" }] } },
@@ -640,6 +664,17 @@ describe("slack triggers", () => {
     },
   ])("validity blocks save for $name", ({ config, expected }) => {
     expect(isTriggerDraftValid(slackTrigger(config))).toBe(expected);
+  });
+
+  it("the add-trigger menu produces a draft with a poster mode already set", () => {
+    // The mode decides whose message spends the loop owner's credentials, so a draft that
+    // arrived without one would render the control blank and read as ungated.
+    const draft = defaultLoopTriggerOfType("slack");
+    const config = draft.config as LoopSchemas.LoopSlackTriggerConfig;
+
+    expect(draft.type).toBe("slack");
+    expect(config.allowed_posters).toEqual({ mode: "org_members" });
+    expect(config.channel_ids).toEqual([]);
   });
 
   it("normalizes ids and keywords for the write payload", () => {
