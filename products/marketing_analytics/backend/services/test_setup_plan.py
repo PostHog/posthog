@@ -226,6 +226,24 @@ class TestInvariants(SetupPlanTestCase):
         # The same object the plan builds its own suggestions from, not an equal-looking copy.
         assert [p.raw_utm_campaign for p in proposals.proposals] == ["sprng_sale_2024"]
 
+    @pytest.mark.asyncio
+    async def test_summary_separates_partial_capabilities_from_blocked_ones(self):
+        # Counting only UNLOCKED reported "0 of 4 capabilities unlocked" for a team whose four were
+        # all partial — which reads as nothing working at all.
+        self.diagnostic = MarketingDiagnosticResponse(
+            integrations=[
+                _integration("google_ads", "GoogleAds", status="healthy"),
+                _integration("meta_ads", "MetaAds", status="sync_broken"),
+            ],
+            overall_status="degraded",
+            conversion_goals=ConversionGoalsListResponse(goals=[_goal()]),
+        )
+
+        plan = await get_setup_plan(self.team)
+
+        assert any(r.status == ReadinessStatus.PARTIAL for r in plan.readiness)
+        assert "partial" in plan.summary
+
     def test_a_mapping_kind_cannot_be_built_without_the_url_fix(self):
         # This used to live in a helper the builders had to remember, plus a hardcoded copy of
         # the kind set here — so a new mapping kind bypassed both.

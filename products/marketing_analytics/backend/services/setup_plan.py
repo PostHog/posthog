@@ -717,9 +717,15 @@ def _summary(suggestions: list[Suggestion], readiness: list[CapabilityReadiness]
         return "Nothing to fix — every check passed."
     errors = sum(1 for s in suggestions if s.severity == Severity.ERROR)
     unlocked = sum(1 for r in readiness if r.status == ReadinessStatus.UNLOCKED)
+    partial = sum(1 for r in readiness if r.status == ReadinessStatus.PARTIAL)
+    # Partial counted separately: "0 of 4 unlocked" reads as nothing working, and a team whose
+    # four capabilities are all partial is in a very different place from one where they're blocked.
+    capabilities = f"{unlocked} of {len(readiness)} capabilities unlocked"
+    if partial:
+        capabilities += f", {partial} partial"
     parts = [
         f"{len(suggestions)} suggestion(s), {errors} blocking.",
-        f"{unlocked} of {len(readiness)} capabilities unlocked.",
+        f"{capabilities}.",
     ]
     if degraded:
         parts.append(f"Incomplete: {', '.join(degraded)} could not be read.")
