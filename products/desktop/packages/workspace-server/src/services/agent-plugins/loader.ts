@@ -8,8 +8,8 @@ import {
   type AgentPluginDiagnostic,
   type AgentPluginHttpMcpServer,
   type AgentPluginManifest,
-  type AgentPluginPreview,
   type AgentPluginSkill,
+  type LoadedAgentPlugin,
 } from "./schemas";
 
 const PLUGIN_NAME_PATTERN =
@@ -624,10 +624,10 @@ function isValidStdioCwd(pluginRoot: string, value: string): boolean {
   return false;
 }
 
-function isValidUnsupportedMcpServer(
+async function isValidUnsupportedMcpServer(
   pluginRoot: string,
   value: Record<string, unknown>,
-): value is Record<string, unknown> & { type: "stdio" | "sse" } {
+): Promise<boolean> {
   if (value.type === "sse") {
     if (!hasOnlyFields(value, REMOTE_MCP_FIELDS)) return false;
     if (typeof value.url !== "string") return false;
@@ -658,11 +658,18 @@ function isValidUnsupportedMcpServer(
     !value.command.includes("/") &&
     !value.command.includes("\\") &&
     !/\s/.test(value.command);
-  if (
-    (isPluginCommand && !isContainedPluginPath(pluginRoot, value.command)) ||
-    (!isPluginCommand && !isBareCommand)
-  ) {
-    return false;
+  if (!isPluginCommand && !isBareCommand) return false;
+  if (isPluginCommand) {
+    if (!isContainedPluginPath(pluginRoot, value.command)) return false;
+    try {
+      const resolvedCommand = await fs.promises.realpath(
+        path.resolve(pluginRoot, value.command),
+      );
+      if (!isPathContained(pluginRoot, resolvedCommand)) return false;
+      if (!(await fs.promises.stat(resolvedCommand)).isFile()) return false;
+    } catch {
+      return false;
+    }
   }
   if (
     value.args !== undefined &&
@@ -684,10 +691,29 @@ function isValidUnsupportedMcpServer(
       return false;
     }
   }
-  return (
-    value.cwd === undefined ||
-    (typeof value.cwd === "string" && isValidStdioCwd(pluginRoot, value.cwd))
-  );
+  if (value.cwd === undefined) return true;
+  if (
+    typeof value.cwd !== "string" ||
+    !isValidStdioCwd(pluginRoot, value.cwd)
+  ) {
+    return false;
+  }
+  if (value.cwd.startsWith(PLUGIN_DATA_PLACEHOLDER)) return true;
+
+  const relativeCwd = value.cwd.startsWith(PLUGIN_ROOT_PLACEHOLDER)
+    ? `.${value.cwd.slice(PLUGIN_ROOT_PLACEHOLDER.length)}`
+    : value.cwd;
+  try {
+    const resolvedCwd = await fs.promises.realpath(
+      path.resolve(pluginRoot, relativeCwd),
+    );
+    return (
+      isPathContained(pluginRoot, resolvedCwd) &&
+      (await fs.promises.stat(resolvedCwd)).isDirectory()
+    );
+  } catch {
+    return false;
+  }
 }
 
 async function loadMcpServers(
@@ -793,7 +819,7 @@ async function loadMcpServers(
       continue;
     }
 
-    if (isValidUnsupportedMcpServer(pluginRoot, rawServer)) {
+    if (await isValidUnsupportedMcpServer(pluginRoot, rawServer)) {
       diagnostics.push(
         diagnostic(
           "warning",
@@ -819,7 +845,7 @@ async function loadMcpServers(
 
 export async function loadAgentPlugin(
   sourcePath: string,
-): Promise<AgentPluginPreview> {
+): Promise<LoadedAgentPlugin> {
   const diagnostics: AgentPluginDiagnostic[] = [];
   let pluginRoot: string;
   try {

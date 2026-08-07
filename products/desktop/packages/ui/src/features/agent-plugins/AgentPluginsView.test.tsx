@@ -80,6 +80,7 @@ describe("AgentPluginsView", () => {
             name: "example-plugin",
           },
           skills: [],
+          mcpServers: [],
           diagnostics: [
             {
               severity: "error",

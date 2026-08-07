@@ -19,7 +19,9 @@ import {
 import {
   AGENT_PLUGIN_INSTALLATION_ID_PATTERN,
   type AgentPluginDiagnostic,
+  type AgentPluginHttpMcpServer,
   type AgentPluginInstallation,
+  type AgentPluginMcpServerSummary,
   type AgentPluginPreview,
   agentPluginState,
 } from "./schemas";
@@ -32,20 +34,6 @@ interface RuntimeAgentPlugin {
 interface PersistedState {
   version: 1;
   installations: AgentPluginInstallation[];
-}
-
-export function agentPluginRuntimeMcpName(
-  installationId: string,
-  pluginName: string,
-  serverName: string,
-): string {
-  const pluginSlug = pluginName.replaceAll(".", "-").slice(0, 32);
-  const serverHash = crypto
-    .createHash("sha256")
-    .update(serverName)
-    .digest("hex")
-    .slice(0, 8);
-  return `agent-plugin-${pluginSlug}-${installationId.slice(0, 8)}-${serverHash}`;
 }
 
 interface PendingSelection {
@@ -65,6 +53,30 @@ const MAX_SKILL_SNAPSHOT_BYTES = 8 * 1024 * 1024;
 const MAX_PLUGIN_SNAPSHOT_FILES = 1024;
 const MAX_PLUGIN_SNAPSHOT_BYTES = 32 * 1024 * 1024;
 const SNAPSHOT_READ_CHUNK_BYTES = 64 * 1024;
+
+function summarizeMcpServers(
+  servers: AgentPluginHttpMcpServer[],
+): AgentPluginMcpServerSummary[] {
+  return servers.map((server) => ({
+    name: server.name,
+    type: server.type,
+    supported: true,
+  }));
+}
+
+export function agentPluginRuntimeMcpName(
+  installationId: string,
+  pluginName: string,
+  serverName: string,
+): string {
+  const pluginSlug = pluginName.replaceAll(".", "-").slice(0, 32);
+  const serverHash = crypto
+    .createHash("sha256")
+    .update(serverName)
+    .digest("hex")
+    .slice(0, 8);
+  return `agent-plugin-${pluginSlug}-${installationId.slice(0, 8)}-${serverHash}`;
+}
 
 @injectable()
 export class AgentPluginsService {
@@ -100,21 +112,23 @@ export class AgentPluginsService {
                 : installation.manifest,
             skills: sourceUnchanged && preview.valid ? preview.skills : [],
             mcpServers:
-              sourceUnchanged && preview.valid ? preview.mcpServers : [],
-            diagnostics: sourceUnchanged
-              ? [
-                  ...preview.diagnostics,
-                  ...(this.runtimeDiagnostics.get(installation.id) ?? []),
-                ]
-              : [
-                  ...preview.diagnostics,
-                  {
-                    severity: "error",
-                    code: "source_changed",
-                    message:
-                      "The Agent Plugin directory changed. Remove it and add it again.",
-                  },
-                ],
+              sourceUnchanged && preview.valid
+                ? summarizeMcpServers(preview.mcpServers)
+                : [],
+            diagnostics: [
+              ...(sourceUnchanged
+                ? preview.diagnostics
+                : [
+                    ...preview.diagnostics,
+                    {
+                      severity: "error" as const,
+                      code: "source_changed",
+                      message:
+                        "The Agent Plugin directory changed. Remove it and add it again.",
+                    },
+                  ]),
+              ...(this.runtimeDiagnostics.get(installation.id) ?? []),
+            ],
           } satisfies AgentPluginInstallation;
         }),
       );
@@ -131,14 +145,18 @@ export class AgentPluginsService {
     if (!sourcePath) return null;
 
     const preview = await loadAgentPlugin(sourcePath);
-    if (!preview.valid) return preview;
+    const publicPreview: AgentPluginPreview = {
+      ...preview,
+      mcpServers: summarizeMcpServers(preview.mcpServers),
+    };
+    if (!preview.valid) return publicPreview;
 
     const selectionToken = crypto.randomUUID();
     this.pendingSelections.set(selectionToken, {
       sourcePath: preview.sourcePath,
       expiresAt: Date.now() + SELECTION_TTL_MS,
     });
-    return { ...preview, selectionToken };
+    return { ...publicPreview, selectionToken };
   }
 
   async register(selectionToken: string): Promise<AgentPluginInstallation> {
@@ -171,7 +189,7 @@ export class AgentPluginsService {
         enabled: existing?.enabled ?? true,
         manifest,
         skills: preview.skills,
-        mcpServers: preview.mcpServers,
+        mcpServers: summarizeMcpServers(preview.mcpServers),
         diagnostics: preview.diagnostics,
       };
       const installations = state.installations.filter(
@@ -198,6 +216,10 @@ export class AgentPluginsService {
           item.id === id ? updated : item,
         ),
       });
+      if (!enabled) {
+        this.runtimeDiagnostics.delete(id);
+        this.httpProxy.unregisterInstallation(id);
+      }
       return updated;
     });
   }
@@ -209,11 +231,12 @@ export class AgentPluginsService {
       if (!state.installations.some((item) => item.id === id)) {
         throw new Error("Agent Plugin installation not found.");
       }
-      this.runtimeDiagnostics.delete(id);
       await this.writeState({
         version: 1,
         installations: state.installations.filter((item) => item.id !== id),
       });
+      this.runtimeDiagnostics.delete(id);
+      this.httpProxy.unregisterInstallation(id);
     });
   }
 
@@ -225,7 +248,6 @@ export class AgentPluginsService {
       throw new Error(`Unsafe taskRunId: ${JSON.stringify(taskRunId)}`);
     }
 
-    this.runtimeDiagnostics.clear();
     const claimedServerNames = new Set(reservedServerNames);
     const state = await this.withStateTransaction(() => this.readState());
     const installations = state.installations
@@ -238,13 +260,15 @@ export class AgentPluginsService {
 
     const runtimeServers: McpServerConnection[] = [];
     for (const installation of installations) {
+      this.runtimeDiagnostics.delete(installation.id);
       const preview = await loadAgentPlugin(installation.sourcePath);
       if (
         !preview.valid ||
         !preview.manifest ||
         preview.sourcePath !== installation.sourcePath
-      )
+      ) {
         continue;
+      }
 
       for (const server of preview.mcpServers) {
         const runtimeName = agentPluginRuntimeMcpName(
@@ -266,6 +290,7 @@ export class AgentPluginsService {
           const url = await this.httpProxy.register({
             id: `${taskRunId}:${runtimeName}`,
             runId: taskRunId,
+            installationId: installation.id,
             url: server.url,
             headers: server.headers ?? {},
           });

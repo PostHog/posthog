@@ -1260,6 +1260,19 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
           taskRunId,
         });
       }
+      await this.agentPluginsService
+        .cleanupRuntimePlugins(taskRunId)
+        .catch(() =>
+          this.log.debug("Agent Plugin cleanup failed during error handling", {
+            taskRunId,
+          }),
+        );
+      await cleanupCodexHome(this.storagePaths.appDataPath, taskRunId).catch(
+        () =>
+          this.log.debug("Codex home cleanup failed during error handling", {
+            taskRunId,
+          }),
+      );
 
       if (!isRetry && isAuthError(err)) {
         this.log.warn(

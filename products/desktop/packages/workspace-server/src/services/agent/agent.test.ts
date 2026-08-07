@@ -647,6 +647,26 @@ describe("AgentService", () => {
       ]);
     });
 
+    it("cleans Agent Plugin runtime resources when session startup fails", async () => {
+      deps.agentPluginsService.prepareRuntimeMcpServers.mockResolvedValue([
+        {
+          name: "agent-plugin-example-12345678-abcdef12",
+          type: "http",
+          url: "http://127.0.0.1:4567/server",
+          headers: [],
+        },
+      ]);
+      mockNewSession.mockRejectedValueOnce(new Error("startup failed"));
+
+      await expect(
+        service.startSession({ ...baseSessionParams, adapter: "claude" }),
+      ).rejects.toThrow("startup failed");
+
+      expect(
+        deps.agentPluginsService.cleanupRuntimePlugins,
+      ).toHaveBeenCalledWith("run-1");
+    });
+
     it("passes identical MCP servers to both adapters when all servers are reachable", async () => {
       await service.startSession({
         ...baseSessionParams,

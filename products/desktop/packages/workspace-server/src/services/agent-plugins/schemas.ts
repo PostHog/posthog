@@ -44,12 +44,18 @@ export const agentPluginHttpMcpServer = z.object({
   headers: z.record(z.string(), z.string()).optional(),
 });
 
+export const agentPluginMcpServerSummary = z.object({
+  name: z.string(),
+  type: z.enum(["streamable-http", "stdio", "sse"]),
+  supported: z.boolean(),
+});
+
 export const agentPluginPreview = z.object({
   valid: z.boolean(),
   sourcePath: z.string(),
   manifest: agentPluginManifest.nullable(),
   skills: z.array(agentPluginSkill),
-  mcpServers: z.array(agentPluginHttpMcpServer),
+  mcpServers: z.array(agentPluginMcpServerSummary),
   diagnostics: z.array(agentPluginDiagnostic),
   selectionToken: z.string().uuid().optional(),
 });
@@ -60,7 +66,7 @@ export const agentPluginInstallation = z.object({
   enabled: z.boolean(),
   manifest: agentPluginManifest,
   skills: z.array(agentPluginSkill),
-  mcpServers: z.array(agentPluginHttpMcpServer),
+  mcpServers: z.array(agentPluginMcpServerSummary),
   diagnostics: z.array(agentPluginDiagnostic),
 });
 
@@ -80,14 +86,9 @@ export const setAgentPluginEnabledInput = z.object({
 export const agentPluginState = z.object({
   version: z.literal(1),
   installations: z.array(
-    z.object({
+    agentPluginInstallation.extend({
       id: z.string().regex(AGENT_PLUGIN_INSTALLATION_ID_PATTERN),
-      sourcePath: z.string(),
-      enabled: z.boolean(),
-      manifest: agentPluginManifest,
-      skills: z.array(agentPluginSkill),
-      mcpServers: z.array(agentPluginHttpMcpServer).default([]),
-      diagnostics: z.array(agentPluginDiagnostic),
+      mcpServers: z.array(agentPluginMcpServerSummary).default([]),
     }),
   ),
 });
@@ -96,5 +97,20 @@ export type AgentPluginDiagnostic = z.infer<typeof agentPluginDiagnostic>;
 export type AgentPluginManifest = z.infer<typeof agentPluginManifest>;
 export type AgentPluginSkill = z.infer<typeof agentPluginSkill>;
 export type AgentPluginHttpMcpServer = z.infer<typeof agentPluginHttpMcpServer>;
+export type AgentPluginMcpServerSummary = z.infer<
+  typeof agentPluginMcpServerSummary
+>;
 export type AgentPluginPreview = z.infer<typeof agentPluginPreview>;
 export type AgentPluginInstallation = z.infer<typeof agentPluginInstallation>;
+export type AgentPluginPersistedInstallation = z.infer<
+  typeof agentPluginState
+>["installations"][number];
+
+export interface LoadedAgentPlugin {
+  valid: boolean;
+  sourcePath: string;
+  manifest: AgentPluginManifest | null;
+  skills: AgentPluginSkill[];
+  mcpServers: AgentPluginHttpMcpServer[];
+  diagnostics: AgentPluginDiagnostic[];
+}

@@ -53,7 +53,7 @@ Streamable HTTP MCP servers use the canonical MCP schema:
 }
 ```
 
-Invalid MCP configuration does not disable valid skills. Each server is validated independently, so one invalid or unsupported server does not disable its valid siblings. PostHog Desktop sends configured headers only to the server's original origin when following redirects.
+Invalid MCP configuration does not disable valid skills. Each server is validated independently, so one invalid or unsupported server does not disable its valid siblings. PostHog Desktop follows same-origin redirects only. Configured header values stay in the privileged plugin loader and are not stored in the installation registry or returned to the app UI.
 
 ## Current limitations
 
