@@ -18,6 +18,9 @@ import {
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { ProductKey } from '~/queries/schema/schema-general'
+import { OnboardingStepKey } from '~/types'
+
 import {
     HealthCheck,
     HealthCheckAction,
@@ -46,16 +49,23 @@ interface WebHealthCheckConfig {
     urgent?: boolean
 }
 
+// Point install CTAs at the in-app onboarding flow so the button navigates somewhere the user
+// can see, rather than opening a background docs tab. Per-check docs stay reachable via `docsUrl`.
+const INSTALL_FLOW_URL = urls.onboarding({
+    productKey: ProductKey.WEB_ANALYTICS,
+    stepKey: OnboardingStepKey.INSTALL,
+})
+
 const INSTALL_GUIDE_ACTION: HealthCheckAction = {
     label: 'View installation guide',
-    to: 'https://posthog.com/docs/libraries/js',
+    to: INSTALL_FLOW_URL,
 }
 
 // The failing $pageview check reads like a "finish installing" call to action, so its button
 // should say the same thing rather than the generic "View installation guide".
 const COMPLETE_INSTALL_ACTION: HealthCheckAction = {
     label: 'Complete installation',
-    to: 'https://posthog.com/docs/libraries/js',
+    to: INSTALL_FLOW_URL,
 }
 
 const WEB_HEALTH_CHECKS: WebHealthCheckConfig[] = [
