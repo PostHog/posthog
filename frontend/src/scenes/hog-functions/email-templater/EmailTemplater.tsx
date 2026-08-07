@@ -588,18 +588,10 @@ function EmailPreviewOverlayButtons({ hasContent }: { hasContent: boolean }): JS
     const { templates } = useValues(emailTemplaterLogic)
     const { setIsModalOpen, setIsTemplatePickerOpen } = useActions(emailTemplaterLogic)
 
-    if (hasContent) {
-        return (
-            <LemonButton type="primary" size="small" onClick={() => setIsModalOpen(true)}>
-                Click to modify content
-            </LemonButton>
-        )
-    }
-
     return (
         <div className="flex gap-2 z-10">
             <LemonButton type="primary" size="small" onClick={() => setIsModalOpen(true)}>
-                Start blank
+                {hasContent ? 'Click to modify content' : 'Start blank'}
             </LemonButton>
             {templates.length > 0 && (
                 <LemonButton
@@ -704,6 +696,7 @@ function EmailTemplaterModal(): JSX.Element {
         isSaveTemplateModalOpen,
         isTemplatePickerOpen,
         activeContentTab,
+        templates,
     } = useValues(emailTemplaterLogic)
     const {
         closeWithConfirmation,
@@ -763,6 +756,11 @@ function EmailTemplaterModal(): JSX.Element {
                         </div>
                         <EmailTemplaterForm mode="full" fieldsHidden={fieldsHidden} />
                         <div className="flex gap-2 items-center mt-2">
+                            {templates.length > 0 && (
+                                <LemonButton type="secondary" onClick={() => setIsTemplatePickerOpen(true)}>
+                                    Start from template
+                                </LemonButton>
+                            )}
                             <LemonButton type="secondary" onClick={() => setIsSaveTemplateModalOpen(true)}>
                                 Save as new template
                             </LemonButton>

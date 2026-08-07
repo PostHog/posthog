@@ -14,6 +14,7 @@ import {
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 import { Editor, EmailEditorProps, EditorRef as _EditorRef } from 'react-email-editor'
 
 import { LemonDialog } from '@posthog/lemon-ui'
@@ -667,6 +668,11 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         },
 
         applyTemplate: ({ template }) => {
+            posthog.capture('email_template_applied', {
+                template_id: template.id,
+                templater_type: props.type,
+            })
+
             const emailTemplateContent = template.content.email
             actions.setEmailTemplateValues(emailTemplateContent)
 
