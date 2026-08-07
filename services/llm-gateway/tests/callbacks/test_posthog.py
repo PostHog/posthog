@@ -115,6 +115,28 @@ class TestPostHogCallback:
             assert props["ai_product"] == "wizard"
             mock_client.shutdown.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_ai_lane_capture_off_builds_standard_lane_client(
+        self,
+        auth_user: AuthenticatedUser,
+        standard_logging_object: dict,
+        mock_posthog_client: tuple,
+    ) -> None:
+        # The local-dev knob: with ai_lane_capture=False the client must drop to the standard
+        # capture lane (and with it multimodal capture), or local stacks keep losing every event.
+        mock_cls, _ = mock_posthog_client
+        callback = PostHogCallback(api_key="test-key", host="https://test.posthog.com", ai_lane_capture=False)
+        kwargs = {"standard_logging_object": standard_logging_object, "litellm_params": {}}
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="wizard"),
+        ):
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+        assert mock_cls.call_args.kwargs["_use_ai_lane"] is False
+        assert mock_cls.call_args.kwargs["_enable_multimodal_capture"] is False
+
     @pytest.mark.parametrize(
         "event_method, effort, caller_effort, expected",
         [

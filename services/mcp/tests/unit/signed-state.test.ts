@@ -4,6 +4,7 @@ import {
     loadSigningKeyFromEnv,
     NonceLedger,
     type NonceLedgerRedis,
+    PayloadStash,
     SignedStateAlreadyConsumed,
     SignedStateCodec,
     SignedStateExpired,
@@ -174,5 +175,63 @@ describe('NonceLedger', () => {
         await ledger.consume('nonce-1', 300)
         const args = redis.set.mock.calls[0]!
         expect(args).toEqual(['mcp:signed-state:nonce:nonce-1', '1', 'EX', 300, 'NX'])
+    })
+})
+
+describe('PayloadStash', () => {
+    it('yields the payload to only one of two concurrent takes', async () => {
+        // take() is GET then DEL; the DEL return value is the single-use
+        // guard. If take() ever stops checking it, two racing executes both
+        // GET the payload and both proceed — a destructive action runs twice.
+        const stored = new Map<string, string>([['mcp:signed-state:payload:nonce-1', '{"args":{}}']])
+        let delCalls = 0
+        const stash = new PayloadStash({
+            set: async () => 'OK',
+            get: async (key: string) => stored.get(key) ?? null,
+            del: async (...keys: string[]) => {
+                // Both takes GET before either DELs; only the first DEL wins.
+                delCalls += 1
+                if (delCalls > 1) {
+                    return 0
+                }
+                for (const key of keys) {
+                    stored.delete(key)
+                }
+                return 1
+            },
+            incrby: async (_key: string, increment: number) => increment,
+            expire: async () => 1,
+            ttl: async () => 60,
+        })
+        const winner = await stash.take('nonce-1')
+        stored.set('mcp:signed-state:payload:nonce-1', '{"args":{}}')
+        const loser = await stash.take('nonce-1')
+        expect(winner).toBe('{"args":{}}')
+        expect(loser).toBeNull()
+    })
+
+    it('re-arms a quota key that lost its expiry, and leaves a live one alone', async () => {
+        // A crash between the first INCRBY and its EXPIRE leaves the quota
+        // counter immortal; without the repair, a user crossing the quota is
+        // refused forever. Re-arming a live TTL would be wrong too — it
+        // extends the window on every refusal.
+        const expireCalls: Array<[string, number]> = []
+        let ttlValue = -1
+        const stash = new PayloadStash({
+            set: async () => 'OK',
+            get: async () => null,
+            del: async () => 0,
+            incrby: async (_key: string, increment: number) => increment,
+            expire: async (key: string, seconds: number) => {
+                expireCalls.push([key, seconds])
+                return 1
+            },
+            ttl: async () => ttlValue,
+        })
+        await stash.repairQuotaExpiry('user-1', 930)
+        expect(expireCalls).toEqual([['mcp:signed-state:payload-quota:user-1', 930]])
+        ttlValue = 500
+        await stash.repairQuotaExpiry('user-1', 930)
+        expect(expireCalls).toHaveLength(1)
     })
 })

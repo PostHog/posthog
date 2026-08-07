@@ -1,7 +1,7 @@
 import logging
 from typing import Any
 
-from products.messaging.backend.models.message_category import MessageCategory
+from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID, PreferenceStatus
 from products.messaging.backend.models.optout_sync_config import OptOutSyncConfig
 from products.messaging.backend.services.customerio_client import CustomerIOAPIError, CustomerIOTrackClient
@@ -10,8 +10,18 @@ logger = logging.getLogger(__name__)
 
 
 def _build_category_to_topic_map(team_id: int) -> dict[str, str]:
-    """Map PostHog category UUID -> Customer.io topic key for customerio_* categories only."""
-    categories = MessageCategory.objects.filter(team_id=team_id, key__startswith="customerio_", deleted=False)
+    """Map PostHog category UUID -> Customer.io topic key for customerio_* categories only.
+
+    Restricted to marketing categories: transactional sends bypass opt-outs on our side, so a
+    stored preference on a transactional category must not be pushed to Customer.io, where it
+    would take effect as a real subscription-topic change.
+    """
+    categories = MessageCategory.objects.filter(
+        team_id=team_id,
+        key__startswith="customerio_",
+        category_type=MessageCategoryType.MARKETING,
+        deleted=False,
+    )
     return {str(cat.id): cat.key.removeprefix("customerio_") for cat in categories}
 
 

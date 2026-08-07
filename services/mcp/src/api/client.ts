@@ -158,7 +158,9 @@ export class ApiClient {
         return `${this.publicBaseUrl}/project/${projectId}`
     }
 
-    private async fetch(url: string, options?: RequestInit): Promise<Response> {
+    // Every request, SSE stream and endpoint helper on this class funnels through here, which is what
+    // lets `ForwardingApiClient` re-route a whole client at one seam (see lib/connection-forwarding.ts).
+    protected async fetch(url: string, options?: RequestInit): Promise<Response> {
         const defaultHeaders: HeadersInit = {
             Authorization: `Bearer ${this.config.apiToken}`,
             'User-Agent': getUserAgent({ clientUserAgent: this.config.clientUserAgent }),
@@ -1452,6 +1454,17 @@ export class ApiClient {
 
     async getGroupTypes(projectId: string): Promise<GroupType[]> {
         const result = await this.fetchJson<GroupType[]>(`${this.baseUrl}/api/projects/${projectId}/groups_types/`)
+        if (!result.success) {
+            throw new Error(result.error.message)
+        }
+        return result.data
+    }
+
+    /** Every third-party MCP tool the caller can reach, across all their gateway connections. */
+    async getGatewayTools(projectId: string): Promise<Schemas.AvailableToolsResponse> {
+        const result = await this.fetchJson<Schemas.AvailableToolsResponse>(
+            `${this.baseUrl}/api/projects/${projectId}/mcp_server_installations/available_tools/`
+        )
         if (!result.success) {
             throw new Error(result.error.message)
         }

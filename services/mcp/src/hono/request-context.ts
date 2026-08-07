@@ -25,7 +25,6 @@ import {
 
 export class RequestContext {
     private tokenCacheInstance: RedisCache<State> | undefined
-    private sessionCacheInstance: RedisCache<State> | undefined
     private userCacheInstance: RedisCache<State> | undefined
     private apiInstance: ApiClient | undefined
     private sessionManagerInstance: SessionManager | undefined
@@ -56,16 +55,6 @@ export class RequestContext {
             this.tokenCacheInstance = new RedisCache<State>(this.props.userHash, this.redis, 'token')
         }
         return this.tokenCacheInstance
-    }
-
-    get sessionCache(): RedisCache<State> {
-        if (!this.props.mcpSessionId) {
-            throw new Error('Session ID is required to use the session cache')
-        }
-        if (!this.sessionCacheInstance) {
-            this.sessionCacheInstance = new RedisCache<State>(hash(this.props.mcpSessionId), this.redis, 'session')
-        }
-        return this.sessionCacheInstance
     }
 
     getUserCache(distinctId: string): RedisCache<State> {

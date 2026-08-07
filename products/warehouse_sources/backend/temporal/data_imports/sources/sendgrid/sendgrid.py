@@ -1,7 +1,7 @@
 import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from requests import Response
 
@@ -228,12 +228,59 @@ def sendgrid_source(
     )
 
 
-def get_status_code(api_key: str, path: str) -> Optional[int]:
+def get_status_code(api_key: str, path: str, params: Optional[dict[str, Any]] = None) -> Optional[int]:
     """Probe an endpoint to classify the credentials. Returns the HTTP status, or None on a
     transport error."""
+    query = urlencode(params if params is not None else {"limit": 1})
     _ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,)),
-        f"{SENDGRID_BASE_URL}{path}?limit=1",
+        f"{SENDGRID_BASE_URL}{path}?{query}",
         headers=_get_headers(api_key),
     )
     return status
+
+
+def _probe_params(config: SendGridEndpointConfig) -> dict[str, Any]:
+    """Smallest valid request for a permission probe, using the endpoint's own pagination params so
+    the probe is never rejected for a param that endpoint doesn't accept."""
+    params: dict[str, Any] = dict(config.extra_params)
+    if config.pagination == "offset":
+        params["limit"] = 1
+    elif config.pagination == "metadata":
+        params["page_size"] = 1
+    return params
+
+
+def get_endpoint_status_code(api_key: str, config: SendGridEndpointConfig) -> Optional[int]:
+    return get_status_code(api_key, config.path, _probe_params(config))
+
+
+def permission_error_for(config: SendGridEndpointConfig) -> str:
+    message = f"Your SendGrid API key is missing the `{config.required_scope}` scope."
+    if config.permission_note:
+        return f"{message} {config.permission_note}"
+    return message
+
+
+def get_endpoint_permissions(api_key: str, endpoints: list[str]) -> dict[str, str | None]:
+    """Per-table scope probe for the schema picker: None when the key can read an endpoint, a short
+    reason naming the missing scope when it can't.
+
+    Only a definitive denial counts as unreachable. A throttle, 5xx, or transport error leaves the
+    table selectable, since sending someone to change scopes that are already correct is worse than
+    letting the sync report the real error.
+    """
+    results: dict[str, str | None] = {}
+    for name in endpoints:
+        config = SENDGRID_ENDPOINTS.get(name)
+        if config is None:
+            results[name] = None
+            continue
+        status = get_endpoint_status_code(api_key, config)
+        if status == 401:
+            results[name] = "Your SendGrid API key is invalid or expired."
+        elif status == 403:
+            results[name] = permission_error_for(config)
+        else:
+            results[name] = None
+    return results

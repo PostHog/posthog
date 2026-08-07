@@ -162,6 +162,80 @@ CAMPAIGNS: tuple[DemoCampaign, ...] = (
         purchase_rate=0.015,
         scenario="same campaign name as a Meta campaign; only google-tagged events",
     ),
+    DemoCampaign(
+        platform="GoogleAds",
+        campaign_id="10006",
+        name="autumn_clearance",
+        daily_cost=120.0,
+        daily_impressions=3200,
+        daily_clicks=95,
+        daily_sessions=30,
+        utm_source="google",
+        utm_campaign="autumn_clearance",
+        referring_domain="google.com",
+        signup_rate=0.03,
+        purchase_rate=0.008,
+        # Every session carries the typo, so the campaign has spend and zero matched events — the
+        # shape the mapping suggester proposes for. `spring_sale_2026` above is the already-mapped
+        # counterpart, and `generic_search`'s traffic is clean, so neither produces a suggestion.
+        # Scores 93.3: proposed, but under the bar to be batch-applied.
+        utm_campaign_variants={"autum_clearnce": 1.0},
+        scenario="spend with no matched events: typo'd utm_campaign the suggester should map",
+    ),
+    DemoCampaign(
+        platform="GoogleAds",
+        campaign_id="10007",
+        name="holiday_push_q4",
+        daily_cost=80.0,
+        daily_impressions=2400,
+        daily_clicks=70,
+        daily_sessions=22,
+        utm_source="google",
+        utm_campaign="holiday_push_q4",
+        referring_domain="google.com",
+        signup_rate=0.04,
+        purchase_rate=0.01,
+        # Duplicated from Q3 without updating the template. Scores 93.3 against its own campaign,
+        # well over the cutoff, and is refused anyway because the only differing token is the
+        # quarter — merging the two would merge two quarters' spend.
+        utm_campaign_variants={"holiday_push_q3": 1.0},
+        scenario="period sibling: high score the suggester must refuse",
+    ),
+    DemoCampaign(
+        platform="GoogleAds",
+        campaign_id="10008",
+        name="retargeting_uk",
+        daily_cost=60.0,
+        daily_impressions=1800,
+        daily_clicks=55,
+        daily_sessions=18,
+        utm_source="google",
+        utm_campaign="retargeting_uk",
+        referring_domain="google.com",
+        signup_rate=0.05,
+        purchase_rate=0.012,
+        # Both regional campaigns share one typo'd template, so neither receives its own name and
+        # the orphan sits 92.9 from each. A tie the score can't break: it becomes advice, not a
+        # guess, because picking one would move the other region's spend.
+        utm_campaign_variants={"retargeting_ux": 1.0},
+        scenario="near-tie between two campaigns: advice-only, never a guess",
+    ),
+    DemoCampaign(
+        platform="GoogleAds",
+        campaign_id="10009",
+        name="retargeting_us",
+        daily_cost=60.0,
+        daily_impressions=1800,
+        daily_clicks=55,
+        daily_sessions=18,
+        utm_source="google",
+        utm_campaign="retargeting_us",
+        referring_domain="google.com",
+        signup_rate=0.05,
+        purchase_rate=0.012,
+        utm_campaign_variants={"retargeting_ux": 1.0},
+        scenario="the other half of the near-tie above",
+    ),
     # --- Meta Ads (source stale: last sync > 24h ago) ---
     DemoCampaign(
         platform="MetaAds",

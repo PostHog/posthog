@@ -506,14 +506,7 @@
                                 "description": "A conversion goal counted from events.",
                                 "properties": {
                                     "conversion_goal_id": {
-                                        "anyOf": [
-                                            {
-                                                "type": "string"
-                                            },
-                                            {
-                                                "type": "null"
-                                            }
-                                        ]
+                                        "type": "string"
                                     },
                                     "conversion_goal_name": {
                                         "type": "string"
@@ -1546,21 +1539,20 @@
                                         "description": "version of the node, used for schema migrations"
                                     }
                                 },
-                                "required": ["conversion_goal_name", "kind", "name", "schema_map"],
+                                "required": [
+                                    "conversion_goal_id",
+                                    "conversion_goal_name",
+                                    "kind",
+                                    "name",
+                                    "schema_map"
+                                ],
                                 "type": "object"
                             },
                             {
                                 "description": "A conversion goal counted from an action.",
                                 "properties": {
                                     "conversion_goal_id": {
-                                        "anyOf": [
-                                            {
-                                                "type": "string"
-                                            },
-                                            {
-                                                "type": "null"
-                                            }
-                                        ]
+                                        "type": "string"
                                     },
                                     "conversion_goal_name": {
                                         "type": "string"
@@ -2561,21 +2553,21 @@
                                         "description": "version of the node, used for schema migrations"
                                     }
                                 },
-                                "required": ["conversion_goal_name", "id", "kind", "name", "schema_map"],
+                                "required": [
+                                    "conversion_goal_id",
+                                    "conversion_goal_name",
+                                    "id",
+                                    "kind",
+                                    "name",
+                                    "schema_map"
+                                ],
                                 "type": "object"
                             },
                             {
                                 "description": "A conversion goal counted from a data warehouse table.",
                                 "properties": {
                                     "conversion_goal_id": {
-                                        "anyOf": [
-                                            {
-                                                "type": "string"
-                                            },
-                                            {
-                                                "type": "null"
-                                            }
-                                        ]
+                                        "type": "string"
                                     },
                                     "conversion_goal_name": {
                                         "type": "string"
@@ -3599,6 +3591,7 @@
                                     }
                                 },
                                 "required": [
+                                    "conversion_goal_id",
                                     "conversion_goal_name",
                                     "distinct_id_field",
                                     "id",
@@ -3785,7 +3778,7 @@
         },
         "modifiers": {},
         "name": {
-            "description": "Human-readable project name.",
+            "description": "Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.",
             "maxLength": 200,
             "minLength": 1,
             "type": "string"

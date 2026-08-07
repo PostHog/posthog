@@ -3,7 +3,9 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team.team import Team
 from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 
 from ee.models.rbac.access_control import AccessControl
@@ -19,6 +21,9 @@ class TestConversionGoalWrites(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.base_url = f"/api/projects/{self.team.pk}/marketing_analytics/conversion_goals"
+        # Writing goals needs the same project-admin level the settings PATCH path requires.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
 
     def create_goal(self, name: str, **extra):
         return self.client.post(f"{self.base_url}/create", {"goal": goal_payload(name, **extra)}, format="json")
@@ -143,3 +148,201 @@ class TestConversionGoalWrites(APIBaseTest):
 
         assert response.status_code == 400, response.json()
         assert len(self.stored_goals()) == 1
+
+    @parameterized.expand([("trailing_space", "Sign ups "), ("different_case", "SIGN UPS")])
+    def test_duplicate_name_is_rejected_ignoring_case_and_padding(self, _name: str, duplicate: str):
+        # Goal names become SQL column aliases downstream, where these collide.
+        self.create_goal("Sign ups")
+
+        response = self.create_goal(duplicate, event="signed_up")
+
+        assert response.status_code == 400, response.json()
+        assert len(self.stored_goals()) == 1
+
+    # --- the legacy full-config path ---
+    #
+    # The settings UI saves by PATCHing the whole marketing_analytics_config, which runs
+    # `validate_conversion_goals`. That validator requires a top-level `name` the goal schema treats
+    # as optional, so a goal written here without one makes every later UI save fail — and the UI
+    # never exposes `name`, so there is no way to repair it from the product.
+
+    def test_written_goals_carry_the_name_the_legacy_validator_requires(self):
+        goal = self.create_goal("Sign ups").json()["goal"]
+
+        assert goal["name"] == "Sign ups"
+        assert self.stored_goals()[0]["name"] == "Sign ups"
+
+    def test_renaming_keeps_the_legacy_name_in_step(self):
+        goal = self.create_goal("Sign ups").json()["goal"]
+
+        self.client.patch(
+            f"{self.base_url}/{goal['conversion_goal_id']}/update",
+            {"goal": {"conversion_goal_name": "Registrations"}},
+            format="json",
+        )
+
+        stored = self.stored_goals()[0]
+        assert (stored["conversion_goal_name"], stored["name"]) == ("Registrations", "Registrations")
+
+    def test_goals_written_here_round_trip_through_the_settings_save(self):
+        self.create_goal("Sign ups")
+        self.create_goal("Purchases", event="purchase")
+
+        # Exactly what marketingAnalyticsSettingsLogic sends on any settings change: the whole config.
+        response = self.client.patch(
+            f"/api/projects/{self.team.pk}/",
+            {"marketing_analytics_config": {"conversion_goals": self.stored_goals()}},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        assert [g["conversion_goal_name"] for g in self.stored_goals()] == ["Sign ups", "Purchases"]
+
+    # --- merge semantics ---
+
+    def test_update_merges_schema_map_key_by_key(self):
+        goal = self.create_goal("Sign ups").json()["goal"]
+
+        response = self.client.patch(
+            f"{self.base_url}/{goal['conversion_goal_id']}/update",
+            {"goal": {"schema_map": {"utm_source_name": "source"}}},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        # Dropping utm_campaign_name here would leave the goal silently unreported: the query runner
+        # falls back to a default column name and skips the goal with only a log warning.
+        assert self.stored_goals()[0]["schema_map"] == {
+            "utm_campaign_name": "utm_campaign",
+            "utm_source_name": "source",
+        }
+
+    def test_update_can_change_a_goals_kind_by_replacing_it(self):
+        goal = self.create_goal("Sign ups").json()["goal"]
+
+        response = self.client.patch(
+            f"{self.base_url}/{goal['conversion_goal_id']}/update",
+            {
+                "goal": {
+                    "kind": "ActionsNode",
+                    "id": "7",
+                    "conversion_goal_name": "Sign ups",
+                    "schema_map": SCHEMA_MAP,
+                }
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        stored = self.stored_goals()[0]
+        # Merging would have carried `event` over, which ActionsNode forbids — a 400 about a field
+        # the client never sent.
+        assert stored["kind"] == "ActionsNode"
+        assert "event" not in stored
+        assert stored["conversion_goal_id"] == goal["conversion_goal_id"]
+
+    def test_error_message_describes_the_shape_that_was_sent(self):
+        response = self.client.post(
+            f"{self.base_url}/create",
+            {"goal": {"kind": "DataWarehouseNode", "conversion_goal_name": "x", "schema_map": SCHEMA_MAP}},
+            format="json",
+        )
+
+        assert response.status_code == 400, response.json()
+        # Only the first message survives the exception handler, so it has to be the useful one: a
+        # field the data warehouse shape actually needs, not the events node's objection to a `kind`
+        # the client set deliberately.
+        detail = response.json()["detail"]
+        assert "'EventsNode'" not in detail, detail
+        assert detail.split(":")[0] in {"id", "id_field", "distinct_id_field", "table_name", "timestamp_field"}, detail
+
+    @parameterized.expand([("omitted", {}), ("null", {"goal": None})])
+    def test_goal_is_required_on_update(self, _name: str, body: dict):
+        goal = self.create_goal("Sign ups").json()["goal"]
+
+        response = self.client.patch(f"{self.base_url}/{goal['conversion_goal_id']}/update", body, format="json")
+
+        assert response.status_code == 400, response.json()
+        assert self.stored_goals()[0]["conversion_goal_name"] == "Sign ups"
+
+    @parameterized.expand([("update", "patch"), ("delete", "delete")])
+    def test_a_rejected_write_leaves_the_stored_goals_untouched(self, action: str, method: str):
+        first = self.create_goal("Sign ups").json()["goal"]
+        self.create_goal("Purchases", event="purchase")
+        before = self.stored_goals()
+
+        if action == "update":
+            # A merge that can't validate: counts_as_customer is a bool.
+            response = self.client.patch(
+                f"{self.base_url}/{first['conversion_goal_id']}/update",
+                {"goal": {"counts_as_customer": "maybe"}},
+                format="json",
+            )
+            assert response.status_code == 400, response.json()
+        else:
+            response = self.client.delete(f"{self.base_url}/does-not-exist/delete")
+            assert response.status_code == 404, response.json()
+
+        assert self.stored_goals() == before
+
+    def test_another_teams_goals_are_not_reachable(self):
+        goal = self.create_goal("Sign ups").json()["goal"]
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+
+        other_url = f"/api/projects/{other_team.pk}/marketing_analytics/conversion_goals"
+        update = self.client.patch(
+            f"{other_url}/{goal['conversion_goal_id']}/update",
+            {"goal": {"counts_as_customer": True}},
+            format="json",
+        )
+        delete = self.client.delete(f"{other_url}/{goal['conversion_goal_id']}/delete")
+
+        # The id belongs to this team's config, so the other project simply has no such goal.
+        assert (update.status_code, delete.status_code) == (404, 404)
+        assert "counts_as_customer" not in self.stored_goals()[0]
+
+    def test_plain_member_cannot_write_goals_without_access_controls(self):
+        """The endpoint must not be a way around the bar the settings page enforces.
+
+        `marketing_analytics_config` sits in TEAM_CONFIG_ADMIN_FIELDS_SET, so the settings PATCH
+        demands ADMIN. The RBAC check alone doesn't reproduce that: without the ACCESS_CONTROL
+        feature it resolves permissively, and a plain member could edit goals here that the same
+        member is refused on the settings page.
+        """
+        existing = self.create_goal("Sign ups").json()["goal"]
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        create = self.create_goal("Purchases", event="purchase")
+        update = self.client.patch(
+            f"{self.base_url}/{existing['conversion_goal_id']}/update",
+            {"goal": {"counts_as_customer": True}},
+            format="json",
+        )
+        delete = self.client.delete(f"{self.base_url}/{existing['conversion_goal_id']}/delete")
+        # Same user, same payload, through the settings page the UI actually uses.
+        legacy = self.client.patch(
+            f"/api/projects/{self.team.pk}/",
+            {"marketing_analytics_config": {"conversion_goals": []}},
+            format="json",
+        )
+
+        assert (create.status_code, update.status_code, delete.status_code) == (403, 403, 403)
+        assert legacy.status_code == 403, legacy.json()
+        assert [g["conversion_goal_name"] for g in self.stored_goals()] == ["Sign ups"]
+        assert self.client.get(self.base_url).status_code == 200
+
+    def test_writes_leave_an_activity_log_trail(self):
+        goal = self.create_goal("Sign ups").json()["goal"]
+        self.client.patch(
+            f"{self.base_url}/{goal['conversion_goal_id']}/update",
+            {"goal": {"counts_as_customer": True}},
+            format="json",
+        )
+        self.client.delete(f"{self.base_url}/{goal['conversion_goal_id']}/delete")
+
+        # Without this, a goal changed by a person — or increasingly by an agent over MCP — leaves
+        # no record of who changed what.
+        entries = ActivityLog.objects.filter(team_id=self.team.pk, scope="Team", activity="updated")
+        assert entries.count() == 3
+        assert {entry.user_id for entry in entries} == {self.user.pk}

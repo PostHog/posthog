@@ -1,3 +1,7 @@
+// Shared by every integration-test binary; each binary compiles its own copy
+// and none of them uses every helper.
+#![allow(dead_code)]
+
 use std::sync::Arc;
 
 use rand::Rng;
@@ -61,12 +65,26 @@ impl TestContext {
         person_id
     }
 
+    /// An engine over this context's pool, tuned for tests: short lease and
+    /// poll so lease-contention tests run in milliseconds.
+    pub fn engine(&self) -> personhog_identity::lifecycle::engine::Engine {
+        personhog_identity::lifecycle::engine::Engine::new(
+            self.pool.clone(),
+            personhog_identity::lifecycle::engine::EngineConfig {
+                lease: std::time::Duration::from_secs(5),
+                execute_timeout: std::time::Duration::from_secs(10),
+                poll_interval: std::time::Duration::from_millis(25),
+                attempt_alert_threshold: 5,
+            },
+        )
+    }
+
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM posthog_persondistinctid WHERE team_id = $1")
+        sqlx::query("DELETE FROM lifecycle_op WHERE team_id = $1")
             .bind(self.team_id as i32)
             .execute(&self.pool)
             .await?;
-        sqlx::query("DELETE FROM posthog_personlessdistinctid WHERE team_id = $1")
+        sqlx::query("DELETE FROM posthog_persondistinctid WHERE team_id = $1")
             .bind(self.team_id as i32)
             .execute(&self.pool)
             .await?;

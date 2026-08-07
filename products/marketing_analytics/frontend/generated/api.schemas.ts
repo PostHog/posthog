@@ -909,13 +909,304 @@ export interface ConversionGoalWriteResponseApi {
     conversion_goals: ConversionGoalWrittenListApi
 }
 
-export interface PatchedConversionGoalWriteApi {
-    /** The conversion goal. Must match one of the ConversionGoalFilter shapes: an events node, an actions node or a data warehouse node. On create, conversion_goal_id is assigned by the server and any value sent is ignored. On update, only the fields you send are changed. */
-    goal?: ConversionGoalApi
+export type PartialConversionGoalFilter1ApiResponse = { [key: string]: unknown } | null
+
+export type PartialConversionGoalFilter1ApiSchemaMap = { [key: string]: string | unknown } | null
+
+/**
+ * ConversionGoalFilter1 with every field optional - the fields you send are merged into the stored goal.
+ */
+export interface PartialConversionGoalFilter1Api {
+    conversion_goal_id?: string | null
+    conversion_goal_name?: string | null
+    counts_as_customer?: boolean | null
+    counts_as_revenue?: boolean | null
+    custom_name?: string | null
+    event?: string | null
+    fixedProperties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+          )[]
+        | null
+    kind?: 'EventsNode' | null
+    limit?: number | null
+    math?:
+        | BaseMathTypeApi
+        | FunnelMathTypeApi
+        | PropertyMathTypeApi
+        | CountPerActorMathTypeApi
+        | ExperimentMetricMathTypeApi
+        | CalendarHeatmapMathTypeApi
+        | 'unique_group'
+        | 'hogql'
+        | null
+    math_group_type_index?: MathGroupTypeIndexApi | null
+    math_hogql?: string | null
+    math_multiplier?: number | null
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi | null
+    math_property_type?: string | null
+    name?: string | null
+    optionalInFunnel?: boolean | null
+    orderBy?: string[] | null
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+          )[]
+        | null
+    response?: PartialConversionGoalFilter1ApiResponse
+    schema_map?: PartialConversionGoalFilter1ApiSchemaMap
+    version?: number | null
+}
+
+export type PartialConversionGoalFilter2ApiResponse = { [key: string]: unknown } | null
+
+export type PartialConversionGoalFilter2ApiSchemaMap = { [key: string]: string | unknown } | null
+
+/**
+ * ConversionGoalFilter2 with every field optional - the fields you send are merged into the stored goal.
+ */
+export interface PartialConversionGoalFilter2Api {
+    conversion_goal_id?: string | null
+    conversion_goal_name?: string | null
+    counts_as_customer?: boolean | null
+    counts_as_revenue?: boolean | null
+    custom_name?: string | null
+    fixedProperties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+          )[]
+        | null
+    id?: number | null
+    kind?: 'ActionsNode' | null
+    math?:
+        | BaseMathTypeApi
+        | FunnelMathTypeApi
+        | PropertyMathTypeApi
+        | CountPerActorMathTypeApi
+        | ExperimentMetricMathTypeApi
+        | CalendarHeatmapMathTypeApi
+        | 'unique_group'
+        | 'hogql'
+        | null
+    math_group_type_index?: MathGroupTypeIndexApi | null
+    math_hogql?: string | null
+    math_multiplier?: number | null
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi | null
+    math_property_type?: string | null
+    name?: string | null
+    optionalInFunnel?: boolean | null
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+          )[]
+        | null
+    response?: PartialConversionGoalFilter2ApiResponse
+    schema_map?: PartialConversionGoalFilter2ApiSchemaMap
+    version?: number | null
+}
+
+export type PartialConversionGoalFilter3ApiResponse = { [key: string]: unknown } | null
+
+export type PartialConversionGoalFilter3ApiSchemaMap = { [key: string]: string | unknown } | null
+
+/**
+ * ConversionGoalFilter3 with every field optional - the fields you send are merged into the stored goal.
+ */
+export interface PartialConversionGoalFilter3Api {
+    conversion_goal_id?: string | null
+    conversion_goal_name?: string | null
+    counts_as_customer?: boolean | null
+    counts_as_revenue?: boolean | null
+    custom_name?: string | null
+    distinct_id_field?: string | null
+    dw_source_type?: string | null
+    fixedProperties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+          )[]
+        | null
+    id?: string | null
+    id_field?: string | null
+    kind?: 'DataWarehouseNode' | null
+    math?:
+        | BaseMathTypeApi
+        | FunnelMathTypeApi
+        | PropertyMathTypeApi
+        | CountPerActorMathTypeApi
+        | ExperimentMetricMathTypeApi
+        | CalendarHeatmapMathTypeApi
+        | 'unique_group'
+        | 'hogql'
+        | null
+    math_group_type_index?: MathGroupTypeIndexApi | null
+    math_hogql?: string | null
+    math_multiplier?: number | null
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi | null
+    math_property_type?: string | null
+    name?: string | null
+    optionalInFunnel?: boolean | null
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+          )[]
+        | null
+    response?: PartialConversionGoalFilter3ApiResponse
+    schema_map?: PartialConversionGoalFilter3ApiSchemaMap
+    table_name?: string | null
+    timestamp_field?: string | null
+    version?: number | null
+}
+
+export type ConversionGoalPatchApi =
+    | PartialConversionGoalFilter1Api
+    | PartialConversionGoalFilter2Api
+    | PartialConversionGoalFilter3Api
+
+/**
+ * Separate from create: the body is a patch, so the documented partial has to type-check.
+ */
+export interface PatchedConversionGoalUpdateApi {
+    /** The fields to change, merged into the stored goal — anything you leave out is kept, and the goal keeps its position in the list. schema_map is merged key by key. The merged result must still match one of the ConversionGoalFilter shapes. Send `kind` only to change the goal's shape, in which case the goal is replaced rather than merged and the whole new shape is required. conversion_goal_id comes from the URL and any value sent is ignored. */
+    goal?: ConversionGoalPatchApi
 }
 
 export interface ConversionGoalWriteApi {
-    /** The conversion goal. Must match one of the ConversionGoalFilter shapes: an events node, an actions node or a data warehouse node. On create, conversion_goal_id is assigned by the server and any value sent is ignored. On update, only the fields you send are changed. */
+    /** The conversion goal. Must match one of the ConversionGoalFilter shapes: an events node, an actions node or a data warehouse node. conversion_goal_id is assigned by the server and any value sent is ignored. */
     goal: ConversionGoalApi
 }
 
@@ -1217,6 +1508,8 @@ export interface SourceMappingSuggestionApi {
     suggested_target_display_name: string
     /** Why this mapping is suggested */
     reason: string
+    /** Events carrying this raw utm_source in the window. Suggestions are ordered by it. */
+    event_count_30d: number
 }
 
 export interface CampaignMappingSuggestionApi {
@@ -1234,6 +1527,8 @@ export interface CampaignMappingSuggestionApi {
     method: string
     /** Why these campaign values were clustered together */
     reason: string
+    /** Events across every raw value folded into this suggestion. Suggestions are ordered by it. */
+    event_count_30d: number
 }
 
 export interface RawUnmatchedSampleApi {
@@ -1284,7 +1579,7 @@ export interface CurrentMappingApi {
 export interface UtmMappingSuggestionsResponseApi {
     /** Suggested custom_source_mappings entries */
     source_suggestions: SourceMappingSuggestionApi[]
-    /** Suggested campaign-name clusters (empty in v1) */
+    /** campaign_name_mappings entries for orphaned utm_campaign values that fuzzy-match a real campaign. Near-ties are withheld, so an absent campaign may still be mappable by hand. */
     campaign_suggestions: CampaignMappingSuggestionApi[]
     /** All unmatched raw utm_source values worth reviewing */
     raw_unmatched_samples: RawUnmatchedSampleApi[]
@@ -1306,9 +1601,9 @@ export interface UtmMappingSuggestionsResponseApi {
  * * `error` - error
  * * `warning` - warning
  */
-export type UtmIssueSeverityEnumApi = (typeof UtmIssueSeverityEnumApi)[keyof typeof UtmIssueSeverityEnumApi]
+export type DiagnosticSeverityEnumApi = (typeof DiagnosticSeverityEnumApi)[keyof typeof DiagnosticSeverityEnumApi]
 
-export const UtmIssueSeverityEnumApi = {
+export const DiagnosticSeverityEnumApi = {
     Error: 'error',
     Warning: 'warning',
 } as const
@@ -1337,6 +1632,21 @@ export interface UtmAlternativeSourceApi {
     event_count: number
 }
 
+/**
+ * * `fix_platform_urls` - fix_platform_urls
+ * * `add_source_mapping` - add_source_mapping
+ * * `switch_to_id_match` - switch_to_id_match
+ * * `add_campaign_name_mapping` - add_campaign_name_mapping
+ */
+export type SuggestedActionsEnumApi = (typeof SuggestedActionsEnumApi)[keyof typeof SuggestedActionsEnumApi]
+
+export const SuggestedActionsEnumApi = {
+    FixPlatformUrls: 'fix_platform_urls',
+    AddSourceMapping: 'add_source_mapping',
+    SwitchToIdMatch: 'switch_to_id_match',
+    AddCampaignNameMapping: 'add_campaign_name_mapping',
+} as const
+
 export interface UtmIssueApi {
     /** The UTM field with the issue (e.g. utm_campaign, utm_source) */
     field: string
@@ -1344,7 +1654,7 @@ export interface UtmIssueApi {
      *
      * * `error` - error
      * * `warning` - warning */
-    severity: UtmIssueSeverityEnumApi
+    severity: DiagnosticSeverityEnumApi
     /** Which kind of UTM problem this campaign has
      *
      * * `not_linked` - not_linked
@@ -1361,6 +1671,10 @@ export interface UtmIssueApi {
     shared_with_integrations: string[]
     /** Pageviews that matched this campaign but carried no utm_source, on any issue kind */
     missing_source_count: number
+    /** Recommended remediations, most-recommended first. fix_platform_urls cures the tagging bug itself; the others are workarounds that leave the bad URLs in place. */
+    suggested_actions: SuggestedActionsEnumApi[]
+    /** The orphaned utm_campaign value that looks like a typo of this campaign, when one was found confidently. Set only alongside add_campaign_name_mapping; empty otherwise, including when several candidates tie and picking one could misattribute spend. */
+    mapping_candidate: string
 }
 
 export interface CampaignAuditResultApi {
