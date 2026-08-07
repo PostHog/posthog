@@ -1,5 +1,5 @@
 import { create } from '@bufbuild/protobuf'
-import { Client } from '@connectrpc/connect'
+import { Client, Code, ConnectError } from '@connectrpc/connect'
 
 import { PersonHogService } from '~/common/generated/personhog/personhog/service/v1/service_pb'
 import { TeamDistinctIdSchema } from '~/common/generated/personhog/personhog/types/v1/common_pb'
@@ -7,14 +7,56 @@ import {
     GetDistinctIdsForPersonsRequestSchema,
     GetPersonsByDistinctIdsRequestSchema,
     GetPersonsByUuidsRequestSchema,
+    UpdatePersonPropertiesRequestSchema,
 } from '~/common/generated/personhog/personhog/types/v1/person_pb'
 import type { Person as ProtoPerson } from '~/common/generated/personhog/personhog/types/v1/person_pb'
 import { InternalPersonWithDistinctId } from '~/common/persons/repositories/person-repository'
+import { NoRowsUpdatedError } from '~/common/utils/utils'
+import { Properties } from '~/plugin-scaffold'
 import { InternalPerson } from '~/types'
 
-import { epochMsToDateTime, eventualReadOptions, parseJsonBytes } from './client'
+import { epochMsToDateTime, eventualReadOptions, parseJsonBytes, strongReadOptions } from './client'
 
-function protoPersonToDomain(proto: ProtoPerson): InternalPerson {
+const textEncoder = new TextEncoder()
+
+export function encodeJsonBytes(value: object): Uint8Array {
+    return Object.keys(value).length === 0 ? new Uint8Array(0) : textEncoder.encode(JSON.stringify(value))
+}
+
+/**
+ * The leader rejected an update at the person-properties size ceiling.
+ * Carries what the transport layer knows; callers holding the person's
+ * uuid and distinct id re-wrap it into their own error vocabulary.
+ */
+export class PersonhogPropertiesSizeError extends Error {
+    constructor(
+        message: string,
+        public readonly teamId: number,
+        public readonly personId: string
+    ) {
+        super(message)
+        this.name = 'PersonhogPropertiesSizeError'
+    }
+}
+
+/** A folded person-property update, resolved by the leader under the per-person lock. */
+export interface FoldedPersonUpdate {
+    teamId: number
+    /** InternalPerson.id — the bigint row id as a string. */
+    personId: string
+    /** Representative event name; must not be one the leader's denylist filters out. */
+    eventName: string
+    setProperties: Properties
+    /** Unresolved: the leader applies these only where the key is absent in authoritative state. */
+    setOnceProperties: Properties
+    unsetProperties: string[]
+    /** OR-merged server-side; send true only — false and absence are equivalent no-ops. */
+    isIdentified?: boolean
+    /** Epoch milliseconds; max-merged server-side. */
+    lastSeenAtMs?: number
+}
+
+export function protoPersonToDomain(proto: ProtoPerson): InternalPerson {
     return {
         id: String(proto.id),
         uuid: proto.uuid,
@@ -37,12 +79,14 @@ export class PersonHogPersonOperations {
 
     async fetchPersonsByDistinctIds(
         teamPersons: { teamId: number; distinctId: string }[],
-        callerTag?: string
+        callerTag?: string,
+        options?: { consistency?: 'strong' | 'eventual' }
     ): Promise<InternalPersonWithDistinctId[]> {
         if (teamPersons.length === 0) {
             return []
         }
 
+        const readOptions = options?.consistency === 'strong' ? strongReadOptions() : eventualReadOptions()
         const results: InternalPersonWithDistinctId[] = []
         for (let i = 0; i < teamPersons.length; i += PERSONHOG_BATCH_SIZE) {
             const batch = teamPersons.slice(i, i + PERSONHOG_BATCH_SIZE)
@@ -54,7 +98,7 @@ export class PersonHogPersonOperations {
                             distinctId,
                         })
                     ),
-                    readOptions: eventualReadOptions(),
+                    readOptions,
                 }),
                 callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
             )
@@ -100,6 +144,52 @@ export class PersonHogPersonOperations {
             result[String(pd.personId)] = pd.distinctIds.map((d) => d.distinctId)
         }
         return result
+    }
+
+    /**
+     * Apply a folded property update to one person. The leader merges the
+     * diffs into authoritative state under the per-person lock and returns
+     * the person as written, so the caller can publish it downstream.
+     * Returns null person when the response carries none.
+     */
+    async updatePersonProperties(
+        update: FoldedPersonUpdate,
+        callerTag?: string
+    ): Promise<{ person: InternalPerson | null; updated: boolean }> {
+        try {
+            const response = await this.client.updatePersonProperties(
+                create(UpdatePersonPropertiesRequestSchema, {
+                    teamId: BigInt(update.teamId),
+                    personId: BigInt(update.personId),
+                    eventName: update.eventName,
+                    setProperties: encodeJsonBytes(update.setProperties),
+                    setOnceProperties: encodeJsonBytes(update.setOnceProperties),
+                    unsetProperties: update.unsetProperties,
+                    isIdentified: update.isIdentified,
+                    lastSeenAt: update.lastSeenAtMs != null ? BigInt(update.lastSeenAtMs) : undefined,
+                }),
+                callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
+            )
+            return {
+                person: response.person ? protoPersonToDomain(response.person) : null,
+                updated: response.updated,
+            }
+        } catch (error) {
+            // Translate the personhog contract into domain errors here so
+            // callers never handle gRPC codes: a missing person (deleted, or
+            // merged away) surfaces as NoRowsUpdatedError, and the leader's
+            // only InvalidArgument for a well-formed request is the
+            // property-size ceiling. Everything else propagates untouched.
+            if (error instanceof ConnectError) {
+                if (error.code === Code.NotFound) {
+                    throw new NoRowsUpdatedError(`Person ${update.personId} not found by personhog (deleted or merged)`)
+                }
+                if (error.code === Code.InvalidArgument && error.rawMessage.includes('size limit')) {
+                    throw new PersonhogPropertiesSizeError(error.rawMessage, update.teamId, update.personId)
+                }
+            }
+            throw error
+        }
     }
 
     async fetchPersonsByPersonIds(
