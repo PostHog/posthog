@@ -196,12 +196,12 @@ pub struct Config {
     ///      `UnknownKind` and skip-commits it without a marker, stranding the run as a shortfall.
     ///   2. Flip `SEEDER_PERSON_SEEDS_ENABLED` and let person runs seed.
     ///   3. Flip this once step 1 is confirmed everywhere.
-    ///   4. Flip Django's `BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED` once the remaining
-    ///      precondition in its `posthog/settings/cohorts.py` docstring holds: the flags service no
-    ///      longer reads `last_backfill_person_properties_at` as proof `cohort_membership` is
-    ///      populated. Until then the finalizer skips person runs, so they stay `reconciling` after
-    ///      step 3 and `seeder_runs_reconciling{kind="person_property"}` climbs. That is expected,
-    ///      not a stalled dispatch.
+    ///   4. Set `REALTIME_COHORT_MEMBERSHIP_STAMP_POLICY=events_or_calculation_stamp` on every
+    ///      region's flags service, then flip Django's
+    ///      `BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED`. Until that gate opens the finalizer
+    ///      skips person runs, so they stay `reconciling` after step 3 and
+    ///      `seeder_runs_reconciling{kind="person_property"}` climbs. That is expected, not a
+    ///      stalled dispatch.
     ///
     /// Flipping this back off does not undo a bad rollout: a run already in `reconciling` stops
     /// being discovered, so it never reaches `reconcile_observed_at` and never finalizes. Recovery

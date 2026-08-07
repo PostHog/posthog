@@ -44,24 +44,21 @@ class _FakePod(PodMemory):
 
 
 def _governor(mode="enforce", *, limit_mb=30_000.0, current_mb=1_000.0, max_concurrent=15, **cfg) -> MemoryGovernor:
-    # Clean arithmetic defaults: no safety derate, no reserve, no baseline, so the per-upsert
-    # slice is exactly limit / max_concurrent.
-    config = GovernorConfig(
-        mode=mode, safety=1.0, reserve_mb=0.0, baseline_mb=0.0, max_concurrent=max_concurrent, **cfg
-    )
+    # Clean arithmetic defaults: no safety derate, no reserve, so the per-upsert slice is exactly
+    # limit / max_concurrent.
+    config = GovernorConfig(mode=mode, safety=1.0, reserve_mb=0.0, max_concurrent=max_concurrent, **cfg)
     return MemoryGovernor(config, _FakePod(limit_mb, current_mb))
 
 
 class TestSizeUpsert:
-    # source_mb=50 -> floor 300 + 2*50 = 400; worker 250; buffer 64.
-    #   mpp4 = 400 + 1000 + 64 = 1464 ; mpp1 = 400 + 250 + 64 = 714 ; tight mpp1 = 400+250+32 = 682
+    # threaded model: marginal(source, mpp) = 220 + 133*mpp + 0.73*source. For source_mb=50 (36.5):
+    #   mpp1=389.5  mpp2=522.5  mpp3=655.5  mpp4=788.5
     @parameterized.expand(
         [
             ("roomy_takes_max_mpp", 5_000.0, 50.0, None, 4, True),
-            ("steps_down_to_two", 1_000.0, 50.0, None, 2, True),  # mpp2=964<=1000, mpp3=1214>1000
-            ("steps_down_to_one", 800.0, 50.0, None, 1, True),  # mpp1=714<=800, mpp2=964>800
-            ("tight_shrinks_buffer", 700.0, 50.0, None, 1, True),  # only tight mpp1=682 fits
-            ("does_not_fit", 600.0, 50.0, None, 1, False),  # even 682 overshoots
+            ("steps_down_to_two", 600.0, 50.0, None, 2, True),  # mpp2=522.5<=600, mpp3=655.5>600
+            ("steps_down_to_one", 450.0, 50.0, None, 1, True),  # mpp1=389.5<=450, mpp2=522.5>450
+            ("does_not_fit", 300.0, 50.0, None, 1, False),  # mpp1=389.5>300
             ("partition_cap_limits_mpp", 5_000.0, 50.0, 2, 2, True),  # budget allows 4, only 2 partitions
         ]
     )
@@ -76,8 +73,8 @@ class TestSizeUpsert:
         }
 
     def test_predicted_peak_monotonic_in_mpp_and_source(self):
-        assert _predict_marginal_mb(50, 1, 64) < _predict_marginal_mb(50, 4, 64)
-        assert _predict_marginal_mb(50, 2, 64) < _predict_marginal_mb(500, 2, 64)
+        assert _predict_marginal_mb(50, 1) < _predict_marginal_mb(50, 4)
+        assert _predict_marginal_mb(50, 2) < _predict_marginal_mb(500, 2)
 
 
 class TestPodMemory:
@@ -155,23 +152,24 @@ class TestGovernorModes:
 
 class TestGovernorSizing:
     async def test_tight_slice_sizes_mpp_down(self):
-        # 12000 / 15 = 800 slice -> mpp1 fits (714), mpp2 (964) does not.
-        gov = _governor("enforce", limit_mb=12_000.0, max_concurrent=15)
+        # 6750 / 15 = 450 slice -> mpp1 (389.5) fits, mpp2 (522.5) does not.
+        gov = _governor("enforce", limit_mb=6_750.0, max_concurrent=15)
         async with gov.admit(source_bytes=50 * MB) as adm:
             assert adm.upsert_kwargs["max_parallel_partitions"] == 1
             assert adm.capacity_exceeded is False
 
     async def test_source_too_big_still_runs_deltalite_at_mpp1(self):
-        # 9000 / 15 = 600 slice -> even tight mpp1 (682) overshoots. Never falls back: runs mpp1.
-        gov = _governor("enforce", limit_mb=9_000.0, max_concurrent=15)
-        async with gov.admit(source_bytes=50 * MB) as adm:
+        # 30000 / 15 = 2000 slice; a 2300 MB source makes even mpp1 (220+133+0.73*2300 = 2032)
+        # overshoot. Never falls back: runs deltalite at mpp1 and flags capacity_exceeded.
+        gov = _governor("enforce", limit_mb=30_000.0, max_concurrent=15)
+        async with gov.admit(source_bytes=2300 * MB) as adm:
             assert adm.capacity_exceeded is True
             assert adm.upsert_kwargs["max_parallel_partitions"] == 1  # still deltalite, minimal
             assert gov._inflight == 1  # still admitted and reserved
 
     async def test_advisory_source_too_big_flags_but_no_reserve(self):
-        gov = _governor("advisory", limit_mb=9_000.0, max_concurrent=15)
-        async with gov.admit(source_bytes=50 * MB) as adm:
+        gov = _governor("advisory", limit_mb=30_000.0, max_concurrent=15)
+        async with gov.admit(source_bytes=2300 * MB) as adm:
             assert adm.capacity_exceeded is True
             assert adm.upsert_kwargs == {}  # advisory never changes the write
             assert gov._inflight == 0

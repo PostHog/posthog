@@ -65,10 +65,7 @@ server, so never rely on them in customer-facing queries or docs without checkin
 non-`$`-prefixed `mcp_runtime` (`hono`) and `mcp_vendor_client` — the last of which is the
 **top-priority harness signal**, so it appears inside harness SQL.
 
-Per-event additions: `$mcp_error_status` (upstream HTTP status, stamped by
-`services/mcp/src/hono/tool-executor.ts` — **server-side, despite sitting next to the SDK's
-typed error properties in queries**); and `tool_count`, `read_only`, `via_sse_redirect` on
-`$mcp_initialize`. `execute-sql` calls additionally emit a separate `$ai_generation` event
+Per-event additions: `$mcp_error_status` (upstream HTTP status), `$mcp_error_code` (machine-readable leaf failure code: the API's validation error code or the exec rejection reason), and `$mcp_error_field` (the validation error's field path, array indexes normalized to `N`, e.g. `actions__N__inputs__email`) — all stamped by `services/mcp/src/hono/tool-executor.ts` — **server-side, despite sitting next to the SDK's typed error properties in queries**; and `tool_count`, `read_only`, `via_sse_redirect` on `$mcp_initialize`. `execute-sql` calls additionally emit a separate `$ai_generation` event
 carrying `$ai_trace_id`, `$ai_input`, `$ai_output_choices`, and `$ai_latency`.
 
 ## Exec-mode properties

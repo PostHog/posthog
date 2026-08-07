@@ -25,12 +25,22 @@ describe('getNextDeliveryDate', () => {
         expect(getNextDeliveryDate(subscription)).toEqual(new Date('2024-01-16T09:00:00Z'))
     })
 
-    it('computes next weekly delivery', () => {
+    it('computes the next selected daily delivery day', () => {
+        const result = getNextDeliveryDate({
+            frequency: 'daily',
+            interval: 1,
+            start_date: '2024-01-01T09:00:00Z',
+            byweekday: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
+        })
+        expect(result).toEqual(new Date('2024-01-16T09:00:00Z'))
+    })
+
+    it('computes the next selected weekly delivery day', () => {
         const result = getNextDeliveryDate({
             frequency: 'weekly',
             interval: 1,
             start_date: '2024-01-01T09:00:00Z',
-            byweekday: ['wednesday'],
+            byweekday: ['wednesday', 'friday'],
         })
         expect(result).toEqual(new Date('2024-01-17T09:00:00Z'))
     })

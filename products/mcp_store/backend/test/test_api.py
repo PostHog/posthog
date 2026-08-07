@@ -5,6 +5,7 @@ from urllib.parse import parse_qs, urlparse
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.core.signing import SignatureExpired
 from django.db import connection
@@ -734,6 +735,7 @@ class TestMCPGatewayServerAPI(APIBaseTest):
         )
 
         assert tools_response.status_code == status.HTTP_200_OK
+        assert tools_response.json()["results"][0]["is_destructive"] is True
         assert tools_response.json()["results"][0]["team_state"] == "do_not_use"
         assert active_response.status_code == status.HTTP_400_BAD_REQUEST
 
@@ -888,6 +890,28 @@ class TestMCPGatewayConfigAPI(APIBaseTest):
             url=f"https://mcp.{name.lower()}.config-test.example.com/mcp",
             is_team_enabled=is_team_enabled,
         )
+
+    def test_config_lists_registered_catalog_templates_for_members(self) -> None:
+        template = MCPServerTemplate.objects.create(
+            name="Registered template",
+            url="https://mcp.registered-template.config-test.example.com/mcp",
+            auth_type="oauth",
+            is_active=True,
+        )
+        MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name=template.name,
+            url=template.url,
+            template=template,
+            is_team_enabled=False,
+        )
+        self._server("Custom")
+        self._make_member()
+
+        response = self.client.get(self._api_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["registered_template_ids"] == [str(template.id)]
 
     def test_default_servers_enabled_round_trips_through_config_api(self) -> None:
         self._make_admin()
@@ -1340,6 +1364,84 @@ class TestMCPServiceAccountAPI(APIBaseTest):
                 "connection_state": "ready",
             }
         ]
+
+    @parameterized.expand(
+        [
+            ("member_revoked", True, "api_key", {"api_key": "secret"}, True, status.HTTP_403_FORBIDDEN, False),
+            (
+                "connection_disabled",
+                False,
+                "api_key",
+                {"api_key": "secret"},
+                False,
+                status.HTTP_400_BAD_REQUEST,
+                False,
+            ),
+            ("oauth_pending", True, "oauth", {}, False, status.HTTP_400_BAD_REQUEST, False),
+            (
+                "oauth_needs_reauth",
+                True,
+                "oauth",
+                {"access_token": "token", "needs_reauth": True},
+                False,
+                status.HTTP_400_BAD_REQUEST,
+                False,
+            ),
+            ("open_api_key", True, "api_key", {}, False, status.HTTP_200_OK, True),
+        ]
+    )
+    def test_agent_grant_requires_member_access_and_a_ready_connection(
+        self,
+        _name: str,
+        connection_enabled: bool,
+        auth_type: str,
+        sensitive_configuration: dict[str, object],
+        member_revoked: bool,
+        expected_status: int,
+        expected_access: bool,
+    ) -> None:
+        self._make_member()
+        account = self._active_scout_account()
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Agent grant server",
+            url="https://mcp.ready-agent-grant.example.com/mcp",
+        )
+        MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            display_name=server.name,
+            url=server.url,
+            auth_type=auth_type,
+            is_enabled=connection_enabled,
+            sensitive_configuration=sensitive_configuration,
+            scope="personal",
+            gateway_server=server,
+        )
+        if member_revoked:
+            MCPMemberServerRevocation.objects.for_team(self.team.id).create(
+                team=self.team,
+                gateway_server=server,
+                user=self.user,
+                revoked_by=self.user,
+            )
+
+        response = self.client.post(
+            self._api_url(f"{account.id}/access/"),
+            data={"gateway_server_id": str(server.id), "enabled": True},
+            format="json",
+        )
+
+        assert response.status_code == expected_status
+        assert (
+            MCPServiceAccountServerAccess.objects.for_team(self.team.id)
+            .filter(
+                service_account=account,
+                gateway_server=server,
+            )
+            .exists()
+            is expected_access
+        )
 
     def test_restricted_member_cannot_change_existing_agent_access_but_admin_can(self) -> None:
         self._make_member()
@@ -2444,6 +2546,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         *,
         template=None,
         created_by=None,
+        web_return_path="",
     ):
         from datetime import timedelta
 
@@ -2458,8 +2561,26 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             pkce_verifier=pkce_verifier,
             install_source=install_source,
             posthog_code_callback_url=posthog_code_callback_url,
+            web_return_path=web_return_path,
             expires_at=timezone.now() + timedelta(seconds=600),
             created_by=created_by if created_by is not None else self.user,
+        )
+
+    def test_oauth_redirect_places_callback_query_before_return_fragment(self):
+        installation = self._create_installation()
+        state_token = "web-return-with-fragment"
+        return_path = f"/project/{self.team.id}/mcp-servers/server/server-id?scope=team&keep=value#panel=open"
+        self._create_oauth_state(installation, state_token, web_return_path=return_path)
+
+        response = self.client.get(
+            "/api/mcp_store/oauth_redirect/",
+            {"state": state_token, "error": "access_denied"},
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert response["Location"] == (
+            f"{settings.SITE_URL}/project/{self.team.id}/mcp-servers/server/server-id"
+            "?scope=team&keep=value&oauth_error=true#panel=open"
         )
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))

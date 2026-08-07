@@ -5,6 +5,7 @@ import uuid
 import hashlib
 from collections.abc import Iterator
 from copy import deepcopy
+from dataclasses import dataclass
 from typing import Annotated, Any, ClassVar, Literal, Optional, Union, cast
 
 from django.db.models import OuterRef, QuerySet, Subquery
@@ -184,11 +185,18 @@ def validate_filters_and_compute_realtime_support(
         return filters_dict, current_cohort_type, [str(e)]
 
 
-def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list[Any] | None, str | None, str | None]:
+@dataclass(frozen=True, kw_only=True, slots=True)
+class CohortFilterBytecodeResult:
+    bytecode: list[Any] | None = None
+    error: str | None = None
+    condition_hash: str | None = None
+
+
+def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> CohortFilterBytecodeResult:
     """
     Generate HogQL bytecode for cohort filter data.
     Similar to generate_template_bytecode in validation.py but for cohort-specific filters.
-    Returns tuple of (bytecode, error, conditionHash)
+    Returns a CohortFilterBytecodeResult with bytecode, error, and condition_hash.
     """
     try:
         # Only treat behavioral as event matcher + optional event properties; unsupported values return None
@@ -196,34 +204,34 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list
             expr = build_behavioral_event_expr(filter_data, team)
             # Unsupported behavioral filters return None → skip bytecode
             if expr is None:
-                return None, "Unsupported behavioral filter for realtime bytecode", None
+                return CohortFilterBytecodeResult(error="Unsupported behavioral filter for realtime bytecode")
             bytecode = create_bytecode(expr, cohort_membership_supported=True, null_safe_comparisons=True).bytecode
             condition_hash = None
             if bytecode:
                 bytecode_str = json.dumps(bytecode, sort_keys=True)
                 condition_hash = hashlib.sha256(bytecode_str.encode()).hexdigest()[:16]
-            return bytecode, None, condition_hash
+            return CohortFilterBytecodeResult(bytecode=bytecode, condition_hash=condition_hash)
 
         # Check if it's a cohort filter referencing another cohort
         if filter_data.get("type") == "cohort":
             cohort_id = filter_data.get("value")
             if cohort_id is None:
                 # If cohort_id is missing, don't generate bytecode
-                return None, None, None
+                return CohortFilterBytecodeResult()
             # Type narrowing: cohort_id is not None at this point, and should be int
             try:
                 cohort_id_int = int(cohort_id)
             except (ValueError, TypeError):
-                return None, None, None
+                return CohortFilterBytecodeResult()
             try:
                 referenced_cohort = Cohort.objects.get(team__project_id=team.project_id, id=cohort_id_int)
                 # Check if the referenced cohort is realtime
                 if referenced_cohort.cohort_type != CohortType.REALTIME:
                     # Don't generate bytecode for non-realtime cohort references
-                    return None, None, None
+                    return CohortFilterBytecodeResult()
             except Cohort.DoesNotExist:
                 # If cohort doesn't exist, don't generate bytecode
-                return None, None, None
+                return CohortFilterBytecodeResult()
 
         property_obj = Property(**filter_data)
         expr = property_to_expr(property_obj, team)
@@ -236,10 +244,10 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list
             bytecode_str = json.dumps(bytecode, sort_keys=True)
             condition_hash = hashlib.sha256(bytecode_str.encode()).hexdigest()[:16]
 
-        return bytecode, None, condition_hash
+        return CohortFilterBytecodeResult(bytecode=bytecode, condition_hash=condition_hash)
     except Exception as e:
         logger.warning(f"Failed to generate bytecode for cohort filter: {e}")
-        return None, str(e), None
+        return CohortFilterBytecodeResult(error=str(e))
 
 
 class FilterBytecodeMixin(BaseModel):
@@ -253,15 +261,13 @@ class FilterBytecodeMixin(BaseModel):
         if info and info.context:
             team = info.context.get("team")
             if team:
-                bytecode, error, condition_hash = generate_cohort_filter_bytecode(
-                    self.model_dump(exclude_none=True), team
-                )
-                if bytecode:
-                    self.bytecode = bytecode
-                if condition_hash:
-                    self.conditionHash = condition_hash
-                if error:
-                    self.bytecode_error = error
+                result = generate_cohort_filter_bytecode(self.model_dump(exclude_none=True), team)
+                if result.bytecode:
+                    self.bytecode = result.bytecode
+                if result.condition_hash:
+                    self.conditionHash = result.condition_hash
+                if result.error:
+                    self.bytecode_error = result.error
         return self
 
 
@@ -404,9 +410,10 @@ def _calculate_realtime_support(group: CohortFilterGroup) -> bool:
                 return False
         else:  # It's a filter
             # person_metadata reads top-level persons-table columns, which the realtime
-            # precalculated_person_properties table doesn't carry. Any cohort referencing one
-            # must use the standard (non-realtime) calculation path, so force the whole cohort
-            # non-realtime as soon as a person_metadata filter appears in any group.
+            # evaluator's person scope doesn't expose (it carries only person.id and
+            # person.properties). Any cohort referencing one must use the standard
+            # (non-realtime) calculation path, so force the whole cohort non-realtime as
+            # soon as a person_metadata filter appears in any group.
             if getattr(value, "type", None) == "person_metadata":
                 return False
             # Check if filter has FilterBytecodeMixin and valid bytecode

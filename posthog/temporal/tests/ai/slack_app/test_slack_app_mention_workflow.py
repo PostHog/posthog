@@ -19,6 +19,8 @@ from posthog.temporal.ai.slack_app.types import (
     PostHogCodeSlackMentionWorkflowInputs,
     SlackAppMentionWorkflowInputs,
     SlackAppMessageReactionInput,
+    SlackAppModelOverride,
+    SlackAppModelOverrideInput,
     SlackRepoSelectionOutcome,
 )
 
@@ -28,9 +30,10 @@ def _message(
     *,
     event_id: str | None = None,
     untagged: bool = False,
+    text: str = "fix the bug",
 ) -> PostHogCodeSlackMentionWorkflowInputs:
     return PostHogCodeSlackMentionWorkflowInputs(
-        event={"channel": "C1", "ts": ts, "thread_ts": "100.0", "user": "U1", "text": "fix the bug"},
+        event={"channel": "C1", "ts": ts, "thread_ts": "100.0", "user": "U1", "text": text},
         integration_id=1,
         slack_team_id="T1",
         slack_event_id=event_id,
@@ -43,6 +46,10 @@ class _Recorder:
     def __init__(self) -> None:
         # (ts, repository) per create-task call, in execution order.
         self.created: list[tuple[str, str | None]] = []
+        # ts -> model override the classifier returns; missing means no override.
+        self.model_overrides: dict[str, SlackAppModelOverride] = {}
+        # ts -> model override the create-task call actually received.
+        self.created_with_override: dict[str, SlackAppModelOverride | None] = {}
         # ts per hourglass reaction (message queued behind another), in execution order.
         self.queued_marked: list[str] = []
         # ts per hourglass->eyes reaction swap, in execution order.
@@ -159,6 +166,10 @@ def _fake_activities(rec: _Recorder) -> list:
     ) -> bool:
         return False
 
+    @activity.defn(name="classify_slack_app_model_override_activity")
+    async def classify_model_override(input: SlackAppModelOverrideInput) -> SlackAppModelOverride | None:
+        return rec.model_overrides.get(input.event_text)
+
     @activity.defn(name="create_posthog_code_task_for_repo_activity")
     async def create_task(
         inputs: PostHogCodeSlackMentionWorkflowInputs,
@@ -171,8 +182,10 @@ def _fake_activities(rec: _Recorder) -> list:
         repository: str | None,
         repo_research_task_id: str | None = None,
         repo_research_run_id: str | None = None,
+        model_override: SlackAppModelOverride | None = None,
     ) -> None:
         ts = inputs.event["ts"]
+        rec.created_with_override[ts] = model_override
         reached = rec.create_reached.get(ts)
         if reached:
             reached.set()
@@ -220,6 +233,7 @@ def _fake_activities(rec: _Recorder) -> list:
         post_picker,
         resolve_authorship,
         block_github,
+        classify_model_override,
         create_task,
         picker_timeout,
         authorship_timeout,
@@ -311,6 +325,27 @@ async def test_queued_messages_process_serially_in_arrival_order():
     assert rec.queued_marked == ["1.2", "1.3"]
     # Every mention gets eyes as it leaves the queue.
     assert rec.processing_marked == ["1.1", "1.2", "1.3"]
+
+
+@pytest.mark.asyncio
+async def test_model_override_reaches_task_creation():
+    """A mention that names a model steers only its own task; the next one in the
+    same thread goes back to the resolved preferences."""
+    rec = _Recorder()
+    plain, steered = _message("1.1"), _message("1.2", text="use fable for this one")
+    override = SlackAppModelOverride(model="claude-fable-5", reasoning_effort="high")
+    rec.model_overrides["use fable for this one"] = override
+    rec.create_reached["1.1"] = asyncio.Event()
+    rec.create_gates["1.1"] = asyncio.Event()
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", plain)
+        await asyncio.wait_for(rec.create_reached["1.1"].wait(), timeout=30)
+        await handle.signal(SlackAppMentionWorkflow.new_message, steered)
+        rec.create_gates["1.1"].set()
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert rec.created_with_override == {"1.1": None, "1.2": override}
 
 
 @pytest.mark.asyncio

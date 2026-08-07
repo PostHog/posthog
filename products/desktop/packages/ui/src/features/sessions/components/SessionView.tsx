@@ -34,7 +34,6 @@ import {
   getGithubRefUrlFromEventTarget,
 } from "@posthog/ui/features/sessions/components/copyContextTarget";
 import { DropZoneOverlay } from "@posthog/ui/features/sessions/components/DropZoneOverlay";
-import { focusComposerOnPaneClick } from "@posthog/ui/features/sessions/components/focusComposerOnPaneClick";
 import { PendingChatView } from "@posthog/ui/features/sessions/components/PendingChatView";
 import { PlanStatusBar } from "@posthog/ui/features/sessions/components/PlanStatusBar";
 import { QueuedMessagesDock } from "@posthog/ui/features/sessions/components/QueuedMessagesDock";
@@ -582,10 +581,6 @@ export function SessionView({
       .catch(() => toast.error("Failed to attach files"));
   }, []);
 
-  const handlePaneClick = useCallback((event: React.MouseEvent) => {
-    focusComposerOnPaneClick(event, () => editorRef.current?.focus());
-  }, []);
-
   useAutoFocusOnTyping(editorRef, !isActiveSession);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
@@ -619,13 +614,16 @@ export function SessionView({
             direction="column"
             height="100%"
             className="relative bg-background"
-            onClick={handlePaneClick}
             onContextMenu={handleContextMenu}
             onDragEnter={handleDragEnter}
             onDragLeave={handleDragLeave}
             onDragOver={handleDragOver}
             onDrop={handleDrop}
           >
+            <div
+              id="fullscreen-portal"
+              className="pointer-events-none absolute inset-0 z-20"
+            />
             {isSuspended ? (
               <>
                 <ThreadView

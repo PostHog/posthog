@@ -129,7 +129,7 @@ COVERAGE_CAVEATS = (
     "the diff is bounded to persons the new pipeline decided on (O); old-only persons outside O are excluded and only probed for missed emissions",
     "suspect_missing gates FAIL only where the store provably covers the window (window <= pipeline age, or property-only cohorts); on longer windows unobserved actives are unresolvable until warmup (no snapshot resolves pre-since qualifiers) and report as WARMUP",
     "minute/hour-window cohorts get suspect≈0 by construction — the probe cutoff collapses to now",
-    "cohorts the old pipeline never recomputed count all only_new as fresh (residual_new is 0 there)",
+    "cohorts with no recompute clock (never recomputed, or the stamp cleared by an edit) count all only_new as fresh (residual_new is 0 there)",
     "a partial drain (poll timeout or --max-messages) understates the new side and biases toward FAIL",
 )
 

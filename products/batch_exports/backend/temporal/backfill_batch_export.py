@@ -42,9 +42,9 @@ from products.batch_exports.backend.service import (
     unpause_batch_export,
     update_batch_export_backfill,
 )
+from products.batch_exports.backend.temporal.filters import compose_filters_clause
 from products.batch_exports.backend.temporal.metrics import log_query_duration
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
-from products.batch_exports.backend.temporal.spmc import compose_filters_clause
 from products.batch_exports.backend.temporal.workflow_metadata import (
     WorkflowDetails,
     build_logs_link,

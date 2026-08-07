@@ -171,6 +171,7 @@ mod tests {
                 kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
                 kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
                 kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
+                outputs_completeness_check_enabled: true,
                 capture_analytics_ai_events_topic: None,
                 capture_analytics_ai_events_overflow_topic: None,
                 kafka_traces_topic: "ingestion_traces".to_string(),
@@ -341,6 +342,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            spread_partitions: false,
             is_gateway_verified: false,
         }
     }

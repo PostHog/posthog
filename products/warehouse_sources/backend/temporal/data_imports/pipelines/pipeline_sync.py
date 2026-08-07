@@ -16,6 +16,7 @@ import dlt.common.libs.pyarrow
 import dlt.extract.incremental
 import dlt.extract.incremental.transform
 from clickhouse_driver.errors import ServerException
+from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
@@ -133,6 +134,17 @@ async def set_initial_sync_complete(schema_id: str, team_id: int) -> None:
     await database_sync_to_async_pool(mark_initial_sync_complete)(schema_id=schema_id, team_id=team_id)
 
 
+def _refresh_cumulative_row_count(table: DataWarehouseTable, logger: FilteringBoundLogger, context: str) -> None:
+    # Counting the full S3 dataset can exceed both the chdb and ClickHouse-cluster timeouts on a
+    # large table (get_count() then raises). That's only a display stat, not the synced data itself
+    # (already written successfully by this point) — keep the previous row_count rather than let it
+    # fail the whole table registration.
+    try:
+        table.row_count = table.get_count()
+    except Exception:
+        logger.warning(f"Could not refresh cumulative row count for {context}, keeping previous value", exc_info=True)
+
+
 async def validate_schema_and_update_table(
     run_id: str,
     team_id: int,
@@ -209,7 +221,7 @@ async def validate_schema_and_update_table(
                 table.url_pattern = new_url_pattern
                 table.queryable_folder = queryable_folder
                 if external_data_schema.table_row_count_is_cumulative:
-                    table.row_count = table.get_count()
+                    _refresh_cumulative_row_count(table, logger, f"{_schema_name} ({_schema_id})")
                 else:
                     table.row_count = row_count
                 # get_count() above can retry against a degraded ClickHouse cluster for minutes, long
@@ -366,7 +378,7 @@ async def register_cdc_companion_table(
                 table.format = table_format
                 table.url_pattern = new_url_pattern
                 table.queryable_folder = queryable_folder
-                table.row_count = table.get_count()
+                _refresh_cumulative_row_count(table, logger, companion_table_name)
                 # Scope to the fields changed here so this out-of-transaction save doesn't rewrite
                 # `columns` with its pre-merge value before the column save below.
                 # get_count() above can retry against a degraded ClickHouse cluster for minutes, long

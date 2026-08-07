@@ -1,6 +1,6 @@
-use std::{fmt, hash::Hash, str::FromStr, sync::LazyLock};
+use std::{borrow::Cow, fmt, hash::Hash, str::FromStr, sync::LazyLock};
 
-use chrono::{DateTime, Duration, DurationRound, RoundingError, Utc};
+use chrono::{DateTime, Utc};
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
@@ -227,17 +227,35 @@ pub struct Event {
 
 impl From<&Event> for EventDefinition {
     fn from(event: &Event) -> Self {
-        EventDefinition {
-            name: sanitize_string(&event.event),
-            team_id: event.team_id,
-            project_id: event.project_id,
-            last_seen_at: get_floored_last_seen(),
-        }
+        event.to_event_definition(DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS)
     }
 }
 
 impl Event {
+    fn to_event_definition(&self, last_seen_floor_secs: i64) -> EventDefinition {
+        let name = sanitize_string(&self.event);
+        // Seed on the sanitized name because that is what ends up in the dedup key.
+        let jitter_seed = last_seen_jitter_seed(self.team_id, &name);
+
+        EventDefinition {
+            last_seen_at: floor_last_seen(Utc::now(), last_seen_floor_secs, jitter_seed),
+            name,
+            team_id: self.team_id,
+            project_id: self.project_id,
+        }
+    }
+
     pub fn into_updates(self, skip_threshold: usize) -> Vec<Update> {
+        self.into_updates_with(skip_threshold, DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS)
+    }
+
+    /// As `into_updates`, but with an explicit flooring period for the event-definition dedup
+    /// key. See `floor_last_seen` for what the period controls.
+    pub fn into_updates_with(
+        self,
+        skip_threshold: usize,
+        last_seen_floor_secs: i64,
+    ) -> Vec<Update> {
         if EVENTS_WITHOUT_PROPERTIES.contains(&self.event.as_str()) {
             metrics::counter!(EVENTS_SKIPPED, &[("reason", "no_properties_event")]).increment(1);
             return vec![];
@@ -252,7 +270,7 @@ impl Event {
         let team_id = self.team_id;
         let event = self.event.clone();
 
-        let updates = self.into_updates_inner();
+        let updates = self.into_updates_inner(last_seen_floor_secs);
         if updates.len() > skip_threshold {
             warn!(
                 "Event {} for team {} has more than {} properties, skipping",
@@ -265,8 +283,10 @@ impl Event {
         updates
     }
 
-    fn into_updates_inner(self) -> Vec<Update> {
-        let mut updates = vec![Update::Event(EventDefinition::from(&self))];
+    fn into_updates_inner(self, last_seen_floor_secs: i64) -> Vec<Update> {
+        let mut updates = vec![Update::Event(
+            self.to_event_definition(last_seen_floor_secs),
+        )];
         let Some(props) = &self.properties else {
             return updates;
         };
@@ -392,7 +412,20 @@ impl Event {
 }
 
 pub fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueType> {
-    let key = key.to_lowercase();
+    // This runs for every property of every event, so the allocation matters. Borrow when the key
+    // is already lowercase ASCII, which is effectively all real traffic. The ASCII gate is what
+    // makes the borrow equivalent to an unconditional `to_lowercase()`: over ASCII with no
+    // uppercase bytes, Unicode lowercasing is the identity, so no case analysis of the patterns
+    // below is needed to see that the result is unchanged. Gating on `char::is_uppercase` instead
+    // would reach the same answers, but only because every pattern below is an ASCII literal;
+    // that argument has to be redone whenever a pattern changes, and it costs a char decode plus
+    // a Unicode property lookup per character rather than a byte scan.
+    let lowered: Cow<str> = if key.is_ascii() && !key.bytes().any(|b| b.is_ascii_uppercase()) {
+        Cow::Borrowed(key)
+    } else {
+        Cow::Owned(key.to_lowercase())
+    };
+    let key: &str = &lowered;
 
     // There are a whole set of special cases here, taken from the TS
     if key.starts_with("utm_") || key.starts_with("$initial_utm_") {
@@ -428,7 +461,7 @@ pub fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueTyp
         return Some(PropertyValueType::String);
     }
 
-    if detect_timestamp_property_by_key_and_value(&key, value) {
+    if detect_timestamp_property_by_key_and_value(key, value) {
         return Some(PropertyValueType::DateTime);
     }
 
@@ -525,21 +558,69 @@ impl Hash for GroupType {
     }
 }
 
-// We round last seen to the nearest hour. Unwrap is safe here because
-// the duration is positive, non-zero, and smaller than time since epoch
-pub fn get_floored_last_seen() -> DateTime<Utc> {
-    floor_datetime(Utc::now(), Duration::hours(1)).unwrap()
+// An event definition's `last_seen_at` participates in its Hash and Eq, so flooring it is what
+// bounds how often we re-issue the definition's write: one per (team, name) per period, per pod.
+// The value itself never reaches Postgres — the write path binds a fresh Utc::now() per attempt —
+// so a coarser period trades a staler stored last_seen_at for proportionally fewer writes.
+pub const DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS: i64 = 3600;
+
+// Upper bound on the period, 30 days. Nothing operational wants a window this coarse — the cap
+// exists so the jitter offset stays small enough that the bucket arithmetic below cannot overflow
+// or leave chrono's representable range, which is what makes its fallback unreachable.
+pub const MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS: i64 = 30 * 24 * 3600;
+
+/// Start of the current `period_secs` window containing `now`, offset per identity by
+/// `jitter_seed` so that different identities roll over at different points in the period.
+///
+/// Without the offset every pod rotates every key at the same wall-clock instant, so each rollover
+/// makes the entire active keyspace writable at once. That is tolerable hourly and decidedly not
+/// at coarser periods, where a day's worth of definition writes would land in the minutes after
+/// the boundary, on a table that already struggles to keep autovacuum ahead of its dead tuples.
+///
+/// The result always falls in `(now - period, now]`, matching un-jittered flooring, so it can
+/// never produce a future timestamp.
+///
+/// The period is clamped into `1..=MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS`, with a non-positive value
+/// treated as `DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS`. Both ends of that clamp guard the same
+/// failure: an unfloored `last_seen_at` is unique per event, so the dedup cache filters nothing
+/// and the full event stream reaches `posthog_eventdefinition` as row updates. A non-positive
+/// period would produce that directly; an unbounded one would produce it via the fallback below,
+/// since a large enough offset pushes `bucket_start` outside chrono's range. Config validation at
+/// startup rejects out-of-range values loudly; this clamp backstops callers that bypass `Config`.
+///
+/// With the period capped, `offset` stays under a month of seconds, so `shifted` cannot overflow
+/// and `bucket_start` stays within a month of `now` — `from_timestamp` therefore cannot fail and
+/// the `unwrap_or` never fires.
+pub fn floor_last_seen(now: DateTime<Utc>, period_secs: i64, jitter_seed: u64) -> DateTime<Utc> {
+    let period_secs = if period_secs > 0 {
+        period_secs.min(MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS)
+    } else {
+        DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS
+    };
+
+    let offset = (jitter_seed % period_secs as u64) as i64;
+    let shifted = now.timestamp() + offset;
+    let bucket_start = shifted.div_euclid(period_secs) * period_secs - offset;
+
+    DateTime::from_timestamp(bucket_start, 0).unwrap_or(now)
 }
 
-fn floor_datetime(dt: DateTime<Utc>, duration: Duration) -> Result<DateTime<Utc>, RoundingError> {
-    let rounded = dt.duration_round(duration)?;
+/// Stable per-identity hash used to spread definition rollovers across the flooring period.
+///
+/// Hand-rolled FNV-1a rather than a standard library or `ahash` hasher because the offset has to
+/// be identical on every pod, across restarts, and across dependency upgrades. `DefaultHasher` and
+/// `ahash`'s default state are randomized per process, and any change to the hash shifts every
+/// key's boundary at once, which is the synchronized rewrite the offset exists to prevent.
+pub fn last_seen_jitter_seed(team_id: i32, name: &str) -> u64 {
+    const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+    const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 
-    // If we rounded up
-    if rounded > dt {
-        Ok(rounded - duration)
-    } else {
-        Ok(rounded)
+    let mut hash = FNV_OFFSET_BASIS;
+    for byte in team_id.to_le_bytes().iter().chain(name.as_bytes()) {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(FNV_PRIME);
     }
+    hash
 }
 
 // We impose some limits on some fields for legacy reasons, and drop updates that don't conform to them
@@ -573,7 +654,9 @@ impl EventDefinition {
             self.name,
             self.team_id,
             self.project_id,
-            Utc::now() // We floor the update datetime to the nearest day for cache purposes, but can insert the exact time we see the event
+            // last_seen_at is floored only to bound how often we re-issue this write; the stored
+            // value is the real time we saw the event.
+            Utc::now()
         ).execute(executor).await.map(|_| ());
 
         metrics::counter!(UPDATES_ISSUED, &[("type", "event_definition")]).increment(1);

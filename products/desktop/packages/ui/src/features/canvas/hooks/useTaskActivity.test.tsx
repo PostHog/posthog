@@ -150,4 +150,57 @@ describe("task activity hooks", () => {
     expect(hook.result.current.activity.items).toHaveLength(1);
     expect(mockClient.getTaskActivity).toHaveBeenCalledOnce();
   });
+
+  it("marks only the selected comment activity read", async () => {
+    const page: TaskActivityPage = {
+      results: [
+        activity({
+          id: "comment-activity-1",
+          latest_comment_id: "comment-1",
+        }),
+        activity({
+          id: "comment-activity-2",
+          latest_comment_id: "comment-2",
+        }),
+        activity({
+          id: "task-activity",
+          activity_kind: "awaiting_input",
+          latest_comment_id: null,
+        }),
+      ],
+      unread_count: 3,
+    };
+    queryClient.setQueryData(TASK_ACTIVITY_QUERY_KEY, {
+      pages: [page],
+      pageParams: [undefined],
+    });
+    mockClient.markTaskActivityRead.mockResolvedValue({
+      marked_read: 1,
+      unread_count: 1,
+    });
+
+    const hook = renderHook(() => useMarkTaskActivityRead(), { wrapper });
+    act(() => {
+      hook.result.current.mutate([
+        {
+          task_id: "task-1",
+          seen_before: "2026-07-01T10:00:00Z",
+          activity_id: "comment-activity-1",
+        },
+      ]);
+    });
+
+    await waitFor(() =>
+      expect(mockClient.markTaskActivityRead).toHaveBeenCalledOnce(),
+    );
+    const cached = queryClient.getQueryData<{
+      pages: TaskActivityPage[];
+    }>(TASK_ACTIVITY_QUERY_KEY);
+    expect(cached?.pages[0]?.results.map((row) => row.is_unread)).toEqual([
+      false,
+      true,
+      true,
+    ]);
+    expect(cached?.pages[0]?.unread_count).toBe(2);
+  });
 });

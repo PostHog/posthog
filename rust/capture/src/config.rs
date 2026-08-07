@@ -494,6 +494,14 @@ pub struct KafkaConfig {
     /// Set to "lz4" to enable. Default "none" for safe rollout and rollback.
     #[envconfig(default = "none")]
     pub kafka_replay_envelope_compression: EnvelopeCompression,
+    /// Refuse to boot when a registered output resolves to an empty topic
+    /// name (see `OutputRegistry::check_complete`). Config-only — the broker
+    /// is never probed, so topic autocreation on first publish is unaffected.
+    /// Opt-in (default off) so deployments that deliberately blank a topic
+    /// they never produce to keep booting; arm it per deployment once its
+    /// topic wiring is known-complete.
+    #[envconfig(from = "CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED", default = "false")]
+    pub outputs_completeness_check_enabled: bool,
     pub kafka_hosts: String,
     #[envconfig(default = "events_plugin_ingestion")]
     pub kafka_topic: String,

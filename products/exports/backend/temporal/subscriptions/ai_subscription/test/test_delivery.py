@@ -270,8 +270,8 @@ class TestFeedbackFooter:
         assert "Was this report useful?" in text
         assert f"<{_feedback_url(feedback, 'slack')}|{label}>" in text
 
-    @pytest.mark.parametrize("feedback", ["positive", "negative"])
-    def test_email_context_carries_feedback_urls(self, feedback: str) -> None:
+    @staticmethod
+    def _send_email_and_get_context() -> dict:
         with (
             patch(
                 "products.exports.backend.temporal.subscriptions.ai_subscription.delivery.EmailMessage"
@@ -293,8 +293,18 @@ class TestFeedbackFooter:
                 delivery_run_id="run-1",
                 delivery_id=_DELIVERY_ID,
             )
-        context = email_message.call_args.kwargs["template_context"]
+        return email_message.call_args.kwargs["template_context"]
+
+    @pytest.mark.parametrize("feedback", ["positive", "negative"])
+    def test_email_context_carries_feedback_urls(self, feedback: str) -> None:
+        context = self._send_email_and_get_context()
         assert context[f"feedback_{feedback}_url"] == _feedback_url(feedback, "email")
+
+    def test_email_cta_carries_delivery_id(self) -> None:
+        # Dropping this param silently kills click attribution: the frontend captures
+        # `ai_report_clicked` from it, the report-engagement signal.
+        context = self._send_email_and_get_context()
+        assert f"&delivery={_DELIVERY_ID}" in context["subscription_url"]
 
 
 class TestPersistAiQueryPlanRaceGuard(APIBaseTest):

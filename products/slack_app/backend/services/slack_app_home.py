@@ -32,6 +32,15 @@ from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.feature_flags import is_slack_app_home_enabled, is_slack_app_oauth_enabled
 from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache
+from products.slack_app.backend.services.model_catalogue import (
+    REASONING_EFFORT_DISPLAY_NAMES,
+    RUNTIME_ADAPTER_DISPLAY_NAMES,
+    available_model_choices,
+    describe_run_model,
+    format_model_id,
+    label_for,
+)
+from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL
 from products.slack_app.backend.services.slack_app_home_stats import (
     DEFAULT_STATS_WINDOW_DAYS,
     OUTCOME_CANCELLED,
@@ -113,50 +122,6 @@ MODAL_BLOCK_REASONING_EFFORT = "block_reasoning_effort"
 
 EditScope = Literal["personal", "workspace"]
 
-# Runtime + effort labels are UI strings with no tasks-product equivalent.
-# Model display labels are computed from the model id on the fly via
-# `_format_model_id` so we never have to hand-maintain a model→label map.
-RUNTIME_ADAPTER_DISPLAY_NAMES: dict[str, str] = {
-    "claude": "Claude (Anthropic)",
-    "codex": "Codex (OpenAI)",
-}
-
-REASONING_EFFORT_DISPLAY_NAMES: dict[str, str] = {
-    "low": "Low",
-    "medium": "Medium",
-    "high": "High",
-    "xhigh": "Extra high",
-    "max": "Max",
-}
-
-# Gateway `owned_by` → tasks RuntimeAdapter value. Other providers
-# (bedrock, vertex…) get dropped from the picker.
-_PROVIDER_TO_RUNTIME_ADAPTER: dict[str, str] = {
-    "anthropic": "claude",
-    "openai": "codex",
-}
-
-_PROVIDER_PREFIXES = ("anthropic/", "openai/")
-
-
-def _format_model_id(model_id: str, *, owned_by: str) -> str:
-    """OpenAI ids stay lowercase; Claude ids become `Claude Opus 4.8` etc."""
-    clean = model_id
-    for prefix in _PROVIDER_PREFIXES:
-        if clean.startswith(prefix):
-            clean = clean[len(prefix) :]
-            break
-    if owned_by == "openai":
-        return clean.lower()
-    import re as _re
-
-    # Collapse `4-8` into `4.8` so version components survive the dash split.
-    clean = _re.sub(r"(\d)-(\d)", r"\1.\2", clean)
-    return " ".join(
-        word if _re.fullmatch(r"[0-9.]+", word) else word[:1].upper() + word[1:].lower()
-        for word in _re.split(r"[-_]", clean)
-    )
-
 
 @dataclass(frozen=True)
 class PickerEffort:
@@ -179,46 +144,25 @@ class PickerAdapter:
 
 
 def get_picker_choices() -> tuple[PickerAdapter, ...]:
-    """Build the picker tree from the live LLM-gateway model list.
-
-    Models come from `slack_app` product on the gateway (cached). Per-model
-    effort support and adapter grouping come from the tasks facade. Display
-    labels are local UI strings.
-
-    Adapters with no available models are omitted entirely.
-    """
-    from products.slack_app.backend.services.llm_models import list_slack_app_models
-    from products.tasks.backend.facade.run_config import get_supported_reasoning_efforts
-
-    gateway_models = list_slack_app_models()
-
+    """Group the model catalogue into the runtime → model → effort tree the modal's
+    linked dropdowns render. Adapters with no available models are omitted entirely."""
     by_adapter: dict[str, list[PickerModel]] = {}
-    for gm in gateway_models:
-        adapter_value = _PROVIDER_TO_RUNTIME_ADAPTER.get(gm.owned_by)
-        if adapter_value is None:
-            continue
+    for choice in available_model_choices():
         efforts = tuple(
-            PickerEffort(value=e.value, label=REASONING_EFFORT_DISPLAY_NAMES.get(e.value) or e.value)
-            for e in get_supported_reasoning_efforts(adapter_value, gm.id)
+            PickerEffort(value=e, label=label_for(e, REASONING_EFFORT_DISPLAY_NAMES)) for e in choice.supported_efforts
         )
-        by_adapter.setdefault(adapter_value, []).append(
-            PickerModel(value=gm.id, label=_format_model_id(gm.id, owned_by=gm.owned_by), supported_efforts=efforts)
+        by_adapter.setdefault(choice.runtime_adapter, []).append(
+            PickerModel(value=choice.model, label=choice.label, supported_efforts=efforts)
         )
 
     return tuple(
         PickerAdapter(
             value=adapter_value,
-            label=RUNTIME_ADAPTER_DISPLAY_NAMES.get(adapter_value) or adapter_value,
+            label=label_for(adapter_value, RUNTIME_ADAPTER_DISPLAY_NAMES),
             models=tuple(models),
         )
         for adapter_value, models in by_adapter.items()
     )
-
-
-def _label(value: str | None, mapping: dict[str, str]) -> str:
-    if not value:
-        return "—"
-    return mapping.get(value, value)
 
 
 def _models_for(runtime_adapter: str) -> tuple[tuple[str, str], ...]:
@@ -500,15 +444,6 @@ def _static_select(
     return element
 
 
-def _provider_for_runtime_adapter(runtime_adapter: str | None) -> str:
-    """The gateway `owned_by` a runtime adapter implies — the inverse of
-    `_PROVIDER_TO_RUNTIME_ADAPTER`, so the two can't drift when an adapter is added."""
-    for provider, adapter in _PROVIDER_TO_RUNTIME_ADAPTER.items():
-        if adapter == runtime_adapter:
-            return provider
-    return "anthropic"
-
-
 def _header_blocks() -> list[dict]:
     return [
         _section_title(
@@ -521,8 +456,8 @@ def _header_blocks() -> list[dict]:
 def _active_model_blocks(effective: AIPreferences, source: PreferenceSource) -> list[dict]:
     """Headline that shows which model is actually running, and why.
 
-    When nothing is set the Slack bot defaults to Opus 5 (pinned in the task
-    creation activity); the user can still override it here.
+    With nothing set the run falls back to the Slack default, named here from the
+    same constant the run resolves against so the card can't drift from it.
     """
     header = _section_title(
         "🤖 AI model",
@@ -537,26 +472,28 @@ def _active_model_blocks(effective: AIPreferences, source: PreferenceSource) -> 
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "Defaulting to Opus 5. Pick personal or workspace settings to override.",
+                    "text": (
+                        f"Defaulting to {format_model_id(SLACK_DEFAULT_MODEL)}. "
+                        "Pick personal or workspace settings to override."
+                    ),
                 },
             },
             source_blurb,
         ]
 
-    runtime_label = _label(effective.runtime_adapter, RUNTIME_ADAPTER_DISPLAY_NAMES)
-    model_label = _format_model_id(effective.model, owned_by="") if effective.model else "—"
-    effort_part = (
-        f" · Reasoning: *{_label(effective.reasoning_effort, REASONING_EFFORT_DISPLAY_NAMES)}*"
-        if effective.reasoning_effort
-        else ""
-    )
+    runtime_label = label_for(effective.runtime_adapter, RUNTIME_ADAPTER_DISPLAY_NAMES)
     return [
         header,
         {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"Currently running *{model_label}* · {runtime_label}{effort_part}",
+                # Same phrasing as the notice a mention override posts, so the card and
+                # the thread describe a run the same way.
+                "text": (
+                    f"Currently running "
+                    f"{describe_run_model(effective.model, effective.reasoning_effort)} · {runtime_label}"
+                ),
             },
         },
         source_blurb,
@@ -1146,7 +1083,7 @@ def _bar(value: int, peak: int, width: int = _STATS_BAR_WIDTH) -> str:
 
 def _stats_model_label(usage: ModelUsage) -> str:
     """Display label for a model, truncated so the bar column stays aligned."""
-    label = _format_model_id(usage.model, owned_by=_provider_for_runtime_adapter(usage.runtime_adapter))
+    label = format_model_id(usage.model)
     return _truncate(label, _STATS_COLUMN_LABEL_CHARS)
 
 
@@ -1174,13 +1111,12 @@ def _stats_footnote_blocks(state: StatsState) -> list[dict]:
 def _row_summary(row: SlackSettings | None) -> str:
     if not row or not row.runtime_adapter or not row.model:
         return "_(none)_"
-    owned_by = _provider_for_runtime_adapter(row.runtime_adapter)
     parts = [
-        f"*Model:* {_format_model_id(row.model, owned_by=owned_by)}",
-        f"*Runtime:* {_label(row.runtime_adapter, RUNTIME_ADAPTER_DISPLAY_NAMES)}",
+        f"*Model:* {format_model_id(row.model)}",
+        f"*Runtime:* {label_for(row.runtime_adapter, RUNTIME_ADAPTER_DISPLAY_NAMES)}",
     ]
     if row.reasoning_effort:
-        parts.append(f"*Reasoning:* {_label(row.reasoning_effort, REASONING_EFFORT_DISPLAY_NAMES)}")
+        parts.append(f"*Reasoning:* {label_for(row.reasoning_effort, REASONING_EFFORT_DISPLAY_NAMES)}")
     return " · ".join(parts)
 
 
@@ -1263,7 +1199,7 @@ def render_edit_modal(
     if supported_efforts:
         effort_options = [
             {
-                "text": {"type": "plain_text", "text": _label(v, REASONING_EFFORT_DISPLAY_NAMES), "emoji": True},
+                "text": {"type": "plain_text", "text": label_for(v, REASONING_EFFORT_DISPLAY_NAMES), "emoji": True},
                 "value": v,
             }
             for v in supported_efforts
@@ -2047,7 +1983,7 @@ def _resolve_project_state(
         .first()
     )
 
-    def _label(c: Integration) -> str:
+    def project_label(c: Integration) -> str:
         return f"{c.team.organization.name} · {c.team.name}"
 
     # Look up the workspace default's label against the full candidate list,
@@ -2060,10 +1996,10 @@ def _resolve_project_state(
     )
     workspace_team_label: str | None = None
     if workspace_team_id is not None:
-        workspace_team_label = next((_label(c) for c in candidates if c.team_id == workspace_team_id), None)
+        workspace_team_label = next((project_label(c) for c in candidates if c.team_id == workspace_team_id), None)
 
     return ProjectState(
-        candidates=tuple(ProjectChoice(team_id=c.team_id, label=_label(c)) for c in accessible),
+        candidates=tuple(ProjectChoice(team_id=c.team_id, label=project_label(c)) for c in accessible),
         personal_team_id=(user_row.default_integration.team_id if user_row and user_row.default_integration else None),
         workspace_team_id=workspace_team_id,
         workspace_team_label=workspace_team_label,
