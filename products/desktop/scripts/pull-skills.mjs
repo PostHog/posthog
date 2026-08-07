@@ -97,7 +97,7 @@ try {
   await rm(LOCAL_SKILLS_DIR, { recursive: true, force: true });
   await cp(skillsSource, LOCAL_SKILLS_DIR, { recursive: true });
 
-  // Download and merge context-mill omnibus skills (non-fatal)
+  // Download and merge selected context-mill skills (non-fatal)
   try {
     const cmZipPath = join(tempDir, "context-mill.zip");
     console.log("Downloading context-mill skills-mcp-resources.zip...");
@@ -112,9 +112,17 @@ try {
 
     for (const [filename, content] of Object.entries(cmOuter)) {
       const base = filename.replace(/^.*\//, "");
-      if (!base.startsWith("omnibus-") || !base.endsWith(".zip")) continue;
+      if (!base.endsWith(".zip")) continue;
 
-      const strippedName = base.replace(/^omnibus-/, "").replace(/\.zip$/, "");
+      const archiveName = base.replace(/\.zip$/, "");
+      if (
+        !archiveName.startsWith("omnibus-") &&
+        archiveName !== "creating-product-tours"
+      ) {
+        continue;
+      }
+
+      const strippedName = archiveName.replace(/^omnibus-/, "");
       const innerEntries = unzipSync(new Uint8Array(content));
       const destDir = join(LOCAL_SKILLS_DIR, strippedName);
       await mkdir(destDir, { recursive: true });
@@ -134,7 +142,7 @@ try {
         }
       }
     }
-    console.log("Context-mill omnibus skills merged into local-skills/");
+    console.log("Selected context-mill skills merged into local-skills/");
   } catch (err) {
     console.warn(
       "Failed to download context-mill skills (non-fatal):",

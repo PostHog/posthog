@@ -17,7 +17,7 @@ The plugin directory is assembled from three skill sources, merged in priority o
 | Source | Location | When used |
 |---|---|---|
 | **Shipped** | `plugins/posthog/skills/` | Always — committed to the repo |
-| **Remote** | GitHub releases `skills.zip` | Downloaded at build time and every 30 min at runtime |
+| **Remote** | GitHub releases `skills.zip` and selected context-mill skills | Downloaded at build time and every 30 min at runtime |
 | **Local dev** | `plugins/posthog/local-skills/` | Dev mode only — gitignored |
 
 A "skill name" is its directory name. If remote and shipped both have `query-data/`, the remote version wins. If local-dev also has `query-data/`, that wins over both.
@@ -27,7 +27,7 @@ A "skill name" is its directory name. If remote and shipped both have `query-dat
 `copyPosthogPlugin()` in `vite-main-plugins.mts` assembles the plugin during `writeBundle`:
 
 1. Copies allowed plugin entries into `.vite/build/plugins/posthog/`
-2. Downloads `skills.zip` via `curl`, extracts with `unzip`, overlays into the build output
+2. Downloads `skills.zip` plus context-mill omnibus and selected standalone skills, then overlays them into the build output
 3. In dev mode only: overlays `plugins/posthog/local-skills/` on top
 4. Download failure is non-fatal — build continues with shipped skills only
 
@@ -45,9 +45,9 @@ Vite watches `plugins/posthog/` (and `local-skills/` in dev) for hot-reload.
 5. Kicks off the first async download
 
 **Every 30 minutes (`updateSkills`):**
-1. Downloads `skills.zip` using `net.fetch` (Electron's network stack, respects proxy)
-2. Extracts to a temp dir via `unzip`
-3. Atomically swaps into `{userData}/skills/`
+1. Downloads `skills.zip` and the context-mill resource bundle using `net.fetch` (Electron's network stack, respects proxy)
+2. Extracts the primary, omnibus, and selected standalone skills to a temp dir
+3. Atomically swaps them into `{userData}/skills/`
 4. Re-assembles the runtime plugin dir
 5. On failure: logs a warning, keeps existing skills, retries next interval
 

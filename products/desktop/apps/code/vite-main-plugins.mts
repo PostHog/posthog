@@ -357,7 +357,7 @@ async function findSkillsDirInExtract(
 
 /**
  * Downloads context-mill skills-mcp-resources.zip (a zip-of-zips), extracts
- * omnibus-* inner zips, strips the "omnibus-" prefix, and writes into targetDir.
+ * omnibus skills and selected standalone skills, and writes them into targetDir.
  * Returns true on success, false on failure (non-fatal).
  */
 async function downloadAndExtractContextMillSkills(
@@ -383,11 +383,17 @@ async function downloadAndExtractContextMillSkills(
 
       for (const [filename, content] of Object.entries(outerEntries)) {
         const base = filename.replace(/^.*\//, ""); // strip any directory prefix
-        if (!base.startsWith("omnibus-") || !base.endsWith(".zip")) continue;
+        if (!base.endsWith(".zip")) continue;
 
-        const strippedName = base
-          .replace(/^omnibus-/, "")
-          .replace(/\.zip$/, "");
+        const archiveName = base.replace(/\.zip$/, "");
+        if (
+          !archiveName.startsWith("omnibus-") &&
+          archiveName !== "creating-product-tours"
+        ) {
+          continue;
+        }
+
+        const strippedName = archiveName.replace(/^omnibus-/, "");
         const innerEntries = unzipSync(new Uint8Array(content));
         const destDir = join(targetDir, strippedName);
         await mkdir(destDir, { recursive: true });
@@ -480,7 +486,7 @@ export function copyPosthogPlugin(isDev: boolean): Plugin {
       if (!remoteSkillsFetched) {
         await downloadAndExtractSkills(destSkillsDir);
 
-        // 2b. Download and overlay context-mill omnibus skills (overrides same-named skills)
+        // 2b. Download and overlay selected context-mill skills (overrides same-named skills)
         await downloadAndExtractContextMillSkills(destSkillsDir);
         remoteSkillsFetched = true;
       }

@@ -267,8 +267,8 @@ export class UpdateSkillsSaga extends Saga<
   }
 
   /**
-   * Downloads context-mill zip-of-zips, extracts omnibus-* inner zips,
-   * strips the "omnibus-" prefix, patches SKILL.md, and merges into destDir.
+   * Downloads context-mill zip-of-zips, extracts omnibus and selected standalone
+   * skills, strips the "omnibus-" prefix, and merges them into destDir.
    */
   private async downloadAndMergeContextMillSkills(
     url: string,
@@ -285,9 +285,17 @@ export class UpdateSkillsSaga extends Saga<
 
     const files = await readdir(extractDir);
     for (const file of files) {
-      if (!file.startsWith("omnibus-") || !file.endsWith(".zip")) continue;
+      if (!file.endsWith(".zip")) continue;
 
-      const strippedName = file.replace(/^omnibus-/, "").replace(/\.zip$/, "");
+      const archiveName = file.replace(/\.zip$/, "");
+      if (
+        !archiveName.startsWith("omnibus-") &&
+        archiveName !== "creating-product-tours"
+      ) {
+        continue;
+      }
+
+      const strippedName = archiveName.replace(/^omnibus-/, "");
       const innerZipPath = join(extractDir, file);
       const innerZipData = await readFile(innerZipPath);
       const innerEntries = await unzipAsync(new Uint8Array(innerZipData));

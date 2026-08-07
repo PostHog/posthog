@@ -122,6 +122,7 @@ function simulateExtractZip() {
         // Inner zip bytes are dummy — fflate.unzip is mocked below.
         vol.mkdirSync(extractDir, { recursive: true });
         vol.writeFileSync(`${extractDir}/omnibus-test-skill.zip`, "dummy");
+        vol.writeFileSync(`${extractDir}/creating-product-tours.zip`, "dummy");
         vol.writeFileSync(`${extractDir}/manifest.json`, "{}");
         // Non-omnibus zip should be ignored
         vol.writeFileSync(`${extractDir}/other-skill.zip`, "dummy");
@@ -373,18 +374,20 @@ describe("PosthogPluginService", () => {
       await first.catch(() => {});
     });
 
-    it("downloads and merges context-mill omnibus skills with prefix stripped", async () => {
+    it("downloads selected context-mill skills", async () => {
       setupBundledPlugin();
       simulateExtractZip();
 
       await service.updateSkills();
 
-      // Omnibus skill should exist with prefix stripped
       expect(vol.existsSync(`${RUNTIME_SKILLS_DIR}/test-skill/SKILL.md`)).toBe(
         true,
       );
+      expect(
+        vol.existsSync(`${RUNTIME_SKILLS_DIR}/creating-product-tours/SKILL.md`),
+      ).toBe(true);
+      expect(vol.existsSync(`${RUNTIME_SKILLS_DIR}/other-skill`)).toBe(false);
 
-      // SKILL.md should have "omnibus-" stripped from name field
       const content = vol.readFileSync(
         `${RUNTIME_SKILLS_DIR}/test-skill/SKILL.md`,
         "utf-8",
