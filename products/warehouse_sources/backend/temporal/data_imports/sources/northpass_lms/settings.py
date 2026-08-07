@@ -23,6 +23,10 @@ class NorthpassEndpointConfig:
     # name under which the parent id is injected into each child row (also part of the primary key).
     fan_out_parent: Optional[str] = None
     parent_id_field: Optional[str] = None
+    # For endpoints whose rows reference other resources only inside JSON:API `relationships`
+    # (e.g. `/events` rows carry no `id` of their own): relationship name -> column name under
+    # which the related resource's id is promoted to the row root.
+    relationship_id_fields: Optional[dict[str, str]] = None
     # Human-readable note surfaced in the schema picker / docs.
     description: Optional[str] = None
 
@@ -78,6 +82,30 @@ NORTHPASS_ENDPOINTS: dict[str, NorthpassEndpointConfig] = {
         fan_out_parent="learning_paths",
         parent_id_field="learning_path_id",
         description="Enrollments for every learning path. Fans out one request per learning path. Full refresh only.",
+    ),
+    # Lesson-level progress. `course_activities` is the per-course lesson catalog (the API exposes
+    # no timestamps on activities, so no partitioning), and `activity_events` is the learning-event
+    # stream recording who did what on which activity when.
+    "course_activities": NorthpassEndpointConfig(
+        name="course_activities",
+        path="/courses/{parent_id}/activities",
+        primary_keys=["course_id", "id"],
+        fan_out_parent="courses",
+        parent_id_field="course_id",
+        description="Activities (lessons) that make up every course. Fans out one request per course. Full refresh only.",
+    ),
+    "activity_events": NorthpassEndpointConfig(
+        name="activity_events",
+        path="/events",
+        partition_key="created_at",
+        # Events carry no id of their own; a row is identified by who did what on which activity
+        # when. Same-second duplicates collapse, acceptable for a full-refresh-only table.
+        primary_keys=["person_id", "activity_id", "type", "created_at"],
+        # The endpoint has no server-side filter, so every sync re-fetches the full event history —
+        # potentially very large, so users opt in per schema.
+        should_sync_default=False,
+        relationship_id_fields={"person": "person_id", "activity": "activity_id"},
+        description="Lesson-level learning events (e.g. learner viewed an activity), one row per person, activity, and timestamp. Re-syncs the full history on every run, so it is off by default.",
     ),
 }
 
