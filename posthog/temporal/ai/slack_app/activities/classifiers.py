@@ -27,21 +27,31 @@ logger = structlog.get_logger(__name__)
 
 CLASSIFIER_THREAD_HISTORY_MESSAGES = 10
 CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
-# The override classifier runs on a reasoning model, which draws its reasoning from the
-# same token budget as the reply. The reply itself is one short JSON object; the headroom
-# is for the thinking in front of it, and a truncated turn reads as an unusable reply and
-# falls back to saved preferences.
+
+
+# The model-override and agent-directed classifiers both run on a reasoning model, which
+# draws its reasoning from the same token budget as the reply. The reply is one short JSON
+# object; the headroom is for the thinking in front of it, and a truncated turn falls back
+# to the safe answer.
+#
+# The gateway client defaults to a 600s read and two retries, which is the right shape for
+# a generation call and the wrong one here. Left unbounded these never get to fall back,
+# because the activity's own deadline expires first. Bounding the retries matters as much
+# as the timeout: the activity is sync, so a thread Temporal has stopped waiting on keeps
+# blocking until the client itself returns.
 MODEL_OVERRIDE_CLASSIFIER_MODEL = "gpt-5.6-luna"
 MODEL_OVERRIDE_MAX_TOKENS = 2048
-# The gateway client defaults to a 600s read and two retries of its own, which is the
-# right shape for a generation call and the wrong one here: this classifier gates task
-# creation, and its answer is optional — any failure falls back to saved preferences. Left
-# unbounded it never gets to fall back, because the activity's own 600s deadline expires
-# first and fails the mention outright. Bounding the retries matters as much as the
-# deadline: the activity is sync, so a thread Temporal has stopped waiting on keeps
-# blocking until the client itself returns. Measured mean is ~1.7s per call.
+# One call per `@PostHog`, on the mention text alone. Measured mean is ~1.7s per call.
 MODEL_OVERRIDE_TIMEOUT_SECONDS = 10.0
 MODEL_OVERRIDE_MAX_RETRIES = 1
+
+AGENT_DIRECTED_CLASSIFIER_MODEL = "gpt-5.6-luna"
+AGENT_DIRECTED_MAX_TOKENS = 2048
+# One call per reply in every thread the agent is working in, and its prompt carries the
+# thread the override classifier's does not. The eval suite sees 3-9s on that shape, close
+# enough to a 10s ceiling that the tail would drop instructions rather than misread them.
+AGENT_DIRECTED_TIMEOUT_SECONDS = 20.0
+AGENT_DIRECTED_MAX_RETRIES = 1
 
 
 def classify_task_needs_repo(
@@ -176,77 +186,108 @@ def classify_posthog_code_task_needs_repo_activity(
     return classify_task_needs_repo(event_text, thread_messages)
 
 
+def _agent_directed_response_format() -> ResponseFormatJSONSchema:
+    """A strict JSON schema pinning the reply to a single boolean.
+
+    The schema is what stops a reasoning model answering with its reasoning — prose parses
+    to nothing, which reads the same as a refused call and silently drops the message.
+    """
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "slack_app_agent_directed",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {"agent_directed": {"type": "boolean"}},
+                "required": ["agent_directed"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
 def classify_message_is_agent_directed(
     event_text: str,
     task_title: str,
     thread_history: list[dict[str, str]],
 ) -> bool:
-    """Classify whether a Slack thread reply is addressing the running PostHog
-    Slack App or pure side chatter between humans.
+    """Classify whether an untagged Slack thread reply is an instruction to the running
+    PostHog Slack App, or people talking to each other.
 
-    The prompt leans toward forwarding when the message could plausibly help
-    the agent or advance the task — a false positive is a single wasted turn
-    the human can correct; a false negative forces the human to re-tag
-    ``@PostHog`` to recover. Cheap pre-LLM heuristics still drop trivial
-    messages (one word, emoji-only, very short) before paying for Haiku, and
-    the function still returns ``False`` on a Haiku call error so a transient
-    LLM outage can't fan out spurious forwards.
+    Deliberately defensive. Waking the agent is not private: it reacts in the channel, so a
+    thread of humans discussing the work watches it interject on messages nobody addressed
+    to it. A missed follow-up costs one ``@PostHog``, which the author would have typed
+    anyway. So the bar is that the message reads as addressed to the agent — talking
+    *about* the task, or about the agent, is not talking *to* it. Any failure returns
+    ``False`` for the same reason.
 
     ``thread_history`` is the conversation so far (oldest first), as returned
     by ``collect_thread_messages`` — each entry is ``{"user", "text", "ts"}``.
+
+    Whether the prompt holds that line is measured by
+    ``products/slack_app/evals/eval_followup_classifier.py``.
     """
     stripped = event_text.strip()
-    # Emoji-only / reaction-only replies are never agent-directed; drop before
-    # paying for Haiku.
     if re.fullmatch(r"(?:\s*:[a-z0-9_+-]+:\s*)+", stripped):
         logger.info("classify_message_is_agent_directed_heuristic_emoji_only", event_text=event_text)
         return False
 
-    # Render the tail of the thread for context. Bound the number of lines and
-    # the per-line length to keep the prompt small and predictable.
+    # Bound the number of lines and the per-line length to keep the prompt predictable.
     recent = thread_history[-CLASSIFIER_THREAD_HISTORY_MESSAGES:]
     history_block = "\n".join(f"{m.get('user', 'Unknown')}: {m.get('text', '')[:500]}" for m in recent) or "(empty)"
 
     prompt = (
-        "You are routing replies in a Slack thread where the PostHog Slack App is "
-        "currently working on a task. Decide whether the latest message is meant "
-        "for the Slack App to read — instructions, corrections, follow-up asks, "
-        "questions about the task, or context that helps it — versus pure side "
-        "chatter between humans.\n\n"
-        "Lean toward true when the message could plausibly help the Slack App or "
-        "advance the task. Examples of agent_directed=true:\n"
-        "  - Direct address ('@PostHog', 'agent, please…', 'bot, …').\n"
-        "  - Instructions, corrections, or scope changes ('also handle the empty "
-        "    case', 'use the new helper instead', 'actually skip the migration').\n"
-        "  - Questions about the task or the Slack App's last update ('why did "
-        "    you skip X?', 'what does this PR cover?', 'can you also do Y?').\n"
-        "  - Task-relevant context (an error message, a URL, a file path, an "
-        "    affected team/customer ID, a stack trace, a reproduction).\n"
-        "  - Replies that elaborate on the human's earlier ask in this thread.\n\n"
-        "Return agent_directed=false for clearly off-topic side chatter:\n"
-        "  - Pure acknowledgements with no new info ('thanks', 'lgtm', 'nice', "
-        "    'cool', emoji-only, '+1').\n"
-        "  - Conversation clearly directed at another human (mentions another "
-        "    user, answers their question, refers to people in third person).\n"
-        "  - Off-topic chat unrelated to the task ('lunch in 5?', 'gn').\n\n"
-        "When you're genuinely on the fence, prefer true — the human can correct "
-        "the agent if it misreads, but a missed follow-up means the human has to "
-        "re-tag @PostHog.\n\n"
-        f"Task the Slack App is working on: {task_title or '(unknown)'}\n\n"
+        "The PostHog agent is working on a task in this Slack thread. People in the thread "
+        "have stopped tagging it. Decide whether the latest message is an instruction to "
+        "the agent that happens to omit the @mention.\n\n"
+        "Answer true only when the message is addressed to the agent:\n"
+        "  - An order or request to do something ('also handle the empty case', 'skip the "
+        "migration', 'open a PR for that too', 'try again with the other helper').\n"
+        "  - A question put to the agent about its own work ('why did you skip the "
+        "redesign commit?', 'does your PR cover the mobile breakpoint?').\n"
+        "  - An answer to something the agent just asked in this thread.\n"
+        "  - A correction of what the agent said or did ('no, the bug is in the handler, "
+        "not the wrapper').\n\n"
+        "Answer false for everything else. This is the common case, and the mistake to "
+        "avoid — people talk about the work far more often than they talk to the agent:\n"
+        "  - Opinions and discussion about the task or the product, addressed to the room "
+        "('this needs a stronger label', 'it should probably live under settings', 'I've "
+        "seen this set back and forth so much'). Relevant to the task is not the same as "
+        "addressed to the agent.\n"
+        "  - Talk about the agent in the third person ('why is the bot reacting to me?', "
+        "'it keeps replying', 'is it supposed to do that?'). Being the topic is not being "
+        "the audience.\n"
+        "  - Conversation between humans — answering each other, tagging each other, "
+        "deciding something among themselves.\n"
+        "  - Acknowledgements, praise, and reactions ('thanks', 'lgtm', 'nice', '+1').\n"
+        "  - Context dropped into the thread with no instruction attached — a link, a "
+        "stack trace, a screenshot — unless the message asks the agent to act on it.\n"
+        "  - Anything off-topic.\n\n"
+        "When you are unsure, answer false. A missed instruction costs the author one "
+        "@PostHog; a wrong wake-up makes the agent interrupt a conversation it was not "
+        "part of, in public, where everyone sees it.\n\n"
+        f"Task the agent is working on: {task_title or '(unknown)'}\n\n"
         f"Thread so far (oldest first):\n{history_block}\n\n"
         f"Latest message (from a human in this thread): {event_text}\n\n"
-        'Respond with ONLY a JSON object: {"agent_directed": true} or {"agent_directed": false}'
+        'Answer with the one field, e.g. {"agent_directed": false}'
     )
     try:
-        client = get_llm_client("slack_app_routing")
-        response = client.chat.completions.create(
-            model=CLASSIFIER_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=64,
-            temperature=0,
+        client = get_llm_client("slack_app_routing").with_options(
+            timeout=AGENT_DIRECTED_TIMEOUT_SECONDS, max_retries=AGENT_DIRECTED_MAX_RETRIES
         )
+        response = client.chat.completions.create(
+            model=AGENT_DIRECTED_CLASSIFIER_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=AGENT_DIRECTED_MAX_TOKENS,
+            response_format=_agent_directed_response_format(),
+        )
+        # Tolerant parse on top of the schema on purpose: the gateway fronts several
+        # providers and does not honour a response format identically on every route, so
+        # a reply that arrives fenced still lands rather than dropping the message.
         parsed = extract_json_object(response.choices[0].message.content or "") or {}
-        return bool(parsed.get("agent_directed", False))
+        # Anything but the schema's boolean drops: a truthy string would invert the bias.
+        return parsed.get("agent_directed") is True
     except Exception:
         logger.exception("classify_message_is_agent_directed_failed")
         return False
