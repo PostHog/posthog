@@ -1990,7 +1990,7 @@ class FeatureFlagSerializer(
                 # explicitly set a new payload during the downgrade).
                 payloads = filters.get("payloads") or {}
                 true_val = payloads.get("true")
-                if not true_val or true_val == REDACTED_PAYLOAD_VALUE:
+                if true_val is None or true_val == REDACTED_PAYLOAD_VALUE:
                     payloads.pop("true", None)
                 filters["payloads"] = payloads
 
@@ -4354,7 +4354,7 @@ class FeatureFlagViewSet(
             payloads = feature_flag.filters.get("payloads", {})
             if should_count:
                 increment_request_count(self.team.pk, 1, FlagRequestType.REMOTE_CONFIG)
-            return Response(payloads.get("true") or None)
+            return Response(payloads.get("true"))
 
         # Note: This decryption step is protected by the feature_flag:read scope, so we can assume the
         # user has access to the flag. However get_decrypted_flag_payloads_protected will also check the authentication
@@ -4367,7 +4367,7 @@ class FeatureFlagViewSet(
         if should_count:
             increment_request_count(self.team.pk, 1, FlagRequestType.REMOTE_CONFIG)
 
-        return Response(decrypted_flag_payloads["true"] or None)
+        return Response(decrypted_flag_payloads.get("true"))
 
     @validated_request(
         query_serializer=ActivityQuerySerializer,

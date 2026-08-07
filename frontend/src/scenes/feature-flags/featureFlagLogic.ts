@@ -529,7 +529,7 @@ export const indexToVariantKeyFeatureFlagPayloads = (flag: Partial<FeatureFlagTy
     }
     if (flag.filters && !flag.filters.multivariate) {
         let cleanedPayloadValue = {}
-        if (flag.filters.payloads?.['true']) {
+        if (flag.filters.payloads?.['true'] !== undefined) {
             cleanedPayloadValue = { true: flag.filters.payloads['true'] }
         }
         return {
