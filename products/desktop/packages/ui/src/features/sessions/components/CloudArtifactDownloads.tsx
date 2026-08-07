@@ -36,12 +36,13 @@ import {
   useArtifactFilesCollapsed,
   useSessionViewActions,
 } from "@posthog/ui/features/sessions/sessionViewStore";
+import { useArtifactDownload } from "@posthog/ui/features/sessions/useArtifactDownload";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { toast } from "@posthog/ui/primitives/toast";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createArtifactUploadTracker } from "./countArtifactUploads";
 
 type ArtifactGroup = RunArtifactVersions<TaskRunArtifact>;
@@ -81,7 +82,7 @@ export function CloudArtifactDownloads({
   const collapsed = useArtifactFilesCollapsed(taskId);
   const { setArtifactFilesCollapsed } = useSessionViewActions();
   const authIdentity = useAuthStateValue(getAuthIdentity);
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const { download, downloadingId } = useArtifactDownload();
   const [selectedVersionByName, setSelectedVersionByName] = useState<
     Record<string, string>
   >({});
@@ -172,37 +173,6 @@ export function CloudArtifactDownloads({
     onError: () => toast.error("Couldn't update this file"),
   });
 
-  const downloadArtifact = useCallback(
-    async (artifact: TaskRunArtifact): Promise<void> => {
-      if (!taskId || !runId || !artifact.id) return;
-      setDownloadingId(artifact.id);
-      try {
-        const url = await sessionService.getCloudAttachmentPreviewUrl(
-          taskId,
-          runId,
-          artifact.id,
-        );
-        if (!url) {
-          toast.error("This file is no longer available");
-          return;
-        }
-        const response = await fetch(url);
-        if (!response.ok) throw new Error("Artifact download failed");
-        const objectUrl = URL.createObjectURL(await response.blob());
-        const anchor = document.createElement("a");
-        anchor.href = objectUrl;
-        anchor.download = artifact.name;
-        anchor.click();
-        URL.revokeObjectURL(objectUrl);
-      } catch {
-        toast.error("Couldn't download file");
-      } finally {
-        setDownloadingId(null);
-      }
-    },
-    [runId, sessionService, taskId],
-  );
-
   if (!runId || groups.length === 0) return null;
 
   const renderRow = (group: ArtifactGroup) => {
@@ -290,8 +260,16 @@ export function CloudArtifactDownloads({
             <Button
               size="sm"
               variant="outline"
-              disabled={!canDownload || downloadingId === selected.id}
-              onClick={() => void downloadArtifact(selected)}
+              disabled={!canDownload || downloadingId !== null}
+              onClick={() => {
+                if (!taskId || !selected.id) return;
+                void download({
+                  taskId,
+                  runId,
+                  artifactId: selected.id,
+                  name: selected.name,
+                });
+              }}
             >
               <DownloadSimple size={14} />
               {downloadingId === selected.id ? "Opening..." : "Download"}
