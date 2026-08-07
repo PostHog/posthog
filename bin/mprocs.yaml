@@ -142,6 +142,12 @@ procs:
         groups:
             layer: Ingestion pipeline
             tech: Node
+        env:
+            # The combined-mode AI consumer reads persons through PersonHog. The
+            # connection is lazy, so the router (personhog capability) only has to
+            # run once capture actually routes $ai_* events to the AI topic.
+            PERSONHOG_ENABLED: 'true'
+            PERSONHOG_ADDR: '127.0.0.1:50052'
 
     ingestion-sessionreplay:
         sandbox: true
