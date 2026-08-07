@@ -19,6 +19,11 @@ export type DisposablesManager = {
     registry: Map<string, DisposableEntry>
     keyCounter: number
     logicPath: string
+    // Set once the logic has unmounted. A listener or loader can settle after
+    // unmount (e.g. a fetch's `finally` disarming its watchdog once the dropdown
+    // that mounted the logic has closed), and `add`/`dispose` no-op past this so
+    // that late call is harmless instead of throwing off a torn-down manager.
+    disposed: boolean
 }
 
 // Type for logic with disposables added
@@ -106,7 +111,9 @@ const detachGlobalVisibilityListener = (): void => {
 }
 
 const initializeDisposablesManager = (logic: LogicWithCache): void => {
-    if (logic.cache.disposables) {
+    // A disposed manager is left in place on unmount (see beforeUnmount) so late
+    // callers no-op rather than dereference null. On remount, build a fresh one.
+    if (logic.cache.disposables && !logic.cache.disposables.disposed) {
         return
     }
 
@@ -116,8 +123,12 @@ const initializeDisposablesManager = (logic: LogicWithCache): void => {
         registry: new Map(),
         keyCounter: 0,
         logicPath: logic.pathString,
+        disposed: false,
         add: (setup: SetupFunction, key?: string, options?: DisposableOptions) => {
             const manager = getManager()
+            if (manager.disposed) {
+                return
+            }
             const disposableKey = key ?? `__auto_${manager.keyCounter++}`
             const disposableOptions: DisposableOptions = { pauseOnPageHidden: true, ...options }
 
@@ -155,7 +166,7 @@ const initializeDisposablesManager = (logic: LogicWithCache): void => {
         },
         dispose: (key: string) => {
             const manager = getManager()
-            if (!manager.registry.has(key)) {
+            if (manager.disposed || !manager.registry.has(key)) {
                 return false
             }
 
@@ -269,15 +280,22 @@ export const disposablesPlugin: KeaPlugin = {
         beforeUnmount(logic) {
             const typedLogic = logic as LogicWithCache
             // Only dispose on final unmount when logic.isMounted() becomes false
-            if (!typedLogic.isMounted() && typedLogic.cache.disposables) {
+            const manager = typedLogic.cache.disposables
+            if (!typedLogic.isMounted() && manager && !manager.disposed) {
                 // Unregister from global visibility tracking
-                globalVisibilityState.allManagers.delete(typedLogic.cache.disposables)
+                globalVisibilityState.allManagers.delete(manager)
 
                 // Clean up all disposables
-                typedLogic.cache.disposables.registry.forEach((entry) => {
+                manager.registry.forEach((entry) => {
                     safeCleanup(entry.cleanup, typedLogic.pathString)
                 })
-                typedLogic.cache.disposables = null
+                manager.registry.clear()
+
+                // Mark the manager disposed and keep it on the cache rather than
+                // nulling it. A loader or listener that settles after unmount still
+                // reaches `cache.disposables.add`/`dispose`; those now no-op instead
+                // of throwing a TypeError off a null reference.
+                manager.disposed = true
 
                 // Detach global listener if no more managers
                 detachGlobalVisibilityListener()

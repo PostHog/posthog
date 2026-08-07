@@ -211,4 +211,26 @@ describe('disposablesPlugin', () => {
         logic.unmount()
         expect(cleanupCalls).toBe(2)
     })
+
+    it('regression: dispose()/add() after unmount no-op instead of throwing off a torn-down manager', () => {
+        // A loader or listener can settle after the logic unmounts — e.g. the
+        // taxonomic filter dropdown closes mid-fetch, then the fetch's `finally`
+        // disarms its watchdog via dispose(). The manager stays reachable so these
+        // late calls are harmless rather than a TypeError off a null reference.
+        setHidden(false)
+        const disposables = (logic as any).cache.disposables
+        disposables.add(makeSetup(), 'abortController')
+        expect(setupCalls).toBe(1)
+
+        logic.unmount()
+        expect(cleanupCalls).toBe(1)
+
+        expect(() => disposables.dispose('abortController')).not.toThrow()
+        expect(disposables.dispose('abortController')).toBe(false)
+
+        expect(() => disposables.add(makeSetup(), 'later')).not.toThrow()
+        // add() after unmount must not run setup or register a new entry
+        expect(setupCalls).toBe(1)
+        expect(disposables.registry.has('later')).toBe(false)
+    })
 })
