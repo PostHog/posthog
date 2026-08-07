@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path } from 'kea'
 
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api-error'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { insightsApi } from 'scenes/insights/utils/api'
@@ -88,8 +89,9 @@ export const insightsModel = kea<insightsModelType>([
                 actions.renameInsightSuccess(updatedItem)
                 lemonToast.success('Insight updated')
             } catch (e) {
-                lemonToast.error('Failed to update insight')
-                throw e
+                lemonToast.error(
+                    e instanceof ApiError ? (e.detail ?? 'Failed to update insight') : 'Failed to update insight'
+                )
             }
         },
         duplicateInsight: async ({ item }) => {

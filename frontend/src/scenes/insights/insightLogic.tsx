@@ -702,7 +702,17 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         beforeUpdates[key] = values.savedInsight[key as keyof QueryBasedInsightModel]
                     }
 
-                    const response = await insightsApi.update(values.insight.id as number, metadataUpdate)
+                    let response: QueryBasedInsightModel
+                    try {
+                        response = await insightsApi.update(values.insight.id as number, metadataUpdate)
+                    } catch (e) {
+                        lemonToast.error(
+                            e instanceof ApiError
+                                ? (e.detail ?? 'Could not update insight')
+                                : 'Could not update insight'
+                        )
+                        return values.insight
+                    }
                     await breakpoint(300)
 
                     actions.reloadSavedInsights()

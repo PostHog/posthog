@@ -225,6 +225,8 @@ type SceneMainTitleProps = {
     maxToolProps?: Omit<UseMaxToolOptions, 'active'>
     /** Optional label for the PostHog AI button. */
     maxButtonLabel?: string
+    /** Max character length for the name field */
+    nameMaxLength?: number
     /** Max character length for the description field */
     descriptionMaxLength?: number
 }
@@ -252,6 +254,7 @@ export function SceneTitleSection({
     isGeneratingMetadata,
     maxToolProps,
     maxButtonLabel,
+    nameMaxLength,
     descriptionMaxLength,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
@@ -358,6 +361,7 @@ export function SceneTitleSection({
                                     forceEdit={forceEdit}
                                     renameDebounceMs={renameDebounceMs}
                                     saveOnBlur={saveOnBlur}
+                                    maxLength={nameMaxLength}
                                     onGenerateMetadata={onGenerateMetadata}
                                     isGeneratingMetadata={isGeneratingMetadata}
                                     suffix={
@@ -435,6 +439,7 @@ type SceneNameProps = {
     forceEdit?: boolean
     renameDebounceMs?: number
     saveOnBlur?: boolean
+    maxLength?: number
     onGenerateMetadata?: () => void
     isGeneratingMetadata?: boolean
     suffix?: React.ReactNode
@@ -448,6 +453,7 @@ export function SceneName({
     forceEdit = false,
     renameDebounceMs = 100,
     saveOnBlur = false,
+    maxLength,
     onGenerateMetadata,
     isGeneratingMetadata = false,
     suffix,
@@ -524,6 +530,7 @@ export function SceneName({
                             variant="default"
                             name="name"
                             value={name || ''}
+                            maxLength={maxLength}
                             readOnly={isGeneratingMetadata}
                             onChange={(e) => {
                                 latestNameRef.current = e.target.value

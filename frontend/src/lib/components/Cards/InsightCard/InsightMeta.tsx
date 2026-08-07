@@ -864,6 +864,7 @@ function CompactInfoPopover({
                                 value={metaTitle || ''}
                                 onSave={(value) => onMetaSave({ name: value })}
                                 placeholder="Untitled"
+                                maxLength={400}
                                 saveOnBlur
                                 clickToEdit
                                 compactButtons
@@ -876,6 +877,7 @@ function CompactInfoPopover({
                                 value={metaDescriptionText || ''}
                                 onSave={(value) => onMetaSave({ description: value })}
                                 placeholder="Enter description (optional)"
+                                maxLength={400}
                                 saveOnBlur
                                 clickToEdit
                                 multiline

@@ -149,6 +149,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 forceEdit={insightMode === ItemMode.Edit}
                 renameDebounceMs={0}
                 saveOnBlur={insightMode !== ItemMode.Edit}
+                nameMaxLength={400}
                 descriptionMaxLength={400}
                 maxToolProps={readDataMaxToolProps}
                 actions={

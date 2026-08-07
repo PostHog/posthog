@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual } from 'lib/utils/objects'
 import 'lib/constants'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -1257,6 +1258,44 @@ describe('insightLogic', () => {
                 .toMatchValues({
                     savedInsight: partial({ favorited: true }),
                 })
+        })
+
+        it('surfaces the API error and leaves savedInsight unchanged when the metadata save fails', async () => {
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/insights/:id': () => [
+                        400,
+                        { type: 'validation_error', detail: 'Ensure this field has no more than 400 characters.' },
+                    ],
+                },
+            })
+
+            const errorSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+
+            const insightProps: InsightLogicProps = {
+                dashboardItemId: Insight43,
+                cachedInsight: {
+                    ...partialInsight43,
+                    query: API_QUERY,
+                    name: 'Original 43',
+                    description: 'Original description',
+                    tags: [],
+                },
+            }
+
+            logic = insightLogic(insightProps)
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setInsightMetadata({ name: 'x'.repeat(401) })
+            }).toFinishAllListeners()
+
+            expect(errorSpy).toHaveBeenCalledWith('Ensure this field has no more than 400 characters.')
+            await expectLogic(logic).toMatchValues({
+                savedInsight: partial({ name: 'Original 43' }),
+            })
+
+            errorSpy.mockRestore()
         })
     })
 
