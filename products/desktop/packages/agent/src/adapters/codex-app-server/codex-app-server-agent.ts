@@ -833,6 +833,11 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       }
       this.turns.onSteered(steerRes?.turnId);
       this.broadcastUserInput(params.prompt);
+      // codex injects the steer into the live turn synchronously, so the
+      // accept point is its consumption boundary for transcript rendering.
+      await this.client.extNotification(POSTHOG_NOTIFICATIONS.STEER_APPLIED, {
+        sessionId: params.sessionId,
+      });
       return { stopReason: "end_turn", _meta: { steer: true } };
     }
     if ((params._meta as { steer?: unknown } | undefined)?.steer === true) {

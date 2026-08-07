@@ -75,14 +75,14 @@ function steerPromptMsg(ts: number, id: number, text: string): AcpMessage {
   };
 }
 
-function steerAckMsg(ts: number, id: number): AcpMessage {
+function steerAckMsg(ts: number, id: number, steered = true): AcpMessage {
   return {
     type: "acp_message",
     ts,
     message: {
       jsonrpc: "2.0",
       id,
-      result: { stopReason: "end_turn", _meta: { steer: true } },
+      result: { stopReason: "end_turn", _meta: { steer: steered } },
     },
   };
 }
@@ -1021,7 +1021,17 @@ describe("buildConversationItems", () => {
   });
 
   describe("mid-turn steering", () => {
-    it("keeps the streaming turn intact and separates the steered reply", () => {
+    function summarize(items: ConversationItem[]): string[] {
+      return items.map((item) =>
+        item.type === "session_update"
+          ? (item.update as { content: { text: string } }).content.text
+          : item.type === "user_message"
+            ? `user:${item.content}`
+            : item.type,
+      );
+    }
+
+    it("renders the steer after the interrupted reply and separates the steered reply", () => {
       const events = [
         userPromptMsg(1000, 1, "write me a poem"),
         agentMessageMsg(1001, "Roses are red, "),
@@ -1035,19 +1045,10 @@ describe("buildConversationItems", () => {
 
       const { items, lastTurnInfo } = buildConversationItems(events, null);
 
-      expect(
-        items.map((item) =>
-          item.type === "session_update"
-            ? (item.update as { content: { text: string } }).content.text
-            : item.type === "user_message"
-              ? `user:${item.content}`
-              : item.type,
-        ),
-      ).toEqual([
+      expect(summarize(items)).toEqual([
         "user:write me a poem",
-        "Roses are red, ",
+        "Roses are red, violets are blue.",
         "user:what error are you hitting?",
-        "violets are blue.",
         "The error was a fetch failure.",
       ]);
 
@@ -1059,6 +1060,47 @@ describe("buildConversationItems", () => {
       expect(new Set(contexts).size).toBe(1);
       expect(contexts[0].turnComplete).toBe(true);
       expect(lastTurnInfo?.isComplete).toBe(true);
+    });
+
+    it("renders an accepted steer at the turn's end when no consumption boundary arrives", () => {
+      const events = [
+        userPromptMsg(1000, 1, "write me a poem"),
+        agentMessageMsg(1001, "Roses are red, "),
+        steerPromptMsg(1002, 2, "what error are you hitting?"),
+        steerAckMsg(1003, 2),
+        agentMessageMsg(1004, "violets are blue."),
+        promptResponseMsg(1005, 1),
+      ];
+
+      const { items } = buildConversationItems(events, null);
+
+      expect(summarize(items)).toEqual([
+        "user:write me a poem",
+        "Roses are red, violets are blue.",
+        "user:what error are you hitting?",
+      ]);
+    });
+
+    it("drops a declined steer so its redelivery as a follow-up renders once", () => {
+      const events = [
+        userPromptMsg(1000, 1, "write me a poem"),
+        agentMessageMsg(1001, "Roses are red."),
+        steerPromptMsg(1002, 2, "what error are you hitting?"),
+        steerAckMsg(1003, 2, false),
+        promptResponseMsg(1004, 1),
+        userPromptMsg(1005, 3, "what error are you hitting?"),
+        agentMessageMsg(1006, "A fetch failure."),
+        promptResponseMsg(1007, 3),
+      ];
+
+      const { items } = buildConversationItems(events, null);
+
+      expect(summarize(items)).toEqual([
+        "user:write me a poem",
+        "Roses are red.",
+        "user:what error are you hitting?",
+        "A fetch failure.",
+      ]);
     });
 
     it("opens a normal turn for a steer that arrives with no active turn", () => {
