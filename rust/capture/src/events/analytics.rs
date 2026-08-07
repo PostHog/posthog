@@ -1306,34 +1306,50 @@ mod tests {
     /// Non-AI events stay on their normal route in every mode. The topic
     /// itself is resolved in the kafka sink from `DataType::AiEvents`, not
     /// here.
+    struct AiLaneInput {
+        capture_mode: crate::config::CaptureMode,
+        // Import mode drops non-historical batches before classification, so
+        // its case must arrive flagged historical.
+        historical_migration: bool,
+    }
+
+    struct AiLaneExpected {
+        ai_data_type: DataType,
+        pageview_data_type: DataType,
+    }
+
     #[rstest]
     #[case::events_mode(
-        crate::config::CaptureMode::Events,
-        false,
-        DataType::AiEvents,
-        DataType::AnalyticsMain
+        AiLaneInput {
+            capture_mode: crate::config::CaptureMode::Events,
+            historical_migration: false,
+        },
+        AiLaneExpected {
+            ai_data_type: DataType::AiEvents,
+            pageview_data_type: DataType::AnalyticsMain,
+        }
     )]
     #[case::import_mode(
-        crate::config::CaptureMode::Import,
-        true,
-        DataType::AiEvents,
-        DataType::AnalyticsHistorical
+        AiLaneInput {
+            capture_mode: crate::config::CaptureMode::Import,
+            historical_migration: true,
+        },
+        AiLaneExpected {
+            ai_data_type: DataType::AiEvents,
+            pageview_data_type: DataType::AnalyticsHistorical,
+        }
     )]
     #[tokio::test]
     async fn test_process_events_ai_lane_assignment(
-        #[case] capture_mode: crate::config::CaptureMode,
-        // Import mode drops non-historical batches before classification, so
-        // its case must arrive flagged historical.
-        #[case] historical_migration: bool,
-        #[case] expected_ai: DataType,
-        #[case] expected_pageview: DataType,
+        #[case] input: AiLaneInput,
+        #[case] expected: AiLaneExpected,
     ) {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
         let mut context = create_test_context(now, None);
-        context.capture_mode = capture_mode;
-        context.historical_migration = historical_migration;
+        context.capture_mode = input.capture_mode;
+        context.historical_migration = input.historical_migration;
         let events = vec![
             create_test_event_with_name(
                 "$ai_generation",
@@ -1361,7 +1377,7 @@ mod tests {
             .iter()
             .find(|e| e.event.event == "$ai_generation")
             .unwrap();
-        assert_eq!(ai_event.metadata.data_type, expected_ai);
+        assert_eq!(ai_event.metadata.data_type, expected.ai_data_type);
         // Lane assignment must not leak into the restriction-driven redirect
         // mechanism; the sink resolves the AI topic from the data type alone.
         assert_eq!(ai_event.metadata.redirect_to_topic, None);
@@ -1369,7 +1385,7 @@ mod tests {
             .iter()
             .find(|e| e.event.event == "$pageview")
             .unwrap();
-        assert_eq!(pageview.metadata.data_type, expected_pageview);
+        assert_eq!(pageview.metadata.data_type, expected.pageview_data_type);
         assert_eq!(pageview.metadata.redirect_to_topic, None);
     }
 
@@ -1377,13 +1393,23 @@ mod tests {
     /// same slice the dedicated AI endpoints consult), not analytics ones:
     /// an ai-scoped DropEvent drops it, an analytics-scoped one must not
     /// cross pipelines into the AI lane.
+    struct AiDropScopeCase {
+        restriction_pipeline: Pipeline,
+        expect_dropped: bool,
+    }
+
     #[rstest]
-    #[case::ai_scoped_drop_applies(Pipeline::Ai, true)]
-    #[case::analytics_scoped_drop_does_not_cross(Pipeline::Analytics, false)]
+    #[case::ai_scoped_drop_applies(AiDropScopeCase {
+        restriction_pipeline: Pipeline::Ai,
+        expect_dropped: true,
+    })]
+    #[case::analytics_scoped_drop_does_not_cross(AiDropScopeCase {
+        restriction_pipeline: Pipeline::Analytics,
+        expect_dropped: false,
+    })]
     #[tokio::test]
     async fn test_process_events_drop_restriction_on_diverted_ai_events(
-        #[case] restriction_pipeline: Pipeline,
-        #[case] expect_dropped: bool,
+        #[case] case: AiDropScopeCase,
     ) {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
@@ -1404,7 +1430,7 @@ mod tests {
         );
         let mut manager = RestrictionManager::new();
         manager.insert_restrictions(
-            restriction_pipeline,
+            case.restriction_pipeline,
             "test_token",
             vec![Restriction {
                 restriction_type: RestrictionType::DropEvent,
@@ -1427,7 +1453,7 @@ mod tests {
         .unwrap();
 
         let captured = sink.get_events();
-        if expect_dropped {
+        if case.expect_dropped {
             assert!(captured.is_empty());
         } else {
             assert_eq!(captured.len(), 1);
@@ -1881,18 +1907,26 @@ mod tests {
         );
     }
 
+    struct AiValveCase {
+        ai_limiter_present: bool,
+        expected_reason: Option<OverflowReason>,
+    }
+
     /// End-to-end gate for the AI overflow valve: a diverted `$ai_*` event
     /// is overflow-stamped only when the AI limiter is wired (setup builds
     /// it exactly when `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` is
     /// configured), and keeps its AI lane either way.
     #[rstest]
-    #[case::limiter_present(true, Some(OverflowReason::ForceLimited))]
-    #[case::limiter_absent(false, None)]
+    #[case::limiter_present(AiValveCase {
+        ai_limiter_present: true,
+        expected_reason: Some(OverflowReason::ForceLimited),
+    })]
+    #[case::limiter_absent(AiValveCase {
+        ai_limiter_present: false,
+        expected_reason: None,
+    })]
     #[tokio::test]
-    async fn test_ai_events_overflow_stamp_gated_on_limiter_presence(
-        #[case] ai_limiter_present: bool,
-        #[case] expected_reason: Option<OverflowReason>,
-    ) {
+    async fn test_ai_events_overflow_stamp_gated_on_limiter_presence(#[case] case: AiValveCase) {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -1905,7 +1939,8 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let ai_limiter = ai_limiter_present
+        let ai_limiter = case
+            .ai_limiter_present
             .then(|| build_limiter(10, 10, Some("test_token".to_string()), false));
 
         run_pipeline(
@@ -1923,7 +1958,7 @@ mod tests {
         let captured = sink.get_events();
         assert_eq!(captured.len(), 1);
         assert_eq!(captured[0].metadata.data_type, DataType::AiEvents);
-        assert_eq!(captured[0].metadata.overflow_reason, expected_reason);
+        assert_eq!(captured[0].metadata.overflow_reason, case.expected_reason);
     }
 
     #[tokio::test]
@@ -2201,30 +2236,36 @@ mod tests {
         );
     }
 
+    struct SdkWarningCase {
+        attribution: Option<SdkAttribution>,
+        expected_lib: &'static str,
+        expected_lib_version: &'static str,
+    }
+
     // The legacy path carries the bulk of rate-limited traffic, and it's the one
     // whose SDK attribution has to survive a snapshot taken back at batch
     // construction — by this stage the events are serialized.
     #[rstest::rstest]
-    #[case::sdk_reported(
-        Some(SdkAttribution {
+    #[case::sdk_reported(SdkWarningCase {
+        attribution: Some(SdkAttribution {
             lib: Some("web".to_string()),
             lib_version: Some("1.2.3".to_string()),
         }),
-        "web",
-        "1.2.3"
-    )]
-    #[case::sdk_absent(None, "unknown", "unknown")]
+        expected_lib: "web",
+        expected_lib_version: "1.2.3",
+    })]
+    #[case::sdk_absent(SdkWarningCase {
+        attribution: None,
+        expected_lib: "unknown",
+        expected_lib_version: "unknown",
+    })]
     #[tokio::test]
-    async fn global_rate_limit_emits_a_warning_naming_the_hot_key(
-        #[case] attribution: Option<SdkAttribution>,
-        #[case] expected_lib: &str,
-        #[case] expected_lib_version: &str,
-    ) {
+    async fn global_rate_limit_emits_a_warning_naming_the_hot_key(#[case] case: SdkWarningCase) {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
         let mut context = create_test_context(now, None);
-        if let Some(attribution) = attribution {
+        if let Some(attribution) = case.attribution {
             context.sdk_attribution = attribution;
         }
         let events = vec![create_test_event(
@@ -2262,10 +2303,10 @@ mod tests {
             serde_json::json!("test_user")
         );
         assert_eq!(w.extra_details["distinctIdCount"], serde_json::json!(1));
-        assert_eq!(w.extra_details["lib"], serde_json::json!(expected_lib));
+        assert_eq!(w.extra_details["lib"], serde_json::json!(case.expected_lib));
         assert_eq!(
             w.extra_details["libVersion"],
-            serde_json::json!(expected_lib_version)
+            serde_json::json!(case.expected_lib_version)
         );
         assert_eq!(w.extra_details["path"], serde_json::json!("/e/"));
     }
@@ -2738,20 +2779,40 @@ mod tests {
         }
     }
 
+    struct HeatmapDataCase {
+        property_keys: &'static [&'static str],
+        expect_has_heatmap_data: bool,
+    }
+
     #[rstest]
-    #[case::heatmap_data_present(&["$heatmap_data"], true)]
-    #[case::scroll_depth_pair(&["$prev_pageview_pathname", "$current_url"], true)]
-    #[case::heatmap_data_with_scroll_depth(
-        &["$heatmap_data", "$prev_pageview_pathname", "$current_url"],
-        true,
-    )]
-    #[case::only_prev_pageview_pathname(&["$prev_pageview_pathname"], false)]
-    #[case::only_current_url(&["$current_url"], false)]
-    #[case::no_heatmap_properties(&[], false)]
-    fn test_has_heatmap_data(#[case] property_keys: &[&str], #[case] expected: bool) {
+    #[case::heatmap_data_present(HeatmapDataCase {
+        property_keys: &["$heatmap_data"],
+        expect_has_heatmap_data: true,
+    })]
+    #[case::scroll_depth_pair(HeatmapDataCase {
+        property_keys: &["$prev_pageview_pathname", "$current_url"],
+        expect_has_heatmap_data: true,
+    })]
+    #[case::heatmap_data_with_scroll_depth(HeatmapDataCase {
+        property_keys: &["$heatmap_data", "$prev_pageview_pathname", "$current_url"],
+        expect_has_heatmap_data: true,
+    })]
+    #[case::only_prev_pageview_pathname(HeatmapDataCase {
+        property_keys: &["$prev_pageview_pathname"],
+        expect_has_heatmap_data: false,
+    })]
+    #[case::only_current_url(HeatmapDataCase {
+        property_keys: &["$current_url"],
+        expect_has_heatmap_data: false,
+    })]
+    #[case::no_heatmap_properties(HeatmapDataCase {
+        property_keys: &[],
+        expect_has_heatmap_data: false,
+    })]
+    fn test_has_heatmap_data(#[case] case: HeatmapDataCase) {
         let mut properties = HashMap::new();
         properties.insert("distinct_id".to_string(), json!("test_user"));
-        for key in property_keys {
+        for key in case.property_keys {
             properties.insert((*key).to_string(), json!("anything"));
         }
 
@@ -2767,7 +2828,7 @@ mod tests {
             token: Some("test_token".to_string()),
         };
 
-        assert_eq!(has_heatmap_data(&event), expected);
+        assert_eq!(has_heatmap_data(&event), case.expect_has_heatmap_data);
     }
 
     #[test]
