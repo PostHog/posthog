@@ -334,6 +334,8 @@ describe('cohortsModel', () => {
                                 event_type: 'events',
                                 operator: 'gte',
                                 operator_value: 2,
+                                time_value: 30,
+                                time_interval: 'day',
                             },
                         ],
                     },
@@ -343,8 +345,13 @@ describe('cohortsModel', () => {
             const result = processCohort(cohort)
             const group = result.filters.properties.values[0]
             // The alias has no ROWS entry, so leaving it verbatim renders the criterion as
-            // unsupported even though the backend resolves and queries it.
-            expect((group as any).values[0]).toMatchObject({ value: 'performed_event_multiple' })
+            // unsupported even though the backend resolves and queries it. explicit_datetime only
+            // gets converted once the value is canonical, and without it validateGroup rejects the
+            // row for a missing time window the criterion already carried.
+            expect((group as any).values[0]).toMatchObject({
+                value: 'performed_event_multiple',
+                explicit_datetime: '-30d',
+            })
         })
     })
 })

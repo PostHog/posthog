@@ -658,17 +658,13 @@ describe('cohortEditLogic', () => {
             // error boundary between here and the test, so it fails the render outright.
             expect(await screen.findByText('Unmapped Criteria Cohort')).toBeInTheDocument()
             expect(document.querySelector('.CohortCriteriaRow')).toBeInTheDocument()
-            // The type selector has no option to label itself with, so the placeholder is what
-            // keeps it usable as the way back to a valid criterion.
             expect(screen.getByText('Choose criterion')).toBeInTheDocument()
-            // The type selector is the only field: substituting another row's fields would let an
-            // edit merge into the criterion, which cleanCriteria then strips to undefined. Counting
-            // fields is what catches that, since the stored key would label an event picker rather
-            // than leave its placeholder visible.
+            // Counting fields is what catches a revert to the PerformEvent fallback: the stored
+            // key would label the event picker rather than leave its placeholder visible, so the
+            // placeholder assertion above would still pass.
             expect(document.querySelectorAll('.CohortCriteriaRow__Criteria__Field')).toHaveLength(1)
-            expect(
-                screen.getByText('This criterion is no longer supported. Choose a new one to replace it.')
-            ).toBeInTheDocument()
+            expect(document.querySelector('.CohortCriteriaRow__Criteria__arrow')).not.toBeInTheDocument()
+            expect(screen.getByText("This criterion isn't valid. Choose a new one to replace it.")).toBeInTheDocument()
         })
     })
 })

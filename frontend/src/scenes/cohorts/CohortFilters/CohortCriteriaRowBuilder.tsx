@@ -125,7 +125,7 @@ export function CohortCriteriaRowBuilder({
                     </div>
                     {!rowShape && (
                         <LemonBanner className="my-2" type="warning">
-                            This criterion is no longer supported. Choose a new one to replace it.
+                            This criterion isn't valid. Choose a new one to replace it.
                         </LemonBanner>
                     )}
                     {/* The arrow points at the fields, so it has nothing to point at on an empty row. */}
