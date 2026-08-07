@@ -1,6 +1,6 @@
 import api from 'lib/api'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey, type RefreshType } from '~/queries/schema/schema-general'
 import { escapeHogQLString, hogql } from '~/queries/utils'
 
 import { normalizeSentimentResult, type GenerationSentiment } from './sentimentResults'
@@ -274,7 +274,8 @@ export async function fetchStoredGenerationSentiments(
 
 async function fetchSentimentEvaluationCandidates(
     values: SentimentGenerationsQueryValues,
-    offset: number
+    offset: number,
+    refresh?: RefreshType
 ): Promise<SentimentEvaluationCandidate[]> {
     const categories = resolveActiveCategories(values.activeFilters)
     const categoryScores = categories.map((category) => `JSONExtractFloat(scores, '${category}')`)
@@ -319,6 +320,7 @@ async function fetchSentimentEvaluationCandidates(
         `,
         { ...SENTIMENT_QUERY_TAGS, name: 'ai_observability_sentiment_evaluations' },
         {
+            refresh,
             queryParams: {
                 filters: {
                     dateRange: {
@@ -346,7 +348,8 @@ async function fetchSentimentEvaluationCandidates(
 
 async function hydrateSentimentGenerations(
     candidates: SentimentEvaluationCandidate[],
-    values: SentimentGenerationsQueryValues
+    values: SentimentGenerationsQueryValues,
+    refresh?: RefreshType
 ): Promise<Map<string, SentimentGeneration>> {
     const traceIds = uniqueNonEmpty(candidates.map((candidate) => candidate.traceId))
     const generationIds = uniqueNonEmpty(candidates.map((candidate) => candidate.generationId))
@@ -410,6 +413,7 @@ async function hydrateSentimentGenerations(
         `,
         { ...SENTIMENT_QUERY_TAGS, name: 'ai_observability_sentiment_generation_hydration' },
         {
+            refresh,
             queryParams: {
                 filters: {
                     filterTestAccounts: values.shouldFilterTestAccounts,
@@ -457,21 +461,27 @@ async function hydrateSentimentGenerations(
     return generationById
 }
 
+/**
+ * Results are ranked by strongest score and rarely change between visits, so a page load reuses
+ * whatever the query cache holds. Pass `forceRefresh` to recompute — that's the Reload button.
+ */
 export async function fetchSentimentGenerationsPage(
     values: SentimentGenerationsQueryValues,
-    offset: number
+    offset: number,
+    forceRefresh: boolean = false
 ): Promise<SentimentGenerationsPage> {
+    const refresh: RefreshType | undefined = forceRefresh ? 'force_blocking' : undefined
     const generations: SentimentGeneration[] = []
     let rawCount = 0
     let hasMore = false
 
     while (generations.length < GENERATIONS_PAGE_SIZE) {
-        const candidates = await fetchSentimentEvaluationCandidates(values, offset + rawCount)
+        const candidates = await fetchSentimentEvaluationCandidates(values, offset + rawCount, refresh)
         if (candidates.length === 0) {
             break
         }
 
-        const generationById = await hydrateSentimentGenerations(candidates, values)
+        const generationById = await hydrateSentimentGenerations(candidates, values, refresh)
         let consumedCandidates = 0
 
         for (const candidate of candidates) {

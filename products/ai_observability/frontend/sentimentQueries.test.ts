@@ -233,6 +233,23 @@ describe('sentimentQueries', () => {
         expect(candidateQuery).toContain(order)
     })
 
+    it.each<[string, boolean, string | undefined]>([
+        ['reuses the cache by default', false, undefined],
+        ['forces a recalculation on reload', true, 'force_blocking'],
+    ])('%s', async (_, forceRefresh, expectedRefresh) => {
+        mockApi.queryHogQL
+            .mockResolvedValueOnce({
+                columns: candidateColumns,
+                results: [['evaluation-0', 'trace-0', 'generation-0']],
+            })
+            .mockResolvedValueOnce({ columns: generationColumns, results: [generationRow(0)] })
+
+        await fetchSentimentGenerationsPage(queryValues, 0, forceRefresh)
+
+        expect(mockApi.queryHogQL.mock.calls[0][2]?.refresh).toBe(expectedRefresh)
+        expect(mockApi.queryHogQL.mock.calls[1][2]?.refresh).toBe(expectedRefresh)
+    })
+
     it('does not fall back to events when ai_events no longer retains a generation input', async () => {
         mockApi.queryHogQL
             .mockResolvedValueOnce({

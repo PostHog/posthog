@@ -176,7 +176,7 @@ export interface aiObservabilitySentimentLogicActions {
     activate: () => {
         value: true
     }
-    loadGenerations: () => any
+    loadGenerations: (payload?: { forceRefresh?: boolean }) => any
     loadGenerationsFailure: (
         error: string,
         errorObject?: any
@@ -369,8 +369,8 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
         generations: [
             [] as SentimentGeneration[],
             {
-                loadGenerations: async () => {
-                    const page = await fetchSentimentGenerationsPage(values, 0)
+                loadGenerations: async ({ forceRefresh }: { forceRefresh?: boolean } = {}) => {
+                    const page = await fetchSentimentGenerationsPage(values, 0, forceRefresh)
                     lastPageHasMore = page.hasMore
                     nextGenerationsOffset = page.rawCount
                     return page.generations

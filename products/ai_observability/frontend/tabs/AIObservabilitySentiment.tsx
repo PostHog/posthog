@@ -250,8 +250,9 @@ function SentimentControls(): JSX.Element {
                 icon={<IconRefresh />}
                 size="small"
                 type="secondary"
-                onClick={loadGenerations}
+                onClick={() => loadGenerations({ forceRefresh: true })}
                 loading={generationsLoading}
+                disabledReason={generationsLoading ? 'Loading results' : undefined}
                 data-attr="llma-sentiment-reload"
             >
                 Reload
