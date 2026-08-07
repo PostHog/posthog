@@ -1,6 +1,7 @@
 import socket
 import typing
 import datetime as dt
+import resource
 import itertools
 import collections.abc
 from concurrent.futures import ThreadPoolExecutor
@@ -198,6 +199,59 @@ class ManagedWorker:
             await self.metrics_server.stop()
 
 
+# Descriptors a single concurrent activity can hold open at once. A data-imports activity is the
+# worst case: deltalake file handles, pooled S3 keep-alive sockets, and a Postgres connection. This
+# budget is deliberately generous so the estimated peak stays above what any one activity reaches.
+FILE_DESCRIPTORS_PER_ACTIVITY = 64
+# Descriptors the process needs regardless of activity load: the Temporal gRPC channel, the metrics
+# server, logging, ClickHouse/Kafka clients, and the interpreter's own handles.
+BASE_FILE_DESCRIPTORS = 1024
+
+
+def ensure_file_descriptor_headroom(max_concurrent_activities: int) -> None:
+    """Raise the process open-file soft limit so concurrent activities can't exhaust descriptors.
+
+    A worker runs up to ``max_concurrent_activities`` activities at once. When that count times the
+    descriptors each activity holds crosses ``RLIMIT_NOFILE``, every further socket or file open
+    fails with ``EMFILE`` (Errno 24). One data-imports worker hitting that ceiling fans out into
+    unrelated-looking Postgres, deltalake, and S3 errors at once, because all three subsystems open
+    descriptors on the same starved process. Raise the soft limit toward the hard limit to keep the
+    ceiling out of reach, and warn if even the hard limit is below the estimated peak so the pod's
+    ``RLIMIT_NOFILE`` (or the concurrency) can be adjusted.
+    """
+    needed = BASE_FILE_DESCRIPTORS + max_concurrent_activities * FILE_DESCRIPTORS_PER_ACTIVITY
+    try:
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    except (ValueError, OSError) as e:
+        logger.warning("Could not read RLIMIT_NOFILE; leaving file-descriptor limit unchanged", error=str(e))
+        return
+
+    target = needed if hard == resource.RLIM_INFINITY else min(needed, hard)
+    if soft != resource.RLIM_INFINITY and soft < target:
+        try:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
+            soft = target
+        except (ValueError, OSError) as e:
+            logger.warning("Could not raise RLIMIT_NOFILE soft limit", error=str(e), attempted=target)
+
+    if hard != resource.RLIM_INFINITY and needed > hard:
+        logger.warning(
+            "File-descriptor hard limit is below the worker's estimated peak; raise the pod's "
+            "RLIMIT_NOFILE or lower max_concurrent_activities",
+            needed=needed,
+            hard_limit=hard,
+            max_concurrent_activities=max_concurrent_activities,
+        )
+
+    logger.info(
+        "Configured file-descriptor limit",
+        soft_limit=soft,
+        hard_limit=hard,
+        estimated_peak=needed,
+        max_concurrent_activities=max_concurrent_activities,
+    )
+
+
 async def create_worker(
     host: str,
     port: int,
@@ -378,6 +432,10 @@ async def create_worker(
     supported_interceptors = [
         interceptor() for interceptor in ALL_INTERCEPTOR_CLASSES if is_task_queue_supported(task_queue, interceptor)
     ]
+
+    # Both branches below size their activity ThreadPoolExecutor to `max_concurrent_activities or 50`,
+    # so raise the descriptor ceiling to match before any activity runs.
+    ensure_file_descriptor_headroom(max_concurrent_activities or 50)
 
     if target_memory_usage is not None:
         worker = Worker(
