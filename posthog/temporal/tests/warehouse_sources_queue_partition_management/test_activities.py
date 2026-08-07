@@ -401,6 +401,7 @@ def _patched_terminalize_collaborators():
         yield batch_queue, mark_failed, release_lock
 
 
+@pytest.mark.django_db
 def test_terminalize_fails_each_stranded_run_and_releases_its_lock() -> None:
     conn = _StrandedQueryConn(
         [
