@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const AGENT_PLUGINS_MANIFEST_SCHEMA =
   "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
+export const AGENT_PLUGIN_INSTALLATION_ID_PATTERN = /^[a-f0-9]{16}$/;
 
 export const agentPluginDiagnostic = z.object({
   severity: z.enum(["warning", "error"]),
@@ -44,7 +45,7 @@ export const agentPluginPreview = z.object({
 });
 
 export const agentPluginInstallation = z.object({
-  id: z.string(),
+  id: z.string().regex(AGENT_PLUGIN_INSTALLATION_ID_PATTERN),
   sourcePath: z.string(),
   enabled: z.boolean(),
   manifest: agentPluginManifest,
@@ -57,9 +58,11 @@ export const selectAgentPluginOutput = agentPluginPreview.nullable();
 export const registerAgentPluginInput = z.object({
   selectionToken: z.string().uuid(),
 });
-export const agentPluginIdInput = z.object({ id: z.string() });
+export const agentPluginIdInput = z.object({
+  id: z.string().regex(AGENT_PLUGIN_INSTALLATION_ID_PATTERN),
+});
 export const setAgentPluginEnabledInput = z.object({
-  id: z.string(),
+  id: z.string().regex(AGENT_PLUGIN_INSTALLATION_ID_PATTERN),
   enabled: z.boolean(),
 });
 
@@ -67,7 +70,7 @@ export const agentPluginState = z.object({
   version: z.literal(1),
   installations: z.array(
     z.object({
-      id: z.string().regex(/^[a-f0-9]{16}$/),
+      id: z.string().regex(AGENT_PLUGIN_INSTALLATION_ID_PATTERN),
       sourcePath: z.string(),
       enabled: z.boolean(),
       manifest: agentPluginManifest,

@@ -37,6 +37,8 @@ The manifest must include the canonical schema and a valid plugin name:
 
 Each skill must follow the [Agent Skills specification](https://agentskills.io/specification). Invalid skills are skipped without disabling valid skills from the same plugin. Skill directories must contain only regular files and directories. Symbolic links are not loaded.
 
+Session snapshots are limited to 256 files and 8 MiB per skill, with a 1 MiB limit for each file. A plugin can contribute up to 1,024 files and 32 MiB across its skill snapshots. Skills that exceed these limits are skipped.
+
 ## Current limitations
 
 - Only local directory installation is available.

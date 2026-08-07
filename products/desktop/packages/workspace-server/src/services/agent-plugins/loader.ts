@@ -309,6 +309,27 @@ function parseSkillFrontmatter(
   return { name, description };
 }
 
+export async function validateAgentPluginSkillSnapshot(
+  pluginRoot: string,
+  skillRoot: string,
+  skillName: string,
+): Promise<string | null> {
+  const resolvedPluginRoot = await fs.promises.realpath(pluginRoot);
+  const resolvedSkillRoot = await fs.promises.realpath(skillRoot);
+  const treeError = await validateSkillTree(
+    resolvedPluginRoot,
+    resolvedSkillRoot,
+  );
+  if (treeError) return treeError;
+
+  const content = await fs.promises.readFile(
+    path.join(resolvedSkillRoot, "SKILL.md"),
+    "utf8",
+  );
+  const frontmatter = parseSkillFrontmatter(content, skillName);
+  return typeof frontmatter === "string" ? frontmatter : null;
+}
+
 async function loadSkills(
   pluginRoot: string,
   diagnostics: AgentPluginDiagnostic[],
@@ -342,22 +363,34 @@ async function loadSkills(
     return [];
   }
 
-  const skillsStat = await fs.promises.stat(resolvedSkillsPath);
-  if (!skillsStat.isDirectory()) {
+  let entries: fs.Dirent[];
+  try {
+    const skillsStat = await fs.promises.stat(resolvedSkillsPath);
+    if (!skillsStat.isDirectory()) {
+      diagnostics.push(
+        diagnostic(
+          "error",
+          "invalid_skills",
+          "skills must be a directory.",
+          "skills",
+        ),
+      );
+      return [];
+    }
+    entries = await fs.promises.readdir(resolvedSkillsPath, {
+      withFileTypes: true,
+    });
+  } catch {
     diagnostics.push(
       diagnostic(
         "error",
         "invalid_skills",
-        "skills must be a directory.",
+        "Could not read the skills directory.",
         "skills",
       ),
     );
     return [];
   }
-
-  const entries = await fs.promises.readdir(resolvedSkillsPath, {
-    withFileTypes: true,
-  });
   const skills: AgentPluginSkill[] = [];
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
     if (entry.isSymbolicLink()) {

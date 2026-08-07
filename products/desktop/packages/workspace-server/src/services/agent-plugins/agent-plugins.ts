@@ -8,8 +8,13 @@ import {
 } from "@posthog/platform/storage-paths";
 import { inject, injectable } from "inversify";
 import { isSafePathSegment } from "../skills/skill-discovery";
-import { isPathContained, loadAgentPlugin } from "./loader";
 import {
+  isPathContained,
+  loadAgentPlugin,
+  validateAgentPluginSkillSnapshot,
+} from "./loader";
+import {
+  AGENT_PLUGIN_INSTALLATION_ID_PATTERN,
   type AgentPluginInstallation,
   type AgentPluginPreview,
   agentPluginState,
@@ -30,7 +35,18 @@ interface PendingSelection {
   expiresAt: number;
 }
 
+interface SnapshotUsage {
+  files: number;
+  bytes: number;
+}
+
 const SELECTION_TTL_MS = 10 * 60 * 1000;
+const MAX_SKILL_SNAPSHOT_FILES = 256;
+const MAX_SKILL_SNAPSHOT_FILE_BYTES = 1024 * 1024;
+const MAX_SKILL_SNAPSHOT_BYTES = 8 * 1024 * 1024;
+const MAX_PLUGIN_SNAPSHOT_FILES = 1024;
+const MAX_PLUGIN_SNAPSHOT_BYTES = 32 * 1024 * 1024;
+const SNAPSHOT_READ_CHUNK_BYTES = 64 * 1024;
 
 @injectable()
 export class AgentPluginsService {
@@ -139,6 +155,7 @@ export class AgentPluginsService {
 
   setEnabled(id: string, enabled: boolean): Promise<AgentPluginInstallation> {
     return this.withStateTransaction(async () => {
+      this.assertInstallationId(id);
       const state = await this.readState();
       const installation = state.installations.find((item) => item.id === id);
       if (!installation)
@@ -156,7 +173,11 @@ export class AgentPluginsService {
 
   unregister(id: string): Promise<void> {
     return this.withStateTransaction(async () => {
+      this.assertInstallationId(id);
       const state = await this.readState();
+      if (!state.installations.some((item) => item.id === id)) {
+        throw new Error("Agent Plugin installation not found.");
+      }
       await this.writeState({
         version: 1,
         installations: state.installations.filter((item) => item.id !== id),
@@ -213,14 +234,24 @@ export class AgentPluginsService {
       const skillsPath = path.join(pluginPath, "skills");
       await this.makeManagedDirectory(skillsPath);
       const copiedSkillNames: string[] = [];
+      const pluginUsage: SnapshotUsage = { files: 0, bytes: 0 };
       for (const skill of availableSkills) {
         const destination = path.join(skillsPath, skill.name);
         try {
-          await this.copySkillSnapshot(
+          const skillUsage = await this.copySkillSnapshot(
             installation.sourcePath,
             skill.path,
             destination,
+            pluginUsage,
           );
+          const snapshotError = await validateAgentPluginSkillSnapshot(
+            pluginPath,
+            destination,
+            skill.name,
+          );
+          if (snapshotError) throw new Error(snapshotError);
+          pluginUsage.files += skillUsage.files;
+          pluginUsage.bytes += skillUsage.bytes;
           copiedSkillNames.push(skill.name);
         } catch {
           await this.removeManagedPath(destination);
@@ -282,6 +313,12 @@ export class AgentPluginsService {
 
   private runtimeRoot(taskRunId: string): string {
     return path.join(this.managedRoot(), "runtime", taskRunId);
+  }
+
+  private assertInstallationId(id: string): void {
+    if (!AGENT_PLUGIN_INSTALLATION_ID_PATTERN.test(id)) {
+      throw new Error("Invalid Agent Plugin installation ID.");
+    }
   }
 
   private installationId(sourcePath: string): string {
@@ -346,13 +383,19 @@ export class AgentPluginsService {
     pluginRoot: string,
     sourceRoot: string,
     destinationRoot: string,
-  ): Promise<void> {
+    pluginUsage: SnapshotUsage,
+  ): Promise<SnapshotUsage> {
     const resolvedPluginRoot = await fs.promises.realpath(pluginRoot);
+    const pluginRootStat = await fs.promises.lstat(resolvedPluginRoot);
     const resolvedSourceRoot = await fs.promises.realpath(sourceRoot);
-    if (!isPathContained(resolvedPluginRoot, resolvedSourceRoot)) {
+    if (
+      !pluginRootStat.isDirectory() ||
+      !isPathContained(resolvedPluginRoot, resolvedSourceRoot)
+    ) {
       throw new Error("Skill path escaped the plugin directory.");
     }
 
+    const skillUsage: SnapshotUsage = { files: 0, bytes: 0 };
     const copyEntry = async (
       source: string,
       destination: string,
@@ -369,16 +412,27 @@ export class AgentPluginsService {
       if (sourceStat.isDirectory()) {
         await this.makeManagedDirectory(destination);
         const entries = await fs.promises.readdir(source);
+        const currentStat = await fs.promises.lstat(source);
+        if (!this.hasSameSnapshotMetadata(sourceStat, currentStat)) {
+          throw new Error("Skill directory changed while it was copied.");
+        }
         for (const entry of entries.sort()) {
           await copyEntry(
             path.join(source, entry),
             path.join(destination, entry),
           );
         }
+        const finalStat = await fs.promises.lstat(source);
+        if (!this.hasSameSnapshotMetadata(sourceStat, finalStat)) {
+          throw new Error("Skill directory changed while it was copied.");
+        }
         return;
       }
       if (!sourceStat.isFile()) {
         throw new Error("Skill snapshots contain only regular files.");
+      }
+      if (sourceStat.size > MAX_SKILL_SNAPSHOT_FILE_BYTES) {
+        throw new Error("A skill file exceeds the snapshot size limit.");
       }
 
       const noFollow = fs.constants.O_NOFOLLOW ?? 0;
@@ -388,21 +442,100 @@ export class AgentPluginsService {
       );
       try {
         const openedStat = await handle.stat();
-        if (!openedStat.isFile()) {
-          throw new Error("Skill snapshots contain only regular files.");
+        if (
+          !openedStat.isFile() ||
+          !this.hasSameFileIdentity(sourceStat, openedStat)
+        ) {
+          throw new Error("Skill file changed before it was copied.");
         }
-        const content = await handle.readFile();
+        if (openedStat.size > MAX_SKILL_SNAPSHOT_FILE_BYTES) {
+          throw new Error("A skill file exceeds the snapshot size limit.");
+        }
+
+        const nextSkillFiles = skillUsage.files + 1;
+        const nextPluginFiles = pluginUsage.files + nextSkillFiles;
+        if (
+          nextSkillFiles > MAX_SKILL_SNAPSHOT_FILES ||
+          nextPluginFiles > MAX_PLUGIN_SNAPSHOT_FILES
+        ) {
+          throw new Error("A skill contains too many snapshot files.");
+        }
+
+        const content = await this.readSnapshotFile(handle);
+        const nextSkillBytes = skillUsage.bytes + content.byteLength;
+        const nextPluginBytes = pluginUsage.bytes + nextSkillBytes;
+        if (
+          nextSkillBytes > MAX_SKILL_SNAPSHOT_BYTES ||
+          nextPluginBytes > MAX_PLUGIN_SNAPSHOT_BYTES
+        ) {
+          throw new Error("A skill exceeds the snapshot size limit.");
+        }
+
+        const finalStat = await handle.stat();
+        if (
+          !this.hasSameFileIdentity(sourceStat, finalStat) ||
+          finalStat.size !== sourceStat.size ||
+          finalStat.mtimeMs !== sourceStat.mtimeMs ||
+          content.byteLength !== finalStat.size
+        ) {
+          throw new Error("Skill file changed while it was copied.");
+        }
+
         await this.writeManagedFile(
           destination,
           content,
           openedStat.mode & 0o777,
         );
+        skillUsage.files = nextSkillFiles;
+        skillUsage.bytes = nextSkillBytes;
       } finally {
         await handle.close();
       }
     };
 
     await copyEntry(resolvedSourceRoot, destinationRoot);
+    const finalPluginRootStat = await fs.promises.lstat(resolvedPluginRoot);
+    if (!this.hasSameSnapshotMetadata(pluginRootStat, finalPluginRootStat)) {
+      throw new Error("Agent Plugin directory changed while it was copied.");
+    }
+    return skillUsage;
+  }
+
+  private hasSameFileIdentity(left: fs.Stats, right: fs.Stats): boolean {
+    return (
+      left.dev === right.dev &&
+      left.ino === right.ino &&
+      left.mode === right.mode
+    );
+  }
+
+  private hasSameSnapshotMetadata(left: fs.Stats, right: fs.Stats): boolean {
+    return (
+      this.hasSameFileIdentity(left, right) &&
+      left.size === right.size &&
+      left.mtimeMs === right.mtimeMs
+    );
+  }
+
+  private async readSnapshotFile(
+    handle: fs.promises.FileHandle,
+  ): Promise<Buffer> {
+    const chunks: Buffer[] = [];
+    let bytesRead = 0;
+    while (bytesRead <= MAX_SKILL_SNAPSHOT_FILE_BYTES) {
+      const remaining = MAX_SKILL_SNAPSHOT_FILE_BYTES + 1 - bytesRead;
+      const chunk = Buffer.allocUnsafe(
+        Math.min(SNAPSHOT_READ_CHUNK_BYTES, remaining),
+      );
+      const result = await handle.read(chunk, 0, chunk.byteLength, null);
+      if (result.bytesRead === 0) break;
+      bytesRead += result.bytesRead;
+      if (bytesRead > MAX_SKILL_SNAPSHOT_FILE_BYTES) {
+        throw new Error("A skill file exceeds the snapshot size limit.");
+      }
+      chunks.push(chunk.subarray(0, result.bytesRead));
+    }
+    return Buffer.concat(chunks, bytesRead);
   }
 
   private async ensureManagedRoot(): Promise<string> {
@@ -473,6 +606,9 @@ export class AgentPluginsService {
 
   private async removeManagedPath(target: string): Promise<void> {
     const safeTarget = await this.assertManagedPath(target);
+    if (safeTarget === this.managedRoot()) {
+      throw new Error("Agent Plugin storage root cannot be removed.");
+    }
     await fs.promises.rm(safeTarget, { recursive: true, force: true });
   }
 }

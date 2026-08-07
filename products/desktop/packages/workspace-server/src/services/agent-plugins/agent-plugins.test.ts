@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentPluginsService } from "./agent-plugins";
 import { loadAgentPlugin } from "./loader";
 import { AGENT_PLUGINS_MANIFEST_SCHEMA } from "./schemas";
@@ -20,6 +20,15 @@ async function writePlugin(
     path.join(directory, "plugin.json"),
     JSON.stringify(manifest),
   );
+}
+
+async function writeSparseFile(filePath: string, size: number): Promise<void> {
+  const handle = await fs.promises.open(filePath, "w");
+  try {
+    await handle.truncate(size);
+  } finally {
+    await handle.close();
+  }
 }
 
 async function writeSkill(
@@ -72,6 +81,7 @@ describe("Agent Plugins skills support", () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await fs.promises.rm(root, { recursive: true, force: true });
   });
 
@@ -335,6 +345,271 @@ describe("Agent Plugins skills support", () => {
       ).rejects.toThrow("Agent Plugin installation data is invalid");
       expect(await fs.promises.readFile(outsideMarker, "utf8")).toBe("keep");
     }
+  });
+
+  it("skips all skills when the skills directory disappears after discovery", async () => {
+    const pluginDirectory = path.join(root, "plugin");
+    const skillsDirectory = path.join(pluginDirectory, "skills");
+    await writePlugin(pluginDirectory);
+    await writeSkill(pluginDirectory, "summarize");
+    const originalStat = fs.promises.stat.bind(fs.promises);
+    vi.spyOn(fs.promises, "stat").mockImplementation(
+      async (target, options) => {
+        if (String(target).endsWith(path.join("plugin", "skills"))) {
+          await fs.promises.rm(skillsDirectory, { recursive: true });
+        }
+        return originalStat(target, options);
+      },
+    );
+
+    const preview = await loadAgentPlugin(pluginDirectory);
+
+    expect(preview.valid).toBe(true);
+    expect(preview.skills).toEqual([]);
+    expect(preview.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "invalid_skills" }),
+      ]),
+    );
+  });
+
+  it("skips all skills when the skills directory cannot be listed", async () => {
+    const pluginDirectory = path.join(root, "plugin");
+    const _skillsDirectory = path.join(pluginDirectory, "skills");
+    await writePlugin(pluginDirectory);
+    await writeSkill(pluginDirectory, "summarize");
+    const originalReaddir = fs.promises.readdir.bind(fs.promises);
+    vi.spyOn(fs.promises, "readdir").mockImplementation(
+      async (target, options) => {
+        if (String(target).endsWith(path.join("plugin", "skills"))) {
+          throw Object.assign(new Error("denied"), { code: "EACCES" });
+        }
+        return originalReaddir(target, options);
+      },
+    );
+
+    const preview = await loadAgentPlugin(pluginDirectory);
+
+    expect(preview.valid).toBe(true);
+    expect(preview.skills).toEqual([]);
+    expect(preview.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "invalid_skills" }),
+      ]),
+    );
+  });
+
+  it("skips a skill when its file identity changes before opening", async () => {
+    const appDataPath = path.join(root, "app-data");
+    const pluginDirectory = path.join(root, "plugin");
+    const skillDirectory = await writeSkill(pluginDirectory, "summarize");
+    await writePlugin(pluginDirectory);
+    const referencePath = path.join(skillDirectory, "reference.txt");
+    await fs.promises.writeFile(referencePath, "original");
+    const service = createService(appDataPath, [pluginDirectory]);
+    await registerSelectedPlugin(service);
+    const originalOpen = fs.promises.open.bind(fs.promises);
+    let replaced = false;
+    vi.spyOn(fs.promises, "open").mockImplementation(
+      async (target, flags, mode) => {
+        if (
+          String(target).endsWith(
+            path.join("skills", "summarize", "reference.txt"),
+          ) &&
+          !replaced
+        ) {
+          replaced = true;
+          await fs.promises.rename(referencePath, `${referencePath}.old`);
+          await fs.promises.writeFile(referencePath, "replacement");
+        }
+        return originalOpen(target, flags, mode);
+      },
+    );
+    const skipped: string[] = [];
+
+    const runtime = await service.prepareRuntimePlugins(
+      "run-identity",
+      new Set(),
+      (_pluginName, skillName) => skipped.push(skillName),
+    );
+
+    expect(runtime).toEqual([]);
+    expect(skipped).toEqual(["summarize"]);
+  });
+
+  it("validates the completed snapshot when a source changes before file copying", async () => {
+    const appDataPath = path.join(root, "app-data");
+    const pluginDirectory = path.join(root, "plugin");
+    await writePlugin(pluginDirectory);
+    const skillDirectory = await writeSkill(pluginDirectory, "summarize");
+    const service = createService(appDataPath, [pluginDirectory]);
+    await registerSelectedPlugin(service);
+    const originalMkdir = fs.promises.mkdir.bind(fs.promises);
+    let changed = false;
+    vi.spyOn(fs.promises, "mkdir").mockImplementation(
+      async (target, options) => {
+        const result = await originalMkdir(target, options);
+        if (
+          String(target).includes(path.join("runtime", "run-postvalidate")) &&
+          String(target).endsWith(path.join("skills", "summarize")) &&
+          !changed
+        ) {
+          changed = true;
+          await fs.promises.writeFile(
+            path.join(skillDirectory, "SKILL.md"),
+            "content without frontmatter",
+          );
+        }
+        return result;
+      },
+    );
+    const skipped: string[] = [];
+
+    const runtime = await service.prepareRuntimePlugins(
+      "run-postvalidate",
+      new Set(),
+      (_pluginName, skillName) => skipped.push(skillName),
+    );
+
+    expect(runtime).toEqual([]);
+    expect(skipped).toEqual(["summarize"]);
+  });
+
+  it.each([
+    [
+      "file bytes",
+      async (skillDirectory: string) => {
+        await writeSparseFile(
+          path.join(skillDirectory, "large.bin"),
+          1024 * 1024 + 1,
+        );
+      },
+    ],
+    [
+      "file count",
+      async (skillDirectory: string) => {
+        await Promise.all(
+          Array.from({ length: 256 }, (_, index) =>
+            fs.promises.writeFile(
+              path.join(skillDirectory, `file-${index}.txt`),
+              "x",
+            ),
+          ),
+        );
+      },
+    ],
+    [
+      "skill bytes",
+      async (skillDirectory: string) => {
+        await Promise.all(
+          Array.from({ length: 8 }, (_, index) =>
+            writeSparseFile(
+              path.join(skillDirectory, `chunk-${index}.bin`),
+              1024 * 1024,
+            ),
+          ),
+        );
+      },
+    ],
+  ])(
+    "skips a skill that exceeds the snapshot %s limit",
+    async (_label, addPayload) => {
+      const appDataPath = path.join(root, "app-data");
+      const pluginDirectory = path.join(root, "plugin");
+      await writePlugin(pluginDirectory);
+      const skillDirectory = await writeSkill(pluginDirectory, "summarize");
+      const service = createService(appDataPath, [pluginDirectory]);
+      await registerSelectedPlugin(service);
+      await addPayload(skillDirectory);
+      const skipped: string[] = [];
+
+      const runtime = await service.prepareRuntimePlugins(
+        `run-${_label.replace(" ", "-")}`,
+        new Set(),
+        (_pluginName, skillName) => skipped.push(skillName),
+      );
+
+      expect(runtime).toEqual([]);
+      expect(skipped).toEqual(["summarize"]);
+    },
+  );
+
+  it.each([
+    [
+      "files",
+      async (skillDirectories: string[]) => {
+        for (const skillDirectory of skillDirectories) {
+          await Promise.all(
+            Array.from({ length: 255 }, (_, index) =>
+              fs.promises.writeFile(
+                path.join(skillDirectory, `file-${index}.txt`),
+                "x",
+              ),
+            ),
+          );
+        }
+      },
+    ],
+    [
+      "bytes",
+      async (skillDirectories: string[]) => {
+        await Promise.all(
+          skillDirectories.flatMap((skillDirectory) =>
+            Array.from({ length: 7 }, (_, index) =>
+              writeSparseFile(
+                path.join(skillDirectory, `chunk-${index}.bin`),
+                1024 * 1024,
+              ),
+            ),
+          ),
+        );
+      },
+    ],
+  ])("bounds the total %s copied for one plugin", async (label, addPayload) => {
+    const appDataPath = path.join(root, "app-data");
+    const pluginDirectory = path.join(root, "plugin");
+    await writePlugin(pluginDirectory);
+    const skillDirectories = await Promise.all(
+      Array.from({ length: 5 }, (_, index) =>
+        writeSkill(pluginDirectory, `skill-${index}`),
+      ),
+    );
+    const service = createService(appDataPath, [pluginDirectory]);
+    await registerSelectedPlugin(service);
+    await addPayload(skillDirectories);
+    const skipped: string[] = [];
+
+    const runtime = await service.prepareRuntimePlugins(
+      `run-plugin-${label}`,
+      new Set(),
+      (_pluginName, skillName) => skipped.push(skillName),
+    );
+
+    expect(runtime).toHaveLength(1);
+    expect(await fs.promises.readdir(runtime[0].skillsPath)).toHaveLength(4);
+    expect(skipped).toEqual(["skill-4"]);
+  });
+
+  it.each(["../outside", "000000000000000g", "short"])(
+    "rejects malformed installation ID %s",
+    async (invalidId) => {
+      const service = createService(path.join(root, "app-data"));
+
+      await expect(service.setEnabled(invalidId, false)).rejects.toThrow(
+        "Invalid Agent Plugin installation ID",
+      );
+      await expect(service.unregister(invalidId)).rejects.toThrow(
+        "Invalid Agent Plugin installation ID",
+      );
+    },
+  );
+
+  it("rejects removal of a missing installation", async () => {
+    const service = createService(path.join(root, "app-data"));
+
+    await expect(service.unregister("0000000000000000")).rejects.toThrow(
+      "Agent Plugin installation not found",
+    );
   });
 
   it("requires a one-time native directory selection before registration", async () => {

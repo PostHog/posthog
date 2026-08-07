@@ -26,11 +26,10 @@ export function useAgentPlugins(): UseQueryResult<
   });
 }
 
-function useInvalidateAgentPlugins(): () => void {
+function useInvalidateAgentPlugins(): () => Promise<void> {
   const queryClient = useQueryClient();
-  return () => {
-    void queryClient.invalidateQueries({ queryKey: agentPluginsQueryKey });
-  };
+  return () =>
+    queryClient.invalidateQueries({ queryKey: agentPluginsQueryKey });
 }
 
 export function useSelectAgentPlugin(): UseMutationResult<
@@ -51,7 +50,7 @@ export function useRegisterAgentPlugin(): UseMutationResult<
   const invalidate = useInvalidateAgentPlugins();
   return useMutation({
     mutationFn: ({ selectionToken }) => client.register(selectionToken),
-    onSuccess: invalidate,
+    onSettled: invalidate,
   });
 }
 
@@ -64,7 +63,7 @@ export function useSetAgentPluginEnabled(): UseMutationResult<
   const invalidate = useInvalidateAgentPlugins();
   return useMutation({
     mutationFn: ({ id, enabled }) => client.setEnabled(id, enabled),
-    onSuccess: invalidate,
+    onSettled: invalidate,
   });
 }
 
@@ -77,6 +76,6 @@ export function useUnregisterAgentPlugin(): UseMutationResult<
   const invalidate = useInvalidateAgentPlugins();
   return useMutation({
     mutationFn: ({ id }) => client.unregister(id),
-    onSuccess: invalidate,
+    onSettled: invalidate,
   });
 }
