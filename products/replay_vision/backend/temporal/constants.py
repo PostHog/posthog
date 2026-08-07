@@ -33,6 +33,12 @@ VISION_ACTION_RUN_STUCK_CUTOFF = PROCESS_VISION_ACTION_EXECUTION_TIMEOUT * 2
 REAP_STUCK_VISION_ACTION_RUNS_BATCH_SIZE = 500
 REAP_STUCK_VISION_ACTION_RUNS_TIMEOUT = dt.timedelta(minutes=3)
 
+# An inline scanner is minted just before its scans start, so anything still childless well after a
+# scan could have persisted its first observation never had one.
+INLINE_SCANNER_REAP_GRACE = APPLY_SCANNER_EXECUTION_TIMEOUT + dt.timedelta(minutes=30)
+INLINE_SCANNER_REAP_BATCH_SIZE = 500
+INLINE_SCANNER_REAP_TIMEOUT = dt.timedelta(minutes=3)
+
 
 def build_process_vision_action_workflow_id(vision_action_id: UUID) -> str:
     """Deterministic id: a still-running action is skipped (WorkflowAlreadyStartedError), not double-fired."""
@@ -46,9 +52,10 @@ SCANNER_SCHEDULE_INTERVAL = dt.timedelta(minutes=5)
 # Overlap SKIP means a slow run absorbs later ticks instead of stacking.
 SWEEP_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=15)
 
-# The agentic refresh may run several tool rounds and up to two cold summaries. Its in-process budget
-# (_AGENT_BUDGET_BACKGROUND_S) keeps typical runs well under this, so the activity finishes cleanly and
-# a suggestion lands; this cap is the backstop for a hung provider.
+# The agentic refresh may run several tool rounds. _AGENT_BUDGET_BACKGROUND_S stops new rounds from
+# starting, but the in-flight round and the final structured turn can each add up to _MODEL_CALL_TIMEOUT_MS
+# on top, so a pathological run can still reach this cap. That costs one skipped daily refresh (single
+# attempt, swallowed by the sweep) rather than a retry, and the next tick picks it up.
 REFRESH_PROMPT_SUGGESTION_TIMEOUT = dt.timedelta(minutes=5)
 
 SCANNER_SCHEDULE_ID_PREFIX = "replay-vision-scanner"

@@ -5,7 +5,7 @@ import hashlib
 import dataclasses
 from copy import deepcopy
 from datetime import timedelta
-from typing import Any, Optional, cast
+from typing import Any, NamedTuple, Optional, cast
 
 from django.conf import settings
 from django.core.cache import cache
@@ -462,6 +462,28 @@ _FIXED_TEMPLATE_IDS = {
 }
 
 
+class _TriggerSourceTemplate(NamedTuple):
+    template_id: str
+    event: str
+    distinct_id: str
+
+
+# Non-event trigger types are each backed by one fixed built-in "source" template. These live outside
+# the destination template catalog (cdp-function-templates-list is type=destination), so callers told to
+# "discover the template like a function node" never find them and loop on a bare "Template not found".
+# Name the exact literal instead, along with the event/distinct_id inputs that template needs: the
+# request reaching it differs per trigger type, and a webhook-shaped mapping on the other two saves
+# fine and only fails once triggered (manual 400s every run; a pixel silently drops the hit and still
+# returns its 200 GIF), which just moves the authoring loop one step later.
+_FIXED_TRIGGER_TEMPLATES = {
+    "webhook": _TriggerSourceTemplate("template-source-webhook", "{request.body.event}", "{request.body.distinct_id}"),
+    "manual": _TriggerSourceTemplate("template-source-webhook", "$workflow_triggered", "{request.body.user_id}"),
+    "tracking_pixel": _TriggerSourceTemplate(
+        "template-source-webhook-pixel", "{request.query.ph_event}", "{request.query.ph_distinct_id}"
+    ),
+}
+
+
 def _looks_like_uuid(value: str) -> bool:
     try:
         uuid_mod.UUID(value)
@@ -600,6 +622,19 @@ def _apply_email_template_content(config: dict, team: Team, strict: bool, contex
 
 
 def _describe_unknown_template(action: dict, template_id: str) -> str:
+    if action.get("type") == "trigger":
+        trigger_type = (action.get("config") or {}).get("type", "")
+        source = _FIXED_TRIGGER_TEMPLATES.get(trigger_type)
+        if source:
+            return (
+                f"Template not found. A '{trigger_type}' trigger uses the built-in source template "
+                f"'{source.template_id}' - set config.template_id to that exact literal. It is NOT in the "
+                "destination template catalog, so don't look it up there. This trigger type also needs "
+                f"config.inputs.event = {{value: '{source.event}'}} and "
+                f"config.inputs.distinct_id = {{value: '{source.distinct_id}'}} - these values are specific "
+                f"to a '{trigger_type}' trigger, so don't copy another type's."
+            )
+
     fixed_id = _FIXED_TEMPLATE_IDS.get(action.get("type", ""))
     if fixed_id and _looks_like_uuid(template_id):
         return (

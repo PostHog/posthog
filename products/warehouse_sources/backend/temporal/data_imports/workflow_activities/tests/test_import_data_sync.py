@@ -9,7 +9,9 @@ from unittest import mock
 
 from django.db import InterfaceError, OperationalError
 
+from jsonpath_ng.exceptions import JsonPathParserError
 from parameterized import parameterized
+from requests.exceptions import HTTPError
 
 from posthog.temporal.common.errors import NonReportableError
 
@@ -172,6 +174,29 @@ async def test_unparseable_config_routes_through_handler():
 
 
 @pytest.mark.asyncio
+async def test_schema_deleted_mid_sync_routes_through_handler():
+    # The schema can be deleted (or soft-deleted) between the job being created and this
+    # activity's mid-run re-fetch of it, e.g. a user removes the table while its sync is in
+    # flight. Every retry re-reads the same gone row, so it must be treated as non-retryable
+    # instead of crash-looping on every attempt.
+    error = ExternalDataSchema.DoesNotExist("ExternalDataSchema matching query does not exist.")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+
+    with (
+        _patched_activity(source) as handle_mock,
+        mock.patch.object(module, "_get_external_data_schema", new=mock.AsyncMock(side_effect=error)),
+    ):
+        handle_mock.side_effect = NonRetryableException()
+        with pytest.raises(NonRetryableException):
+            await import_data_activity_sync(_inputs())
+
+    handle_mock.assert_awaited_once()
+    assert handle_mock.await_args.args[5] is error
+    source.parse_config.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_source_classified_retryable_error_logged_as_warning_not_exception():
     # A rate-limit / transient error the source retries internally reaches _handle_import_error only
     # once those retries exhaust. Temporal retries the whole activity, so it must be logged at
@@ -227,6 +252,68 @@ async def test_rest_client_non_retryable_error_routes_through_handler_without_so
     assert handle_mock.await_args is not None
     assert handle_mock.await_args.args[5] is error
     logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_http_404_routes_through_handler_without_source_opt_in():
+    # A 404 from the shared REST engine's fallback raise_for_status() path means the configured
+    # endpoint/resource doesn't exist — every retry hits the identical dead URL. It must be honored
+    # by status code even when the source's get_non_retryable_errors doesn't list the message, so
+    # any REST-based source stops instead of retrying to the activity max and minting error-tracking
+    # noise on every attempt.
+    error = HTTPError(
+        "404 Client Error: Not Found for url: https://api.example.com/export", response=mock.MagicMock(status_code=404)
+    )
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", new=mock.AsyncMock()) as handle_mock,
+    ):
+        handle_mock.side_effect = NonRetryableException()
+        with pytest.raises(NonRetryableException):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    handle_mock.assert_awaited_once()
+    assert handle_mock.await_args is not None
+    assert handle_mock.await_args.args[5] is error
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_http_401_is_reraised_for_activity_retry():
+    # A 401 can mean an access token expired mid-run — the REST engine's own auth layer re-mints
+    # the token on the next attempt, so this must stay retryable rather than being swept into the
+    # same non-retryable bucket as a 404 (which has no self-recovering path).
+    error = HTTPError(
+        "401 Client Error: Unauthorized for url: https://api.example.com/export",
+        response=mock.MagicMock(status_code=401),
+    )
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", new=mock.AsyncMock()) as handle_mock,
+    ):
+        with pytest.raises(HTTPError):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    handle_mock.assert_not_awaited()
+    logger.aexception.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -335,6 +422,37 @@ async def test_schema_column_type_changed_routes_through_handler_without_source_
 
     # autospec enforces handle_non_retryable_error's real signature, so a call with the wrong
     # positional args (as this branch once had) fails here instead of only at runtime.
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", autospec=True) as handle_mock,
+    ):
+        handle_mock.side_effect = NonRetryableException()
+        with pytest.raises(NonRetryableException):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    handle_mock.assert_awaited_once()
+    assert handle_mock.await_args is not None
+    assert handle_mock.await_args.args[5] is error
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_jsonpath_error_routes_through_handler_without_source_opt_in():
+    # The shared REST engine compiles data_selector/cursor_path/resolve-param fields as JSONPath at
+    # sync time, not manifest-validation time — a malformed path (e.g. a typo'd data_selector) raises
+    # jsonpath_ng's JSONPathError deep in shared code. It's a fixed string, so it fails identically on
+    # every retry regardless of source. It must be non-retryable by type, since jsonpath_ng's error
+    # messages vary across parse/lex failure shapes and can't be matched via get_non_retryable_errors.
+    error = JsonPathParserError("Parse error at 1:0 near token . (.)")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
     with (
         mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
         mock.patch.object(module, "handle_non_retryable_error", autospec=True) as handle_mock,

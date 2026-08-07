@@ -36,6 +36,10 @@ pub struct CachedPerson {
     pub created_at: i64,
     pub version: i64,
     pub is_identified: bool,
+    /// Epoch milliseconds of the person's last observed activity, when
+    /// known (matching `created_at`'s unit). Max-merged on update — the
+    /// value only ever advances — and deliberately not a change by itself.
+    pub last_seen_at: Option<i64>,
     /// Byte weight charged against the cache capacity; see
     /// [`approx_person_bytes`].
     pub approx_bytes: usize,
@@ -58,6 +62,7 @@ impl TryFrom<Person> for CachedPerson {
             created_at: person.created_at,
             version: person.version,
             is_identified: person.is_identified,
+            last_seen_at: person.last_seen_at,
             approx_bytes,
         })
     }
@@ -154,6 +159,7 @@ mod tests {
             created_at: 1700000000,
             version: 1,
             is_identified: false,
+            last_seen_at: None,
             approx_bytes: approx_person_bytes(64),
         }
     }

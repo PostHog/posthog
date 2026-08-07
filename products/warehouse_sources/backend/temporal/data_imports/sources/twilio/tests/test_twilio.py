@@ -9,14 +9,23 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.settings import TWILIO_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.twilio import (
+    CREDENTIAL_PROBE_ENDPOINTS,
+    TWILIO_ACCOUNT_NOT_FOUND_MESSAGE,
+    TWILIO_INVALID_CREDENTIALS_MESSAGE,
+    TWILIO_MAIN_KEY_REQUIRED_MESSAGE,
+    TWILIO_MAIN_KEY_REQUIRED_REASON,
+    TWILIO_UNREACHABLE_MESSAGE,
     TwilioResumeConfig,
     _build_initial_params,
     _format_filter_date,
+    _unexpected_status_message,
     twilio_source,
     validate_credentials,
 )
 
 ACCOUNT_SID = "AC00000000000000000000000000000000"
+# A Standard API key, the credential the source's caption recommends.
+API_KEY_AUTH = ("SK00000000000000000000000000000000", "secret")
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -154,8 +163,10 @@ class TestValidateCredentials:
             (200, "messages", True),
             (401, None, False),
             (401, "messages", False),
-            (403, None, True),  # valid token, no resource selected yet -> accept
-            (403, "messages", False),  # valid token, but no access to the chosen endpoint
+            # Twilio denies by 401, so a 403 carries no extra meaning and cannot be accepted either.
+            (403, None, False),
+            (403, "messages", False),
+            (404, None, False),
             (500, None, False),
         ],
     )
@@ -166,11 +177,66 @@ class TestValidateCredentials:
         assert is_valid is expected_valid
 
     @mock.patch(TWILIO_SESSION_PATCH)
-    def test_unauthorized_returns_actionable_message(self, mock_session):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=401)
-        is_valid, msg = validate_credentials((ACCOUNT_SID, "token"), ACCOUNT_SID)
-        assert is_valid is False
-        assert msg is not None and "credentials" in msg.lower()
+    def test_standard_api_key_denied_the_account_resource_is_still_accepted(self, mock_session):
+        # Twilio 401s the Accounts resource for Standard and Restricted API keys, so probing it at
+        # source-create time rejected the credential the caption recommends.
+        def _get(url, **kwargs):
+            status = 401 if url.endswith(f"Accounts/{ACCOUNT_SID}.json") else 200
+            return mock.MagicMock(status_code=status)
+
+        getter = mock_session.return_value.get
+        getter.side_effect = _get
+
+        is_valid, msg = validate_credentials(API_KEY_AUTH, ACCOUNT_SID)
+
+        assert (is_valid, msg) == (True, None)
+        probed = [call.args[0] for call in getter.call_args_list]
+        assert not any(url.endswith(f"Accounts/{ACCOUNT_SID}.json") for url in probed)
+
+    @mock.patch(TWILIO_SESSION_PATCH)
+    def test_create_probe_walks_candidates_until_one_is_readable(self, mock_session):
+        # A Restricted key scoped to one product area is denied the earlier candidates.
+        getter = mock_session.return_value.get
+        getter.side_effect = [mock.MagicMock(status_code=s) for s in (401, 401, 200)]
+
+        is_valid, msg = validate_credentials(API_KEY_AUTH, ACCOUNT_SID)
+
+        assert (is_valid, msg) == (True, None)
+        probed = [call.args[0] for call in getter.call_args_list]
+        assert probed == [
+            f"https://api.twilio.com/2010-04-01/Accounts/{ACCOUNT_SID}/{TWILIO_ENDPOINTS[name].path}?PageSize=1"
+            for name in CREDENTIAL_PROBE_ENDPOINTS
+        ]
+
+    @mock.patch(TWILIO_SESSION_PATCH)
+    def test_create_probe_rejects_when_every_candidate_is_denied(self, mock_session):
+        getter = mock_session.return_value.get
+        getter.return_value = mock.MagicMock(status_code=401)
+
+        is_valid, msg = validate_credentials(API_KEY_AUTH, ACCOUNT_SID)
+
+        assert (is_valid, msg) == (False, TWILIO_INVALID_CREDENTIALS_MESSAGE)
+        assert getter.call_count == len(CREDENTIAL_PROBE_ENDPOINTS)
+
+    @pytest.mark.parametrize(
+        "status_code, expected_message",
+        [
+            (500, "Twilio returned an unexpected status (500) while validating credentials."),
+            (429, "Twilio returned an unexpected status (429) while validating credentials."),
+            (404, TWILIO_ACCOUNT_NOT_FOUND_MESSAGE),
+        ],
+    )
+    @mock.patch(TWILIO_SESSION_PATCH)
+    def test_create_probe_stops_on_a_status_that_is_not_a_denial(self, mock_session, status_code, expected_message):
+        # A throttle, a server error, or a missing account is not a verdict on the credential, so the
+        # remaining candidates must not be walked.
+        getter = mock_session.return_value.get
+        getter.return_value = mock.MagicMock(status_code=status_code)
+
+        is_valid, msg = validate_credentials(API_KEY_AUTH, ACCOUNT_SID)
+
+        assert (is_valid, msg) == (False, expected_message)
+        assert getter.call_count == 1
 
     @mock.patch(TWILIO_SESSION_PATCH)
     def test_specific_schema_probes_endpoint_path(self, mock_session):
@@ -180,12 +246,57 @@ class TestValidateCredentials:
         probed_url = getter.call_args.args[0]
         assert probed_url == f"https://api.twilio.com/2010-04-01/Accounts/{ACCOUNT_SID}/Messages.json?PageSize=1"
 
+    @pytest.mark.parametrize(
+        "schema_name, expected_message",
+        [
+            ("keys", TWILIO_MAIN_KEY_REQUIRED_MESSAGE),
+            (
+                "messages",
+                "Twilio rejected these credentials for messages. Check that the Account SID and secret are "
+                "correct, and if this is a Restricted API key, give it read access to messages.",
+            ),
+        ],
+    )
     @mock.patch(TWILIO_SESSION_PATCH)
-    def test_transport_error_is_not_valid(self, mock_session):
+    def test_denied_schema_message_names_the_cause(self, mock_session, schema_name, expected_message):
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=401)
+        is_valid, msg = validate_credentials(API_KEY_AUTH, ACCOUNT_SID, schema_name)
+        assert (is_valid, msg) == (False, expected_message)
+
+    @mock.patch(TWILIO_SESSION_PATCH)
+    def test_chosen_schema_reports_a_server_error_as_such(self, mock_session):
+        # Reporting a Twilio outage on a chosen table as a permission problem would send the user off
+        # to rebuild a working API key.
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=503)
+        is_valid, msg = validate_credentials(API_KEY_AUTH, ACCOUNT_SID, "messages")
+        assert (is_valid, msg) == (False, _unexpected_status_message(503))
+
+    @pytest.mark.parametrize("schema_name", [None, "messages"])
+    @mock.patch(TWILIO_SESSION_PATCH)
+    def test_transport_error_is_not_valid(self, mock_session, schema_name):
         # validate_via_probe swallows the exception; the source must report "not validated".
-        mock_session.return_value.get.side_effect = Exception("boom")
-        is_valid, _msg = validate_credentials((ACCOUNT_SID, "token"), ACCOUNT_SID)
-        assert is_valid is False
+        getter = mock_session.return_value.get
+        getter.side_effect = Exception("boom")
+
+        is_valid, msg = validate_credentials((ACCOUNT_SID, "token"), ACCOUNT_SID, schema_name)
+
+        assert (is_valid, msg) == (False, TWILIO_UNREACHABLE_MESSAGE)
+        assert getter.call_count == 1
+
+    def test_probe_candidates_are_real_endpoints(self):
+        # A typo here raises KeyError out of validate_credentials and 500s source creation.
+        assert set(CREDENTIAL_PROBE_ENDPOINTS) <= set(TWILIO_ENDPOINTS)
+
+    def test_create_denial_message_names_restricted_key_scope(self):
+        # Only three of the eleven tables have a probe rung, so a Restricted key scoped elsewhere
+        # lands here and the message has to name scope alongside the SID, secret, and region causes.
+        assert "Restricted API key" in TWILIO_INVALID_CREDENTIALS_MESSAGE
+
+    def test_picker_reason_is_a_fragment(self):
+        # The schema picker interpolates this into "...cannot read this table: {reason}. Grant the
+        # missing scope...", so a trailing period doubles up and a full sentence reads as two.
+        assert not TWILIO_MAIN_KEY_REQUIRED_REASON.endswith(".")
+        assert TWILIO_MAIN_KEY_REQUIRED_REASON.count(".") == 0
 
 
 class TestPagination:

@@ -11,7 +11,7 @@ from django.db.models import Q, QuerySet
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.pagination import BasePagination, CursorPagination, PageNumberPagination
+from rest_framework.pagination import BasePagination, Cursor, CursorPagination, PageNumberPagination
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -36,7 +36,26 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 
 from .field_discovery import AdvancedActivityLogFieldDiscovery
 from .filters import AdvancedActivityLogFilterManager, validate_detail_filters
+from .ocsf import ActivityLogOCSFSerializer
 from .utils import get_activity_log_lookback_restriction
+
+ACTIVITY_LOG_ORDERING_DESCENDING = "-created_at"
+ACTIVITY_LOG_ORDERING_ASCENDING = "created_at"
+ACTIVITY_LOG_ORDERING_CHOICES = [ACTIVITY_LOG_ORDERING_DESCENDING, ACTIVITY_LOG_ORDERING_ASCENDING]
+
+ACTIVITY_LOG_SCHEMA_OCSF = "ocsf"
+
+
+def activity_log_ordering(request: Request) -> tuple[str, str]:
+    """Ordering tuple for the list endpoints, with `id` appended so ties break deterministically.
+
+    Ascending exists so a polling client can persist a cursor and resume forward; descending can't
+    advance because new rows always land at position 0. Values follow DRF's `OrderingFilter`
+    grammar: a bare field name is ascending, a `-` prefix descending.
+    """
+    if request.query_params.get("ordering") == ACTIVITY_LOG_ORDERING_ASCENDING:
+        return ("created_at", "id")
+    return ("-created_at", "-id")
 
 
 def restrict_loop_activity(queryset: QuerySet[ActivityLog], team_id: int, user) -> QuerySet[ActivityLog]:
@@ -123,21 +142,64 @@ class ActivityLogSerializer(serializers.ModelSerializer):
             return bookmark_date < obj.created_at.replace(microsecond=obj.created_at.microsecond // 1000 * 1000)
 
 
+class TailFollowingCursorPagination(CursorPagination):
+    """Cursor pagination that can keep a forward cursor alive after the stream is exhausted.
+
+    Stock DRF returns `next: null` on the final page, which leaves a polling client nothing to
+    resume from: a saved "last page" URL just replays that page, so the client has to fall back
+    to a date filter plus deduplication. With `follow=true` the link stays valid, so a caller can
+    store one cursor and re-poll it as new entries arrive - the pattern Okta's System Log API
+    documents.
+
+    Opt-in rather than implied by ascending order, because a live cursor changes the termination
+    condition: a follower stops when `results` is empty, not when `next` is null. Leaving that on
+    by default would make the obvious `while next: ...` loop run forever.
+
+    Known gap: the cursor encodes `created_at` and filters strictly past it, so an entry written
+    later but sharing the last-seen timestamp is not returned. That is inherent to a
+    timestamp-positioned cursor and matches DRF's behavior mid-stream.
+    """
+
+    follow = False
+
+    def get_next_link(self) -> Optional[str]:
+        link = super().get_next_link()
+        if link is not None or not self.follow:
+            return link
+        if self.ordering and str(self.ordering[0]).startswith("-"):
+            # Descending walks into history and has a real end; there is no tail to follow.
+            return None
+        if not self.page:
+            # Nothing new since the caller's position, so hand the same cursor back.
+            return self.encode_cursor(self.cursor) if self.cursor else None
+        position = self._get_position_from_instance(self.page[-1], self.ordering)
+        # DRF's stub types Cursor.position as int, but at runtime it holds the string that
+        # _get_position_from_instance returns.
+        return self.encode_cursor(Cursor(offset=0, reverse=False, position=position))  # type: ignore[arg-type]
+
+
 class ActivityLogPagination(BasePagination):
     def __init__(self):
         self.page_number_pagination = PageNumberPagination()
-        self.cursor_pagination = CursorPagination()
+        self.cursor_pagination = TailFollowingCursorPagination()
         self.page_number_pagination.page_size = 100
         self.page_number_pagination.page_size_query_param = "page_size"
         self.page_number_pagination.max_page_size = 1000
         self.cursor_pagination.page_size = 100
-        self.cursor_pagination.ordering = "-created_at"
+        self.cursor_pagination.page_size_query_param = "page_size"
+        self.cursor_pagination.max_page_size = 1000
+        # `created_at` is not unique, and DRF encodes only the first ordering field in the cursor,
+        # resolving ties with an offset. That offset is reproducible only when rows sharing a
+        # timestamp come back in a stable order, which Postgres does not otherwise guarantee.
+        self.cursor_pagination.ordering = ("-created_at", "-id")
 
     def paginate_queryset(self, queryset, request, view=None):
         self.request = request
         if request.query_params.get("page"):
             return self.page_number_pagination.paginate_queryset(queryset, request, view)
         else:
+            self.cursor_pagination.ordering = activity_log_ordering(request)
+            self.cursor_pagination.follow = request.query_params.get("follow") == "true"
             return self.cursor_pagination.paginate_queryset(queryset, request, view)
 
     def get_paginated_response(self, data):
@@ -147,7 +209,13 @@ class ActivityLogPagination(BasePagination):
             return self.cursor_pagination.get_paginated_response(data)
 
     def get_paginated_response_schema(self, schema):
-        return self.page_number_pagination.get_paginated_response_schema(schema)
+        # The paginator picks cursor or page-number mode per request, so the schema has to describe
+        # both. Cursor responses (the default) carry no `count`, so it is documented as an optional
+        # property rather than a required one.
+        cursor_schema = self.cursor_pagination.get_paginated_response_schema(schema)
+        page_number_schema = self.page_number_pagination.get_paginated_response_schema(schema)
+        cursor_schema["properties"]["count"] = page_number_schema["properties"]["count"]
+        return cursor_schema
 
 
 class ActivityLogScopeField(serializers.ChoiceField):
@@ -174,6 +242,15 @@ class ActivityLogQueryParamsSerializer(serializers.Serializer):
         required=False,
         help_text="Filter by the ID of the affected resource.",
     )
+    ordering = serializers.ChoiceField(
+        choices=ACTIVITY_LOG_ORDERING_CHOICES,
+        required=False,
+        default=ACTIVITY_LOG_ORDERING_DESCENDING,
+        help_text=(
+            "Sort by when the entry was created. Defaults to newest first. Use created_at for oldest "
+            "first when polling for new entries, so a saved cursor picks up where the last request stopped."
+        ),
+    )
     page = serializers.IntegerField(
         required=False,
         min_value=1,
@@ -184,7 +261,7 @@ class ActivityLogQueryParamsSerializer(serializers.Serializer):
         min_value=1,
         max_value=1000,
         default=100,
-        help_text="Number of results per page (default: 100, max: 1000). Only used with page-based pagination.",
+        help_text="Number of results per page (default: 100, max: 1000).",
     )
 
 
@@ -227,7 +304,7 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
             queryset = queryset.filter(item_id=params.get("item_id"))
 
         if params.get("page"):
-            queryset = queryset.order_by("-created_at")
+            queryset = queryset.order_by(*activity_log_ordering(self.request))
 
         lookback_date = get_activity_log_lookback_restriction(self.organization)
         if lookback_date:
@@ -345,6 +422,41 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
         default=[],
         help_text="Filter by the `item_id` of the affected resource(s).",
     )
+    ordering = serializers.ChoiceField(
+        choices=ACTIVITY_LOG_ORDERING_CHOICES,
+        required=False,
+        default=ACTIVITY_LOG_ORDERING_DESCENDING,
+        help_text=(
+            "Sort by when the entry was created. Defaults to newest first. Use created_at for oldest "
+            "first when polling for new entries, so a saved cursor picks up where the last request stopped."
+        ),
+    )
+    follow = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Keep the next link valid after the last entry, so the same cursor can be re-polled as "
+            "new entries arrive. Only applies with oldest-first ordering. When following, stop on an "
+            "empty results list rather than on a null next link."
+        ),
+    )
+    schema = serializers.ChoiceField(
+        choices=[ACTIVITY_LOG_SCHEMA_OCSF],
+        required=False,
+        help_text=(
+            "Response format. Set to ocsf to return Open Cybersecurity Schema Framework events for "
+            "ingestion into a security tool. Omit for the default PostHog format."
+        ),
+    )
+    include_values = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Include the previous and new values of changed fields. Only applies when schema is ocsf. "
+            "Values can contain the content of the changed object, which makes responses larger and "
+            "sends that content to your security tool."
+        ),
+    )
     page = serializers.IntegerField(
         required=False,
         min_value=1,
@@ -355,7 +467,7 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
         min_value=1,
         max_value=1000,
         default=100,
-        help_text="Number of results per page (default: 100, max: 1000). Only used with page-based pagination.",
+        help_text="Number of results per page (default: 100, max: 1000).",
     )
 
     def validate_detail_filters(self, value: Any) -> dict[str, Any]:
@@ -486,20 +598,36 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
         queryset = restrict_loop_activity(queryset, self.team_id, self.request.user)
 
-        return queryset.order_by("-created_at")
+        return queryset.order_by(*activity_log_ordering(self.request))
+
+    def _validated_query_params(self) -> dict[str, Any]:
+        # Validate once so serializer selection and context read the same coerced values the
+        # filters serializer produces, instead of re-parsing the raw query string.
+        validated = getattr(self, "_validated_query_params_cache", None)
+        if validated is None:
+            serializer = AdvancedActivityLogFiltersSerializer(data=self.request.query_params)
+            serializer.is_valid(raise_exception=True)
+            validated = self._validated_query_params_cache = serializer.validated_data
+        return validated
 
     def get_serializer_class(self):
         # This query param is set by the CSV exporter to indicate that the response should be serialized in a flat format
         if self.request.query_params.get("is_csv_export") == "1":
             return ActivityLogFlatExportSerializer
 
+        if self._validated_query_params().get("schema") == ACTIVITY_LOG_SCHEMA_OCSF:
+            return ActivityLogOCSFSerializer
+
         return super().get_serializer_class()
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["include_values"] = bool(self._validated_query_params().get("include_values"))
+        return context
 
     @extend_schema(parameters=[AdvancedActivityLogFiltersSerializer])
     def list(self, request, *args, **kwargs):
-        filters_serializer = AdvancedActivityLogFiltersSerializer(data=request.query_params)
-        filters_serializer.is_valid(raise_exception=True)
-        filters = filters_serializer.validated_data
+        filters = self._validated_query_params()
 
         queryset = self.get_queryset()
         queryset = self.filter_manager.apply_filters(queryset, filters)
@@ -634,7 +762,7 @@ class OrganizationAdvancedActivityLogsViewSet(AdvancedActivityLogsViewSet):
         # Org route: no single team_id (this endpoint is org-nested), so use the org-wide variant.
         queryset = restrict_loop_activity_for_org(queryset, self.organization.id, self.request.user)
 
-        return queryset.order_by("-created_at")
+        return queryset.order_by(*activity_log_ordering(self.request))
 
     @action(detail=False, methods=["POST"])
     def export(self, request, **kwargs):  # type: ignore[override]

@@ -50,9 +50,12 @@ BROKEN_DEFAULT_BRANCH_WINDOW_HOURS = 24
 BROKEN_DEFAULT_BRANCH_MIN_RUNS = 3
 BROKEN_DEFAULT_BRANCH_MAX_SUCCESS_RATE = 0.5
 # Duration regression: needs a relative AND absolute p95 jump so a 2s→4s blip doesn't fire.
+# Calibrated on observed week-over-week p95 movement in PostHog/posthog: stable high-volume
+# workflows drift under ~10% a week, while the regressions worth a signal land at +25-35% on
+# 15-25 minute workflows. The relative gate sits between those two bands.
 DURATION_WINDOW_DAYS = 7
 DURATION_MIN_RUNS = 20
-DURATION_MIN_PCT_INCREASE = 0.5
+DURATION_MIN_PCT_INCREASE = 0.2
 DURATION_MIN_ABS_INCREASE_SECONDS = 60.0
 
 
@@ -160,7 +163,12 @@ def detect_broken_default_branch(
 ) -> list[CISignalFinding]:
     now = datetime.now(UTC)
     date_from = now - timedelta(hours=window_hours)
-    default_branches = query_default_branches(curated=curated, date_from=date_from, workload=Workload.OFFLINE)
+    default_branches = query_default_branches(curated=curated, workload=Workload.OFFLINE)
+    if not default_branches:
+        # No PR evidence for any repo, so there is no branch to judge. Skipping is correct, but a
+        # silent skip is indistinguishable from healthy CI — the failure mode has to be observable.
+        logger.warning("ci_signal_default_branch_unresolved")
+        return []
     findings: list[CISignalFinding] = []
     for branch in sorted(set(default_branches.values())):
         for item in query_workflow_health(
