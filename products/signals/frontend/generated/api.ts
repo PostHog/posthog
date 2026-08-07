@@ -237,7 +237,7 @@ export const getSignalsReportsFeedbackCreateUrl = (projectId: string, id: string
 }
 
 /**
- * Record a note left with the thumbs rating at the end of a report. The rating itself is a product-analytics event; this endpoint exists to carry the note into the scout steering channel. For a report authored by a scout, the note is forwarded to that scout as a steering note it reads on its next run; for any other report there is nothing to steer and the call is a no-op success. The report's state is never changed.
+ * Record the thumbs rating at the end of a report, with an optional note. For browser-session requests the rating is persisted as a per-person report action, which counts as consumption evidence for the scout that authored the report (scouts whose output nobody consumes are eventually paused); requests authenticated any other way record no action. When a note is present and the report was authored by a scout, the note is also forwarded to that scout as a steering note it reads on its next run; for any other report there is nothing to steer. The report's state is never changed.
  * @summary Leave feedback on a report
  */
 export const signalsReportsFeedbackCreate = async (
@@ -484,6 +484,25 @@ export const signalsReportsStateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportStateRequestApi),
+    })
+}
+
+export const getSignalsReportsViewedCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/viewed/`
+}
+
+/**
+ * Record that the caller opened this report's detail view. One row per person per report is kept (repeat views bump a counter), and the record counts as consumption evidence for the scout that authored the report — scouts whose reports nobody consumes are eventually paused. Intended as fire-and-forget from the inbox UI when a person opens a report. Only browser-session requests leave a record; a call with any other credential (personal API key, OAuth token) returns 204 but records nothing.
+ * @summary Record that a person viewed a report
+ */
+export const signalsReportsViewedCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSignalsReportsViewedCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
