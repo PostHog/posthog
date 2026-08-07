@@ -9,7 +9,13 @@ import type {
     InstallationStepStatus,
     WizardPendingInput,
 } from './installationProgressLogic'
-import { taskRunPrMerged, taskRunPrUrl, TaskRunProgressStep, TaskRunStreamState } from './taskRunStreamLogic'
+import {
+    isTerminalStatus,
+    taskRunPrMerged,
+    taskRunPrUrl,
+    TaskRunProgressStep,
+    TaskRunStreamState,
+} from './taskRunStreamLogic'
 
 /**
  * Pure builders that turn the raw streams (TaskRun pipeline, wizard session) into the one normalized
@@ -151,7 +157,15 @@ export function cloudProgress(
     // detail), and anything outside the skeleton (e.g. "Keeping CI green") appends in arrival
     // order. Skipped when no run state exists yet: the view's connecting preview owns that window.
     let pipelineSteps: InstallationStep[]
-    if (taskRunState) {
+    if (taskRunState && isTerminalStatus(taskRunState.status) && announced.length === 0) {
+        // Nothing showable ever arrived for this run (e.g. its tab was closed for the whole run and
+        // it settled from the REST detail, which carries no step history), so the skeleton's literal
+        // 'pending' rows would assert stages ran when we have no evidence either way. The headline,
+        // glyph, and PR link already carry the outcome. Keyed on `announced` rather than the raw
+        // steps because a run that only ever replayed the hidden 'agent' step has nothing to show
+        // either.
+        pipelineSteps = []
+    } else if (taskRunState) {
         const byName = new Map(announced.map((p) => [p.step, p]))
         pipelineSteps = CLOUD_PIPELINE_SKELETON.map((sk) => {
             const real = byName.get(sk.step)

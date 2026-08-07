@@ -39,25 +39,38 @@ function phaseDotClass(phase: NavInstallationPhase): string {
     }
 }
 
+interface CloudRunPhaseReport {
+    phase: NavInstallationPhase | null
+    /** Set once the run reaches a terminal phase, mirroring `WizardSyncFab`'s `endedAt` — freezes
+     * the elapsed counter in the parent, since the persisted handle (and this counter) can outlive
+     * the run by up to 24 hours. */
+    endedAt?: string
+}
+
 /**
- * Mounts `installationProgressLogic` only when a cloud run is active, and reports the phase
- * back to the parent via a callback. This avoids opening a wizard-session SSE connection for
- * every authenticated user — the logic's `afterMount` calls `connectSession()`, and
- * `wizardSessionStreamLogic` has no empty-workflow guard. Mirrors the `WizardSyncLocalGate` pattern.
+ * Mounts `installationProgressLogic` only when a cloud run is active, and reports the phase and
+ * (once terminal) end timestamp back to the parent via a callback. This avoids opening a
+ * wizard-session SSE connection for every authenticated user — the logic's `afterMount` calls
+ * `connectSession()`, and `wizardSessionStreamLogic` has no empty-workflow guard. Mirrors the
+ * `WizardSyncLocalGate` pattern.
  */
 function CloudRunPhaseReporter({
     handle,
-    onPhase,
+    onReport,
 }: {
     handle: CloudRunHandle
-    onPhase: (phase: NavInstallationPhase | null) => void
+    onReport: (report: CloudRunPhaseReport) => void
 }): null {
-    const { installationProgress } = useValues(
+    const { installationProgress, taskRunState } = useValues(
         installationProgressLogic({ mode: 'cloud', runId: handle.runId, taskId: handle.taskId })
     )
+    const isTerminal = installationProgress.phase === 'completed' || installationProgress.phase === 'error'
     useEffect(() => {
-        onPhase(installationProgress.isCurrent ? installationProgress.phase : null)
-    }, [installationProgress, onPhase])
+        onReport({
+            phase: installationProgress.isCurrent ? installationProgress.phase : null,
+            endedAt: isTerminal ? (taskRunState?.completed_at ?? taskRunState?.updated_at) : undefined,
+        })
+    }, [installationProgress, isTerminal, taskRunState, onReport])
     return null
 }
 
@@ -88,20 +101,29 @@ function InstallationStatusNavButtonInner({ iconOnly }: { iconOnly: boolean }): 
     useMountedLogic(wizardActiveSessionDetectorLogic)
     const { activeCloudRun } = useValues(activeCloudRunLogic)
 
-    // Cloud-run phase is reported via a child component that only mounts when a run is active —
-    // avoids opening an SSE stream for every user on every page (INC-886 pattern).
+    // Cloud-run phase (and, once terminal, end timestamp) is reported via a child component that
+    // only mounts when a run is active — avoids opening an SSE stream for every user on every page
+    // (INC-886 pattern).
     const [cloudPhase, setCloudPhase] = useState<NavInstallationPhase | null>(null)
-    const handlePhase = useRef(setCloudPhase)
-    handlePhase.current = setCloudPhase
+    const [cloudEndedAt, setCloudEndedAt] = useState<string | undefined>(undefined)
+    // Ref-wrapped so CloudRunPhaseReporter's effect dependency stays referentially stable across
+    // parent re-renders, instead of re-firing every render because a fresh closure was passed in.
+    const handleCloudRunReport = useRef((report: CloudRunPhaseReport) => {
+        setCloudPhase(report.phase)
+        setCloudEndedAt(report.endedAt)
+    }).current
 
     // Derive the effective phase: prefer cloud progress when available, fall back to the logic phase.
     const effectivePhase: NavInstallationPhase = cloudPhase ?? logicPhase
 
-    // Elapsed time — only meaningful for cloud runs (we have the kickoff timestamp).
+    // Elapsed time — only meaningful for cloud runs (we have the kickoff timestamp). Freezes once
+    // the run goes terminal (cloudEndedAt set): the persisted handle survives up to 24h past
+    // completion, so without this the counter keeps climbing past a run that's already done.
     const startedAt = activeCloudRun?.startedAt ?? null
     const showElapsed = !!startedAt && isRunActive
-    const now = useNow(showElapsed)
-    const elapsedSeconds = startedAt ? elapsedSecondsFrom(startedAt, now) : 0
+    const endMs = cloudEndedAt ? new Date(cloudEndedAt).getTime() : NaN
+    const now = useNow(showElapsed && Number.isNaN(endMs))
+    const elapsedSeconds = startedAt ? elapsedSecondsFrom(startedAt, Number.isNaN(endMs) ? now : endMs) : 0
 
     // Pulse when the dot's phase changes.
     const [badgePulse, setBadgePulse] = useState(false)
@@ -150,7 +172,7 @@ function InstallationStatusNavButtonInner({ iconOnly }: { iconOnly: boolean }): 
 
     return (
         <>
-            {activeCloudRun && <CloudRunPhaseReporter handle={activeCloudRun} onPhase={handlePhase.current} />}
+            {activeCloudRun && <CloudRunPhaseReporter handle={activeCloudRun} onReport={handleCloudRunReport} />}
             <ButtonPrimitive
                 tooltip={iconOnly ? tooltipContent : undefined}
                 tooltipPlacement="right"

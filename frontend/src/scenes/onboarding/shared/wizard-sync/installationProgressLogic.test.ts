@@ -257,6 +257,29 @@ describe('installationProgressLogic merge', () => {
             expect(cloudProgress(taskState({ status: 'in_progress' }), [], 'open', null).isCurrent).toBe(true)
             expect(cloudProgress(taskState({ status: 'completed' }), [], 'open', null).isCurrent).toBe(true)
         })
+
+        it('renders no pipeline steps for a terminal run that never received any progress steps', () => {
+            // A run whose tab was closed for its whole duration settles from the REST detail, which
+            // carries no step history. The literal 'pending' skeleton would otherwise sit above a
+            // completed headline and assert stages ran when we have no evidence either way.
+            const result = cloudProgress(taskState({ status: 'completed' }), [], 'open', null)
+            expect(result.steps).toEqual([])
+        })
+
+        it('still renders the skeleton for a terminal run that did receive progress steps', () => {
+            const result = cloudProgress(
+                taskState({ status: 'completed' }),
+                [step({ step: 'clone', status: 'completed', label: 'Cloned repository' })],
+                'open',
+                null
+            )
+            expect(result.steps.map((s) => [s.label, s.status])).toEqual([
+                ['Setting up sandbox', 'pending'],
+                ['Cloned repository', 'completed'],
+                ['Running setup wizard', 'pending'],
+                ['Opening a pull request', 'pending'],
+            ])
+        })
     })
 
     describe('localProgress', () => {
