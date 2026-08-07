@@ -318,6 +318,7 @@ impl InnerCohortProperty {
         &self,
         target_properties: &HashMap<String, Value>,
         cohort_matches: &HashMap<CohortId, bool>,
+        partial_props: bool,
         team_timezone: Tz,
     ) -> Result<bool, FlagError> {
         match self.prop_type {
@@ -328,6 +329,7 @@ impl InnerCohortProperty {
                         target_properties,
                         cohort_matches,
                         0,
+                        partial_props,
                         team_timezone,
                     )? {
                         return Ok(true);
@@ -342,6 +344,7 @@ impl InnerCohortProperty {
                         target_properties,
                         cohort_matches,
                         0,
+                        partial_props,
                         team_timezone,
                     )? {
                         return Ok(false);
@@ -359,6 +362,7 @@ fn evaluate_cohort_item(
     target_properties: &HashMap<String, Value>,
     cohort_matches: &HashMap<CohortId, bool>,
     depth: usize,
+    partial_props: bool,
     team_timezone: Tz,
 ) -> Result<bool, FlagError> {
     if depth > MAX_COHORT_FILTER_DEPTH {
@@ -370,11 +374,16 @@ fn evaluate_cohort_item(
             target_properties,
             cohort_matches,
             depth,
+            partial_props,
             team_timezone,
         ),
-        CohortValuesItem::Filter(filter) => {
-            evaluate_cohort_filter(filter, target_properties, cohort_matches, team_timezone)
-        }
+        CohortValuesItem::Filter(filter) => evaluate_cohort_filter(
+            filter,
+            target_properties,
+            cohort_matches,
+            partial_props,
+            team_timezone,
+        ),
         // A known filter type that's otherwise malformed; fail loud rather than
         // silently resolving to non-match (see `traverse_item`).
         CohortValuesItem::MalformedKnownType(_) => Err(FlagError::CohortFiltersParsingError),
@@ -388,6 +397,7 @@ fn evaluate_cohort_filter(
     filter: &PropertyFilter,
     target_properties: &HashMap<String, Value>,
     cohort_matches: &HashMap<CohortId, bool>,
+    partial_props: bool,
     team_timezone: Tz,
 ) -> Result<bool, FlagError> {
     if filter.is_cohort() {
@@ -400,6 +410,7 @@ fn evaluate_cohort_filter(
         Ok(evaluate_property_with_negation(
             filter,
             target_properties,
+            partial_props,
             team_timezone,
         ))
     }
@@ -416,6 +427,7 @@ fn evaluate_cohort_values(
     target_properties: &HashMap<String, Value>,
     cohort_matches: &HashMap<CohortId, bool>,
     depth: usize,
+    partial_props: bool,
     team_timezone: Tz,
 ) -> Result<bool, FlagError> {
     match values.prop_type.as_str() {
@@ -426,6 +438,7 @@ fn evaluate_cohort_values(
                     target_properties,
                     cohort_matches,
                     depth + 1,
+                    partial_props,
                     team_timezone,
                 )? {
                     return Ok(true);
@@ -440,6 +453,7 @@ fn evaluate_cohort_values(
                     target_properties,
                     cohort_matches,
                     depth + 1,
+                    partial_props,
                     team_timezone,
                 )? {
                     return Ok(false);
@@ -458,16 +472,25 @@ fn evaluate_cohort_values(
 fn evaluate_property_with_negation(
     filter: &PropertyFilter,
     target_properties: &HashMap<String, Value>,
+    partial_props: bool,
     team_timezone: Tz,
 ) -> bool {
-    let property_result =
-        match_property(filter, target_properties, false, team_timezone).unwrap_or(false);
-
-    // Apply negation if specified
-    if filter.negation.unwrap_or(false) {
-        !property_result
-    } else {
-        property_result
+    match match_property(filter, target_properties, partial_props, team_timezone) {
+        Ok(property_result) => {
+            // Apply negation if specified
+            if filter.negation.unwrap_or(false) {
+                !property_result
+            } else {
+                property_result
+            }
+        }
+        // A missing property under partial_props means person prep never ran, so the
+        // property map is not authoritative. Fail closed rather than letting negation
+        // flip an absent key into a match: swallowing the error to `false` and then
+        // negating would produce exactly that fail-open. With partial_props false,
+        // match_property never errors on an absent key, so this preserves today's
+        // behavior for authoritative (fetched or skipped) property maps.
+        Err(_) => false,
     }
 }
 
@@ -477,6 +500,7 @@ fn evaluate_single_cohort(
     cohort: &Cohort,
     target_properties: &HashMap<String, Value>,
     evaluation_results: &HashMap<CohortId, bool>,
+    partial_props: bool,
     team_timezone: Tz,
 ) -> Result<bool, FlagError> {
     // Get the filters for this cohort
@@ -494,7 +518,12 @@ fn evaluate_single_cohort(
     // Use our evaluation method that respects OR/AND structure
     cohort_property
         .properties
-        .evaluate(target_properties, evaluation_results, team_timezone)
+        .evaluate(
+            target_properties,
+            evaluation_results,
+            partial_props,
+            team_timezone,
+        )
         .inspect_err(|_| record_malformed_cohort_filter(cohort.id, cohort.team_id, "evaluation"))
 }
 
@@ -504,6 +533,7 @@ pub fn evaluate_dynamic_cohorts(
     cohorts: &[Cohort],
     static_cohort_matches: &HashMap<CohortId, bool>,
     team_timezone: Tz,
+    partial_props: bool,
 ) -> Result<bool, FlagError> {
     // First check if this is a static cohort
     let initial_cohort = cohorts
@@ -534,7 +564,13 @@ pub fn evaluate_dynamic_cohorts(
             return Ok(());
         }
 
-        *result = evaluate_single_cohort(cohort, target_properties, results, team_timezone)?;
+        *result = evaluate_single_cohort(
+            cohort,
+            target_properties,
+            results,
+            partial_props,
+            team_timezone,
+        )?;
         Ok(())
     })?;
 
@@ -923,6 +959,7 @@ mod tests {
             &cohorts,
             &static_cohort_matches,
             Tz::UTC,
+            false,
         )
         .unwrap();
         assert!(
@@ -940,6 +977,7 @@ mod tests {
             &cohorts,
             &static_cohort_matches,
             Tz::UTC,
+            false,
         )
         .unwrap();
         assert!(
@@ -956,6 +994,7 @@ mod tests {
             &cohorts,
             &static_cohort_matches,
             Tz::UTC,
+            false,
         )
         .unwrap();
         assert!(
@@ -1022,13 +1061,17 @@ mod tests {
             &person,
             &cohorts,
             &static_matches,
-            Tz::America__Los_Angeles
+            Tz::America__Los_Angeles,
+            false
         )
         .unwrap());
 
         // UTC (the pre-fix interpretation) would include them, proving the team
         // timezone actually changes the cohort decision in this window.
-        assert!(evaluate_dynamic_cohorts(30, &person, &cohorts, &static_matches, Tz::UTC).unwrap());
+        assert!(
+            evaluate_dynamic_cohorts(30, &person, &cohorts, &static_matches, Tz::UTC, false)
+                .unwrap()
+        );
     }
 
     #[test]
@@ -1096,6 +1139,7 @@ mod tests {
             &cohorts,
             &static_cohort_matches,
             Tz::UTC,
+            false,
         )
         .unwrap();
         assert!(
@@ -1113,6 +1157,7 @@ mod tests {
             &cohorts,
             &static_cohort_matches,
             Tz::UTC,
+            false,
         )
         .unwrap();
         assert!(
@@ -1130,6 +1175,7 @@ mod tests {
             &cohorts,
             &static_cohort_matches,
             Tz::UTC,
+            false,
         )
         .unwrap();
         assert!(!result, "User without @example.com email should NOT match");
@@ -1144,11 +1190,70 @@ mod tests {
             &cohorts,
             &static_cohort_matches,
             Tz::UTC,
+            false,
         )
         .unwrap();
         assert!(
             !result,
             "User with wrong domain should NOT match regardless of exclusion"
+        );
+    }
+
+    /// Regression test for #79187: a negated cohort property filter must fail closed
+    /// when person properties were never fetched. Under `partial_props = true` an absent
+    /// key is inconclusive, so the negation must not flip it into a match. With
+    /// `partial_props = false` (authoritative props) the pre-existing behavior stands.
+    #[test]
+    fn test_evaluate_dynamic_cohorts_negation_fails_closed_when_properties_not_fetched() {
+        // "tier is not enterprise": operator Exact + negation, so an absent `tier`
+        // key would otherwise be read as "not enterprise" and match by accident.
+        let cohort = create_dynamic_cohort_with_filters(
+            1,
+            json!({
+                "properties": {
+                    "type": "AND",
+                    "values": [{
+                        "key": "tier",
+                        "type": "person",
+                        "value": "enterprise",
+                        "negation": true,
+                        "operator": "exact"
+                    }]
+                }
+            }),
+        );
+        let cohorts = vec![cohort];
+        let static_matches = HashMap::new();
+        let empty_properties = HashMap::new();
+
+        // partial_props = false: person props are authoritative, so an absent key
+        // negates to a match — today's behavior, preserved.
+        assert!(
+            evaluate_dynamic_cohorts(
+                1,
+                &empty_properties,
+                &cohorts,
+                &static_matches,
+                Tz::UTC,
+                false
+            )
+            .unwrap(),
+            "authoritative empty props: absent tier negates to a match"
+        );
+
+        // partial_props = true: person prep never ran, so the absent key is
+        // inconclusive and the negated filter must not match.
+        assert!(
+            !evaluate_dynamic_cohorts(
+                1,
+                &empty_properties,
+                &cohorts,
+                &static_matches,
+                Tz::UTC,
+                true
+            )
+            .unwrap(),
+            "pending person props: a missing key must not flip the negation into a match"
         );
     }
 
@@ -1266,6 +1371,7 @@ mod tests {
                 &cohorts,
                 &static_cohort_matches,
                 Tz::UTC,
+                false,
             )
             .unwrap();
             assert_eq!(
@@ -1319,6 +1425,7 @@ mod tests {
                 &cohorts,
                 &static_cohort_matches,
                 Tz::UTC,
+                false,
             )
             .unwrap();
             assert_eq!(
@@ -1366,6 +1473,7 @@ mod tests {
                 &cohorts,
                 &static_cohort_matches,
                 Tz::UTC,
+                false,
             )
             .unwrap();
             assert_eq!(
@@ -1403,7 +1511,14 @@ mod tests {
         let cohorts = vec![cohort];
         let target_properties = HashMap::from([("email".to_string(), json!("a@posthog.com"))]);
         assert!(matches!(
-            evaluate_dynamic_cohorts(1, &target_properties, &cohorts, &HashMap::new(), Tz::UTC),
+            evaluate_dynamic_cohorts(
+                1,
+                &target_properties,
+                &cohorts,
+                &HashMap::new(),
+                Tz::UTC,
+                false
+            ),
             Err(FlagError::CohortFiltersParsingError)
         ));
     }
@@ -1426,7 +1541,14 @@ mod tests {
         let cohorts = vec![cohort];
         let target_properties = HashMap::from([("email".to_string(), json!("a@posthog.com"))]);
         assert!(matches!(
-            evaluate_dynamic_cohorts(1, &target_properties, &cohorts, &HashMap::new(), Tz::UTC),
+            evaluate_dynamic_cohorts(
+                1,
+                &target_properties,
+                &cohorts,
+                &HashMap::new(),
+                Tz::UTC,
+                false
+            ),
             Ok(true)
         ));
     }
@@ -1471,6 +1593,7 @@ mod tests {
                 &cohorts,
                 &static_cohort_matches,
                 Tz::UTC,
+                false,
             )
             .unwrap();
             assert_eq!(
@@ -1502,7 +1625,14 @@ mod tests {
         let cohorts = vec![cohort];
         let target_properties = HashMap::from([("email".to_string(), json!("a@posthog.com"))]);
         assert!(matches!(
-            evaluate_dynamic_cohorts(1, &target_properties, &cohorts, &HashMap::new(), Tz::UTC),
+            evaluate_dynamic_cohorts(
+                1,
+                &target_properties,
+                &cohorts,
+                &HashMap::new(),
+                Tz::UTC,
+                false
+            ),
             Err(FlagError::CohortFiltersParsingError)
         ));
     }
@@ -1576,6 +1706,7 @@ mod tests {
                 &cohorts,
                 &static_cohort_matches,
                 Tz::UTC,
+                false,
             )
             .unwrap();
             assert_eq!(
@@ -1608,7 +1739,14 @@ mod tests {
         let cohorts = vec![cohort];
         let target_properties = HashMap::from([("plan".to_string(), json!("pro"))]);
         assert!(matches!(
-            evaluate_dynamic_cohorts(1, &target_properties, &cohorts, &HashMap::new(), Tz::UTC),
+            evaluate_dynamic_cohorts(
+                1,
+                &target_properties,
+                &cohorts,
+                &HashMap::new(),
+                Tz::UTC,
+                false
+            ),
             Ok(false)
         ));
     }
@@ -1638,7 +1776,14 @@ mod tests {
 
         let cohorts = vec![cohort];
         assert!(matches!(
-            evaluate_dynamic_cohorts(1, &HashMap::new(), &cohorts, &HashMap::new(), Tz::UTC),
+            evaluate_dynamic_cohorts(
+                1,
+                &HashMap::new(),
+                &cohorts,
+                &HashMap::new(),
+                Tz::UTC,
+                false
+            ),
             Ok(false)
         ));
     }
@@ -1671,7 +1816,14 @@ mod tests {
 
         let cohorts = vec![cohort];
         assert!(matches!(
-            evaluate_dynamic_cohorts(1, &HashMap::new(), &cohorts, &HashMap::new(), Tz::UTC),
+            evaluate_dynamic_cohorts(
+                1,
+                &HashMap::new(),
+                &cohorts,
+                &HashMap::new(),
+                Tz::UTC,
+                false
+            ),
             Err(FlagError::CohortFiltersParsingError)
         ));
     }
@@ -1715,9 +1867,15 @@ mod tests {
                 Some(value) => HashMap::from([("tenant_id".to_string(), value.clone())]),
                 None => HashMap::new(),
             };
-            let result =
-                evaluate_dynamic_cohorts(1, &target_properties, &cohorts, &HashMap::new(), Tz::UTC)
-                    .unwrap();
+            let result = evaluate_dynamic_cohorts(
+                1,
+                &target_properties,
+                &cohorts,
+                &HashMap::new(),
+                Tz::UTC,
+                false,
+            )
+            .unwrap();
             assert_eq!(
                 result, expected,
                 "tenant_id={tenant_id:?} should evaluate to {expected}"
@@ -1749,7 +1907,14 @@ mod tests {
         let cohorts = vec![cohort];
         let target_properties = HashMap::from([("tenant_id".to_string(), json!(2))]);
         assert!(matches!(
-            evaluate_dynamic_cohorts(1, &target_properties, &cohorts, &HashMap::new(), Tz::UTC),
+            evaluate_dynamic_cohorts(
+                1,
+                &target_properties,
+                &cohorts,
+                &HashMap::new(),
+                Tz::UTC,
+                false
+            ),
             Ok(false)
         ));
     }
@@ -1776,9 +1941,15 @@ mod tests {
         let test_cases = [(json!(40), true), (json!(30), true), (json!(20), false)];
         for (seats, expected) in test_cases {
             let target_properties = HashMap::from([("seats".to_string(), seats.clone())]);
-            let result =
-                evaluate_dynamic_cohorts(1, &target_properties, &cohorts, &HashMap::new(), Tz::UTC)
-                    .unwrap();
+            let result = evaluate_dynamic_cohorts(
+                1,
+                &target_properties,
+                &cohorts,
+                &HashMap::new(),
+                Tz::UTC,
+                false,
+            )
+            .unwrap();
             assert_eq!(
                 result, expected,
                 "seats={seats} should evaluate to {expected}"

@@ -159,6 +159,13 @@ pub struct FlagEvaluationState {
     person_property_state: PersonPropertyState,
     /// Properties for each group type involved in flag evaluation
     group_properties: HashMap<GroupTypeIndex, HashMap<String, Value>>,
+    /// Group type indexes whose properties were actually fetched from the DB this
+    /// evaluation. Absence is the group analog of `PersonPropertyState::Pending`:
+    /// prep never ran for that group type, so its empty property map is not
+    /// authoritative and negative operators must not treat an absent key as a match.
+    /// Presence — even with an empty property map — means the fetch ran and the
+    /// result is authoritative, exactly like `PersonPropertyState::Fetched`.
+    fetched_group_type_indexes: HashSet<GroupTypeIndex>,
     /// Cohorts for the current request, shared via `Arc` either from the
     /// preloaded hypercache slice or wrapped from a `CohortCacheManager`
     /// fetch.
@@ -188,6 +195,14 @@ impl FlagEvaluationState {
     /// known to cover every property the batch needs — see `PersonPropertyState`.
     pub(crate) fn person_properties_pending(&self) -> bool {
         matches!(self.person_property_state, PersonPropertyState::Pending)
+    }
+
+    /// True when group-property DB prep never ran for this group type (the group
+    /// analog of `PersonPropertyState::Pending`). A fetch that ran but found no
+    /// matching group row is authoritative and returns false here, mirroring an
+    /// empty `Fetched` person map — see `mark_group_properties_fetched`.
+    pub(crate) fn group_properties_pending(&self, group_type_index: GroupTypeIndex) -> bool {
+        !self.fetched_group_type_indexes.contains(&group_type_index)
     }
 
     pub fn get_group_properties(&self) -> &HashMap<GroupTypeIndex, HashMap<String, Value>> {
@@ -228,6 +243,17 @@ impl FlagEvaluationState {
         properties: HashMap<String, Value>,
     ) {
         self.group_properties.insert(group_type_index, properties);
+    }
+
+    /// Record that group-property prep ran for these group types, so a later empty
+    /// lookup reads as "group has no properties" (authoritative) rather than "never
+    /// fetched". Must be called with every group type index queried, including those
+    /// whose group row was absent and so produced no `set_group_properties` entry.
+    pub fn mark_group_properties_fetched(
+        &mut self,
+        group_type_indexes: impl IntoIterator<Item = GroupTypeIndex>,
+    ) {
+        self.fetched_group_type_indexes.extend(group_type_indexes);
     }
 
     pub fn set_cohort_matches(&mut self, matches: HashMap<CohortId, bool>) {
@@ -450,6 +476,11 @@ impl FeatureFlagMatcher {
     pub fn with_skip_writes(mut self, skip_writes: bool) -> Self {
         self.skip_writes = skip_writes;
         self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_group_type_mapping_for_test(&mut self, mapping: GroupTypeMapping) {
+        self.group_type_mapping = Some(mapping);
     }
 
     pub fn with_cohort_membership_provider(
@@ -750,6 +781,7 @@ impl FeatureFlagMatcher {
         cohort_property_filters: &[&PropertyFilter],
         target_properties: &HashMap<String, Value>,
         cohorts: Arc<[Cohort]>,
+        partial_props: bool,
     ) -> Result<bool, FlagError> {
         // Track cohort evaluations in canonical log
         with_canonical_log(|log| log.eval.cohorts_evaluated += cohort_property_filters.len());
@@ -776,6 +808,7 @@ impl FeatureFlagMatcher {
                     &cohorts,
                     &current_matches,
                     self.timezone,
+                    partial_props,
                 )?;
                 cohort_matches.insert(cohort_id, match_result);
             }
@@ -1108,6 +1141,22 @@ impl FeatureFlagMatcher {
         }
     }
 
+    /// Whether the request supplied a usable group key for this group type, i.e. there
+    /// is a concrete group in context. Checked directly against `self.groups` rather
+    /// than via `hashed_identifier` so it can gate both condition skipping and the
+    /// fail-closed guard without recomputing hashes.
+    fn has_group_key(&self, group_type_index: GroupTypeIndex) -> bool {
+        self.group_type_mapping
+            .as_ref()
+            .and_then(|m| m.group_indexes_to_types().get(&group_type_index))
+            .and_then(|name| self.groups.get(name))
+            .is_some_and(|v| match v {
+                Value::String(s) => !s.is_empty(),
+                Value::Number(_) => true,
+                _ => false,
+            })
+    }
+
     /// Resolves group property overrides for a specific group type index by mapping
     /// the index to the group type name and looking up the corresponding overrides.
     fn resolve_group_overrides<'a>(
@@ -1436,17 +1485,7 @@ impl FeatureFlagMatcher {
             // This checks the group key directly rather than calling hashed_identifier,
             // which will be called again later in check_rollout/get_matching_variant.
             if let Some(group_type_index) = aggregation {
-                let has_group_key = self
-                    .group_type_mapping
-                    .as_ref()
-                    .and_then(|m| m.group_indexes_to_types().get(&group_type_index))
-                    .and_then(|name| self.groups.get(name))
-                    .is_some_and(|v| match v {
-                        Value::String(s) => !s.is_empty(),
-                        Value::Number(_) => true,
-                        _ => false,
-                    });
-                if !has_group_key {
+                if !self.has_group_key(group_type_index) {
                     inc(
                         FLAG_CONDITION_SKIPPED_COUNTER,
                         &[("reason".to_string(), "missing_group_type".to_string())],
@@ -1668,21 +1707,40 @@ impl FeatureFlagMatcher {
                     cohort_filters.push(filter);
                 } else {
                     let props = property_context.resolve_for_filter(filter);
-                    // Person properties that were never fetched (DB prep didn't run for this
-                    // evaluation) must not be treated as "person has no properties", because
-                    // an absent key would then make negative operators (is_not, not_icontains,
-                    // ...) and is_not_set match by accident. partial_props makes match_property
-                    // error on a missing key instead of matching it; the unwrap_or(false) below
-                    // turns that error into no-match, so the condition fails closed. Only
-                    // Pending gets this: Skipped and Fetched property maps are authoritative,
-                    // so an absent key there genuinely means the person lacks the property.
-                    // This is defense in depth: in the batch flow a prep failure errors those
-                    // flags out before evaluation, so the guard protects any path that reaches
-                    // evaluation with the state still Pending. Cohort filters (evaluated
-                    // separately below) don't get this guard; under Pending they're currently
-                    // safe only because cohorts are never loaded when person prep hasn't run.
-                    let partial_props = filter.prop_type != PropertyType::Group
-                        && self.flag_evaluation_state.person_properties_pending();
+                    // Properties that were never fetched (DB prep didn't run for this
+                    // evaluation) must not be treated as "the entity has no properties",
+                    // because an absent key would then make negative operators (is_not,
+                    // not_icontains, ...) and is_not_set match by accident. partial_props
+                    // makes match_property error on a missing key instead of matching it;
+                    // the unwrap_or(false) below turns that error into no-match, so the
+                    // condition fails closed. Only Pending gets this: Skipped and Fetched
+                    // property maps are authoritative, so an absent key there genuinely
+                    // means the entity lacks the property.
+                    //
+                    // Person and group are handled symmetrically. Groups have no Skipped
+                    // state; a group type is Pending until its DB fetch runs (see
+                    // `mark_group_properties_fetched`). The group guard fires only when a
+                    // group key was actually supplied — with no key there is no group in
+                    // context at all, so we keep today's behavior rather than turning a
+                    // context-less request into a forced no-match. This is defense in depth:
+                    // in the batch flow a prep failure errors those flags out before
+                    // evaluation, so the guard protects any path that reaches evaluation
+                    // with the state still Pending.
+                    let partial_props = match filter.prop_type {
+                        PropertyType::Person | PropertyType::PersonMetadata => {
+                            self.flag_evaluation_state.person_properties_pending()
+                        }
+                        PropertyType::Group => filter
+                            .group_type_index
+                            .or(property_context.aggregation)
+                            .is_some_and(|gti| {
+                                self.has_group_key(gti)
+                                    && self.flag_evaluation_state.group_properties_pending(gti)
+                            }),
+                        // Cohort and Flag filters are dispatched earlier in this loop and
+                        // never reach here; listing them keeps the match exhaustive.
+                        PropertyType::Cohort | PropertyType::Flag => false,
+                    };
                     if !match_property(filter, props, partial_props, self.timezone).unwrap_or(false)
                     {
                         return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
@@ -1699,7 +1757,17 @@ impl FeatureFlagMatcher {
                 let cohort_props = property_context
                     .person_properties
                     .unwrap_or(&*EMPTY_PROPERTY_MAP);
-                if !self.evaluate_cohort_filters(&cohort_filters, cohort_props, cohorts)? {
+                // Cohort leaves evaluate against person properties, so they fail closed on
+                // the same Pending state as direct person filters — an absent key inside a
+                // negated cohort filter must not flip into a match. Latent today (cohorts
+                // aren't loaded while person prep is Pending), fixed as defense in depth.
+                let partial_props = self.flag_evaluation_state.person_properties_pending();
+                if !self.evaluate_cohort_filters(
+                    &cohort_filters,
+                    cohort_props,
+                    cohorts,
+                    partial_props,
+                )? {
                     return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                 }
             }

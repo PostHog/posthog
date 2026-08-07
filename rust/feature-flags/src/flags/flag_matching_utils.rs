@@ -586,6 +586,11 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         for (idx, props) in group.group_properties {
             flag_evaluation_state.set_group_properties(idx, props);
         }
+        // Mark every queried group type as fetched, including ones whose group row was
+        // absent (so `set_group_properties` was never called for them). This lets an
+        // empty lookup be read as "group has no properties" rather than "prep never ran",
+        // so negative operators fail closed only in the latter case.
+        flag_evaluation_state.mark_group_properties_fetched(group_type_to_key.keys().copied());
     } else {
         let person_cohort =
             fetch_person_and_cohorts(&reader, team_id, &distinct_id, &static_cohort_ids).await?;

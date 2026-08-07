@@ -18,7 +18,7 @@ mod tests {
         },
         flags::{
             feature_flag_list::PreparedFlags,
-            flag_group_type_mapping::GroupTypeCacheManager,
+            flag_group_type_mapping::{GroupTypeCacheManager, GroupTypeMapping},
             flag_match_reason::FeatureFlagMatchReason,
             flag_matching::{FeatureFlagMatch, FeatureFlagMatcher, PropertyContext},
             flag_matching_utils::{
@@ -1774,6 +1774,151 @@ mod tests {
         assert!(
             is_match,
             "acme is not mecklenburgische, so is_not should match"
+        );
+        assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
+    }
+
+    /// Builds a matcher whose request supplies a group key for the "organization"
+    /// group type (index 1), with the group-type mapping wired so `has_group_key`
+    /// resolves. `fetched` controls whether group-property prep is marked as having
+    /// run for index 1 — the group analog of `PersonPropertyState::Pending` vs
+    /// `Fetched`. `with_group_key` controls whether a group key is present at all.
+    async fn group_matcher_for_is_not(
+        with_group_key: bool,
+        fetched: bool,
+    ) -> (TestContext, FeatureFlagMatcher) {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let groups = if with_group_key {
+            Some(HashMap::from([(
+                "organization".to_string(),
+                json!("org_acme"),
+            )]))
+        } else {
+            None
+        };
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            1,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            groups,
+        );
+        matcher.set_group_type_mapping_for_test(GroupTypeMapping::new(HashMap::from([(
+            "organization".to_string(),
+            1,
+        )])));
+        if fetched {
+            // Mirrors a group-property fetch that ran but found no matching group row:
+            // the group type is marked fetched with no properties stored, so the empty
+            // map is authoritative rather than "prep never ran".
+            matcher
+                .flag_evaluation_state
+                .mark_group_properties_fetched([1]);
+        }
+        (context, matcher)
+    }
+
+    fn group_is_not_condition() -> FlagPropertyGroup {
+        FlagPropertyGroup {
+            variant: None,
+            properties: Some(vec![PropertyFilter {
+                key: "tier".to_string(),
+                value: Some(json!("enterprise")),
+                operator: Some(OperatorType::IsNot),
+                prop_type: PropertyType::Group,
+                group_type_index: Some(1),
+                negation: None,
+                compiled_regex: None,
+                extra: Default::default(),
+            }]),
+            rollout_percentage: Some(100.0),
+            ..Default::default()
+        }
+    }
+
+    /// Regression test for #79209: when group-property prep never ran for a group type
+    /// but the request did supply a group key (so a group is genuinely in context), a
+    /// negative operator like `is_not` on a missing group property must not match by
+    /// accident. This mirrors the person-property fail-closed guard from #75929.
+    #[tokio::test]
+    async fn test_is_condition_match_group_is_not_fails_closed_when_group_properties_pending() {
+        let (_context, matcher) = group_matcher_for_is_not(true, false).await;
+        let flag = mock!(FeatureFlag);
+        let condition = group_is_not_condition();
+
+        let empty_person = HashMap::new();
+        let empty_groups = HashMap::new();
+        let ctx = PropertyContext {
+            person_properties: Some(&empty_person),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
+        let (is_match, reason) = matcher
+            .is_condition_match(&flag, &condition, &ctx, None, &None)
+            .unwrap();
+        assert!(
+            !is_match,
+            "a missing group property must not satisfy is_not when prep never ran"
+        );
+        assert_eq!(reason, FeatureFlagMatchReason::NoConditionMatch);
+    }
+
+    /// Regression test: once group-property prep has run, an empty property map is
+    /// authoritative (the group genuinely lacks the key), so `is_not` evaluates
+    /// normally and matches — the fail-closed handling must not make this inconclusive.
+    #[tokio::test]
+    async fn test_is_condition_match_group_is_not_evaluates_normally_when_group_properties_fetched()
+    {
+        let (_context, matcher) = group_matcher_for_is_not(true, true).await;
+        let flag = mock!(FeatureFlag);
+        let condition = group_is_not_condition();
+
+        let empty_person = HashMap::new();
+        let empty_groups = HashMap::new();
+        let ctx = PropertyContext {
+            person_properties: Some(&empty_person),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
+        let (is_match, reason) = matcher
+            .is_condition_match(&flag, &condition, &ctx, None, &None)
+            .unwrap();
+        assert!(
+            is_match,
+            "an absent key in an authoritative (fetched) group map should satisfy is_not"
+        );
+        assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
+    }
+
+    /// Regression test for the #79209 caveat: a group filter with no group key at all
+    /// has no group in context, so we keep today's behavior rather than forcing a
+    /// no-match. Only a supplied-but-unfetched group key fails closed.
+    #[tokio::test]
+    async fn test_is_condition_match_group_is_not_keeps_behavior_without_group_key() {
+        let (_context, matcher) = group_matcher_for_is_not(false, false).await;
+        let flag = mock!(FeatureFlag);
+        let condition = group_is_not_condition();
+
+        let empty_person = HashMap::new();
+        let empty_groups = HashMap::new();
+        let ctx = PropertyContext {
+            person_properties: Some(&empty_person),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
+        let (is_match, reason) = matcher
+            .is_condition_match(&flag, &condition, &ctx, None, &None)
+            .unwrap();
+        assert!(
+            is_match,
+            "with no group key there is no context to fail closed on"
         );
         assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
     }
