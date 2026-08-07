@@ -72,7 +72,7 @@ export const buildScatterData = (
             x === null ||
             y === null ||
             // a logarithmic axis can't place non-positive values — count them as skipped instead
-            // of letting Chart.js drop them silently
+            // of letting the chart drop them silently
             (settings.xLogScale && x <= 0) ||
             (settings.yLogScale && y <= 0)
         ) {
