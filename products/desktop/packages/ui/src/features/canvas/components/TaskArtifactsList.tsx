@@ -9,11 +9,6 @@ import {
 import type { ResourceComment } from "@posthog/api-client/posthog-client";
 import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
 import {
-  SESSION_SERVICE,
-  type SessionService,
-} from "@posthog/core/sessions/sessionService";
-import { useService } from "@posthog/di/react";
-import {
   Badge,
   Button,
   Empty,
@@ -40,9 +35,9 @@ import { usePrComments } from "@posthog/ui/features/pr-review/usePrComments";
 import { usePrReviewThreads } from "@posthog/ui/features/pr-review/usePrReviewThreads";
 import { buildCommentThreads } from "@posthog/ui/features/sessions/components/commentViewTypes";
 import { useCommentsForTargetsQuery } from "@posthog/ui/features/sessions/components/useComments";
+import { useArtifactDownload } from "@posthog/ui/features/sessions/useArtifactDownload";
 import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
-import { toast } from "@posthog/ui/primitives/toast";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
 import { type ReactNode, useMemo, useState } from "react";
@@ -239,9 +234,8 @@ function FileRow({
   /** Supplied by the pane's single comments query so each row doesn't fetch. */
   commentCount: number;
 }) {
-  const sessionService = useService<SessionService>(SESSION_SERVICE);
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
-  const [downloading, setDownloading] = useState(false);
+  const { download, downloadingId } = useArtifactDownload();
   const canOpen = !!runId && !!artifactId;
   const sizeLabel = formatFileSize(size);
   const onOpen = canOpen
@@ -254,31 +248,13 @@ function FileRow({
       }
     : undefined;
   const onDownload = canOpen
-    ? async () => {
-        setDownloading(true);
-        try {
-          const url = await sessionService.getCloudAttachmentPreviewUrl(
-            taskId,
-            runId as string,
-            artifactId as string,
-          );
-          if (!url) {
-            toast.error("This file is no longer available");
-            return;
-          }
-          const response = await fetch(url);
-          if (!response.ok) throw new Error("Artifact download failed");
-          const objectUrl = URL.createObjectURL(await response.blob());
-          const anchor = document.createElement("a");
-          anchor.href = objectUrl;
-          anchor.download = name;
-          anchor.click();
-          URL.revokeObjectURL(objectUrl);
-        } catch {
-          toast.error("Couldn't download file");
-        } finally {
-          setDownloading(false);
-        }
+    ? () => {
+        void download({
+          taskId,
+          runId: runId as string,
+          artifactId: artifactId as string,
+          name,
+        });
       }
     : undefined;
   return (
@@ -299,7 +275,7 @@ function FileRow({
       onOpen={onOpen}
       fileActions={
         onDownload
-          ? { onDownload: () => void onDownload(), downloading }
+          ? { onDownload, downloading: downloadingId === artifactId }
           : undefined
       }
     />
