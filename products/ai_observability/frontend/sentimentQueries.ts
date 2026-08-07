@@ -1,12 +1,21 @@
 import api from 'lib/api'
 
 import { ProductKey } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
-import { AnyPropertyFilter } from '~/types'
+import { escapeHogQLString, hogql } from '~/queries/utils'
 
 import { normalizeSentimentResult, type GenerationSentiment } from './sentimentResults'
 
 export const GENERATIONS_PAGE_SIZE = 200
+
+export type SentimentCategory = 'negative' | 'positive'
+
+const SENTIMENT_CATEGORIES: readonly SentimentCategory[] = ['negative', 'positive']
+
+/** The categories the query should select, falling back to all of them if nothing is active */
+function resolveActiveCategories(activeFilters: Set<SentimentCategory> | undefined): SentimentCategory[] {
+    const active = SENTIMENT_CATEGORIES.filter((category) => activeFilters?.has(category))
+    return active.length > 0 ? active : [...SENTIMENT_CATEGORIES]
+}
 
 const SENTIMENT_QUERY_TAGS = {
     productKey: ProductKey.AI_OBSERVABILITY,
@@ -87,7 +96,9 @@ export interface SentimentGeneration {
 export interface SentimentGenerationsQueryValues {
     dateFilter: { dateFrom: string | null; dateTo: string | null }
     shouldFilterTestAccounts: boolean
-    propertyFilters: AnyPropertyFilter[]
+    activeFilters: Set<SentimentCategory>
+    /** Restrict results to one sentiment evaluation, or null for all of them */
+    evaluationId: string | null
 }
 
 export interface SentimentGenerationsPage {
@@ -265,6 +276,15 @@ async function fetchSentimentEvaluationCandidates(
     values: SentimentGenerationsQueryValues,
     offset: number
 ): Promise<SentimentEvaluationCandidate[]> {
+    const categories = resolveActiveCategories(values.activeFilters)
+    const categoryScores = categories.map((category) => `JSONExtractFloat(scores, '${category}')`)
+    // Rank by the strongest score among the selected categories only, so a deselected
+    // category can't push a generation to the top of the page
+    const rankingExpression = categoryScores.length > 1 ? `greatest(${categoryScores.join(', ')})` : categoryScores[0]
+    const evaluationClause = values.evaluationId
+        ? `AND properties.$ai_evaluation_id = ${escapeHogQLString(values.evaluationId)}`
+        : ''
+
     const response = await api.queryHogQL<unknown[][]>(
         hogql`
             SELECT
@@ -284,18 +304,16 @@ async function fetchSentimentEvaluationCandidates(
                 WHERE event = '$ai_evaluation'
                   AND properties.$ai_evaluation_runtime = 'sentiment'
                   AND timestamp >= now() - INTERVAL 30 DAY
+                  ${hogql.raw(evaluationClause)}
                   AND {filters}
                 GROUP BY trace_id, generation_id
             )
             WHERE length(evaluation_id) > 0
               AND length(trace_id) > 0
               AND length(generation_id) > 0
-              AND label IN ('positive', 'negative', 'neutral')
+              AND label IN ${categories}
               AND toIntOrZero(message_count) > 0
-            ORDER BY greatest(
-                JSONExtractFloat(scores, 'positive'),
-                JSONExtractFloat(scores, 'negative')
-            ) DESC, evaluation_timestamp DESC, generation_id DESC
+            ORDER BY ${hogql.raw(rankingExpression)} DESC, evaluation_timestamp DESC, generation_id DESC
             LIMIT ${GENERATIONS_PAGE_SIZE}
             OFFSET ${Math.max(0, Math.trunc(offset))}
         `,
@@ -395,7 +413,6 @@ async function hydrateSentimentGenerations(
             queryParams: {
                 filters: {
                     filterTestAccounts: values.shouldFilterTestAccounts,
-                    properties: values.propertyFilters,
                 },
             },
         }

@@ -1,6 +1,11 @@
 import api from 'lib/api'
 
-import { fetchSentimentGenerationsPage, fetchStoredGenerationSentiments } from './sentimentQueries'
+import {
+    fetchSentimentGenerationsPage,
+    fetchStoredGenerationSentiments,
+    type SentimentCategory,
+    type SentimentGenerationsQueryValues,
+} from './sentimentQueries'
 
 jest.mock('lib/api')
 
@@ -32,10 +37,11 @@ const generationColumns = [
     'message_count',
 ]
 
-const queryValues = {
+const queryValues: SentimentGenerationsQueryValues = {
     dateFilter: { dateFrom: '-7d', dateTo: null },
     shouldFilterTestAccounts: false,
-    propertyFilters: [],
+    activeFilters: new Set<SentimentCategory>(['negative', 'positive']),
+    evaluationId: null,
 }
 
 function candidateRows(count: number, start: number = 0): unknown[][] {
@@ -199,8 +205,32 @@ describe('sentimentQueries', () => {
         const [, , hydrationOptions] = mockApi.queryHogQL.mock.calls[1]
         expect(hydrationOptions?.queryParams?.filters).toEqual({
             filterTestAccounts: false,
-            properties: [],
         })
+    })
+
+    it('restricts the candidate query to a single evaluation when one is selected', async () => {
+        mockApi.queryHogQL
+            .mockResolvedValueOnce({ columns: candidateColumns, results: [] })
+            .mockResolvedValueOnce({ columns: generationColumns, results: [] })
+
+        await fetchSentimentGenerationsPage({ ...queryValues, evaluationId: 'eval-uuid' }, 0)
+
+        expect(mockApi.queryHogQL.mock.calls[0][0]).toContain("AND properties.$ai_evaluation_id = 'eval-uuid'")
+    })
+
+    it.each<[string, SentimentCategory[], string, string]>([
+        ['negative only', ['negative'], "label IN ['negative']", "ORDER BY JSONExtractFloat(scores, 'negative') DESC"],
+        ['positive only', ['positive'], "label IN ['positive']", "ORDER BY JSONExtractFloat(scores, 'positive') DESC"],
+    ])('restricts the candidate query to the selected categories (%s)', async (_, categories, labelClause, order) => {
+        mockApi.queryHogQL
+            .mockResolvedValueOnce({ columns: candidateColumns, results: [] })
+            .mockResolvedValueOnce({ columns: generationColumns, results: [] })
+
+        await fetchSentimentGenerationsPage({ ...queryValues, activeFilters: new Set(categories) }, 0)
+
+        const candidateQuery = mockApi.queryHogQL.mock.calls[0][0]
+        expect(candidateQuery).toContain(labelClause)
+        expect(candidateQuery).toContain(order)
     })
 
     it('does not fall back to events when ai_events no longer retains a generation input', async () => {
