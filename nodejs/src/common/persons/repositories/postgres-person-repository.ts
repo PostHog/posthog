@@ -768,8 +768,7 @@ export class PostgresPersonRepository
             rows = result.rows
         } catch (error) {
             if (error.code === '40P01') {
-                // Deadlock detected — assume someone else is deleting and skip.
-                logger.warn('🔒', 'Deadlock detected — assume someone else is deleting and skip.', {
+                logger.warn('🔒', 'Deadlock detected — rolling back for the caller to retry.', {
                     team_id: person.team_id,
                     person_id: person.id,
                 })
@@ -856,8 +855,7 @@ export class PostgresPersonRepository
             })
         } catch (error) {
             if (error.code === '40P01') {
-                // Deadlock detected — assume someone else is deleting and skip.
-                logger.warn('🔒', 'Deadlock detected — assume someone else is deleting and skip.', {
+                logger.warn('🔒', 'Deadlock detected — rolling back for the caller to retry.', {
                     team_id: teamId,
                     person_ids: personIds,
                 })
@@ -895,8 +893,7 @@ export class PostgresPersonRepository
             rows = result.rows
         } catch (error) {
             if (error.code === '40P01') {
-                // Deadlock detected — assume someone else is deleting and skip.
-                logger.warn('🔒', 'Deadlock detected — assume someone else is deleting and skip.', {
+                logger.warn('🔒', 'Deadlock detected — rolling back for the caller to retry.', {
                     team_id: teamId,
                     person_ids: personIds,
                 })
