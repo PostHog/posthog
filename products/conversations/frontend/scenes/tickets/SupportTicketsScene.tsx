@@ -3,7 +3,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useEffect, useMemo, useRef } from 'react'
 
-import { IconChevronDown, IconRefresh, IconX } from '@posthog/icons'
+import { IconChevronDown, IconRefresh } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -596,13 +596,7 @@ export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsT
                 </LemonDropdown>
                 <AssigneeMultiSelect value={assigneeFilterEntries} onChange={setAssigneeFilter} />
                 {hasActiveFilters && (
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconX />}
-                        onClick={resetFilters}
-                        data-attr="clear-ticket-filters"
-                    >
+                    <LemonButton type="secondary" size="small" onClick={resetFilters} data-attr="clear-ticket-filters">
                         Clear all filters
                     </LemonButton>
                 )}
