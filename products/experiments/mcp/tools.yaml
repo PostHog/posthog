@@ -762,6 +762,7 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+        ui_app: experiment-results
         response:
             exclude:
                 - results.*.result.hogql
@@ -774,7 +775,6 @@ tools:
                 - results.*.result.query_status
                 - results.*.result.stats_version
                 - results.*.result.insight
-        ui_app: experiment-results
     experiment-metrics-recalculation-retrieve:
         operation: experiments_metrics_recalculation_retrieve
         enabled: true
