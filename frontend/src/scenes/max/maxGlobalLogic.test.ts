@@ -1,9 +1,13 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import api, { ApiConfig } from 'lib/api'
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
@@ -96,18 +100,27 @@ describe('maxGlobalLogic', () => {
     })
 
     // maxGlobalLogic is mounted on every scene, so loadConversationHistory (a team-scoped request)
-    // fires even mid-offboarding. Without the guard it 404s and toasts on a page the user is leaving.
-    describe('loadConversationHistory scope guard', () => {
-        it('skips the team-scoped request when there is no usable team', async () => {
+    // fires even mid-offboarding. When the user has no current organization the failure is expected,
+    // so the error toast must be suppressed; a user who still has an org keeps the normal error.
+    describe('loadConversationHistory failure toast', () => {
+        it.each([
+            { description: 'suppresses the toast with no current organization', org: null, expectedCalls: 0 },
+            {
+                description: 'still toasts when the user has a current organization',
+                org: MOCK_DEFAULT_ORGANIZATION,
+                expectedCalls: 1,
+            },
+        ])('$description', async ({ org, expectedCalls }) => {
             await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
-            jest.spyOn(ApiConfig, 'hasCurrentTeamId').mockReturnValue(false)
-            const listSpy = jest.spyOn(api.conversations, 'list')
+            organizationLogic.actions.loadCurrentOrganizationSuccess(org as any)
+            const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation((() => '') as any)
+            jest.spyOn(api.conversations, 'list').mockRejectedValue(new Error('boom'))
 
             await expectLogic(logic, () => {
                 logic.actions.loadConversationHistory()
-            }).toDispatchActions(['loadConversationHistorySuccess'])
+            }).toDispatchActions(['loadConversationHistoryFailure'])
 
-            expect(listSpy).not.toHaveBeenCalled()
+            expect(errorToast).toHaveBeenCalledTimes(expectedCalls)
         })
     })
 
