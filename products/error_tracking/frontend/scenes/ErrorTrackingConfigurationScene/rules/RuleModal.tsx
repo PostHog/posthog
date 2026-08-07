@@ -28,6 +28,7 @@ interface RuleModalProps {
     samplingRate?: number
     filtersOptional?: boolean
     showTestButton?: boolean
+    eventNames?: string[]
 }
 
 export function RuleModal({
@@ -45,6 +46,7 @@ export function RuleModal({
     samplingRate,
     filtersOptional = false,
     showTestButton = true,
+    eventNames = ['$exception'],
 }: RuleModalProps): JSX.Element {
     const { isOpen, rule, hasFilters, matchResult, matchResultLoading, savingLoading, deletingLoading, dateRange } =
         useValues(logic)
@@ -180,6 +182,7 @@ export function RuleModal({
                         editable
                         propertyFilters={(rule.filters.values as AnyPropertyFilter[]) ?? []}
                         taxonomicGroupTypes={taxonomicGroupTypes}
+                        eventNames={eventNames}
                         onChange={(properties: AnyPropertyFilter[]) =>
                             updateRule({
                                 ...rule,
