@@ -383,4 +383,46 @@ describe("buildAgentConversationItems", () => {
       ),
     ).toHaveLength(1);
   });
+
+  it("completes the open turn when a steered user message arrives mid-run", () => {
+    const events: AgentConversationEvent[] = [
+      {
+        type: "user_message",
+        id: "user-1",
+        timestamp: 1,
+        content: [{ type: "text", text: "write a poem" }],
+      },
+      {
+        type: "assistant_message_chunk",
+        timestamp: 2,
+        content: { type: "text", text: "Roses are red." },
+      },
+      {
+        type: "user_message",
+        id: "user-2",
+        timestamp: 3,
+        content: [{ type: "text", text: "make it about errors" }],
+      },
+      {
+        type: "assistant_message_chunk",
+        timestamp: 4,
+        content: { type: "text", text: "Fetch failures bloom." },
+      },
+      { type: "turn_completed", timestamp: 5, stopReason: "stop" },
+    ];
+
+    const { items } = buildAgentConversationItems(events, null);
+
+    const textBlocks = items.filter(
+      (item) =>
+        item.type === "session_update" &&
+        item.update.sessionUpdate === "agent_message_chunk",
+    );
+    expect(textBlocks).toHaveLength(2);
+    // The pre-steer reply's turn ended when the steer was delivered, so its
+    // text must not keep rendering as streaming while the next reply runs.
+    for (const block of textBlocks) {
+      expect(block).toMatchObject({ turnContext: { turnComplete: true } });
+    }
+  });
 });

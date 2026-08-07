@@ -323,6 +323,14 @@ export function processAgentConversationEvent(
   event: AgentConversationEvent,
 ): void {
   if (event.type === "user_message") {
+    // Pi delivers a steered message only between assistant messages, so a
+    // user message arriving while a turn is still open means that turn's
+    // reply already ended; complete it so its text stops rendering as
+    // streaming. History translation inserts an explicit turn_completed at
+    // the same spot.
+    if (b.currentTurn && !b.currentTurn.isComplete) {
+      completePromptTurn(b, b.currentTurn, event.timestamp);
+    }
     handlePromptRequest(
       b,
       { id: event.id, params: { prompt: event.content } },
