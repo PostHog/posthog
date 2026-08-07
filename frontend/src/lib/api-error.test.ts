@@ -1,4 +1,22 @@
-import { ApiError } from './api-error'
+import { ApiError, isTransientApiError } from './api-error'
+
+describe('isTransientApiError', () => {
+    it.each([
+        ['a statusless error (garbled 2xx body)', undefined, true],
+        ['a 500', 500, true],
+        ['a 503', 503, true],
+        ['a 400', 400, false],
+        ['a 404', 404, false],
+        ['a 200', 200, false],
+    ])('classifies %s', (_, status: number | undefined, expected: boolean) => {
+        expect(isTransientApiError(new ApiError('boom', status))).toBe(expected)
+    })
+
+    it('treats a null/undefined error as transient', () => {
+        expect(isTransientApiError(null)).toBe(true)
+        expect(isTransientApiError(undefined)).toBe(true)
+    })
+})
 
 describe('ApiError.fromResponse', () => {
     it.each([

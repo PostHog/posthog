@@ -3,6 +3,7 @@ import { api } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import { urls } from 'scenes/urls'
@@ -67,6 +68,35 @@ describe('experimentsLogic', () => {
         api.create.mockClear()
         logic = experimentsLogic()
         logic.mount()
+    })
+
+    describe('experimentsStats resilience', () => {
+        const ZEROED_STATS = {
+            launched_last_30d: 0,
+            launched_previous_30d: 0,
+            percent_change: 0,
+            active_experiments: 0,
+            completed_last_30d: 0,
+        }
+
+        it('falls back to zeroed stats on a transient (statusless) failure without reporting', async () => {
+            api.get.mockRejectedValueOnce(new ApiError('Malformed JSON response'))
+
+            await expectLogic(logic, () => {
+                logic.actions.loadExperimentsStats()
+            }).toDispatchActions(['loadExperimentsStats', 'loadExperimentsStatsSuccess'])
+
+            expect(logic.values.experimentsStats).toEqual(ZEROED_STATS)
+        })
+
+        it('rethrows a non-transient (4xx) failure so it still surfaces', async () => {
+            silenceKeaLoadersErrors()
+            api.get.mockRejectedValueOnce(new ApiError('Forbidden', 403))
+
+            await expectLogic(logic, () => {
+                logic.actions.loadExperimentsStats()
+            }).toDispatchActions(['loadExperimentsStats', 'loadExperimentsStatsFailure'])
+        })
     })
 
     describe('feature flag modal filters', () => {

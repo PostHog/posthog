@@ -17,6 +17,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { isTransientApiError } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -523,6 +524,7 @@ export interface experimentLogicValues {
     experimentErrors: DeepPartialMap<Experiment, ValidationErrorType>
     experimentHasErrors: boolean
     experimentId: Experiment['id']
+    experimentLoadFailed: boolean
     experimentLoading: boolean
     experimentManualErrors: Record<string, any>
     experimentMathAggregationForTrends: () => CountPerActorMathType | PropertyMathType | undefined
@@ -1065,6 +1067,9 @@ export interface experimentLogicActions {
     setExperimentManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
     }
+    setExperimentLoadFailed: (failed: boolean) => {
+        failed: boolean
+    }
     setExperimentMissing: () => {
         value: true
     }
@@ -1505,6 +1510,7 @@ export const experimentLogic = kea<experimentLogicType>([
     })),
     actions({
         setExperimentMissing: true,
+        setExperimentLoadFailed: (failed: boolean) => ({ failed }),
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         createExperiment: (draft?: boolean, folder?: string | null) => ({ draft, folder }),
         setCreateExperimentLoading: (loading: boolean) => ({ loading }),
@@ -2072,6 +2078,14 @@ export const experimentLogic = kea<experimentLogicType>([
             false,
             {
                 setExperimentMissing: () => true,
+            },
+        ],
+        experimentLoadFailed: [
+            false,
+            {
+                // Clear on a fresh attempt so a retry hides the error state while it reloads.
+                loadExperiment: () => false,
+                setExperimentLoadFailed: (_, { failed }) => failed,
             },
         ],
         unmodifiedExperiment: [
@@ -3669,6 +3683,11 @@ export const experimentLogic = kea<experimentLogicType>([
                     } catch (error: any) {
                         if (error.status === 404) {
                             actions.setExperimentMissing()
+                        } else if (isTransientApiError(error)) {
+                            // A garbled 2xx or a 5xx is transient: surface a retry instead of
+                            // rethrowing, which would report noise and leave the page on a dead
+                            // loader with no recovery path.
+                            actions.setExperimentLoadFailed(true)
                         } else {
                             throw error
                         }

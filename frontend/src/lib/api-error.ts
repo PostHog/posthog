@@ -6,6 +6,17 @@ export function isAccessDeniedError(error: { status?: number; code?: string | nu
     return error.status === 403 && error.code === 'permission_denied'
 }
 
+/**
+ * A transient failure a loader should recover from rather than rethrow. This covers server errors
+ * (5xx) and — per the contract documented on `getJSONFromSuccessResponse` — a garbled 2xx body,
+ * which surfaces as an `ApiError` with no `status`. Both are network-level hiccups on a request
+ * that could well succeed on retry, not application defects, so callers can fall back to a default
+ * or offer a retry instead of crashing or hanging.
+ */
+export function isTransientApiError(error: { status?: number } | null | undefined): boolean {
+    return error?.status === undefined || error.status >= 500
+}
+
 export class ApiError extends Error {
     /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null

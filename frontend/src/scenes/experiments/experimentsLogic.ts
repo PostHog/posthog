@@ -5,6 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { LemonTagType, PaginationManual } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { isTransientApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual } from 'lib/utils/objects'
 import { parseNumericArrayFilter, toParams } from 'lib/utils/url'
@@ -30,6 +31,14 @@ import type { TeamPublicType, TeamType } from '../../types'
 import { getFlagVariants } from './utils'
 
 export const EXPERIMENTS_PER_PAGE = 100
+
+const EMPTY_EXPERIMENT_VELOCITY_STATS: ExperimentVelocityStats = {
+    launched_last_30d: 0,
+    launched_previous_30d: 0,
+    percent_change: 0,
+    active_experiments: 0,
+    completed_last_30d: 0,
+}
 
 export interface ExperimentsResult extends CountedPaginatedResponse<Experiment> {
     /* not in the API response */
@@ -750,17 +759,20 @@ export const experimentsLogic = kea<experimentsLogicType>([
             },
         ],
         experimentsStats: [
-            {
-                launched_last_30d: 0,
-                launched_previous_30d: 0,
-                percent_change: 0,
-                active_experiments: 0,
-                completed_last_30d: 0,
-            } as ExperimentVelocityStats,
+            { ...EMPTY_EXPERIMENT_VELOCITY_STATS } as ExperimentVelocityStats,
             {
                 loadExperimentsStats: async () => {
-                    const response = await api.get(`api/projects/${values.currentProjectId}/experiments/stats/`)
-                    return response
+                    try {
+                        const response = await api.get(`api/projects/${values.currentProjectId}/experiments/stats/`)
+                        return response
+                    } catch (error: any) {
+                        // A garbled 2xx or a 5xx is transient — keep the velocity tile on zeros
+                        // rather than reporting the failure as an unhandled loader error.
+                        if (isTransientApiError(error)) {
+                            return { ...EMPTY_EXPERIMENT_VELOCITY_STATS }
+                        }
+                        throw error
+                    }
                 },
             },
         ],

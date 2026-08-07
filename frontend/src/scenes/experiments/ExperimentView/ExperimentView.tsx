@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTab, LemonTabs } from '@posthog/lemon-ui'
+import { IconRefresh } from '@posthog/icons'
+import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -101,9 +102,38 @@ const VariantsTab = (): JSX.Element => {
     )
 }
 
+function LoadFailedState(): JSX.Element {
+    const { experimentLoading } = useValues(experimentLogic)
+    const { loadExperiment } = useActions(experimentLogic)
+
+    return (
+        <div className="flex flex-col items-center gap-2 py-12 text-center">
+            <h2 className="mb-0">Couldn't load this experiment</h2>
+            <p className="text-secondary max-w-140">
+                The response came back unreadable, usually a brief network or server blip. Try loading it again.
+            </p>
+            <LemonButton
+                type="primary"
+                icon={<IconRefresh />}
+                loading={experimentLoading}
+                onClick={() => loadExperiment()}
+            >
+                Try again
+            </LemonButton>
+        </div>
+    )
+}
+
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, experiment, isExperimentDraft, exposureCriteria, showDebugPanel } =
-        useValues(experimentLogic)
+    const {
+        experimentLoading,
+        experimentLoadFailed,
+        experimentId,
+        experiment,
+        isExperimentDraft,
+        exposureCriteria,
+        showDebugPanel,
+    } = useValues(experimentLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const {
         setExperiment,
@@ -120,6 +150,17 @@ export function ExperimentView(): JSX.Element {
 
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
+
+    // A transient load failure leaves `experiment` at its blank default, so surface a retry
+    // before any branch that would render that empty experiment as real content.
+    if (!experimentLoading && experimentLoadFailed) {
+        return (
+            <SceneContent>
+                <PageHeaderCustom />
+                <LoadFailedState />
+            </SceneContent>
+        )
+    }
 
     // Branch to legacy view for legacy experiments
     if (!experimentLoading && isLegacyExperiment(experiment)) {
