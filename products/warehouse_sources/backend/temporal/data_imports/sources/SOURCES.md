@@ -330,6 +330,7 @@ the row lists both.
 | hyperspell                       | HTTP                        | requests                                                        | ✅                          |
 | imagga                           | HTTP                        | requests                                                        | ✅                          |
 | impact                           | HTTP                        | requests                                                        | ✅                          |
+| impact_partner                   | HTTP                        | requests                                                        | ✅                          |
 | incident_io                      | HTTP                        | requests                                                        | ✅                          |
 | infisical                        | HTTP                        | requests                                                        | ✅                          |
 | inflowinventory                  | HTTP                        | requests                                                        | ✅                          |
