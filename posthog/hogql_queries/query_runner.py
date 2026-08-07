@@ -2692,7 +2692,17 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         if not isinstance(user, User):
             if queried_resources is None:
                 return ["*"]
-            restricted = queried_resources - user.readable_system_table_access_scopes() - WAREHOUSE_ACCESS_SCOPES
+            readable_scopes = user.readable_system_table_access_scopes()
+            restricted = queried_resources - readable_scopes - WAREHOUSE_ACCESS_SCOPES
+            # The bypass above covers warehouse *data* tables only — system tables under a warehouse
+            # scope (system.data_warehouse_tables, system.data_modeling_views) stay scope-gated for
+            # these principals, so a token missing the scope must not share a key with one that has
+            # it. Namespaced so it can't collide with a real user denied the same resource. We can't
+            # tell here whether the scope came from a system table or a data table, so this applies
+            # to either; over-partitioning costs a cache miss, a collision leaks rows.
+            restricted |= {
+                f"system_table:{scope}" for scope in (queried_resources & WAREHOUSE_ACCESS_SCOPES) - readable_scopes
+            }
             return sorted(restricted) or None
 
         user_access_control = self.user_access_control

@@ -86,8 +86,10 @@ class TestAccessControlSystemTables(BaseTest):
         assert "system.notebooks" in database._denied_tables
         assert "system.error_tracking_issues" in database._denied_tables
         assert "system.support_tickets" in database._denied_tables
+        assert "data_modeling_views" not in system_node.children
+        assert "system.data_modeling_views" in database._denied_tables
         # Unscoped tables remain
-        assert "cohorts" in system_node.children
+        assert "tags" in system_node.children
         assert "teams" in system_node.children
 
     def test_bypass_warehouse_access_control_still_applies_system_table_acl(self):
@@ -100,8 +102,11 @@ class TestAccessControlSystemTables(BaseTest):
         # Scoped system tables stay denied despite the warehouse bypass.
         assert "dashboards" not in system_node.children
         assert "system.dashboards" in database._denied_tables
+        # Warehouse-scoped system tables are not exempt: the bypass covers warehouse data tables only.
+        assert "data_modeling_views" not in system_node.children
+        assert "system.data_modeling_views" in database._denied_tables
         # Unscoped tables remain.
-        assert "cohorts" in system_node.children
+        assert "tags" in system_node.children
 
 
 class TestAccessControlGuard(BaseTest):
@@ -361,6 +366,92 @@ class TestAccessControlGuard(BaseTest):
             assert context.values[deny_keys[0]] == ["acct-42"], table
             assert f"notIn(toString(system__{table}.account_id), %({deny_keys[0]})s)" in sql, table
 
+    @parameterized.expand(
+        [
+            # The reported leak: a member denied a saved query could read its definition (including
+            # the `query` column) straight off the metadata table.
+            ("data_modeling_views", "warehouse_view", "system__data_modeling_views.id"),
+            ("data_warehouse_tables", "warehouse_table", "system__data_warehouse_tables.id"),
+            ("exports", "export", "system__exports.id"),
+            # A child table filters the FK to the denied parent, not its own primary key.
+            ("data_modeling_jobs", "warehouse_view", "system__data_modeling_jobs.saved_query_id"),
+        ]
+    )
+    def test_scoped_metadata_table_guards_denied_object(self, table, resource, expected_column):
+        from posthog.hogql.parser import parse_select
+
+        from posthog.constants import AvailableFeature
+
+        from ee.models import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        AccessControl.objects.create(team=self.team, resource=resource, resource_id="denied-1", access_level="none")
+
+        context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
+        prepared = prepare_ast_for_printing(
+            parse_select(f"SELECT id FROM system.{table}"), context=context, dialect="clickhouse"
+        )
+        assert prepared is not None
+        sql = print_prepared_ast(prepared, context=context, dialect="clickhouse")
+
+        deny_keys = [k for k in context.values if k.endswith("_sensitive") and isinstance(context.values[k], list)]
+        assert len(deny_keys) == 1
+        assert context.values[deny_keys[0]] == ["denied-1"]
+        assert f"notIn(toString({expected_column}), %({deny_keys[0]})s)" in sql
+        assert context.access_control_restricted_resources == {resource}
+
+    @parameterized.expand(
+        [
+            ("_ticket_tagged_items", "ticket", "system__support_tickets.id"),
+            ("_ticket_assignments", "ticket", "system__support_tickets.id"),
+            ("_ticket_assignee_roles", "ticket", "system__support_tickets.id"),
+            ("_account_tagged_items", "account", "system__accounts.id"),
+            ("_account_resource_notebooks", "account", "system__accounts.id"),
+        ]
+    )
+    def test_hidden_junction_tables_inherit_the_parent_guard(self, table, resource, parent_column):
+        # These have no team_id and no access_scope of their own: isolation and object denials both
+        # flow from the predicate that selects through the parent system table, whose own guard the
+        # printer re-applies to that inner reference. That inheritance is what lets them stay
+        # unscoped — without it, a member denied a ticket or account could read its tags, assignee,
+        # and linked notebooks straight off the junction table.
+        from posthog.hogql.parser import parse_select
+
+        from posthog.constants import AvailableFeature
+
+        from ee.models import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        AccessControl.objects.create(team=self.team, resource=resource, resource_id="denied-1", access_level="none")
+
+        context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
+        prepared = prepare_ast_for_printing(
+            parse_select(f"SELECT id FROM system.{table}"), context=context, dialect="clickhouse"
+        )
+        assert prepared is not None
+        sql = print_prepared_ast(prepared, context=context, dialect="clickhouse")
+
+        deny_keys = [k for k in context.values if k.endswith("_sensitive") and isinstance(context.values[k], list)]
+        assert len(deny_keys) == 1
+        assert context.values[deny_keys[0]] == ["denied-1"]
+        assert f"notIn(toString({parent_column}), %({deny_keys[0]})s)" in sql
+
 
 class TestDeniedTableError(BaseTest):
     """Test that denied tables show a helpful error message."""
@@ -465,7 +556,7 @@ class TestAccessControlIntegration(BaseTest):
             enable_select_queries=True,
         )
 
-        sql = self._compile_select("SELECT id, name FROM system.cohorts", context)
+        sql = self._compile_select("SELECT id, name FROM system.tags", context)
         assert "id" in sql
         assert "name" in sql
 

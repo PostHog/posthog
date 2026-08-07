@@ -195,8 +195,8 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         assert rows.get("events") == "posthog"
         assert rows.get("persons") == "posthog"
         assert rows.get("sessions") == "posthog"
-        # `cohorts` is an unscoped system table, so it is always visible
-        assert rows.get("system.cohorts") == "system"
+        # `tags` is an unscoped system table, so it is always visible
+        assert rows.get("system.tags") == "system"
         # information_schema is self-describing
         assert rows.get("system.information_schema.columns") == "information_schema"
 
@@ -238,7 +238,7 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
         names = {row[0] for row in response.results or []}
-        assert "system.cohorts" in names
+        assert "system.tags" in names
         assert "system.feature_flags" not in names
 
     @parameterized.expand(

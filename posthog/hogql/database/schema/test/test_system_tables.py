@@ -116,6 +116,33 @@ TEAM_ID_FILTER_PATTERNS = {
     "_ticket_assignee_roles": "system__support_tickets.team_id",
 }
 
+# Postgres-backed system tables that deliberately carry no `access_scope`, each with the reason it
+# needs none. Everything else must declare one — see
+# `test_all_postgres_system_tables_declare_an_access_scope`.
+INTENTIONALLY_UNSCOPED_SYSTEM_TABLES = {
+    # A project is not an RBAC-controlled object ("project" has no resource-level controls), and the
+    # rows are the caller's own team.
+    "teams",
+    # Group analytics data, exposed to anyone with project access like events and persons rather than
+    # as an RBAC object. Both carry composite primary keys, so object-level filtering can't apply
+    # either (see `test_tables_with_access_scope_have_single_column_pk`).
+    "groups",
+    "group_type_mappings",
+    # Project-wide taxonomy with no REST resource of its own; the objects a tag is attached to are
+    # gated on their own tables. Also read by the customer-analytics audience principal, which holds
+    # only the `account` scope.
+    "tags",
+    # The hidden junction tables below have no team_id and are scoped by a predicate that selects
+    # through `system.support_tickets` / `system.accounts`. The printer re-applies that parent table's
+    # own team guard AND its access-control guard to the inner reference, so a denied ticket or account
+    # is already filtered out of them — see `test_hidden_junction_tables_inherit_the_parent_guard`.
+    "_ticket_tagged_items",
+    "_ticket_assignments",
+    "_ticket_assignee_roles",
+    "_account_tagged_items",
+    "_account_resource_notebooks",
+}
+
 
 class TestSystemTablesTeamScoping(BaseTest):
     """Verify every system table's generated SQL includes a team_id WHERE clause."""
@@ -165,6 +192,29 @@ class TestSystemTablesTeamScoping(BaseTest):
             f"System tables missing isolation tests: {sorted(untested)}. "
             f"Add a factory to SYSTEM_TABLE_FACTORIES in test_system_tables.py "
             f"or add to excluded_tables with a reason."
+        )
+
+    def test_all_postgres_system_tables_declare_an_access_scope(self):
+        """Fails when a Postgres-backed system table is added without `access_scope`.
+
+        A missing scope means neither the resource-level schema strip nor the object-level printer
+        guard runs, so a user denied the object through its REST API can still read the row (and its
+        `query` / `filters` / `export_context` payload) with plain HogQL.
+        """
+        from posthog.hogql.database.postgres_table import PostgresTable
+
+        unscoped = {
+            name
+            for name, node in SystemTables().children.items()
+            if isinstance(node.table, PostgresTable) and node.table.access_scope is None
+        }
+
+        assert unscoped == INTENTIONALLY_UNSCOPED_SYSTEM_TABLES, (
+            f"Postgres system tables missing an access_scope: "
+            f"{sorted(unscoped - INTENTIONALLY_UNSCOPED_SYSTEM_TABLES)}. Set `access_scope` to the "
+            f"resource its REST viewset declares as `scope_object` (plus `access_control_id_field` "
+            f"when the rows belong to a parent object), or add the table to "
+            f"INTENTIONALLY_UNSCOPED_SYSTEM_TABLES with a reason."
         )
 
     def test_error_tracking_symbol_sets_does_not_expose_storage_internals(self):

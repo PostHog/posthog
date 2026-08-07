@@ -503,11 +503,17 @@ class TestObjectAccessControlIdField(SimpleTestCase):
             f"one of its objects ({sorted(m.__name__ for m in target_models)}) nor has a foreign key to one. "
             f"It may leak access-controlled rows — add the right FK or reconsider its access_scope.",
         )
+        # The printer resolves access_control_id_field as a HogQL field name, which may be exposed
+        # under a different name than its column (system.data_modeling_jobs exposes saved_query_id as
+        # data_modeling_view_id), so compare the column each candidate field actually reads.
+        parent_fk_fields = sorted(
+            field_name for field_name, field in table.fields.items() if getattr(field, "name", None) in fk_columns
+        )
         self.assertIn(
             table.access_control_id_field,
-            fk_columns,
-            f"system.{table_name} is a child of '{scope}'; set access_control_id_field to the FK pointing at "
-            f"its parent (one of {fk_columns}), got {table.access_control_id_field!r}.",
+            parent_fk_fields,
+            f"system.{table_name} is a child of '{scope}'; set access_control_id_field to the field reading the "
+            f"FK that points at its parent (one of {parent_fk_fields}), got {table.access_control_id_field!r}.",
         )
 
 

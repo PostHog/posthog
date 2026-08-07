@@ -209,6 +209,7 @@ alerts: PostgresTable = PostgresTable(
 cohort_calculation_history: PostgresTable = PostgresTable(
     name="cohort_calculation_history",
     postgres_table_name="posthog_cohortcalculationhistory",
+    access_scope="cohort",
     description="History of cohort membership recalculations; one row per calculation run for a cohort.",
     fields={
         "id": StringDatabaseField(name="id", description="Calculation run UUID."),
@@ -230,6 +231,7 @@ cohort_calculation_history: PostgresTable = PostgresTable(
 cohorts: PostgresTable = PostgresTable(
     name="cohorts",
     postgres_table_name="posthog_cohort",
+    access_scope="cohort",
     description="Cohorts: named groups of people defined by filters or as a static list; one row per cohort.",
     fields={
         "id": IntegerDatabaseField(name="id", description="Cohort id."),
@@ -636,6 +638,7 @@ data_warehouse_sources: PostgresTable = PostgresTable(
 data_modeling_views: PostgresTable = PostgresTable(
     name="data_modeling_views",
     postgres_table_name="posthog_datawarehousesavedquery",
+    access_scope="warehouse_view",
     description="Saved queries / data-modeling views built on top of warehouse data; one row per view, optionally materialized.",
     fields={
         "id": StringDatabaseField(name="id", description="View UUID."),
@@ -672,6 +675,7 @@ data_modeling_views: PostgresTable = PostgresTable(
 data_warehouse_tables: PostgresTable = PostgresTable(
     name="data_warehouse_tables",
     postgres_table_name="posthog_datawarehousetable",
+    access_scope="warehouse_table",
     description="Tables belonging to a data warehouse source; one row per table. A row whose source is a "
     "direct connection is not queryable by name from this catalog — query it through that connection "
     "instead, using the source id as the query's connection id.",
@@ -961,6 +965,7 @@ integration_repository_cache: PostgresTable = PostgresTable(
 insight_variables: PostgresTable = PostgresTable(
     name="insight_variables",
     postgres_table_name="posthog_insightvariable",
+    access_scope="insight_variable",
     description="Reusable insight/dashboard template variables; one row per variable.",
     fields={
         "id": IntegerDatabaseField(name="id", description="Variable id."),
@@ -1116,6 +1121,7 @@ teams: PostgresTable = PostgresTable(
 exports: PostgresTable = PostgresTable(
     name="exports",
     postgres_table_name="posthog_exportedasset",
+    access_scope="export",
     description="One-off exported assets (CSV/PNG/PDF of insights, etc.); one row per exported asset.",
     fields={
         "id": IntegerDatabaseField(name="id", description="Exported asset id."),
@@ -1136,6 +1142,7 @@ exports: PostgresTable = PostgresTable(
 file_system: PostgresTable = PostgresTable(
     name="file_system",
     postgres_table_name="posthog_filesystem",
+    access_scope="file_system",
     description="The project's virtual file tree backing the navigation/'products' UI; one row per node (folder or item) addressed by path.",
     fields={
         "id": StringDatabaseField(name="id", description="File-system node UUID."),
@@ -1461,6 +1468,8 @@ notebooks: PostgresTable = PostgresTable(
 data_modeling_jobs: PostgresTable = PostgresTable(
     name="data_modeling_jobs",
     postgres_table_name="posthog_datamodelingjob",
+    access_scope="warehouse_view",
+    access_control_id_field="data_modeling_view_id",
     description="Materialization job runs for data-modeling views; one row per run that materializes a view.",
     fields={
         "id": StringDatabaseField(name="id", description="Job UUID."),
