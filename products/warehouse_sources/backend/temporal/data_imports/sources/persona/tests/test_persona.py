@@ -270,7 +270,7 @@ class TestVerificationsFanout:
     def test_resume_cursor_is_an_inquiry_id_not_a_verification_id(self, monkeypatch: Any) -> None:
         # A `ver_` id is a meaningless `page[after]` on /inquiries, and a cursor that overshoots the
         # inquiry still being batched drops its buffered rows on resume.
-        pages = [
+        pages: list[dict[str, Any]] = [
             {
                 "data": [
                     {"type": "inquiry", "id": "inq_a", "attributes": {"created-at": "2026-01-03T00:00:00.000Z"}},
