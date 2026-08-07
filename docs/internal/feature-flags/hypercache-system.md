@@ -258,7 +258,7 @@ The Rust reader (`rust/common/hypercache`) has an opt-in variant, deliberately m
 - Is detached and best-effort: a Redis failure cannot fail a request that already has its value.
 - Refuses etag-enabled namespaces at reader construction (with a startup warning), because the payload and its companion `:etag` key are written atomically by the writer and a payload-only repair would leave the pair inconsistent.
 
-Enabled by default for the readers with no in-process cache in front of them: `team_metadata` and `array/config.json` in the feature-flags service, and `surveys` and `array/config.json` in hypercache-server. The `feature_flags` readers are excluded: they are etag-paired, and `FlagDefinitionsCache` already absorbs repeat reads of a cold key in process.
+Enabled by default for the readers with no in-process cache in front of them: `array/config.json` in the feature-flags service, and `surveys` and `array/config.json` in hypercache-server. The `feature_flags` readers are excluded: they are etag-paired, and `FlagDefinitionsCache` already absorbs repeat reads of a cold key in process. `team_metadata` is excluded too: a hit there is trusted as proof of a valid token with no Postgres re-check, and team deletion clears Redis before S3, so a repair landing in that gap would resurrect a deleted team in Redis for up to the repair TTL.
 
 Operational controls:
 
