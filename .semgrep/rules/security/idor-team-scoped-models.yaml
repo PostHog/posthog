@@ -120,6 +120,7 @@ rules:
                               |DatasetItemVersion
                               |DatasetRevision
                               |DataWarehouseCredential
+                              |DataWarehouseExpression
                               |DataWarehouseJoin
                               |DataWarehouseManagedViewSet
                               |DataWarehouseModelPath
@@ -219,6 +220,8 @@ rules:
                               |ManagedWarehouseBackfillPartition
                               |ManagedWarehouseSourceJob
                               |MarketingAnalyticsGoalMapping
+                              |Meeting
+                              |MeetingParticipant
                               |MessageCategory
                               |MessageRecipientPreference
                               |MessageSuppression
@@ -278,6 +281,7 @@ rules:
                               |SharingConfiguration
                               |SignalEmissionRecord
                               |SignalReport
+                              |SignalReportAction
                               |SignalReportArtefact
                               |SignalReportRefund
                               |SignalReportTask
@@ -294,8 +298,6 @@ rules:
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
                               |SourceBatch
-                              |SourceBatchDuckgresApply
-                              |SourceDuckgresGroupLease
                               |SourceGroupLease
                               |StreamlitApp
                               |Subscription
@@ -467,6 +469,7 @@ rules:
                         |DatasetItemVersion
                         |DatasetRevision
                         |DataWarehouseCredential
+                        |DataWarehouseExpression
                         |DataWarehouseJoin
                         |DataWarehouseManagedViewSet
                         |DataWarehouseModelPath
@@ -561,6 +564,8 @@ rules:
                         |ManagedWarehouseBackfillPartition
                         |ManagedWarehouseSourceJob
                         |MarketingAnalyticsGoalMapping
+                        |Meeting
+                        |MeetingParticipant
                         |MessageCategory
                         |MessageRecipientPreference
                         |MessageSuppression
@@ -619,6 +624,7 @@ rules:
                         |SharingConfiguration
                         |SignalEmissionRecord
                         |SignalReport
+                        |SignalReportAction
                         |SignalReportArtefact
                         |SignalReportRefund
                         |SignalReportTask
@@ -635,8 +641,6 @@ rules:
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
                         |SourceBatch
-                        |SourceBatchDuckgresApply
-                        |SourceDuckgresGroupLease
                         |SourceGroupLease
                         |StreamlitApp
                         |Subscription

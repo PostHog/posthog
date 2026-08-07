@@ -547,6 +547,7 @@ pub fn test_cached_person() -> CachedPerson {
         created_at: 1700000000,
         version: 1,
         is_identified: false,
+        last_seen_at: None,
         approx_bytes: approx_person_bytes(64),
     }
 }

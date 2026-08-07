@@ -210,10 +210,12 @@ export const SlackSummaryCadenceEnumApi = {
 } as const
 
 /**
- * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+ * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) and email_domains (the company's email domains, used to match inbound touchpoints). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
  * @nullable
  */
 export type AccountApiProperties = {
+    /** Email domains owned by this account's company, used to match inbound touchpoints to the account. */
+    email_domains?: string[]
     /** @nullable */
     stripe_customer_id?: string | null
     /** @nullable */
@@ -230,7 +232,7 @@ export type AccountApiProperties = {
     usage_dashboard_link?: string | null
     /** @nullable */
     metabase_link?: string | null
-} | null
+} | null | null
 
 /**
  * A Customer Analytics account — a logical grouping used to assign customer-success ownership.
@@ -249,7 +251,7 @@ export interface AccountApi {
      */
     external_id?: string | null
     /**
-     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) and email_domains (the company's email domains, used to match inbound touchpoints). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
      * @nullable
      */
     properties?: AccountApiProperties
@@ -378,10 +380,12 @@ export interface AccountRelationshipWriteApi {
 }
 
 /**
- * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+ * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) and email_domains (the company's email domains, used to match inbound touchpoints). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
  * @nullable
  */
 export type PatchedAccountApiProperties = {
+    /** Email domains owned by this account's company, used to match inbound touchpoints to the account. */
+    email_domains?: string[]
     /** @nullable */
     stripe_customer_id?: string | null
     /** @nullable */
@@ -398,7 +402,7 @@ export type PatchedAccountApiProperties = {
     usage_dashboard_link?: string | null
     /** @nullable */
     metabase_link?: string | null
-} | null
+} | null | null
 
 /**
  * A Customer Analytics account — a logical grouping used to assign customer-success ownership.
@@ -417,7 +421,7 @@ export interface PatchedAccountApi {
      */
     external_id?: string | null
     /**
-     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) and email_domains (the company's email domains, used to match inbound touchpoints). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
      * @nullable
      */
     properties?: PatchedAccountApiProperties

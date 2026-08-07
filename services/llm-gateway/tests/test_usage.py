@@ -378,7 +378,7 @@ class TestUsageEndpoint:
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["ai_credits"] == {"exhausted": True, "used_usd": None, "limit_usd": None}
+        assert data["ai_credits"] == {"exhausted": True, "used_usd": None, "limit_usd": None, "breakdown": None}
         assert data["is_rate_limited"] is True
         assert resolver_mock.call_args.args[0] == "posthog_code_credits"
 
@@ -404,7 +404,7 @@ class TestUsageEndpoint:
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["ai_credits"] == {"exhausted": True, "used_usd": None, "limit_usd": None}
+        assert data["ai_credits"] == {"exhausted": True, "used_usd": None, "limit_usd": None, "breakdown": None}
         assert data["is_rate_limited"] is True
 
     def test_ai_credits_reflects_resolver_for_billable_product(self, authenticated_usage_client: TestClient) -> None:
@@ -420,7 +420,7 @@ class TestUsageEndpoint:
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["ai_credits"] == {"exhausted": True, "used_usd": None, "limit_usd": None}
+        assert data["ai_credits"] == {"exhausted": True, "used_usd": None, "limit_usd": None, "breakdown": None}
         assert data["is_rate_limited"] is True
         assert resolver_mock.call_args.args[0] == "ai_credits"
 
@@ -439,7 +439,40 @@ class TestUsageEndpoint:
             headers={"Authorization": "Bearer phx_test"},
         )
         assert response.status_code == 200
-        assert response.json()["ai_credits"] == {"exhausted": False, "used_usd": 12.4, "limit_usd": 50.0}
+        assert response.json()["ai_credits"] == {
+            "exhausted": False,
+            "used_usd": 12.4,
+            "limit_usd": 50.0,
+            "breakdown": None,
+        }
+
+    def test_posthog_code_includes_optional_component_breakdown(
+        self,
+        authenticated_usage_client: TestClient,
+    ) -> None:
+        from llm_gateway.services.quota_resolver import QuotaResourceStatus
+
+        component_breakdown: dict[str, object] = {
+            "token_credits": 1234,
+            "compute_credits": 67,
+            "cpu_millicore_seconds": 9_876_543_210,
+            "memory_mib_seconds": 7_654_321_098,
+        }
+        authenticated_usage_client.app.state.quota_resolver.get_resource_status = AsyncMock(
+            return_value=QuotaResourceStatus(
+                limited=False,
+                used_usd=13.01,
+                limit_usd=20.0,
+                posthog_desktop_usage=component_breakdown,
+            )
+        )
+        data = authenticated_usage_client.get(
+            "/v1/usage/posthog_code", headers={"Authorization": "Bearer phx_test"}
+        ).json()
+
+        assert data["ai_credits"]["used_usd"] == 13.01
+        assert data["ai_credits"]["limit_usd"] == 20.0
+        assert data["ai_credits"]["breakdown"] == component_breakdown
 
     @pytest.mark.parametrize("billing_active", [True, False])
     def test_code_usage_subscribed_reflects_billing_bit(

@@ -146,8 +146,8 @@ class TestResolveAIPreferences:
             pytest.param(
                 None,
                 {"runtime_adapter": "claude", "model": "claude-opus-4-7", "effort": "high"},
-                AIPreferences(runtime_adapter="claude", model="claude-opus-4-7", reasoning_effort="high"),
-                id="workspace-only-applies",
+                AIPreferences(),
+                id="workspace-row-is-ignored",
             ),
             pytest.param(
                 {"runtime_adapter": "codex", "model": "gpt-5.5", "effort": "high"},
@@ -159,7 +159,7 @@ class TestResolveAIPreferences:
                 {"runtime_adapter": "claude", "model": "claude-opus-4-7", "effort": "high"},
                 {"runtime_adapter": "codex", "model": "gpt-5.5", "effort": "low"},
                 AIPreferences(runtime_adapter="claude", model="claude-opus-4-7", reasoning_effort="high"),
-                id="user-overrides-workspace",
+                id="user-wins-over-lingering-workspace-row",
             ),
         ],
     )
@@ -189,11 +189,10 @@ class TestResolveAIPreferences:
             )
         assert resolve_ai_preferences(integration, "U001") == expected
 
-    def test_user_row_with_no_pair_yields_workspace_triple_intact(self, slack_setup, flag_on):
+    def test_user_row_with_no_pair_reads_as_no_preference(self, slack_setup, flag_on):
         """A user row without the atomic `(runtime_adapter, model)` pair is
-        treated as "no personal preference", so the workspace row wins
-        wholesale — including its own `reasoning_effort`. The user's
-        orphaned effort never leaks into the resolved triple."""
+        treated as "no personal preference" — the orphaned effort never leaks
+        into the resolved triple."""
         integration = slack_setup
         SlackSettings.objects.create(
             default_integration=integration,
@@ -204,42 +203,8 @@ class TestResolveAIPreferences:
             # it (direct writes, older data, schema drift).
             ai_preferences={"reasoning_effort": "medium"},
         )
-        SlackSettings.objects.create(
-            default_integration=integration,
-            slack_workspace_id="T_WS",
-            slack_user_id=None,
-            ai_preferences={"runtime_adapter": "claude", "model": "claude-opus-4-7", "reasoning_effort": "high"},
-        )
 
-        assert resolve_ai_preferences(integration, "U001") == AIPreferences(
-            runtime_adapter="claude",
-            model="claude-opus-4-7",
-            reasoning_effort="high",
-        )
-
-    def test_user_pair_without_effort_does_not_inherit_workspace_effort(self, slack_setup, flag_on):
-        """If the user explicitly picks a pair without a reasoning effort,
-        the resolver must not silently graft the workspace's effort onto
-        it. Whole-triple swap: user's absent effort stays absent."""
-        integration = slack_setup
-        SlackSettings.objects.create(
-            default_integration=integration,
-            slack_workspace_id="T_WS",
-            slack_user_id="U001",
-            ai_preferences={"runtime_adapter": "claude", "model": "claude-opus-4-7"},
-        )
-        SlackSettings.objects.create(
-            default_integration=integration,
-            slack_workspace_id="T_WS",
-            slack_user_id=None,
-            ai_preferences={"runtime_adapter": "claude", "model": "claude-opus-4-7", "reasoning_effort": "low"},
-        )
-
-        assert resolve_ai_preferences(integration, "U001") == AIPreferences(
-            runtime_adapter="claude",
-            model="claude-opus-4-7",
-            reasoning_effort=None,
-        )
+        assert resolve_ai_preferences(integration, "U001") == AIPreferences()
 
     def test_unsupported_effort_dropped_when_model_does_not_support_it(self, slack_setup, flag_on):
         """If a row stores an effort the resolved model can't honour (e.g.
@@ -264,7 +229,9 @@ class TestResolveAIPreferences:
         assert result.model == "claude-sonnet-4-6"
         assert result.reasoning_effort is None
 
-    def test_user_id_none_uses_workspace_row_only(self, slack_setup, flag_on):
+    def test_user_id_none_resolves_empty(self, slack_setup, flag_on):
+        # No Slack user to attribute the run to, so there's no preference to
+        # apply — the workspace row's AI fields are no longer consulted.
         integration = slack_setup
         SlackSettings.objects.create(
             default_integration=integration,
@@ -272,8 +239,7 @@ class TestResolveAIPreferences:
             slack_user_id=None,
             ai_preferences={"runtime_adapter": "claude", "model": "claude-opus-4-7", "reasoning_effort": "high"},
         )
-        result = resolve_ai_preferences(integration, None)
-        assert result == AIPreferences(runtime_adapter="claude", model="claude-opus-4-7", reasoning_effort="high")
+        assert resolve_ai_preferences(integration, None) == AIPreferences()
 
     def test_flag_off_returns_empty_even_with_rows_present(self, slack_setup, flag_off):
         integration = slack_setup

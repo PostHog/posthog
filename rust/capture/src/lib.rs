@@ -21,6 +21,7 @@ pub mod prometheus;
 pub mod quota_limiters;
 pub mod router;
 pub mod s3_client;
+pub mod serialization;
 pub mod server;
 pub mod setup;
 pub mod sinks;

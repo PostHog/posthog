@@ -1,6 +1,8 @@
 import { assertCanvasCapability } from "@posthog/core/canvas/canvasCapabilities";
 import {
+  type CanvasCommentHighlight,
   type CanvasNavIntent,
+  type CanvasTextSelection,
   type CanvasTheme,
   canvasToHostMessageSchema,
 } from "@posthog/core/canvas/freeformSchemas";
@@ -10,8 +12,10 @@ import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { createCanvasHostMessageRouter } from "./canvasHostMessageRouter";
+import { translateCanvasTextSelection } from "./canvasSelection";
 
 const log = logger.scope("built-canvas");
+const EMPTY_COMMENT_HIGHLIGHTS: CanvasCommentHighlight[] = [];
 
 function buildArtifactHostDocument(
   artifactUrl: string,
@@ -92,6 +96,10 @@ export interface BuiltCanvasProps {
   onReady?: () => void;
   onRendered?: () => void;
   onNavigate?: (intent: CanvasNavIntent) => void;
+  onTextSelection?: (selection: CanvasTextSelection | null) => void;
+  onCommentActivate?: (id: string) => void;
+  commentHighlights?: CanvasCommentHighlight[];
+  clearTextSelectionKey?: number;
 }
 
 export function BuiltCanvas({
@@ -102,6 +110,10 @@ export function BuiltCanvas({
   onReady,
   onRendered,
   onNavigate,
+  onTextSelection,
+  onCommentActivate,
+  commentHighlights = EMPTY_COMMENT_HIGHLIGHTS,
+  clearTextSelectionKey = 0,
 }: BuiltCanvasProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   // Mirrors the host's light/dark theme, like FreeformCanvas — sent over the
@@ -122,6 +134,9 @@ export function BuiltCanvas({
     onRendered,
     onNavigate,
     theme,
+    onTextSelection,
+    onCommentActivate,
+    commentHighlights,
   });
   latest.current = {
     capabilities,
@@ -131,6 +146,9 @@ export function BuiltCanvas({
     onRendered,
     onNavigate,
     theme,
+    onTextSelection,
+    onCommentActivate,
+    commentHighlights,
   };
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new host document needs a fresh bridge even though the effect reads it only through the iframe.
@@ -150,9 +168,27 @@ export function BuiltCanvas({
           log.warn("Built canvas error", { message });
           latest.current.onError?.(message, stack);
         },
-        onReady: () => latest.current.onReady?.(),
+        onReady: () => {
+          artifactPortRef.current?.postMessage({
+            channel: "posthog-canvas",
+            type: "set-comment-highlights",
+            highlights: latest.current.commentHighlights,
+          });
+          latest.current.onReady?.();
+        },
         onRendered: () => latest.current.onRendered?.(),
         onNavigate: (intent) => latest.current.onNavigate?.(intent),
+        onTextSelection: (selection) => {
+          if (!selection) {
+            latest.current.onTextSelection?.(null);
+            return;
+          }
+          const frame = iframeRef.current?.getBoundingClientRect();
+          latest.current.onTextSelection?.(
+            translateCanvasTextSelection(selection, frame),
+          );
+        },
+        onCommentActivate: (id) => latest.current.onCommentActivate?.(id),
       }),
       hasUserActivation: () => navigator.userActivation?.isActive === true,
       // Built artifacts run arbitrary published code, so an external open asks
@@ -220,6 +256,22 @@ export function BuiltCanvas({
       theme,
     });
   }, [theme]);
+
+  useEffect(() => {
+    artifactPortRef.current?.postMessage({
+      channel: "posthog-canvas",
+      type: "set-comment-highlights",
+      highlights: commentHighlights,
+    });
+  }, [commentHighlights]);
+
+  useEffect(() => {
+    if (clearTextSelectionKey === 0) return;
+    artifactPortRef.current?.postMessage({
+      channel: "posthog-canvas",
+      type: "clear-text-selection",
+    });
+  }, [clearTextSelectionKey]);
 
   return (
     <iframe
