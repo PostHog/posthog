@@ -274,6 +274,31 @@ class TestStaleListingReconciliation:
         assert set(final.column("id").to_pylist()) == {1, 2}
         assert result.history()[0]["operation"] == "MERGE"
 
+    @pytest.mark.asyncio
+    async def test_incremental_write_merges_when_first_sync_flag_contradicts_live_table(self, tmp_path: Path) -> None:
+        # The first-sync flag latches when any earlier fetch in the run saw a stale "no table"
+        # listing, but the writer's own fetch can still return the live table. The flag must not
+        # win over the handle (observed on CI: chunk 0 overwrote the killed run's commit).
+        delta_path = str(tmp_path / "table")
+        seed = pa.table({"id": [1], "value": ["a"]})
+        deltalake.write_deltalake(delta_path, seed)
+        deltalake.write_deltalake(delta_path, seed, mode="overwrite")
+        assert deltalake.DeltaTable(delta_path).version() > 0
+
+        latched_ref = make_local_table_ref(delta_path)
+        latched_ref._is_first_sync = True
+
+        result = await DeltaWriter(latched_ref).write(
+            data=pa.table({"id": [2], "value": ["b"]}),
+            write_type="incremental",
+            should_overwrite_table=True,
+            primary_keys=["id"],
+        )
+
+        final = result.to_pyarrow_table()
+        assert set(final.column("id").to_pylist()) == {1, 2}
+        assert result.history()[0]["operation"] == "MERGE"
+
 
 class TestLegacyDltTableReconciliation:
     """Pipeline_v3 must handle dlt-created Delta tables with NOT NULL _dlt_* columns."""

@@ -339,11 +339,14 @@ class DeltaWriter:
                 # The retry fetches cached a pre-write handle; drop it so the re-fetch after the
                 # write below sees the committed state instead of this stale snapshot.
                 self._table.get_delta_table.cache_clear()
-            if delta_table.version() > 0:
-                await self._logger.awarning(
-                    "write: listing reported no delta table but it exists on storage - using the merge path"
-                )
-                is_first_sync = False
+
+        if write_type == "incremental" and is_first_sync and delta_table is not None and delta_table.version() > 0:
+            # The first-sync flag latches when any earlier fetch this run saw a stale "no table"
+            # listing (DeltaTableRef never unsets it), so it can contradict a live handle fetched
+            # moments later. Storage wins — the flag would route this chunk to an overwrite that
+            # destroys the other run's commits.
+            await self._logger.awarning("write: first-sync flag contradicts a live delta table - using the merge path")
+            is_first_sync = False
 
         if delta_table:
             delta_table = await evolve_delta_schema(delta_table, data.schema)
