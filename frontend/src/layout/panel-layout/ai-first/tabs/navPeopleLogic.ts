@@ -42,6 +42,34 @@ export interface navPeopleLogicMeta {
 
 export type navPeopleLogicType = MakeLogicType<navPeopleLogicValues, {}, Record<string, any>, navPeopleLogicMeta>
 
+export function buildPeopleNavItems(
+    showPeopleNav: boolean,
+    groupTypes: Map<GroupTypeIndex, GroupType>,
+    groupsAccessStatus: GroupsAccessStatus,
+    aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+): PeopleNavItem[] {
+    if (!showPeopleNav) {
+        return []
+    }
+
+    const items: PeopleNavItem[] = [{ key: 'people', label: 'People', to: urls.persons(), iconType: 'persons' }]
+
+    // Only projects actually using group analytics get per-group items; everyone else
+    // would land on the groups upsell, which doesn't belong in the nav.
+    if (groupsAccessStatus === GroupsAccessStatus.AlreadyUsing) {
+        for (const groupType of groupTypes.values()) {
+            items.push({
+                key: `group-${groupType.group_type_index}`,
+                label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
+                to: urls.groups(groupType.group_type_index),
+                iconType: `group_${groupType.group_type_index}` as FileSystemIconType,
+            })
+        }
+    }
+
+    return items
+}
+
 export const navPeopleLogic = kea<navPeopleLogicType>([
     path(['layout', 'panel-layout', 'ai-first', 'tabs', 'navPeopleLogic']),
     connect(() => ({
@@ -64,30 +92,7 @@ export const navPeopleLogic = kea<navPeopleLogicType>([
                 groupTypes: Map<GroupTypeIndex, GroupType>,
                 groupsAccessStatus: GroupsAccessStatus,
                 aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
-            ): PeopleNavItem[] => {
-                if (!showPeopleNav) {
-                    return []
-                }
-
-                const items: PeopleNavItem[] = [
-                    { key: 'people', label: 'People', to: urls.persons(), iconType: 'persons' },
-                ]
-
-                // Only projects actually using group analytics get per-group items; everyone else
-                // would land on the groups upsell, which doesn't belong in the nav.
-                if (groupsAccessStatus === GroupsAccessStatus.AlreadyUsing) {
-                    for (const groupType of groupTypes.values()) {
-                        items.push({
-                            key: `group-${groupType.group_type_index}`,
-                            label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
-                            to: urls.groups(groupType.group_type_index),
-                            iconType: `group_${groupType.group_type_index}` as FileSystemIconType,
-                        })
-                    }
-                }
-
-                return items
-            },
+            ): PeopleNavItem[] => buildPeopleNavItems(showPeopleNav, groupTypes, groupsAccessStatus, aggregationLabel),
         ],
     }),
 ])
