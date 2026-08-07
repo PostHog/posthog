@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Union
 
@@ -47,6 +48,7 @@ from products.experiments.backend.hogql_queries.experiment_ratio_query_builder i
 from products.experiments.backend.hogql_queries.experiment_retention_query_builder import RetentionQueryBuilder
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
+    is_default_exposure_config,
     normalize_to_exposure_criteria,
     resolve_default_exposure_event,
 )
@@ -64,14 +66,25 @@ def resolve_exposure_config_for_builder(
     return exposure_config
 
 
+@dataclass(frozen=True, kw_only=True)
+class ExposureQueryParams:
+    """Exposure-related parameters required by the query builder, resolved from stored criteria."""
+
+    exposure_config: ExperimentEventExposureConfig | ActionsNode
+    activation_config: ExperimentEventExposureConfig | ActionsNode | None
+    multiple_variant_handling: MultipleVariantHandling
+    filter_test_accounts: bool
+
+
 def get_exposure_config_params_for_builder(
     exposure_criteria: Union[ExperimentExposureCriteria, dict, None],
     team: Team,
     start_date: Optional[datetime],
-) -> tuple[ExperimentEventExposureConfig | ActionsNode, MultipleVariantHandling, bool]:
+) -> ExposureQueryParams:
     """Returns exposure-related parameters required by the query builder."""
     criteria = normalize_to_exposure_criteria(exposure_criteria)
     exposure_config: ExperimentEventExposureConfig | ActionsNode
+    activation_config: ExperimentEventExposureConfig | ActionsNode | None = None
     if criteria is None:
         exposure_config = ExperimentEventExposureConfig(
             event=resolve_default_exposure_event(team, start_date), properties=[]
@@ -93,10 +106,20 @@ def get_exposure_config_params_for_builder(
             exposure_config = resolve_exposure_config_for_builder(criteria.exposure_config, team, start_date)
         else:
             exposure_config = criteria.exposure_config
+        # Activation only composes with the default exposure; a custom exposure_config
+        # disables it (validation rejects the combination, but stored data predating it
+        # must not silently change semantics).
+        if is_default_exposure_config(criteria.exposure_config):
+            activation_config = criteria.activation_config
         filter_test_accounts = bool(criteria.filterTestAccounts) if criteria.filterTestAccounts is not None else True
         multiple_variant_handling = criteria.multiple_variant_handling or MultipleVariantHandling.EXCLUDE
 
-    return (exposure_config, multiple_variant_handling, filter_test_accounts)
+    return ExposureQueryParams(
+        exposure_config=exposure_config,
+        activation_config=activation_config,
+        multiple_variant_handling=multiple_variant_handling,
+        filter_test_accounts=filter_test_accounts,
+    )
 
 
 class ExperimentQueryBuilder:
@@ -116,6 +139,7 @@ class ExperimentQueryBuilder:
         breakdowns: list[Breakdown] | None = None,
         only_count_matured_users: bool = False,
         cuped_config: CupedQueryConfig | None = None,
+        activation_config: ExperimentEventExposureConfig | ActionsNode | None = None,
     ):
         self.team = team
         self.metric = metric
@@ -125,6 +149,7 @@ class ExperimentQueryBuilder:
         self.date_range_query = date_range_query
         self.entity_key = entity_key
         self.exposure_config = exposure_config
+        self.activation_config = activation_config
         self.filter_test_accounts = filter_test_accounts
         self.multiple_variant_handling = multiple_variant_handling
         self.breakdowns = breakdowns or []
@@ -132,6 +157,12 @@ class ExperimentQueryBuilder:
         self.preaggregation_job_ids: list[str] | None = None
         self.metric_events_preaggregation_job_ids: list[str] | None = None
         self.cuped_config = cuped_config or CupedQueryConfig()
+        # ponytail: funnel CUPED sources its pre-exposure covariate from the metric_events
+        # scan, but activation mode forces the temporal filter that removes those rows, so
+        # the covariate would silently be 0 for everyone. Disable it until the covariate
+        # gets its own pre-window scan.
+        if activation_config is not None and isinstance(metric, ExperimentFunnelMetric):
+            self.cuped_config = CupedQueryConfig(enabled=False, lookback_days=self.cuped_config.lookback_days)
 
         # Experiment-level invariants, gathered into a single frozen context for
         # later extracted modules to consume. Additive: every self.* attribute
@@ -148,6 +179,7 @@ class ExperimentQueryBuilder:
             breakdowns=tuple(self.breakdowns),
             only_count_matured_users=self.only_count_matured_users,
             cuped_config=self.cuped_config,
+            activation_config=self.activation_config,
         )
 
     # Experiment queries group by (variant, breakdown_values), so the row count is
@@ -650,6 +682,13 @@ class ExperimentQueryBuilder:
         Builds the exposure predicate as an AST expression.
         """
         return self._exposure_query_builder().build_exposure_predicate()
+
+    def _build_exposure_step_predicate(self) -> ast.Expr:
+        """
+        Predicate for rows that can serve as the funnel's exposure step (step_0); the
+        activation predicate in activation mode, the exposure predicate otherwise.
+        """
+        return self._exposure_query_builder().build_exposure_step_predicate()
 
     def _get_exposure_query(self) -> ast.SelectQuery:
         return self._exposure_query_builder().select_query()
