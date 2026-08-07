@@ -30,6 +30,7 @@ const previewBlob = new Blob(["<h1>Artifact content</h1>"], {
 const auth = vi.hoisted(() => ({ identity: "auth-1" as string | null }));
 const artifactComments = vi.hoisted(() => ({
   data: [] as ResourceComment[],
+  isError: false,
 }));
 const createComment = vi.hoisted(() => vi.fn());
 const useQuery = vi.hoisted(() => vi.fn());
@@ -96,6 +97,7 @@ vi.mock("./useComments", () => ({
   useCommentsQuery: () => ({
     data: artifactComments.data,
     isLoading: false,
+    isError: artifactComments.isError,
   }),
   useCreateComment: () => ({ mutateAsync: createComment, isPending: false }),
 }));
@@ -138,6 +140,7 @@ describe("ArtifactPreview", () => {
       resolutionsByTarget: {},
     });
     artifactComments.data = [];
+    artifactComments.isError = false;
     createComment.mockReset();
     createComment.mockResolvedValue({ id: "created-comment" });
     useQuery.mockReset();
@@ -173,6 +176,29 @@ describe("ArtifactPreview", () => {
         meta: { authScoped: true },
       }),
     );
+  });
+
+  it("keeps the artifact visible when comments fail to load", () => {
+    artifactComments.isError = true;
+    useQuery.mockReturnValue({
+      data: "# Report",
+      isLoading: false,
+      isError: false,
+    });
+
+    render(
+      <ArtifactPreview
+        taskId="task-1"
+        runId="run-1"
+        artifactId="artifact-1"
+        name="report.md"
+      />,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Couldn't load comments. Refresh to try again.",
+    );
+    expect(screen.getByText("Report")).toBeInTheDocument();
   });
 
   it("disables preview fetching without an authenticated identity", () => {
@@ -599,7 +625,9 @@ describe("ArtifactPreview", () => {
       />,
     );
 
-    expect(screen.queryByLabelText("Open comment thread")).toBeNull();
+    expect(
+      screen.queryByLabelText("Open comment from Unknown user"),
+    ).toBeNull();
   });
 
   it("highlights a Markdown comment that arrives after the preview renders", async () => {
@@ -620,12 +648,16 @@ describe("ArtifactPreview", () => {
         />
       );
       const { rerender } = render(view());
-      expect(screen.queryByLabelText("Open comment thread")).toBeNull();
+      expect(
+        screen.queryByLabelText("Open comment from Unknown user"),
+      ).toBeNull();
 
       artifactComments.data = [textComment()];
       rerender(view());
 
-      expect(await screen.findByLabelText("Open comment thread")).toHaveStyle({
+      expect(
+        await screen.findByLabelText("Open comment from Unknown user"),
+      ).toHaveStyle({
         backgroundColor: "rgba(250, 204, 21, 0.32)",
       });
     } finally {
@@ -668,7 +700,9 @@ describe("ArtifactPreview", () => {
         />,
       );
 
-      fireEvent.click(await screen.findByLabelText("Open comment thread"));
+      fireEvent.click(
+        await screen.findByLabelText("Open comment from Unknown user"),
+      );
 
       expect(
         useCommentNavigationStore.getState().focusByTask["task-1"],
@@ -700,7 +734,9 @@ describe("ArtifactPreview", () => {
 
       await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
       // And the thread reads as the active one on the surface.
-      const highlight = await screen.findByLabelText("Open comment thread");
+      const highlight = await screen.findByLabelText(
+        "Open comment from Unknown user",
+      );
       expect(highlight).toHaveStyle({
         backgroundColor: "rgba(250, 204, 21, 0.48)",
       });
@@ -725,7 +761,7 @@ describe("ArtifactPreview", () => {
         />,
       );
 
-      await screen.findByLabelText("Open comment thread");
+      await screen.findByLabelText("Open comment from Unknown user");
       expect(scrollIntoView).not.toHaveBeenCalled();
     });
   });

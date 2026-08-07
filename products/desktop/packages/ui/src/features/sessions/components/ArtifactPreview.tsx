@@ -152,6 +152,14 @@ export function ArtifactPreview({
   const comments = commentsEnabled
     ? (commentsQuery.data ?? EMPTY_COMMENTS)
     : EMPTY_COMMENTS;
+  const commentLoadError = commentsEnabled && commentsQuery.isError && (
+    <div
+      role="alert"
+      className="shrink-0 border-amber-6 border-b bg-amber-2 px-3 py-2 text-amber-12 text-xs"
+    >
+      Couldn't load comments. Refresh to try again.
+    </div>
+  );
   const threads = useMemo(() => buildCommentThreads(comments), [comments]);
   const openRootComments = useMemo(
     () => threads.flatMap((thread) => (thread.resolved ? [] : [thread.root])),
@@ -241,6 +249,7 @@ export function ArtifactPreview({
             ) : undefined
           }
         />
+        {commentLoadError}
         {showRendered ? (
           <div
             ref={markdownContainerRef}
@@ -290,6 +299,7 @@ export function ArtifactPreview({
             ) : undefined
           }
         />
+        {commentLoadError}
         <div className="min-h-0 min-w-0 flex-1">
           <AnnotatedArtifactHtml
             html={data.html}
@@ -330,6 +340,7 @@ export function ArtifactPreview({
     return (
       <div className="flex h-full flex-col overflow-hidden">
         <GenericArtifactHeader name={name} actions={imageActions} />
+        {commentLoadError}
         <div className="min-h-0 min-w-0 flex-1">
           <AnnotatedArtifactImage
             src={previewUrl}
@@ -362,6 +373,7 @@ export function ArtifactPreview({
           ) : undefined
         }
       />
+      {commentLoadError}
       <div className="min-h-0 min-w-0 flex-1">
         <iframe
           className="h-full w-full border-0 bg-white"
