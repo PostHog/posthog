@@ -171,6 +171,30 @@ describe("ActivityPanel", () => {
     expect(screen.getByText("timeline body")).toBeTruthy();
   });
 
+  it("keeps a fresh focus request when the panel switches tasks", () => {
+    const { rerender } = renderPanel("task-1");
+    act(() =>
+      useCommentNavigationStore
+        .getState()
+        .requestCommentFocus(
+          "task-2",
+          { scope: "task_artifact", itemId: "artifact-1" },
+          "comment-1",
+        ),
+    );
+
+    rerender(
+      <ActivityPanel
+        taskId="task-2"
+        channelId="channel-1"
+        task={{ ...task, id: "task-2" }}
+        showTaskSummary={false}
+      />,
+    );
+
+    expect(screen.getByText("comments body")).toBeTruthy();
+  });
+
   // Only the timeline reads bottom-up; the thread lists put what matters on top.
   it("keeps the comments list where it was scrolled to", () => {
     renderPanel();

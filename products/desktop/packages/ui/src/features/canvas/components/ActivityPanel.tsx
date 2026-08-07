@@ -173,29 +173,28 @@ function ActivityConversation({
   // A thread picked on the artifact itself lives in the Comments tab, so the
   // pick has to bring the tab with it. Only a fresh request switches tabs: a
   // focus left over from an earlier visit must not hijack the panel on mount.
-  const commentFocus = useCommentNavigationStore(
-    (state) => state.focusByTask[taskId],
-  );
+  const focusByTask = useCommentNavigationStore((state) => state.focusByTask);
+  const commentFocus = focusByTask[taskId];
   const acknowledgeCommentsTabOpen = useCommentNavigationStore(
     (state) => state.acknowledgeCommentsTabOpen,
   );
-  // Tracks the task too: this panel is reused across tasks without remounting,
-  // so a nonce seen for the previous task says nothing about this one.
-  const seenFocus = useRef<{ taskId: string; nonce: number | null }>({
-    taskId,
-    nonce: null,
-  });
+  // Seed requests that predate this panel, but leave later requests for other
+  // tasks pending until the reused panel switches to that task.
+  const seenFocus = useRef(
+    new Map(
+      Object.entries(focusByTask).map(([focusTaskId, focus]) => [
+        focusTaskId,
+        focus?.nonce ?? null,
+      ]),
+    ),
+  );
   useEffect(() => {
-    if (seenFocus.current.taskId !== taskId) {
-      seenFocus.current = { taskId, nonce: null };
-      return;
-    }
     if (
       commentsEnabled &&
       commentFocus?.openCommentsTab &&
-      commentFocus.nonce !== seenFocus.current.nonce
+      commentFocus.nonce !== seenFocus.current.get(taskId)
     ) {
-      seenFocus.current = { taskId, nonce: commentFocus.nonce };
+      seenFocus.current.set(taskId, commentFocus.nonce);
       // Not handleTabChange: a programmatic switch isn't a user tab change.
       setTab("comments");
     }
