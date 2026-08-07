@@ -490,7 +490,27 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             except PydanticValidationError:
                 logger.exception("replay_vision.scanner.malformed_query", scanner_id=str(instance.id))
                 data["query"] = None
+        # Don't disclose an experiment (its id and variants) to a viewer who can't access it: a
+        # scanner is viewable at a coarser grain than its targeted experiment. Mirrors the write-side
+        # check in validate_experiment_targeting — a caller without experiment access sees null.
+        if data.get("experiment_targeting") and not self._can_view_targeted_experiment(data["experiment_targeting"]):
+            data["experiment_targeting"] = None
         return data
+
+    def _can_view_targeted_experiment(self, targeting: dict[str, Any]) -> bool:
+        experiment_id = targeting.get("experiment_id")
+        if experiment_id is None:
+            return False
+        get_team = self.context.get("get_team")
+        if get_team is None:  # no request context (e.g. internal serialization); don't over-redact
+            return True
+        team_experiments = Experiment.objects.filter(team=get_team())
+        accessible = (
+            self.user_access_control.filter_queryset_by_access_level(team_experiments)
+            if self.user_access_control
+            else team_experiments
+        )
+        return accessible.filter(id=experiment_id).exists()
 
     def create(self, validated_data: dict[str, Any]) -> ReplayScanner:
         team = self.context["get_team"]()

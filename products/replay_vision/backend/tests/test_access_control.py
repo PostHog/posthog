@@ -214,6 +214,26 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         self.assertEqual(resp.status_code, 400, resp.json())
         self.assertEqual(resp.json()["attr"], "experiment_targeting")
 
+    def test_experiment_targeting_hidden_from_a_viewer_without_experiment_access(self) -> None:
+        # A scanner is viewable at a coarser grain than its targeted experiment; a viewer who can't
+        # access the experiment must not learn its id or variants from the scanner payload.
+        experiment = create_experiment(self.team, "hidden-flag")
+        targeting = {"experiment_id": experiment.id, "variant_keys": ["test"], "use_exposure_fallback": False}
+        scanner = self._create_scanner(name="targeted", experiment_targeting=targeting)
+        self._set_resource_default("replay_scanner", "viewer")
+        self._set_resource_default("experiment", "none")
+        self._grant_object_access(self.other_user, "experiment", str(experiment.id), "none")
+
+        self.client.force_login(self.other_user)
+        resp = self.client.get(f"{self.scanners_url}{scanner.id}/")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertIsNone(resp.json()["experiment_targeting"])
+
+        # The creator, who can view the experiment, still sees it.
+        self.client.force_login(self.user)
+        resp = self.client.get(f"{self.scanners_url}{scanner.id}/")
+        self.assertEqual(resp.json()["experiment_targeting"], targeting)
+
 
 class TestVisionActionAccessControlInheritance(_VisionActionAPITestCase):
     def setUp(self) -> None:
