@@ -141,7 +141,7 @@ describe('sidepanelTicketsLogic', () => {
         }).toFinishAllListeners()
 
         const failures = (posthog.capture as jest.Mock).mock.calls.filter(
-            ([event]) => event === 'support ticket send failed'
+            ([event]) => event === 'support ticket send blocked'
         )
         expect(failures).toHaveLength(1)
         expect(failures[0][1]).toMatchObject({
@@ -194,7 +194,7 @@ describe('sidepanelTicketsLogic', () => {
         expect(logic.values.view).toBe('new')
         // Nothing was turned away, so there is no lost-submit to report
         expect(
-            (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === 'support ticket send failed')
+            (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === 'support ticket send blocked')
         ).toHaveLength(0)
     })
 
@@ -359,7 +359,7 @@ describe('sidepanelTicketsLogic', () => {
         expect(onSuccess).not.toHaveBeenCalled()
         expect(logic.values.messageSending).toBe(false)
         const failures = (posthog.capture as jest.Mock).mock.calls.filter(
-            ([event]) => event === 'support ticket send failed'
+            ([event]) => event === 'support ticket send blocked'
         )
         expect(failures).toHaveLength(1)
         expect(failures[0][1]).toMatchObject({ reason: 'widget_unavailable' })
@@ -401,7 +401,7 @@ describe('sidepanelTicketsLogic', () => {
 
         expect(onSuccess).not.toHaveBeenCalled()
         const failures = (posthog.capture as jest.Mock).mock.calls.filter(
-            ([event]) => event === 'support ticket send failed'
+            ([event]) => event === 'support ticket send blocked'
         )
         expect(failures).toHaveLength(1)
         expect(failures[0][1]).toMatchObject({

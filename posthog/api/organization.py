@@ -24,6 +24,7 @@ from posthog.caching.organization_serializer_cache import (
 )
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
+from posthog.data_freshness import LOOKBACK_DAYS, QUIET_AFTER_DAYS, Freshness, get_organization_data_freshness
 from posthog.event_usage import (
     groups,
     report_organization_action,
@@ -49,7 +50,7 @@ from posthog.permissions import (
 from posthog.rate_limit import PostHogAIAccessRequestIPThrottle, PostHogAIAccessRequestUserThrottle
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
 from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin, visible_teams_for_user
 from posthog.tasks.email import send_posthog_ai_access_request
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_safe_cache, safe_cache_set
@@ -256,16 +257,9 @@ class OrganizationSerializer(
         return _cached_per_user_org("teams", user_id, str(instance.id), lambda: self._fetch_visible_teams(instance))
 
     def _fetch_visible_teams(self, instance: Organization) -> list[dict[str, Any]]:
-        # Support new access control system
-        visible_teams = (
-            self.user_access_control.filter_queryset_by_access_level(instance.teams.all(), include_all_if_admin=True)
-            if self.user_access_control
-            else instance.teams.none()
-        )
-        # Support old access control system
-        visible_teams = visible_teams.filter(id__in=self.user_permissions.team_ids_visible_for_user).select_related(
-            "project"
-        )
+        visible_teams = visible_teams_for_user(
+            instance, self.user_access_control, self.user_permissions
+        ).select_related("project")
         return list(TeamBasicSerializer(visible_teams, context=self.context, many=True).data)
 
     @tracer.start_as_current_span("organization_serializer.projects")
@@ -406,6 +400,44 @@ class OrganizationSerializer(
 class OrganizationAIAccessRequestResponseSerializer(serializers.Serializer):
     success = serializers.BooleanField(
         help_text="Whether the access request was accepted and the organization admins were notified."
+    )
+
+
+class DataFreshnessSourceSerializer(serializers.Serializer):
+    data_source = serializers.CharField(
+        help_text=(
+            "The product this timestamp is about, as a `ProductKey` (e.g. `session_replay`, `logs`). "
+            "Not an enum: products declare their own data sources, so the set grows without an API change."
+        )
+    )
+    last_data_at = serializers.DateTimeField(
+        help_text="When data of this kind last reached the project. Only sources with data inside the lookback window are listed."
+    )
+
+
+class DataFreshnessProjectSerializer(serializers.Serializer):
+    team_id = serializers.IntegerField(help_text="ID of the project this freshness verdict is for.")
+    freshness = serializers.ChoiceField(
+        choices=[(freshness.value, freshness.value) for freshness in Freshness],
+        help_text=(
+            "`live` if data of any kind arrived within `quiet_after_days`, `stale` if none did, "
+            "`never` if the project has never ingested anything at all."
+        ),
+    )
+    last_data_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When data of any kind last reached the project, or null if nothing arrived within the lookback window.",
+    )
+    sources = DataFreshnessSourceSerializer(many=True, help_text="Per-source breakdown, most recently active first.")
+
+
+class OrganizationDataFreshnessSerializer(serializers.Serializer):
+    results = DataFreshnessProjectSerializer(many=True, help_text="One entry per project the requesting user can see.")
+    lookback_days = serializers.IntegerField(
+        help_text="How many days back the check looks. Data older than this is not visible to the check."
+    )
+    quiet_after_days = serializers.IntegerField(
+        help_text="How many days without data make a project or source count as quiet."
     )
 
 
@@ -645,3 +677,27 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             requesting_user_id=user.id,
         )
         return Response({"success": True})
+
+    @extend_schema(request=None, responses={200: OrganizationDataFreshnessSerializer})
+    @action(detail=True, methods=["GET"], url_path="teams/data_freshness", pagination_class=None)
+    def data_freshness(self, request: Request, **kwargs) -> Response:
+        """When each project in the organization last received data, broken down by kind of data."""
+        organization = self.organization
+        user = cast(User, request.user)
+        # `self.user_access_control` is scoped to the user's current organization, which on this route isn't
+        # necessarily the one being requested - so build one for the organization actually in the URL
+        visible_teams = visible_teams_for_user(
+            organization,
+            UserAccessControl(user=user, organization_id=str(organization.id)),
+            UserPermissions(user=user),
+        ).only("id", "project_id", "ingested_event")
+        results = get_organization_data_freshness(str(organization.id), list(visible_teams))
+        return Response(
+            OrganizationDataFreshnessSerializer(
+                {
+                    "results": results,
+                    "lookback_days": LOOKBACK_DAYS,
+                    "quiet_after_days": QUIET_AFTER_DAYS,
+                }
+            ).data
+        )

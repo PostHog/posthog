@@ -539,6 +539,9 @@ const scoutConfigCreate = (): ToolBase<typeof ScoutConfigCreateSchema, Schemas.S
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
         }
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
@@ -636,6 +639,9 @@ const scoutConfigUpdate = (): ToolBase<typeof ScoutConfigUpdateSchema, WithPostH
         }
         if (params.network_access !== undefined) {
             body['network_access'] = params.network_access
+        }
+        if (params.model !== undefined) {
+            body['model'] = params.model
         }
         if (params.auto_pause_exempt !== undefined) {
             body['auto_pause_exempt'] = params.auto_pause_exempt
@@ -1224,6 +1230,9 @@ const signalsScoutConfigCreate = (): ToolBase<typeof SignalsScoutConfigCreateSch
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
         }
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
@@ -1330,6 +1339,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
         }
         if (params.network_access !== undefined) {
             body['network_access'] = params.network_access
+        }
+        if (params.model !== undefined) {
+            body['model'] = params.model
         }
         if (params.auto_pause_exempt !== undefined) {
             body['auto_pause_exempt'] = params.auto_pause_exempt
