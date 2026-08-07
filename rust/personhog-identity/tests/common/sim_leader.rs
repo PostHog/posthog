@@ -407,24 +407,31 @@ impl LifecycleLeader for SimLeader {
             return Err(Status::not_found("person is destroyed"));
         };
         // The real fold: the target wins every key it has, snapshots fill
-        // still-absent keys in request order, then the merge event's $set
-        // overrides and $set_once fills.
+        // still-absent keys in ordinal order (the leader sorts, not the
+        // caller), then the merge event's $set overrides and $set_once
+        // fills.
         let mut folded: serde_json::Map<String, serde_json::Value> =
             serde_json::from_slice(&target.properties).unwrap();
         let mut created_at = target.created_at;
         let mut max_sealed = 0;
         let mut snapshot_versions = Vec::new();
-        for snapshot in &request.sealed_snapshots {
+        let mut ordered = request.sealed_snapshots.clone();
+        ordered.sort_by_key(|snapshot| snapshot.ordinal);
+        for snapshot in &ordered {
+            let person = snapshot
+                .person
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("sealed snapshot is missing its person"))?;
             let properties: serde_json::Map<String, serde_json::Value> =
-                serde_json::from_slice(&snapshot.properties).unwrap();
+                serde_json::from_slice(&person.properties).unwrap();
             for (key, value) in properties {
                 folded.entry(key).or_insert(value);
             }
-            if snapshot.created_at > 0 {
-                created_at = created_at.min(snapshot.created_at);
+            if person.created_at > 0 {
+                created_at = created_at.min(person.created_at);
             }
-            max_sealed = max_sealed.max(snapshot.version);
-            snapshot_versions.push(snapshot.version);
+            max_sealed = max_sealed.max(person.version);
+            snapshot_versions.push(person.version);
         }
         if !request.event_set.is_empty() {
             let event_set: serde_json::Map<String, serde_json::Value> =

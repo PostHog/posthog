@@ -42,7 +42,7 @@ use uuid::Uuid;
 
 use personhog_proto::personhog::types::v1::{
     FencePersonRequest, FoldPersonDocumentRequest, LifecycleOpType, Person, ReleaseFenceRequest,
-    ReleaseOutcome,
+    ReleaseOutcome, SealedSourceSnapshot,
 };
 
 use crate::leader::LifecycleLeader;
@@ -228,6 +228,9 @@ struct SealedSnapshot {
     created_at: i64,
     is_identified: bool,
     properties: Value,
+    // Defaulted so seals written before the field existed still parse.
+    #[serde(default)]
+    last_seen_at: Option<i64>,
 }
 
 pub struct MergeDriver {
@@ -869,7 +872,7 @@ impl MergeDriver {
         let target = target_row(pool, op).await?;
         let sources = sqlx::query!(
             r#"
-            SELECT person_id, sealed as "sealed!" FROM lifecycle_op_person
+            SELECT person_id, ordinal as "ordinal!", sealed as "sealed!" FROM lifecycle_op_person
             WHERE op_id = $1 AND role = $2 AND status = $3
             ORDER BY ordinal
             "#,
@@ -880,7 +883,10 @@ impl MergeDriver {
         .fetch_all(pool)
         .await?;
 
-        let mut snapshots: Vec<Person> = Vec::with_capacity(sources.len());
+        // The fold verifies each snapshot's identity and orders by the
+        // ordinal itself, so the request carries the recorded pair order
+        // and the source's real identity fields.
+        let mut snapshots: Vec<SealedSourceSnapshot> = Vec::with_capacity(sources.len());
         for source in &sources {
             let snapshot: SealedSnapshot =
                 serde_json::from_value(source.sealed.clone()).map_err(|e| {
@@ -889,14 +895,20 @@ impl MergeDriver {
                         op.op_id, source.person_id
                     ))
                 })?;
-            snapshots.push(Person {
-                properties: serde_json::to_vec(&snapshot.properties).map_err(|e| {
-                    SagaError::CorruptState(format!("failed to serialize seal properties: {e}"))
-                })?,
-                version: snapshot.version,
-                created_at: snapshot.created_at,
-                is_identified: snapshot.is_identified,
-                ..Default::default()
+            snapshots.push(SealedSourceSnapshot {
+                person: Some(Person {
+                    id: source.person_id,
+                    team_id: op.team_id,
+                    properties: serde_json::to_vec(&snapshot.properties).map_err(|e| {
+                        SagaError::CorruptState(format!("failed to serialize seal properties: {e}"))
+                    })?,
+                    version: snapshot.version,
+                    created_at: snapshot.created_at,
+                    is_identified: snapshot.is_identified,
+                    last_seen_at: snapshot.last_seen_at,
+                    ..Default::default()
+                }),
+                ordinal: source.ordinal,
             });
         }
 
@@ -1457,6 +1469,7 @@ fn snapshot_from_sealed(person: &Person) -> Result<SealedSnapshot, SagaError> {
         created_at: person.created_at,
         is_identified: person.is_identified,
         properties,
+        last_seen_at: person.last_seen_at,
     })
 }
 
