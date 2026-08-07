@@ -1,6 +1,10 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
+
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 
 from products.signals.backend.models import SignalReport, SignalReportAction
 
@@ -32,6 +36,35 @@ class TestSignalReportViewedEndpoint(APIBaseTest):
         action.refresh_from_db()
         assert action.count == 2
         assert action.last_at > first_seen
+
+    @parameterized.expand(
+        [
+            ("viewed", None, status.HTTP_204_NO_CONTENT),
+            ("feedback", {"sentiment": "positive"}, status.HTTP_200_OK),
+        ]
+    )
+    def test_non_session_credentials_record_no_action(
+        self, action_path: str, body: dict | None, expected_status: int
+    ) -> None:
+        # A personal API key (like a sandbox agent's OAuth token) authenticates *as* its owning
+        # user, so a request.user check alone would count automated traffic as a person reading —
+        # letting a scout manufacture the consumption evidence that keeps it from being paused.
+        report = self._create_report()
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label="test", secure_value=hash_key_value(token), scopes=["task:write"]
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/signals/reports/{report.pk}/{action_path}/",
+            body,
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == expected_status
+        assert not SignalReportAction.objects.filter(report=report).exists()
 
     def test_a_suppressed_report_still_records_its_view(self) -> None:
         # The Dismissed tab renders the same detail view, so its opens must count too instead of

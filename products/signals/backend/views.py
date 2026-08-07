@@ -738,6 +738,19 @@ class SignalReportContentUpdateSerializer(serializers.Serializer):
         return attrs
 
 
+def _is_person_at_the_ui(request: Request) -> bool:
+    """Whether the caller is a signed-in person in a browser, not an automated credential.
+
+    Consumption evidence (`SignalReportAction`) must prove a person read the report, but every
+    credential this API accepts authenticates *as* a user: through ``request.user`` alone, a
+    personal API key or a sandbox agent's OAuth token is indistinguishable from the person it
+    belongs to. Admitting only a browser session keeps automation — including a scout calling
+    the API on its own reports — from manufacturing the engagement that exempts it from the
+    inactivity sweep.
+    """
+    return isinstance(request.successful_authenticator, SessionAuthentication) and isinstance(request.user, User)
+
+
 @extend_schema_view(
     destroy=extend_schema(exclude=True),
 )
@@ -1754,10 +1767,11 @@ class SignalReportViewSet(
     @extend_schema(
         summary="Leave feedback on a report",
         description=(
-            "Record the thumbs rating at the end of a report, with an optional note. The rating is "
-            "persisted as a per-person report action, which counts as consumption evidence for the "
-            "scout that authored the report (scouts whose output nobody consumes are eventually "
-            "paused). When a note is present and the report was authored by a scout, the note is also "
+            "Record the thumbs rating at the end of a report, with an optional note. For "
+            "browser-session requests the rating is persisted as a per-person report action, which "
+            "counts as consumption evidence for the scout that authored the report (scouts whose "
+            "output nobody consumes are eventually paused); requests authenticated any other way "
+            "record no action. When a note is present and the report was authored by a scout, the note is also "
             "forwarded to that scout as a steering note it reads on its next run; for any other report "
             "there is nothing to steer. The report's state is never changed."
         ),
@@ -1778,7 +1792,7 @@ class SignalReportViewSet(
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        if isinstance(request.user, User):
+        if _is_person_at_the_ui(request):
             SignalReportAction.record(
                 team_id=self.team.id,
                 report_id=str(report.id),
@@ -1808,8 +1822,9 @@ class SignalReportViewSet(
             "Record that the caller opened this report's detail view. One row per person per report is "
             "kept (repeat views bump a counter), and the record counts as consumption evidence for the "
             "scout that authored the report — scouts whose reports nobody consumes are eventually "
-            "paused. Intended as fire-and-forget from the inbox UI when a person opens a report; "
-            "agents reading reports programmatically should not call it."
+            "paused. Intended as fire-and-forget from the inbox UI when a person opens a report. Only "
+            "browser-session requests leave a record; a call with any other credential (personal API "
+            "key, OAuth token) returns 204 but records nothing."
         ),
         request=None,
         responses={204: None},
@@ -1818,12 +1833,11 @@ class SignalReportViewSet(
     def viewed(self, request, pk=None, **kwargs):
         """Upsert a per-person view record for the report.
 
-        Only session-authenticated people leave a record — a non-user principal (e.g. an
-        impersonation-less service token) is a silent no-op, since the row exists to prove a
-        person looked.
+        Only session-authenticated callers leave a record; any other credential is a silent
+        no-op (204, nothing written), since the row exists to prove a person looked.
         """
         report = cast(SignalReport, self.get_object())
-        if isinstance(request.user, User):
+        if _is_person_at_the_ui(request):
             SignalReportAction.record(
                 team_id=self.team.id,
                 report_id=str(report.id),
