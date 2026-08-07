@@ -83,7 +83,7 @@ def _get_notification_creator(subscription: Subscription) -> User | None:
     creator_id = subscription.created_by_id
     if creator is None or creator_id is None:
         return None
-    if not creator.organization_memberships.filter(organization_id=subscription.team.organization_id).exists():
+    if not subscription.team.all_users_with_access().filter(id=creator_id).exists():
         return None
     return creator
 

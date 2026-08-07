@@ -130,11 +130,22 @@ class TestDisableInvalidSubscription(APIBaseTest):
             create_notification_mock.assert_not_called()
         send_mock.assert_not_called()
 
-    def test_does_not_notify_former_creator(self):
-        former_creator = User.objects.create_user(
-            email="former-creator@example.com", first_name="Former", password="password"
-        )
-        sub = self._make_subscription(created_by=former_creator)
+    @parameterized.expand(
+        [
+            ("former_creator", False),
+            ("deactivated_creator", True),
+        ]
+    )
+    def test_does_not_notify_creator_without_access(self, _label, deactivate_member):
+        if deactivate_member:
+            creator = self.user
+            creator.is_active = False
+            creator.save(update_fields=["is_active"])
+        else:
+            creator = User.objects.create_user(
+                email="former-creator@example.com", first_name="Former", password="password"
+            )
+        sub = self._make_subscription(created_by=creator)
 
         with (
             patch("ee.tasks.subscriptions.auto_disable.create_notification") as create_notification_mock,
