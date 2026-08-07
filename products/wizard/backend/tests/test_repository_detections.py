@@ -152,6 +152,9 @@ class TestWizardRepositoryDetectionViewSet(APIBaseTest):
             self.assertIsNone(detection.report)
         else:
             self.assertIsNotNone(detection.report)
+        # The stamp survives every outcome; an id-less push clearing it would open the
+        # trigger's concurrency gate mid-scan.
+        self.assertEqual(str(detection.task_run_id), stamped_run_id)
 
 
 class TestUpsertWizardRepositoryDetectionValidation(SimpleTestCase):
