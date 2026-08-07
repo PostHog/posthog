@@ -60,6 +60,9 @@ from common.hogvm.python.stl.bytecode import BYTECODE_STL
 ALL_HOG_FUNCTIONS = sorted(list(STL.keys()) + list(BYTECODE_STL.keys()))
 MATCH_ANY_CHARACTER = "$$_POSTHOG_ANY_$$"
 PROPERTY_DEFINITION_LIMIT = 220
+# The one path through a Hog function's globals that holds an event's own property bag. Other
+# `properties` bags (person, groups, a user-defined input) never carry person property setters.
+EVENT_PROPERTIES_GLOBALS_CHAIN = ["event", "properties"]
 
 
 def _get_direct_connection_metadata(context: HogQLContext) -> Optional[dict]:
@@ -532,13 +535,13 @@ def get_hogql_autocomplete(
             if isinstance(query.globals, dict):
                 if isinstance(node, ast.Field):
                     loop_globals: dict | None = query.globals
-                    entered_key: str | None = None
+                    entered_chain: list[str] = []
                     for index, key in enumerate(node.chain):
                         if MATCH_ANY_CHARACTER in str(key):
                             break
                         if loop_globals is not None and str(key) in loop_globals:
                             loop_globals = loop_globals[str(key)]
-                            entered_key = str(key)
+                            entered_chain.append(str(key))
                         elif index == len(node.chain) - 1:
                             break
                         else:
@@ -549,7 +552,7 @@ def get_hogql_autocomplete(
                         # property bag can still carry properties we no longer offer for querying.
                         excluded_keys = (
                             QUERY_DEPRECATED_EVENT_PROPERTIES
-                            if entered_key is not None and entered_key.endswith("properties")
+                            if entered_chain == EVENT_PROPERTIES_GLOBALS_CHAIN
                             else None
                         )
                         add_globals_to_suggestions(loop_globals, response, excluded_keys=excluded_keys)
