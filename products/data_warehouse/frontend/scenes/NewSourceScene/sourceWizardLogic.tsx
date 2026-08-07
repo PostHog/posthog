@@ -3318,6 +3318,31 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                 // When requiredTables is set (e.g. signals setup), skip step 4 and complete directly
                 if (values.requiredTables && props.onComplete) {
+                    // Webhook-sync tables produce no rows until the webhook is registered with the
+                    // provider, and this flow never shows the webhook step (step 4) — register the
+                    // webhook here and only report completion once it succeeds.
+                    if (values.hasWebhookSchemas) {
+                        let webhookResult: WebhookCreateResult
+                        try {
+                            webhookResult = await api.externalDataSources.createWebhook(id)
+                        } catch (e: any) {
+                            posthog.captureException(e)
+                            webhookResult = {
+                                success: false,
+                                webhook_url: '',
+                                error: e.data?.message ?? e.message,
+                            }
+                        }
+                        actions.setWebhookResult(webhookResult)
+                        if (!webhookResultHasNoPendingInputs(webhookResult)) {
+                            lemonToast.error(
+                                `We created the source but couldn't set up its webhook${
+                                    webhookResult.error ? `: ${webhookResult.error}` : ''
+                                }. Finish webhook setup in the source settings, then enable the signal again.`
+                            )
+                            return
+                        }
+                    }
                     props.onComplete()
                 } else if (values.hasWebhookSchemas) {
                     // Go to webhook setup step (4)
@@ -3500,6 +3525,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         actions.setIsLoading(false)
                         return
                     }
+                    for (const schema of requiredSchemas) {
+                        schema.should_sync = true
+                    }
+                    // createSource reads hasWebhookSchemas off databaseSchema to decide whether the
+                    // new source still needs its webhook registered.
+                    actions.setDatabaseSchemas(requiredSchemas)
 
                     actions.updateSource({
                         payload: {
