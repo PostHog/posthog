@@ -68,6 +68,10 @@ class TestCheckoutComSource:
             "403 Client Error: Forbidden for url: https://api.checkout.com/disputes?limit=250",
             "403 Client Error: Forbidden for url: https://api.checkout.com/reports?limit=100",
             "403 Client Error: Forbidden for url: https://api.sandbox.checkout.com/reports/rpt_1/files/file_1",
+            # A freshly-minted token still gets 401 (not 403) from reports when the access
+            # key lacks the reports scope, so a mid-sync re-mint never resolves it.
+            "401 Client Error: Unauthorized for url: https://api.checkout.com/reports?limit=100",
+            "401 Client Error: Unauthorized for url: https://api.sandbox.checkout.com/reports/rpt_1/files/file_1",
         ],
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error):

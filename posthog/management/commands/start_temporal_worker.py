@@ -180,6 +180,10 @@ from products.conversations.backend.temporal import (
     ACTIVITIES as CONVERSATIONS_ACTIVITIES,
     WORKFLOWS as CONVERSATIONS_WORKFLOWS,
 )
+from products.customer_analytics.backend.facade.temporal import (
+    ACTIVITIES as CUSTOMER_ANALYTICS_ACTIVITIES,
+    WORKFLOWS as CUSTOMER_ANALYTICS_WORKFLOWS,
+)
 from products.engineering_analytics.backend.facade.temporal import (
     CI_SIGNALS_ACTIVITIES,
     CI_SIGNALS_WORKFLOWS,
@@ -409,11 +413,13 @@ _task_queue_specs = [
         + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS
         + BUSINESS_KNOWLEDGE_WORKFLOWS
         + CONVERSATIONS_WORKFLOWS
+        + CUSTOMER_ANALYTICS_WORKFLOWS
         + REVIEW_HOG_WORKFLOWS,
         SIGNALS_PRODUCT_ACTIVITIES
         + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES
         + BUSINESS_KNOWLEDGE_ACTIVITIES
         + CONVERSATIONS_ACTIVITIES
+        + CUSTOMER_ANALYTICS_ACTIVITIES
         + REVIEW_HOG_ACTIVITIES,
     ),
     (

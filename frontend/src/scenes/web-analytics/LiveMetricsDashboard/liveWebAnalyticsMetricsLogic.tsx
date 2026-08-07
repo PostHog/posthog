@@ -4,6 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { createStreamConnection } from 'lib/api-stream'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -34,7 +35,6 @@ import { AnyPropertyFilter, BaseMathType, LiveEvent, PropertyOperator } from '~/
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../types'
-import { createStreamConnection } from './createStreamConnection'
 import { LiveMetricsSlidingWindow } from './LiveMetricsSlidingWindow'
 import {
     BOT_ELIGIBLE_EVENTS,
