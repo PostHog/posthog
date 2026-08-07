@@ -1021,7 +1021,12 @@ class ClickHousePrinter(BasePrinter):
             and not table.get_predicates()
             and self.context.team_id is not None
         ):
-            sql = f"(SELECT * FROM {sql} WHERE team_id = {int(self.context.team_id)})"
+            # The HogQL `team_id` field may map to a differently named DB column (e.g.
+            # system.teams exposes it as an alias of `id`), so filter the real column, not
+            # the HogQL name. Skip the wrap when the field isn't a plain column.
+            team_id_column = getattr(table.fields["team_id"], "name", None)
+            if team_id_column:
+                sql = f"(SELECT * FROM {sql} WHERE {team_id_column} = {int(self.context.team_id)})"
 
         return sql
 
