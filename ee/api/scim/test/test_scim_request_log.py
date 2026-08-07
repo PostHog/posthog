@@ -144,6 +144,17 @@ class TestSCIMRequestLogCleanup(TestCase):
         exists = SCIMRequestLog.objects.filter(id=log.id).exists()
         assert exists != should_be_deleted
 
+    def test_deleting_the_config_leaves_the_history_behind(self):
+        # The log is the record of what an IdP did to org memberships, so it outlives the
+        # configuration it was written against and ages out on its own retention window.
+        log = self._create_log(1)
+        self.config.delete()
+
+        log.refresh_from_db()
+
+        assert log.identity_provider_config_id is None
+        assert log.request_path == "/scim/v2/test/Users"
+
     def test_cleanup_batches_deletes(self):
         for _ in range(5):
             self._create_log(200)

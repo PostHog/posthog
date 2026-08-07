@@ -16,11 +16,17 @@ logger = structlog.get_logger(__name__)
 class SCIMProvisionedUserManager(models.Manager["SCIMProvisionedUser"]):
     def for_config(self, config: "IdentityProviderConfig") -> models.QuerySet["SCIMProvisionedUser"]:
         """
-        Every record belonging to a SCIM tenant: keyed on the config, or on one of the domains the
-        config backs if it was written before SCIM moved onto configs.
+        Every record belonging to a SCIM tenant: the ones keyed on the config, plus the ones still
+        unclaimed on a domain it backs. A record another config already holds stays out of scope
+        even when they share a domain — an organization can run several IdPs, and one must not read
+        or deprovision another's users.
         """
         return self.filter(
-            models.Q(identity_provider_config=config) | models.Q(organization_domain__identity_provider_config=config)
+            models.Q(identity_provider_config=config)
+            | models.Q(
+                identity_provider_config__isnull=True,
+                organization_domain__identity_provider_config=config,
+            )
         )
 
     def record_for(self, *, user: "User", config: "IdentityProviderConfig") -> "SCIMProvisionedUser | None":

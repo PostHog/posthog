@@ -169,6 +169,30 @@ class TestSCIMRecordsWrittenBeforeConfigs(APILicensedTest):
         self.legacy_record.refresh_from_db()
         assert self.legacy_record.username == "renamed.okta"
 
+    def test_another_configs_records_are_out_of_scope(self):
+        # An organization can run several IdPs, each with its own config. Once a record belongs to
+        # one of them, moving the domain under another must not hand over the users: a config that
+        # never provisioned someone can neither read the id its IdP knows them by nor deprovision
+        # them. The domain-keyed fallback only ever covers records no config has claimed.
+        second_token = generate_scim_token()
+        second_config = IdentityProviderConfig.objects.create(
+            organization=self.organization,
+            scim_enabled=True,
+            scim_bearer_token=second_token.hashed,
+            scim_slug="second-config-slug",
+            saml_relay_state="second-config-relay",
+        )
+        self.domain.identity_provider_config = second_config
+        self.domain.save()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {second_token.plain}")
+
+        read = self.client.get(f"/scim/v2/second-config-slug/Users/{self.provisioned.id}")
+        deprovision = self.client.delete(f"/scim/v2/second-config-slug/Users/{self.provisioned.id}")
+
+        assert read.json()["userName"] == "already@example.com"  # its own view of the user, not the other config's
+        assert deprovision.status_code == status.HTTP_204_NO_CONTENT
+        assert SCIMProvisionedUser.objects.filter(pk=self.legacy_record.pk).exists()
+
     def test_claiming_a_second_unclaimed_record_does_not_surface_the_constraint(self):
         # Two domains of one config can each hold an unclaimed record for the same user. Claiming
         # one takes (user, config), so the next write's attempt on the other hits the unique

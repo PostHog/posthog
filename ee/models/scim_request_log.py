@@ -6,10 +6,14 @@ SCIM_REQUEST_LOG_RETENTION_DAYS = 180
 
 
 class SCIMRequestLog(UUIDModel):
-    # The `IdentityProviderConfig` the request authenticated against — the SCIM tenant.
+    # The `IdentityProviderConfig` the request authenticated against — the SCIM tenant. Deleting a
+    # config must not erase the record of what its IdP did to org memberships, which is the artifact
+    # an investigation after an IdP or admin-session compromise starts from, so the row outlives it
+    # and ages out on the retention window instead. It drops out of the per-domain listing at that
+    # point: with the config gone there is no domain left to list it under.
     identity_provider_config = models.ForeignKey(
         "posthog.IdentityProviderConfig",
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         related_name="scim_request_logs",
         null=True,
         blank=True,
