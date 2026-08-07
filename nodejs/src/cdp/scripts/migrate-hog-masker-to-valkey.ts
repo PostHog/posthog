@@ -15,7 +15,8 @@ import {
 
 const PHASES: MigrationPhase[] = ['stats', 'copy', 'check']
 
-const USAGE = `Usage: node dist/cdp/scripts/migrate-hog-masker-to-valkey.js [options]
+// The image ships dist rather than src, and an exec lands in /code, so that is the path to document.
+const USAGE = `Usage: node nodejs/dist/cdp/scripts/migrate-hog-masker-to-valkey.js [options]
 
 Copies HogMasker counters from the CDP Redis to the shadow Valkey. Counters are created with
 SET NX, so a key the mirror is already maintaining is never overwritten and writers can keep
