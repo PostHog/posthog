@@ -78,6 +78,7 @@ def classify_task_needs_repo(
         "recording",
         "mcp",
         "webhook",
+        "scout",
         # Analytics primitives and data asks
         "events",
         "persons",
