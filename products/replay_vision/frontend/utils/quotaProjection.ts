@@ -5,6 +5,8 @@ import { billableCredits, formatCreditCount } from './credits'
 
 export const QUOTA_WARN_THRESHOLD = 0.85
 
+export const IMMINENT_CAP_DAYS = 3
+
 export type QuotaStatus = 'safe' | 'warning' | 'danger'
 
 export const QUOTA_STATUS_STYLES: Record<QuotaStatus, { bar: string; text: string }> = {
@@ -128,6 +130,15 @@ export function projectQuota(
         usedFreePct: (Math.min(used, quota.free_monthly_credits) / cap) * 100,
         projectedPct: (projectedAdditional / cap) * 100,
     }
+}
+
+/** Null unless the limit lands within IMMINENT_CAP_DAYS and scanning hasn't already stopped. */
+export function daysUntilCapReached(projection: QuotaProjection): number | null {
+    if (!projection.capReachDate || projection.exhausted) {
+        return null
+    }
+    const days = Math.max(projection.capReachDate.diff(dayjs(), 'day', true), 0)
+    return days <= IMMINENT_CAP_DAYS ? days : null
 }
 
 /** Apportion a projected percentage between this scanner and the rest of the fleet by monthly credit volume. */
