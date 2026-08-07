@@ -7,9 +7,9 @@ const BRIDGE_MARKER = "__POSTHOG_ARTIFACT_COMMENT_BRIDGE__";
  * credentials or writes to the API: selection and highlight traffic goes
  * through the trusted parent with a per-view channel.
  */
-function artifactHtmlCommentBridge(channel: string): string {
+function artifactHtmlCommentBridge(channel: string, nonce: string): string {
   const safeChannel = JSON.stringify(channel);
-  return `<script data-posthog-artifact-comments>(function(){
+  return `<script nonce="${nonce}" data-posthog-artifact-comments>(function(){
 "use strict";
 var CHANNEL=${safeChannel};
 var MARKER=${JSON.stringify(BRIDGE_MARKER)};
@@ -42,8 +42,9 @@ style();send("ready");
 export function injectArtifactHtmlCommentBridge(
   html: string,
   channel: string,
+  nonce: string,
 ): string {
-  const bridge = artifactHtmlCommentBridge(channel);
+  const bridge = artifactHtmlCommentBridge(channel, nonce);
   const bodyEnd = html.toLowerCase().lastIndexOf("</body>");
   if (bodyEnd >= 0) {
     return `${html.slice(0, bodyEnd)}${bridge}${html.slice(bodyEnd)}`;

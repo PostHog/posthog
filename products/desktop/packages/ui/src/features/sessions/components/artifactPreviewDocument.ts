@@ -6,10 +6,17 @@ export function artifactHtmlDocument(
   html: string,
   commentBridgeChannel?: string,
 ): string {
-  const document = commentBridgeChannel
-    ? injectArtifactHtmlCommentBridge(html, commentBridgeChannel)
-    : html;
-  return applyCspToHtml(document);
+  // HTML artifacts are document previews, not apps. Canvases are the supported
+  // surface for authored JavaScript; only this trusted annotation bridge runs here.
+  if (!commentBridgeChannel) {
+    return applyCspToHtml(html, undefined, null);
+  }
+  const nonce = crypto.randomUUID();
+  return applyCspToHtml(
+    injectArtifactHtmlCommentBridge(html, commentBridgeChannel, nonce),
+    undefined,
+    nonce,
+  );
 }
 export async function artifactPreviewBlob(
   blob: Blob,

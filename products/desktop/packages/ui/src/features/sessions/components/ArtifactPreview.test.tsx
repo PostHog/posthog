@@ -737,6 +737,14 @@ describe("ArtifactPreview", () => {
     expect(document).toContain("scrollIntoView");
     expect(document).toContain("new MutationObserver");
     expect(document).toContain("state.renderTimer");
+    const nonce = document.match(
+      /<script nonce="([^"]+)" data-posthog-artifact-comments>/,
+    )?.[1];
+    expect(nonce).toBeTruthy();
+    expect(document).toContain(`script-src &#39;nonce-${nonce}&#39;`);
+    expect(document).not.toContain(
+      "script-src &#39;self&#39; &#39;unsafe-inline&#39;",
+    );
   });
 
   it("keeps sensitive capabilities blocked in HTML artifacts", () => {
@@ -751,7 +759,8 @@ describe("ArtifactPreview", () => {
     expect(document).toContain("frame-src &#39;none&#39;");
     expect(document).toContain("form-action &#39;none&#39;");
     expect(document).toContain("img-src &#39;self&#39; data:");
-    expect(document).toContain(
+    expect(document).toContain("script-src &#39;none&#39;");
+    expect(document).not.toContain(
       "script-src &#39;self&#39; &#39;unsafe-inline&#39;",
     );
   });
