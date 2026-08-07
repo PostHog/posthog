@@ -9,7 +9,14 @@ from parameterized import parameterized
 from rest_framework import status
 
 from products.apm.backend.facade.api import BaselineStage, Direction, IssueState, TrafficTier, VerdictType
-from products.logs.backend.anomaly_scan import ScanBucket, ScanBudgetExceeded, ScanIssue, ScanResult, ScanSeries
+from products.logs.backend.anomaly_scan import (
+    ScanBucket,
+    ScanBudgetExceeded,
+    ScanExecutionError,
+    ScanIssue,
+    ScanResult,
+    ScanSeries,
+)
 from products.logs.backend.presentation.views.anomalies_api import LogsAnomalyScanRequestSerializer
 
 UTC = dt.UTC
@@ -167,3 +174,14 @@ class TestLogsAnomalyScanAPI(APIBaseTest):
         ):
             response = self.client.post(self.url, self._payload(), format="json")
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    def test_scan_execution_error_returns_typed_500(self):
+        # A scan failure must relay a typed message, not the opaque generic
+        # {"detail": "A server error occurred."} the 500 handler emits.
+        with patch(
+            "products.logs.backend.presentation.views.anomalies_api.run_scan",
+            side_effect=ScanExecutionError("Anomaly scan for service 'svc' failed while querying log volume"),
+        ):
+            response = self.client.post(self.url, self._payload(), format="json")
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert response.json()["error"] == "Anomaly scan for service 'svc' failed while querying log volume"

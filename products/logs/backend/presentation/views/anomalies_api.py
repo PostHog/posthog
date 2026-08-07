@@ -14,7 +14,13 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import LogsAnomalyScanBurstRateThrottle, LogsAnomalyScanSustainedRateThrottle
 
-from products.logs.backend.anomaly_scan import MAX_EVAL_DAYS, ScanBudgetExceeded, floor_to_bucket, run_scan
+from products.logs.backend.anomaly_scan import (
+    MAX_EVAL_DAYS,
+    ScanBudgetExceeded,
+    ScanExecutionError,
+    floor_to_bucket,
+    run_scan,
+)
 
 SCAN_CACHE_TTL_SECONDS = 60
 
@@ -203,6 +209,10 @@ class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 response=LogsAnomalyScanErrorSerializer,
                 description="The scan exceeded its read budget at every degradation step.",
             ),
+            500: OpenApiResponse(
+                response=LogsAnomalyScanErrorSerializer,
+                description="The scan failed while querying logs or evaluating the detector.",
+            ),
         },
         summary="Scan a service's logs for volume anomalies",
         description=(
@@ -234,6 +244,10 @@ class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             result = run_scan(self.team, service_name, eval_start, eval_end)
         except ScanBudgetExceeded as err:
             return Response({"error": str(err)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+        except ScanExecutionError as err:
+            # The scan already logged and captured the underlying traceback; relay a
+            # typed message instead of falling through to the opaque 500 handler.
+            return Response({"error": str(err)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         response_data = LogsAnomalyScanResponseSerializer(result).data
         cache.set(cache_key, response_data, SCAN_CACHE_TTL_SECONDS)

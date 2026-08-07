@@ -7,6 +7,7 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 
 import numpy as np
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
 from posthog.errors import CHQueryErrorTooManyBytes
@@ -26,6 +27,7 @@ from products.apm.backend.facade.api import (
 from products.logs.backend.anomaly_scan import (
     BindingConstraint,
     ScanBudgetExceeded,
+    ScanExecutionError,
     TimeRange,
     baseline_slice_ranges,
     degradation_ladder,
@@ -218,6 +220,39 @@ class TestRunScan(SimpleTestCase):
         ):
             with self.assertRaises(ScanBudgetExceeded):
                 run_scan(_team(), "svc", T0 - 2 * BUCKETS_PER_DAY * BUCKET, T0, now=self._now())
+
+    def test_non_budget_fetch_error_is_captured_and_wrapped(self) -> None:
+        # A ClickHouse error that is not a byte/timeout overrun (e.g. the type
+        # mismatch that first broke this endpoint) used to fall through as a bare
+        # 500 with no captured traceback. It must now be captured and re-raised as
+        # ScanExecutionError, without burning through the degradation ladder.
+        query_error = ServerException("type mismatch in IN", code=386)
+        with (
+            patch("products.logs.backend.anomaly_scan.fetch_bucket_counts", side_effect=query_error) as fetch,
+            patch("products.logs.backend.anomaly_scan.capture_exception") as capture,
+        ):
+            with self.assertRaises(ScanExecutionError) as caught:
+                run_scan(_team(), "svc", T0, T0 + 12 * BUCKET, now=self._now())
+
+        assert caught.exception.__cause__ is query_error
+        fetch.assert_called_once()
+        capture.assert_called_once()
+        assert capture.call_args.args[0] is query_error
+        assert capture.call_args.args[1]["phase"] == "fetch"
+
+    def test_replay_error_is_captured_and_wrapped(self) -> None:
+        replay_error = ValueError("detector blew up")
+        with (
+            patch("products.logs.backend.anomaly_scan.fetch_bucket_counts", return_value={"info": {T0: 100}}),
+            patch("products.logs.backend.anomaly_scan._replay", side_effect=replay_error),
+            patch("products.logs.backend.anomaly_scan.capture_exception") as capture,
+        ):
+            with self.assertRaises(ScanExecutionError) as caught:
+                run_scan(_team(), "svc", T0, T0 + 12 * BUCKET, now=self._now())
+
+        assert caught.exception.__cause__ is replay_error
+        capture.assert_called_once()
+        assert capture.call_args.args[1]["phase"] == "replay"
 
     def test_spike_produces_issue_and_bucket_evidence(self) -> None:
         lookback = 2 * BUCKETS_PER_WEEK

@@ -25,6 +25,7 @@ from enum import StrEnum
 from zoneinfo import ZoneInfo
 
 import numpy as np
+import structlog
 
 from posthog.schema import HogQLQueryModifiers
 
@@ -37,6 +38,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.team.logs_retention import DEFAULT_LOGS_RETENTION_DAYS
 
@@ -65,6 +67,8 @@ from products.apm.backend.facade.api import (
     required_consecutive,
 )
 
+logger = structlog.get_logger(__name__)
+
 BUCKET = dt.timedelta(minutes=BUCKET_MINUTES)
 
 MAX_EVAL_DAYS = 7
@@ -83,6 +87,13 @@ SCAN_MAX_EXECUTION_SECONDS = int(os.environ.get("LOGS_ANOMALY_SCAN_MAX_EXECUTION
 
 class ScanBudgetExceeded(Exception):
     """Every degradation rung blew the byte budget or the scan deadline."""
+
+
+class ScanExecutionError(Exception):
+    """The scan failed for a reason degradation cannot fix: a ClickHouse error
+    that is not a byte-budget or timeout overrun, or the detector raising while
+    replaying. The underlying exception is logged and captured before this is
+    raised, so callers get a typed, relayable failure instead of a bare 500."""
 
 
 class BindingConstraint(StrEnum):
@@ -511,6 +522,35 @@ def _replay(
     return series, issues
 
 
+def _scan_execution_error(
+    err: Exception, team: Team, service_name: str, attempt: ScanAttempt, *, phase: str
+) -> ScanExecutionError:
+    """Log and capture the failing traceback, then build the typed error to raise.
+
+    Nothing recorded the traceback before this existed, so an unhandled failure
+    here reached the client as an opaque 500 and left the team with nothing to
+    debug from."""
+    logger.exception(
+        "logs anomaly scan failed",
+        phase=phase,
+        team_id=team.id,
+        service_name=service_name,
+        lookback_buckets=attempt.lookback_buckets,
+        eval_clipped=attempt.eval_clipped,
+    )
+    capture_exception(
+        err,
+        {
+            "feature": "logs_anomaly_scan",
+            "phase": phase,
+            "team_id": team.id,
+            "service_name": service_name,
+        },
+    )
+    doing = {"fetch": "querying log volume", "replay": "evaluating the detector"}[phase]
+    return ScanExecutionError(f"Anomaly scan for service {service_name!r} failed while {doing}")
+
+
 def run_scan(
     team: Team,
     service_name: str,
@@ -545,8 +585,14 @@ def run_scan(
         try:
             counts = fetch_bucket_counts(team, service_name, ranges, max_execution_seconds=remaining_seconds)
         except (CHQueryErrorTooManyBytes, ClickHouseQueryTimeOut) as err:
+            # A cost or deadline overrun — degrade to a cheaper rung and retry.
             last_error = err
             continue
+        except Exception as err:
+            # Any other ClickHouse failure is a genuine error, not a budget
+            # overrun, so retrying a cheaper rung cannot help. Log and capture the
+            # traceback before it is lost, then raise a typed error.
+            raise _scan_execution_error(err, team, service_name, attempt, phase="fetch") from err
 
         degraded = attempt.lookback_buckets < max(full_lookback, 1) or attempt.eval_clipped
         constraints: list[BindingConstraint] = []
@@ -556,7 +602,10 @@ def run_scan(
             constraints.append(BindingConstraint.TEAM_RETENTION)
 
         config = _jit_config(attempt.lookback_buckets)
-        series, issues = _replay(counts, attempt, service_name, config, ZoneInfo(team.timezone), constraints)
+        try:
+            series, issues = _replay(counts, attempt, service_name, config, ZoneInfo(team.timezone), constraints)
+        except Exception as err:
+            raise _scan_execution_error(err, team, service_name, attempt, phase="replay") from err
         return ScanResult(
             service_name=service_name,
             eval_start=attempt.eval_start,
