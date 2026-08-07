@@ -186,6 +186,20 @@ export function initKea({
                 if (isCancellation) {
                     return
                 }
+                // 2FA/reauth gates return a 403 with one of these codes on every non-whitelisted
+                // request until the user completes setup. apiStatusLogic surfaces them with
+                // dedicated UI, so they're expected control flow, not failures worth reporting —
+                // logging them floods error tracking with a new fingerprint per call site.
+                const isAuthGate =
+                    error?.status === 403 &&
+                    [
+                        'two_factor_setup_required',
+                        'two_factor_verification_required',
+                        'sensitive_action_required_reauth',
+                    ].includes(error?.code)
+                if (isAuthGate) {
+                    return
+                }
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
