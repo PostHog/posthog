@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 19 enabled ops
+ * PostHog API - MCP 20 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -4146,6 +4146,38 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
         .default(logsAlertsSimulateCreateBodyCooldownMinutesDefault)
         .describe('Minutes to wait after firing before sending another notification.'),
     date_from: zod.string().describe("Relative date string for how far back to simulate (e.g. '-24h', '-7d', '-30d')."),
+})
+
+/**
+ * Runs anomaly detection on demand over one service's log volume for the given window. Learns per severity baselines from up to 6 weeks of history and returns per bucket expected bands plus any spike, drop, or silence issues. Synchronous and read only.
+ * @summary Scan a service's logs for volume anomalies
+ */
+export const LogsAnomaliesScanCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const LogsAnomaliesScanCreateBody = /* @__PURE__ */ zod.object({
+    serviceName: zod
+        .string()
+        .describe(
+            "Service to scan (the log record's service_name). Required: the scan aggregates weeks of baseline history from raw logs, so it is scoped to one service per call."
+        ),
+    dateRange: zod
+        .object({
+            date_from: zod.iso
+                .datetime({ offset: true })
+                .describe(
+                    'Start of the evaluation window (ISO 8601). Buckets before this are only used as baseline history.'
+                ),
+            date_to: zod.iso
+                .datetime({ offset: true })
+                .describe('End of the evaluation window (ISO 8601), clamped to now.'),
+        })
+        .describe('Evaluation window to scan for anomalies. May span at most 7 days.'),
 })
 
 export const LogsAttributesRetrieveParams = /* @__PURE__ */ zod.object({
