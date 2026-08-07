@@ -80,7 +80,7 @@ from products.tasks.backend.presentation.serializers import (
     TASK_RUN_PDF_ARTIFACT_MAX_SIZE_BYTES,
     TaskRunLivingArtifactChartRequestSerializer,
 )
-from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
+from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token, get_pr_authorship_mode
 
 
 def _grant_user_github_access(user: User, *, refresh_ttl_seconds: int = 15897600) -> UserIntegration:
@@ -3684,6 +3684,23 @@ class TestTaskAPI(BaseTaskAPITest):
         assert response.status_code == status.HTTP_200_OK
         task.refresh_from_db()
         assert task.github_user_integration_id == user_integration.id
+        mock_workflow.assert_called_once()
+
+    @parameterized.expand([("requested_user", {"pr_authorship_mode": "user"}, "user"), ("unspecified", {}, "bot")])
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_signal_report_authorship(self, _name, extra_payload, expected_mode, mock_workflow):
+        task = self.create_task(created_by=self.user)
+        _grant_user_github_access(self.user)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "interactive", "run_source": "signal_report", **extra_payload},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        assert get_pr_authorship_mode(task_run.task, task_run.state).value == expected_mode
         mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")

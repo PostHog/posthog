@@ -3543,7 +3543,6 @@ def bootstrap_task_run(
     """
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
         PrAuthorshipMode,
-        RunSource,
         cache_github_user_token,
         get_provider_for_runtime_adapter,
         get_reasoning_effort_error,
@@ -3570,8 +3569,6 @@ def bootstrap_task_run(
     initial_permission_mode = validated_data.get("initial_permission_mode")
     imported_mcp_servers = validated_data.get("imported_mcp_servers")
     relayed_mcp_servers = validated_data.get("relayed_mcp_servers")
-    if run_source == RunSource.SIGNAL_REPORT:
-        pr_authorship_mode = PrAuthorshipMode.BOT
 
     extra_state: dict | None = None
     if initial_permission_mode is not None:
@@ -5025,7 +5022,6 @@ def run_task(
     from products.tasks.backend.logic.services.staged_artifacts import get_task_staged_artifacts  # noqa: PLC0415
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
         PrAuthorshipMode,
-        RunSource,
         cache_github_user_token,
         get_provider_for_runtime_adapter,
         get_reasoning_effort_error,
@@ -5109,8 +5105,6 @@ def run_task(
     initial_permission_mode = validated_data.get("initial_permission_mode")
     imported_mcp_servers = validated_data.get("imported_mcp_servers")
     relayed_mcp_servers = validated_data.get("relayed_mcp_servers")
-    if run_source == RunSource.SIGNAL_REPORT:
-        pr_authorship_mode = PrAuthorshipMode.BOT
 
     runtime_state_fields = {
         "pr_authorship_mode": pr_authorship_mode,

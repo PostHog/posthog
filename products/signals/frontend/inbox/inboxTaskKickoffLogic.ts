@@ -11,6 +11,7 @@ import { OriginProduct } from 'products/posthog_ai/frontend/types/taskTypes'
 import {
     ClaudeRuntimeAdapterEnumApi,
     ClaudeTaskRunCreateSchemaApi,
+    PrAuthorshipModeEnumApi,
     ReasoningEffortEnumApi,
     RunSourceEnumApi,
     TaskExecutionModeEnumApi,
@@ -86,11 +87,17 @@ async function createReportTask(
     } as Parameters<typeof api.tasks.create>[0])
 
     // Kick off a cloud run so the task actually executes — creating it alone lands the user on a
-    // "This task hasn't been run yet" screen. `run_source` ties the run to the report and makes any
-    // PR bot-authored server-side, mirroring the auto-start pipeline's `create_and_run_task`.
+    // "This task hasn't been run yet" screen. `run_source` ties the run to the report.
     const runOptions = {
         run_source: RunSourceEnumApi.SignalReport,
         signal_report_id: report.id,
+        // A person asked for this PR, so it should be theirs rather than the bot's, unlike the
+        // reports the auto-start pipeline acts on unprompted. Only implementation runs claim
+        // authorship: a discussion never opens a PR, and asking for a GitHub identity it doesn't
+        // need would block teams that have none.
+        ...(relationship === SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP
+            ? { pr_authorship_mode: PrAuthorshipModeEnumApi.User }
+            : {}),
         // Interactive, not the default background: the user lands on the run page right away, and the
         // agent-server only relays AskUserQuestion (and other approval prompts) to the client on
         // non-background runs — a background run's questions are parked and never rendered as a form.

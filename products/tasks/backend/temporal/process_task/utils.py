@@ -1278,16 +1278,17 @@ def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> P
 
     Newer cloud runs store the mode in ``TaskRun.state``. Older user-created
     runs fall back to user authorship so they still get a human git identity.
+
+    A mode recorded on the run wins over every default below, so a caller that asked for
+    user authorship keeps it. The auto-start pipeline records ``BOT`` for its own runs;
+    a signal-report run with nothing recorded is bot-authored too.
     """
     from products.tasks.backend.models import Task as TaskModel
 
     run_state = parse_run_state(state)
-    if run_state.run_source == RunSource.SIGNAL_REPORT:
-        return PrAuthorshipMode.BOT
     if run_state.pr_authorship_mode is not None:
         return run_state.pr_authorship_mode
-
-    if task.origin_product == TaskModel.OriginProduct.SIGNAL_REPORT:
+    if run_state.run_source == RunSource.SIGNAL_REPORT:
         return PrAuthorshipMode.BOT
 
     return (

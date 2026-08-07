@@ -21,6 +21,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_github_credential_source,
     get_imported_mcp_server_configs,
     get_models_for_runtime_adapter,
+    get_pr_authorship_mode,
     get_relayed_mcp_server_names,
     get_sandbox_github_token,
     get_sandbox_ph_mcp_configs,
@@ -536,6 +537,19 @@ class TestFetchUserMcpServerConfigs(TestCase):
         assert len(configs) == 2
         assert configs[0].name == "Linear"
         assert configs[1].name == "Notion"
+
+
+class TestGetPrAuthorshipMode(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("recorded_mode_wins", {"run_source": "signal_report", "pr_authorship_mode": "user"}, "user"),
+            ("unrecorded_run_defaults_to_bot", {"run_source": "signal_report"}, "bot"),
+            ("unrecorded_rerun_defaults_to_bot", {}, "bot"),
+        ]
+    )
+    def test_signal_report_authorship(self, _name: str, state: dict, expected: str) -> None:
+        task = MagicMock(spec=Task, origin_product=Task.OriginProduct.SIGNAL_REPORT)
+        assert get_pr_authorship_mode(task, state).value == expected
 
 
 class TestGetGitIdentityEnvVars(TestCase):
