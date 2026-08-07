@@ -15,6 +15,7 @@ Do NOT:
 - Import DRF, serializers, or HTTP concerns
 """
 
+import asyncio
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 from enum import Enum
@@ -22,6 +23,7 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import UUID
 
 from django.apps import apps
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import CharField, Exists, OuterRef, Prefetch, Q
@@ -30,6 +32,8 @@ from django.utils import timezone
 import structlog
 from celery import current_app
 from pydantic import ValidationError as PydanticValidationError
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Integration, OrganizationMembership, Tag
@@ -90,6 +94,7 @@ from products.customer_analytics.backend.models import (
     DisplayType,
     EventStream,
     EventStreamMember,
+    Meeting,
     SyncStatus,
     SyncTrigger,
     TargetType,
@@ -2553,6 +2558,124 @@ def get_account_support_tickets(
     if account is None or not account.external_id:
         return []
     return list_account_tickets(team_id, account.external_id, limit=limit)
+
+
+def list_calendar_sync_statuses(team_id: int) -> list[contracts.CalendarSyncStatus]:
+    """Sync state of every connected calendar for the team: last completed sync and
+    whether a run is currently in flight (started but not finished, within the sync
+    activity's timeout — a run past it is considered dead, not running)."""
+    from products.customer_analytics.backend.logic.calendar_sync import (  # noqa: PLC0415 — keeps requests/HogQL layers off the import path
+        LAST_SYNCED_AT_CONFIG_KEY,
+        SYNC_STALE_AFTER,
+        SYNC_STARTED_AT_CONFIG_KEY,
+    )
+
+    statuses = []
+    for integration in Integration.objects.filter(team_id=team_id, kind="google-calendar").order_by("id"):
+        config = integration.config or {}
+        last_synced_at = _parse_datetime(config.get(LAST_SYNCED_AT_CONFIG_KEY))
+        started_at = _parse_datetime(config.get(SYNC_STARTED_AT_CONFIG_KEY))
+        is_syncing = bool(
+            started_at
+            and (last_synced_at is None or started_at > last_synced_at)
+            and started_at > timezone.now() - SYNC_STALE_AFTER
+        )
+        statuses.append(
+            contracts.CalendarSyncStatus(
+                integration_id=integration.id,
+                last_synced_at=last_synced_at,
+                is_syncing=is_syncing,
+            )
+        )
+    return statuses
+
+
+def _parse_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def trigger_calendar_sync(team_id: int, integration_id: int) -> str | None:
+    """Start the calendar-sync workflow for one connected calendar, outside the hourly
+    schedule. Returns 'started', 'already_running' (a sync for this calendar is in
+    flight; the workflow id is deterministic per integration), or None when the
+    integration doesn't exist for this team (→ 404)."""
+    if not Integration.objects.filter(id=integration_id, team_id=team_id, kind="google-calendar").exists():
+        return None
+
+    from posthog.temporal.common.client import sync_connect  # noqa: PLC0415 — keeps temporal off the import path
+
+    from products.customer_analytics.backend.temporal.calendar_sync import (  # noqa: PLC0415 — same
+        CalendarSyncInput,
+        CalendarSyncWorkflow,
+    )
+
+    client = sync_connect()
+    try:
+        asyncio.run(
+            client.start_workflow(
+                CalendarSyncWorkflow.run,
+                CalendarSyncInput(integration_id=integration_id, team_id=team_id),
+                id=f"google-calendar-sync-{integration_id}",
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        )
+    except WorkflowAlreadyStartedError:
+        return "already_running"
+    return "started"
+
+
+def list_account_meetings(
+    team_id: int,
+    account_id: str,
+    user_access_control: "UserAccessControl",
+    *,
+    offset: int = 0,
+    limit: int = 100,
+    search: str | None = None,
+) -> tuple[list[contracts.MeetingView], int] | None:
+    """Synced calendar meetings for an accessible account, newest first, optionally
+    filtered by ``search`` (title or attendee email/name). None when the account isn't
+    accessible (→ 404)."""
+    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+        return None
+    queryset = Meeting.objects.for_team(team_id).filter(account_id=account_id)
+    if search:
+        queryset = queryset.filter(
+            Q(title__icontains=search)
+            | Q(participants__email__icontains=search)
+            | Q(participants__display_name__icontains=search)
+        ).distinct()
+    count = queryset.count()
+    meetings = queryset.order_by("-start_time").prefetch_related("participants")[offset : offset + limit]
+    views = [
+        contracts.MeetingView(
+            id=meeting.id,
+            title=meeting.title,
+            start_time=meeting.start_time,
+            end_time=meeting.end_time,
+            organizer_email=meeting.organizer_email,
+            status=meeting.status,
+            participants=[
+                contracts.MeetingParticipantView(
+                    email=participant.email,
+                    display_name=participant.display_name,
+                    response_status=participant.response_status,
+                    is_organizer=participant.is_organizer,
+                    person_id=participant.person_id,
+                )
+                for participant in meeting.participants.all()
+            ],
+        )
+        for meeting in meetings
+    ]
+    return views, count
 
 
 def list_account_notebooks(

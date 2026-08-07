@@ -2,6 +2,8 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 
 import type { SimpleOption } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -219,6 +221,7 @@ const JOIN_FIELD_TYPES = new Set(['lazy_table', 'virtual_table', 'view', 'materi
 // Joins that already have a friendly, definition-driven picker group — surfacing
 // their raw backing tables (account_id + a JSON blob) would just duplicate them.
 const HIDDEN_JOIN_GROUPS = new Set(['custom_properties', 'relationships'])
+const POSTGRES_BACKED_JOIN_GROUPS = new Set(['tags', 'notebooks'])
 
 // Field types we omit from the "Account properties" group — these are
 // navigation aliases, joined tables (handled separately), or unknown types.
@@ -278,7 +281,8 @@ export function buildAccountColumnGroups(
     allTablesMap: Record<string, DatabaseSchemaTable> | null | undefined,
     warehouseJoins: DataWarehouseViewLink[],
     customPropertyDefinitions: CustomPropertyDefinitionApi[] = [],
-    relationshipDefinitions: AccountRelationshipDefinitionApi[] = []
+    relationshipDefinitions: AccountRelationshipDefinitionApi[] = [],
+    postgresColumnsOnly = false
 ): AccountColumnGroup[] {
     const accountsTable = allTablesMap?.[ACCOUNTS_ACCOUNTS_TABLE_NAME]
     const directOptions: AccountColumnOption[] = []
@@ -299,7 +303,10 @@ export function buildAccountColumnGroups(
     if (accountsTable) {
         for (const field of Object.values(accountsTable.fields)) {
             if (JOIN_FIELD_TYPES.has(field.type)) {
-                if (HIDDEN_JOIN_GROUPS.has(field.name)) {
+                if (
+                    HIDDEN_JOIN_GROUPS.has(field.name) ||
+                    (postgresColumnsOnly && !POSTGRES_BACKED_JOIN_GROUPS.has(field.name))
+                ) {
                     continue
                 }
                 const joinedTable = field.table ? allTablesMap?.[field.table] : undefined
@@ -321,21 +328,23 @@ export function buildAccountColumnGroups(
     // separate `joins` array on the schema response (loaded by `joinsLogic`),
     // not inside the source table's `fields`. Surface them as additional
     // first-class column groups so users don't have to drop to SQL.
-    for (const join of warehouseJoins) {
-        if (
-            !join.source_table_name ||
-            !ACCOUNTS_JOIN_SOURCE_TABLE_NAMES.has(join.source_table_name) ||
-            !join.field_name ||
-            !join.joining_table_name
-        ) {
-            continue
+    if (!postgresColumnsOnly) {
+        for (const join of warehouseJoins) {
+            if (
+                !join.source_table_name ||
+                !ACCOUNTS_JOIN_SOURCE_TABLE_NAMES.has(join.source_table_name) ||
+                !join.field_name ||
+                !join.joining_table_name
+            ) {
+                continue
+            }
+            const joinedTable = allTablesMap?.[join.joining_table_name]
+            if (!joinedTable) {
+                continue
+            }
+            const columnNames = Object.keys(joinedTable.fields)
+            addJoinGroup(join.field_name, buildJoinOptions(join.field_name, columnNames, joinedTable))
         }
-        const joinedTable = allTablesMap?.[join.joining_table_name]
-        if (!joinedTable) {
-            continue
-        }
-        const columnNames = Object.keys(joinedTable.fields)
-        addJoinGroup(join.field_name, buildJoinOptions(join.field_name, columnNames, joinedTable))
     }
 
     // Omit definition-driven groups entirely when the team has no definitions, so the
@@ -366,7 +375,9 @@ export function buildAccountColumnGroups(
         ...relationshipGroups,
         ...customPropertyGroups,
         ...joinGroups,
-        { key: 'sql_expression', label: 'SQL expression', options: [], isFreeform: true },
+        ...(postgresColumnsOnly
+            ? []
+            : [{ key: 'sql_expression' as const, label: 'SQL expression', options: [], isFreeform: true }]),
     ]
 }
 
@@ -374,6 +385,7 @@ export function buildAccountColumnGroups(
 export interface accountsColumnConfigLogicValues {
     allTablesMap: Record<string, DatabaseSchemaTable> // databaseTableListLogic
     databaseLoading: boolean // databaseTableListLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     warehouseJoins: DataWarehouseViewLink[] // joinsLogic
     warehouseJoinsLoading: boolean // joinsLogic
     currentProjectId: number | null // projectLogic
@@ -398,6 +410,7 @@ export interface accountsColumnConfigLogicValues {
     editingColumn: string | null
     editingColumnIndex: number | null
     filteredColumnOptions: AccountPickerColumnOption[]
+    hogqlCleanupEnabled: boolean
     pickerGroupKey: PickerGroupKey
     pickerSearch: string
     pickerSearchPlaceholder: string
@@ -527,11 +540,13 @@ export interface accountsColumnConfigLogicMeta {
             columnDisplay: AccountColumnDisplayState
         ) => string[]
         visibleColumnNames: (querySelectColumns: string[]) => string[]
+        hogqlCleanupEnabled: (featureFlags: FeatureFlagsSet) => boolean
         accountsColumnGroups: (
             allTablesMap: Record<string, DatabaseSchemaTable>,
             warehouseJoins: DataWarehouseViewLink[],
             customPropertyDefinitions: CustomPropertyDefinitionApi[],
-            relationshipDefinitions: AccountRelationshipDefinitionApi[]
+            relationshipDefinitions: AccountRelationshipDefinitionApi[],
+            hogqlCleanupEnabled: boolean
         ) => AccountColumnGroup[]
         activePickerGroup: (
             accountsColumnGroups: AccountColumnGroup[],
@@ -582,6 +597,8 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             ['currentTeamId'],
             projectLogic,
             ['currentProjectId'],
+            featureFlagLogic,
+            ['featureFlags'],
             databaseTableListLogic,
             ['allTablesMap', 'databaseLoading'],
             joinsLogic,
@@ -761,19 +778,32 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             (s) => [s.querySelectColumns],
             (querySelectColumns: string[]): string[] => querySelectColumns.map((c) => extractDisplayLabel(c)),
         ],
+        hogqlCleanupEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_HOGQL_CLEANUP],
+        ],
         accountsColumnGroups: [
-            (s) => [s.allTablesMap, s.warehouseJoins, s.customPropertyDefinitions, s.relationshipDefinitions],
+            (s) => [
+                s.allTablesMap,
+                s.warehouseJoins,
+                s.customPropertyDefinitions,
+                s.relationshipDefinitions,
+                s.hogqlCleanupEnabled,
+            ],
             (
                 allTablesMap: Record<string, DatabaseSchemaTable>,
                 warehouseJoins: DataWarehouseViewLink[],
                 customPropertyDefinitions: CustomPropertyDefinitionApi[],
-                relationshipDefinitions: AccountRelationshipDefinitionApi[]
+                relationshipDefinitions: AccountRelationshipDefinitionApi[],
+                hogqlCleanupEnabled: boolean
             ): AccountColumnGroup[] =>
                 buildAccountColumnGroups(
                     allTablesMap,
                     warehouseJoins,
                     customPropertyDefinitions,
-                    relationshipDefinitions
+                    relationshipDefinitions,
+                    hogqlCleanupEnabled
                 ),
         ],
         activePickerGroup: [

@@ -946,4 +946,179 @@ describe('sourceWizardLogic', () => {
             }
         })
     })
+
+    // Signals setup passes requiredTables to skip the schema step and sync just those tables.
+    describe('requiredTables', () => {
+        const githubSource = {
+            name: 'Github',
+            iconPath: '',
+            caption: null,
+            fields: [],
+        } as SourceConfig
+
+        const apiSchema = (
+            table: string,
+            overrides: Partial<ExternalDataSourceSyncSchema> = {}
+        ): ExternalDataSourceSyncSchema =>
+            ({
+                table,
+                label: null,
+                rows: null,
+                should_sync: false,
+                sync_time_of_day: null,
+                incremental_field: null,
+                incremental_field_type: null,
+                sync_type: null,
+                incremental_fields: [],
+                incremental_available: false,
+                append_available: false,
+                supports_webhooks: false,
+                description: null,
+                should_sync_default: true,
+                primary_key_columns: null,
+                available_columns: [],
+                detected_primary_keys: null,
+                permission_error: null,
+                cdc_available: false,
+                ...overrides,
+            }) as ExternalDataSourceSyncSchema
+
+        const mountRequiredTablesWizard = (
+            requiredTables: string[]
+        ): { logic: ReturnType<typeof sourceWizardLogic>; onComplete: jest.Mock; unmount: () => void } => {
+            const onComplete = jest.fn()
+            const logic = sourceWizardLogic({
+                availableSources: { Github: githubSource },
+                requiredTables,
+                onComplete,
+            })
+            const unmount = logic.mount()
+            logic.actions.selectConnector(githubSource)
+            return { logic, onComplete, unmount }
+        }
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('syncs every repo-qualified row the credentials can read', async () => {
+            // Multi-repo sources name their rows `owner/repo.endpoint`, so an exact-match lookup
+            // for `issues` finds nothing and the wizard bails before creating the source. The
+            // payload forces should_sync on, so an unreadable row must not reach it.
+            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
+                apiSchema('posthog/posthog.issues'),
+                apiSchema('posthog/posthog-js.issues'),
+                apiSchema('posthog/posthog.commits'),
+                apiSchema('posthog/private.issues', { permission_error: 'Requires the "Issues" permission' }),
+            ] as ExternalDataSourceSyncSchema[])
+            const create = jest
+                .spyOn(api.externalDataSources, 'create')
+                .mockResolvedValue({ id: 'source-1' } as Awaited<ReturnType<typeof api.externalDataSources.create>>)
+            const createWebhook = jest.spyOn(api.externalDataSources, 'createWebhook')
+
+            const { logic, onComplete, unmount } = mountRequiredTablesWizard(['issues'])
+
+            try {
+                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+
+                expect(create).toHaveBeenCalledTimes(1)
+                expect(create.mock.calls[0][0].payload?.schemas).toEqual([
+                    expect.objectContaining({ name: 'posthog/posthog.issues', should_sync: true }),
+                    expect.objectContaining({ name: 'posthog/posthog-js.issues', should_sync: true }),
+                ])
+                // Poll-synced tables need no webhook, so completion must not wait on one.
+                expect(createWebhook).not.toHaveBeenCalled()
+                expect(onComplete).toHaveBeenCalled()
+            } finally {
+                unmount()
+            }
+        })
+
+        // Both leave the required table unsatisfied, so neither may create a source that reports
+        // setup as complete: the first would sync nothing, the second would queue a 403 sync.
+        it.each([
+            ['the required table is absent', [apiSchema('posthog/posthog.commits')]],
+            [
+                'every matching row is unreadable',
+                [apiSchema('posthog/posthog.issues', { permission_error: 'Requires the "Issues" permission' })],
+            ],
+        ])('does not create the source when %s', async (_, discoveredSchemas) => {
+            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue(
+                discoveredSchemas as ExternalDataSourceSyncSchema[]
+            )
+            const create = jest.spyOn(api.externalDataSources, 'create')
+
+            const { logic, unmount } = mountRequiredTablesWizard(['issues'])
+
+            try {
+                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+
+                expect(create).not.toHaveBeenCalled()
+                expect(logic.values.isLoading).toBe(false)
+            } finally {
+                unmount()
+            }
+        })
+
+        it('registers the webhook before completing when a required table is webhook-synced', async () => {
+            // GitHub's workflow_runs/workflow_jobs are webhook-only: without registration the
+            // tables stay empty forever, while the signal reports itself as set up.
+            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
+                apiSchema('posthog/posthog.workflow_runs', { supports_webhooks: true }),
+            ] as ExternalDataSourceSyncSchema[])
+            jest.spyOn(api.externalDataSources, 'create').mockResolvedValue({ id: 'source-1' } as Awaited<
+                ReturnType<typeof api.externalDataSources.create>
+            >)
+            const createWebhook = jest
+                .spyOn(api.externalDataSources, 'createWebhook')
+                .mockResolvedValue({ success: true, webhook_url: 'https://example.com/webhook' })
+
+            const { logic, onComplete, unmount } = mountRequiredTablesWizard(['workflow_runs'])
+
+            try {
+                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+
+                expect(createWebhook).toHaveBeenCalledWith('source-1')
+                expect(onComplete).toHaveBeenCalled()
+            } finally {
+                unmount()
+            }
+        })
+
+        it('does not complete on webhook failure, and a resubmit retries the webhook without a duplicate source', async () => {
+            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
+                apiSchema('posthog/posthog.workflow_runs', { supports_webhooks: true }),
+            ] as ExternalDataSourceSyncSchema[])
+            const create = jest.spyOn(api.externalDataSources, 'create').mockResolvedValue({
+                id: 'source-1',
+            } as Awaited<ReturnType<typeof api.externalDataSources.create>>)
+            const createWebhook = jest
+                .spyOn(api.externalDataSources, 'createWebhook')
+                .mockResolvedValueOnce({
+                    success: false,
+                    webhook_url: '',
+                    error: 'Token is missing webhook permissions',
+                })
+                .mockResolvedValueOnce({ success: true, webhook_url: 'https://example.com/webhook' })
+
+            const { logic, onComplete, unmount } = mountRequiredTablesWizard(['workflow_runs'])
+
+            try {
+                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+
+                expect(onComplete).not.toHaveBeenCalled()
+                expect(logic.values.isLoading).toBe(false)
+
+                // The source exists now, so a second submit must retry the webhook, not create again.
+                await expectLogic(logic, () => logic.actions.createSource()).toFinishAllListeners()
+
+                expect(create).toHaveBeenCalledTimes(1)
+                expect(createWebhook).toHaveBeenCalledTimes(2)
+                expect(createWebhook).toHaveBeenLastCalledWith('source-1')
+                expect(onComplete).toHaveBeenCalled()
+            } finally {
+                unmount()
+            }
+        })
+    })
 })
