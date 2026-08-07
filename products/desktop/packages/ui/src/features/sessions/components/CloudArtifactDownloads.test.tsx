@@ -6,8 +6,23 @@ import { CloudArtifactDownloads } from "./CloudArtifactDownloads";
 const getCloudAttachmentPreviewUrl = vi.fn();
 const setCloudRunArtifactsDismissed = vi.fn();
 const openArtifactTab = vi.fn();
+const refetch = vi.fn();
 let fetchedArtifacts: unknown[] | undefined = [];
-let session: { cloudArtifacts?: unknown[]; cloudStatus?: string } = {};
+let session: {
+  cloudArtifacts?: unknown[];
+  cloudStatus?: string;
+  events?: unknown[];
+} = {};
+
+const UPLOAD_TOOL = "mcp__posthog-code-tools__upload_artifact";
+
+function uploadEvent(update: Record<string, unknown>) {
+  return {
+    type: "acp_message",
+    ts: 0,
+    message: { jsonrpc: "2.0", method: "session/update", params: { update } },
+  };
+}
 
 vi.mock("@posthog/core/sessions/sessionService", () => ({
   SESSION_SERVICE: Symbol("SESSION_SERVICE"),
@@ -31,7 +46,7 @@ vi.mock("@posthog/ui/features/auth/store", () => ({
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: () => ({ data: fetchedArtifacts }),
+  useQuery: () => ({ data: fetchedArtifacts, refetch }),
   useMutation: ({
     mutationFn,
     onSuccess,
@@ -83,6 +98,7 @@ describe("CloudArtifactDownloads", () => {
       },
     ];
     session = {};
+    refetch.mockReset();
     getCloudAttachmentPreviewUrl.mockReset();
     setCloudRunArtifactsDismissed.mockReset();
     openArtifactTab.mockReset();
@@ -213,8 +229,8 @@ describe("CloudArtifactDownloads", () => {
     expect(screen.queryByText("report.pdf")).not.toBeInTheDocument();
   });
 
-  // The artifact query is disabled until the run is terminal, so a dismissal mid-run must not
-  // park a snapshot anywhere that outranks the live session store.
+  // A dismissal must not park a snapshot anywhere that outranks the live session store, which is
+  // what the box renders from before the first fetch resolves.
   it("still shows files uploaded after a mid-run dismissal", async () => {
     fetchedArtifacts = undefined;
     session = {
@@ -286,6 +302,35 @@ describe("CloudArtifactDownloads", () => {
 
     expect(screen.getByText("report.pdf")).toBeInTheDocument();
     expect(screen.getByText("Restore")).toBeInTheDocument();
+  });
+
+  // Nothing pushes the run's manifest to this client, so without the tool call as a trigger a
+  // freshly delivered file waits for the backstop poll.
+  it("rereads the manifest as soon as an upload finishes", () => {
+    session = { cloudStatus: "in_progress", events: [] };
+
+    const { rerender } = renderDownloads();
+    refetch.mockClear();
+
+    session.events = [
+      uploadEvent({
+        sessionUpdate: "tool_call",
+        toolCallId: "call-1",
+        _meta: { posthog: { toolName: UPLOAD_TOOL } },
+      }),
+      uploadEvent({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "call-1",
+        status: "completed",
+      }),
+    ];
+    rerender(
+      <Theme>
+        <CloudArtifactDownloads taskId="task-1" task={task} />
+      </Theme>,
+    );
+
+    expect(refetch).toHaveBeenCalled();
   });
 
   // Collapse state lives in a module-scoped store that nothing here resets, so

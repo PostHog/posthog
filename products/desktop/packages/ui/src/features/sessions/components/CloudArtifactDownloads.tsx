@@ -41,7 +41,8 @@ import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { toast } from "@posthog/ui/primitives/toast";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createArtifactUploadTracker } from "./countArtifactUploads";
 
 type ArtifactGroup = RunArtifactVersions<TaskRunArtifact>;
 
@@ -85,18 +86,34 @@ export function CloudArtifactDownloads({
   >({});
   const [showDismissed, setShowDismissed] = useState(false);
   const runId = task?.latest_run?.id;
-  const { data: fetchedArtifacts } = useQuery({
+  const isTerminal = isTerminalStatus(cloudStatus ?? task?.latest_run?.status);
+  const { data: fetchedArtifacts, refetch } = useQuery({
     queryKey: ["cloudRunArtifacts", authIdentity, taskId, runId],
     queryFn: () =>
       sessionService.getCloudRunArtifacts(taskId ?? "", runId ?? ""),
     enabled:
-      authIdentity !== null &&
-      taskId !== undefined &&
-      runId !== undefined &&
-      isTerminalStatus(cloudStatus ?? task?.latest_run?.status),
+      authIdentity !== null && taskId !== undefined && runId !== undefined,
     retry: false,
-    staleTime: Infinity,
+    staleTime: 15_000,
+    // Backstop only, for an upload whose tool call never reached this client.
+    refetchInterval: isTerminal ? false : 30_000,
   });
+
+  // The agent's own upload_artifact call is the earliest signal a new file exists,
+  // so read the manifest the moment one finishes rather than on the next tick.
+  const events = useSessionSelector(taskId, (session) => session?.events);
+  const uploadTracker = useRef<ReturnType<
+    typeof createArtifactUploadTracker
+  > | null>(null);
+  uploadTracker.current ??= createArtifactUploadTracker();
+  const tracker = uploadTracker.current;
+  const completedUploads = useMemo(
+    () => tracker.update(events ?? []),
+    [events, tracker],
+  );
+  useEffect(() => {
+    if (completedUploads > 0) void refetch();
+  }, [completedUploads, refetch]);
   const groups = useMemo(
     () =>
       groupRunArtifactVersions(
@@ -137,10 +154,8 @@ export function CloudArtifactDownloads({
         group.versions.flatMap((version) => version.id ?? []),
         dismissed,
       ),
-    // Overlay just the dismissal stamps from the response. Writing the whole manifest into the
-    // query cache would define `fetchedArtifacts` mid-run, and since the query stays disabled
-    // until the run is terminal, that snapshot would then mask the live session store for good —
-    // hiding every file the agent uploads after a dismissal.
+    // Overlay just the dismissal stamps from the response, so the row updates at once without
+    // parking a whole-manifest snapshot over a source that keeps refreshing behind it.
     onSuccess: (manifest) =>
       setDismissalOverrides((current) => ({
         ...current,
