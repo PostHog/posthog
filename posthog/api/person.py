@@ -45,7 +45,7 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Filter, Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import activity_page_response, get_activity_pagination_params
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.person.bulk_delete import (
@@ -1115,16 +1115,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(operation_id="persons_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        pagination = get_activity_pagination_params(request)
+        limit, page = pagination.limit, pagination.page
 
         activity_page = load_activity(scope="Person", team_id=self.team_id, limit=limit, page=page)
         return activity_page_response(activity_page, limit, page, request)
 
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, pk=None, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        pagination = get_activity_pagination_params(request)
+        limit, page = pagination.limit, pagination.page
         item_id = None
         if pk:
             person = self.get_object()

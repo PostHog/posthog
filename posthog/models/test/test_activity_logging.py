@@ -1,8 +1,17 @@
 from typing import cast
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
-from posthog.models.activity_logging.activity_log import AuditableScope, Change, describe_change, dict_changes_between
+from parameterized import parameterized
+
+from posthog.models.activity_logging.activity_log import (
+    AuditableScope,
+    Change,
+    describe_change,
+    dict_changes_between,
+    get_activity_page,
+)
+from posthog.models.activity_logging.activity_page import ActivityPaginationParamsSerializer
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -77,3 +86,45 @@ class TeatActivityLog(TestCase):
         }
 
         self.assertEqual(dict_changes_between(cast(AuditableScope, "DashboardTile"), previous, new), [])
+
+
+class TestGetActivityPage(SimpleTestCase):
+    # Paginator works on any sequence, so a plain list exercises the out-of-range branch without a DB.
+    def test_page_past_the_end_returns_empty_terminator_not_error(self) -> None:
+        page = get_activity_page(list(range(3)), limit=10, page=99)
+
+        self.assertEqual(page.results, [])
+        self.assertEqual(page.total_count, 3)
+        self.assertFalse(page.has_next)
+        self.assertTrue(page.has_previous)
+
+    def test_valid_last_page_still_returns_its_rows(self) -> None:
+        page = get_activity_page(list(range(15)), limit=10, page=2)
+
+        self.assertEqual(page.results, [10, 11, 12, 13, 14])
+        self.assertEqual(page.total_count, 15)
+        self.assertFalse(page.has_next)
+        self.assertTrue(page.has_previous)
+
+
+class TestActivityPaginationParamsSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("non_numeric_page", {"page": "abc"}, "page"),
+            ("non_numeric_limit", {"limit": "abc"}, "limit"),
+            ("zero_limit", {"limit": "0"}, "limit"),
+            ("negative_page", {"page": "-1"}, "page"),
+        ]
+    )
+    def test_rejects_invalid_param(self, _name: str, data: dict, field: str) -> None:
+        serializer = ActivityPaginationParamsSerializer(data=data)
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn(field, serializer.errors)
+
+    def test_applies_defaults_when_absent(self) -> None:
+        serializer = ActivityPaginationParamsSerializer(data={})
+
+        self.assertTrue(serializer.is_valid())
+        self.assertEqual(serializer.validated_data["limit"], 10)
+        self.assertEqual(serializer.validated_data["page"], 1)

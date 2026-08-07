@@ -3,7 +3,7 @@ from rest_framework import request, viewsets
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models.activity_logging.activity_log import load_all_activity
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import activity_page_response, get_activity_pagination_params
 
 
 class DataManagementViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -11,8 +11,8 @@ class DataManagementViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        pagination = get_activity_pagination_params(request)
+        limit, page = pagination.limit, pagination.page
 
         activity_page = load_all_activity(
             scope_list=["EventDefinition", "PropertyDefinition"],

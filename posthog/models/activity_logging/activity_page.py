@@ -1,3 +1,5 @@
+import dataclasses
+
 from rest_framework import request, response, serializers, status
 
 from posthog.models.activity_logging.activity_log import ActivityPage
@@ -12,6 +14,30 @@ class ActivityLogPaginatedResponseSerializer(serializers.Serializer):
     next = serializers.URLField(allow_null=True)
     previous = serializers.URLField(allow_null=True)
     total_count = serializers.IntegerField()
+
+
+class ActivityPaginationParamsSerializer(serializers.Serializer):
+    """Query params shared by activity log endpoints that hand-parse `limit` and `page`."""
+
+    limit = serializers.IntegerField(required=False, default=10, min_value=1, help_text="Number of items per page")
+    page = serializers.IntegerField(required=False, default=1, min_value=1, help_text="1-indexed page number")
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class ActivityPaginationParams:
+    limit: int
+    page: int
+
+
+def get_activity_pagination_params(request: request.Request) -> ActivityPaginationParams:
+    """Parse `limit` and `page` query params, returning a 400 for non-numeric or out-of-bounds values.
+
+    Guards the endpoints that would otherwise raise a 500 on `int(...)` when the caller passes
+    something like `?page=abc` or `?limit=0`.
+    """
+    serializer = ActivityPaginationParamsSerializer(data=request.query_params)
+    serializer.is_valid(raise_exception=True)
+    return ActivityPaginationParams(limit=serializer.validated_data["limit"], page=serializer.validated_data["page"])
 
 
 def activity_page_response(

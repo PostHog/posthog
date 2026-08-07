@@ -29,7 +29,7 @@ from posthog.helpers.dashboard_templates import create_group_type_mapping_detail
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import GroupUsageMetric, PropertyDefinition
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import activity_page_response, get_activity_pagination_params
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group import Group
 from posthog.models.group.util import create_group, get_group_by_key, list_groups, raw_create_group_ch, save_group
@@ -765,8 +765,8 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         except Group.DoesNotExist:
             raise NotFound()
 
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        pagination = get_activity_pagination_params(request)
+        limit, page = pagination.limit, pagination.page
 
         activity_page = load_activity(
             scope="Group",

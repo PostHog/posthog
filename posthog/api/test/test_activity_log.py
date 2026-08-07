@@ -202,6 +202,31 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         assert [r["scope"] for r in res.json()["results"]] == ["FeatureFlag"] * 6
 
 
+class TestActivityLogPaginationGuards(APIBaseTest):
+    """The `/insights/activity` endpoint parses pagination via the shared helper and pages with
+    `get_activity_page`. These guard both against the 500s a page-walking client used to hit."""
+
+    def _insight_activity(self, query: str = "") -> Any:
+        return self.client.get(f"/api/projects/{self.team.id}/insights/activity{query}")
+
+    def test_page_past_the_end_returns_empty_page_not_500(self) -> None:
+        ActivityLog.objects.create(team_id=self.team.id, scope="Insight", activity="updated", item_id="1")
+
+        res = self._insight_activity("?page=9999")
+
+        assert res.status_code == status.HTTP_200_OK
+        body = res.json()
+        assert body["results"] == []
+        assert body["total_count"] == 1
+        assert body["next"] is None
+
+    @parameterized.expand([("bad_page", "?page=abc"), ("bad_limit", "?limit=abc"), ("zero_limit", "?limit=0")])
+    def test_invalid_pagination_param_returns_400_not_500(self, _name: str, query: str) -> None:
+        res = self._insight_activity(query)
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+
+
 class TestActivityLogAuditLogsGate(APIBaseTest):
     @parameterized.expand([("activity_log",), ("advanced_activity_logs",)])
     def test_endpoint_blocked_on_cloud_without_audit_logs_feature(self, endpoint: str) -> None:

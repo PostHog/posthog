@@ -7,7 +7,7 @@ from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
-from django.core.paginator import Paginator
+from django.core.paginator import EmptyPage, Paginator
 from django.db import models, transaction
 from django.db.models import QuerySet
 from django.db.models.signals import post_save
@@ -1223,7 +1223,18 @@ class ActivityPage:
 
 def get_activity_page(activity_query: models.QuerySet, limit: int = 10, page: int = 1) -> ActivityPage:
     paginator = Paginator(activity_query, limit)
-    activity_page = paginator.page(page)
+    try:
+        activity_page = paginator.page(page)
+    except EmptyPage:
+        # A caller paging past the end — e.g. a script walking pages until they run out — gets an
+        # empty terminator page rather than a 500. total_count still reflects the full result set.
+        return ActivityPage(
+            results=[],
+            total_count=paginator.count,
+            limit=limit,
+            has_next=False,
+            has_previous=page > 1,
+        )
 
     return ActivityPage(
         results=list(activity_page.object_list),

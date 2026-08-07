@@ -34,7 +34,7 @@ from posthog.models.activity_logging.activity_log import (
     load_all_activity,
     log_activity,
 )
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import activity_page_response, get_activity_pagination_params
 from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.organization import Organization
 from posthog.models.utils import generate_random_token
@@ -590,8 +590,8 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], url_path="activity", detail=False)
     def all_activity(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        pagination = get_activity_pagination_params(request)
+        limit, page = pagination.limit, pagination.page
 
         activity_page = load_all_activity(
             scope_list=["Plugin", "PluginConfig"],
@@ -880,8 +880,8 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], url_path="activity", detail=True)
     def activity(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        pagination = get_activity_pagination_params(request)
+        limit, page = pagination.limit, pagination.page
 
         activity_page = load_activity(
             "PluginConfig", team_id=self.team_id, item_ids=[self.get_object().id], limit=limit, page=page
