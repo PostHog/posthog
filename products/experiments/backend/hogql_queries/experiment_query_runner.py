@@ -70,6 +70,7 @@ from products.experiments.backend.hogql_queries.experiment_query_context import 
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_entity_key,
     get_multiple_variant_handling_from_experiment,
+    has_activation_config,
 )
 from products.experiments.backend.hogql_queries.utils import (
     aggregate_variants_across_breakdowns,
@@ -419,6 +420,11 @@ class ExperimentQueryRunner(QueryRunner):
         ):
             return False
 
+        # Activation-mode exposures can't be cached per day: the flag→activation ordering
+        # crosses bucket boundaries.
+        if has_activation_config(self.experiment.exposure_criteria):
+            return False
+
         return not has_uncalculated_cohorts(self.team, self.experiment.exposure_criteria, self.metric)
 
     def _precompute_skip_reason(self) -> Optional[str]:
@@ -434,6 +440,8 @@ class ExperimentQueryRunner(QueryRunner):
             self.experiment.end_date,
         ):
             return "min_runtime"
+        if has_activation_config(self.experiment.exposure_criteria):
+            return "activation_config"
         if has_uncalculated_cohorts(self.team, self.experiment.exposure_criteria, self.metric):
             return "cohort_not_calculated"
         if self.is_data_warehouse_query:
@@ -508,20 +516,16 @@ class ExperimentQueryRunner(QueryRunner):
         )
 
         # Get the "missing" (not directly accessible) parameters required for the builder
-        (
-            exposure_config,
-            multiple_variant_handling,
-            filter_test_accounts,
-        ) = get_exposure_config_params_for_builder(
+        exposure_params = get_exposure_config_params_for_builder(
             self.experiment.exposure_criteria, self.team, self.experiment.start_date
         )
 
         builder = ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=self.feature_flag_key,
-            exposure_config=exposure_config,
-            filter_test_accounts=filter_test_accounts,
-            multiple_variant_handling=multiple_variant_handling,
+            exposure_config=exposure_params.exposure_config,
+            filter_test_accounts=exposure_params.filter_test_accounts,
+            multiple_variant_handling=exposure_params.multiple_variant_handling,
             variants=self.variants,
             date_range_query=self.date_range_query,
             entity_key=self.entity_key,
@@ -529,6 +533,7 @@ class ExperimentQueryRunner(QueryRunner):
             breakdowns=self._get_breakdowns_for_builder(),
             only_count_matured_users=self.experiment.only_count_matured_users,
             cuped_config=self.cuped_config,
+            activation_config=exposure_params.activation_config,
         )
 
         should_precompute = self._should_precompute()
@@ -861,52 +866,21 @@ class ExperimentQueryRunner(QueryRunner):
 
         num_metric_steps = len(self.metric.series)
 
-        # Validate step range (same validation as before)
-        if funnel_step == -1:
-            # -1 would mean "dropped before first metric step" which is invalid
-            # because we only query exposed users who are already past the exposure checkpoint
-            # Build event names string (handle EventsNode, ActionsNode, and ExperimentDataWarehouseNode)
-            from posthog.schema import ActionsNode, EventsNode
-
-            event_names: list[str] = []
-            for step in self.metric.series[:2]:
-                if isinstance(step, EventsNode):
-                    event_names.append(step.event or "All events")
-                elif isinstance(step, ActionsNode):
-                    event_names.append(f"Action {step.id}")
-                else:  # ExperimentDataWarehouseNode
-                    event_names.append(f"DW table {step.table_name}")
-
-            metric_events_str = " → ".join(event_names)
-            if len(self.metric.series) > 2:
-                metric_events_str += " → ..."
-
-            raise ValidationError(
-                f"Cannot query drop-offs before the first metric step in experiment funnels. "
-                f"Experiment funnel structure: [Exposure → {metric_events_str}]. "
-                f"Drop-offs at funnelStep=-1 would mean 'exposed but never entered the funnel', "
-                f"which cannot be queried through the actors API. "
-                f"Valid drop-off steps: -2 (dropped after first metric step) to -{num_metric_steps + 1}."
-            )
-
-        if funnel_step == 0:
-            raise ValidationError(
-                "Funnel steps are 1-indexed. Step 0 does not exist. "
-                f"Valid conversion steps: 1 (first metric step) to {num_metric_steps}."
-            )
-
-        if funnel_step < -1:
+        # funnelStep=-1 is a valid drop-off: "exposed but never reached the first metric step".
+        # step_reached is 0-indexed with exposure as step 0, so the WHERE clause resolves it to
+        # step_reached == 0 — the exposed users who did not validly enter the funnel.
+        if funnel_step < 0:
             max_drop_off = -(num_metric_steps + 1)
             if funnel_step < max_drop_off:
                 raise ValidationError(
                     f"Invalid drop-off step {funnel_step} for experiment with {num_metric_steps} metric steps. "
-                    f"Valid drop-off steps: -2 (dropped after first metric step) to {max_drop_off}."
+                    f"Valid drop-off steps: -1 (exposed, did not reach first metric step) to {max_drop_off}."
                 )
 
         if funnel_step > num_metric_steps:
             raise ValidationError(
                 f"Invalid conversion step {funnel_step} for experiment with {num_metric_steps} metric steps. "
-                f"Valid conversion steps: 1 (first metric step) to {num_metric_steps}."
+                f"Valid conversion steps: 0 (exposure step) to {num_metric_steps}."
             )
 
         # Extract exposure configuration from actors query
@@ -914,15 +888,20 @@ class ExperimentQueryRunner(QueryRunner):
         from posthog.schema import ActionsNode, ExperimentEventExposureConfig
 
         exposure_config: ExperimentEventExposureConfig | ActionsNode
+        activation_config: ExperimentEventExposureConfig | ActionsNode | None = None
         if self.actors_query.exposureConfig is not None:
+            # An explicit override replaces the whole exposure definition, including any
+            # stored activation event.
             exposure_config = resolve_exposure_config_for_builder(
                 self.actors_query.exposureConfig, self.team, self.experiment.start_date
             )
         else:
             # Same resolution as the main experiment query, so the actor list matches the counts.
-            exposure_config, _, _ = get_exposure_config_params_for_builder(
+            exposure_params = get_exposure_config_params_for_builder(
                 self.experiment.exposure_criteria, self.team, self.experiment.start_date
             )
+            exposure_config = exposure_params.exposure_config
+            activation_config = exposure_params.activation_config
 
         # Get multiple variant handling
         if self.actors_query.multipleVariantHandling is not None:
@@ -986,7 +965,13 @@ class ExperimentQueryRunner(QueryRunner):
             funnel_step=funnel_step,
             funnel_step_breakdown=funnel_step_breakdown,
             include_recordings=self.actors_query.includeRecordings or False,
+            activation_config=activation_config,
         )
+
+        # Step 0 is the exposure step: return everyone exposed to the variant,
+        # without funnel evaluation.
+        if funnel_step == 0:
+            return builder.build_exposure_actors_query()
 
         return builder.build_actors_query()
 

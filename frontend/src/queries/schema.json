@@ -4117,6 +4117,17 @@
                 "retry_replay_vision_observation",
                 "get_replay_vision_quota",
                 "create_replay_vision_scanner",
+                "update_replay_vision_scanner",
+                "list_replay_vision_scanners",
+                "delete_replay_vision_scanner",
+                "estimate_replay_vision_scanner",
+                "label_replay_vision_observation",
+                "analyze_replay_vision_impact",
+                "suggest_replay_vision_tags",
+                "read_replay_vision_actions",
+                "update_replay_vision_action",
+                "delete_replay_vision_action",
+                "run_replay_vision_action",
                 "create_replay_vision_action",
                 "upsert_account",
                 "upsert_account_notebook",
@@ -21657,6 +21668,10 @@
             "additionalProperties": false,
             "description": "Exposure criteria for experiment API payloads.",
             "properties": {
+                "activation_config": {
+                    "$ref": "#/definitions/ExperimentApiExposureConfig",
+                    "description": "Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`."
+                },
                 "exposure_config": {
                     "$ref": "#/definitions/ExperimentApiExposureConfig"
                 },
@@ -21931,6 +21946,10 @@
         "ExperimentExposureCriteria": {
             "additionalProperties": false,
             "properties": {
+                "activation_config": {
+                    "$ref": "#/definitions/ExperimentExposureConfig",
+                    "description": "Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`."
+                },
                 "exposure_config": {
                     "$ref": "#/definitions/ExperimentExposureConfig"
                 },
@@ -26979,7 +26998,7 @@
                 },
                 "filters": {
                     "$ref": "#/definitions/HogQLFilters",
-                    "description": "Extra filters applied to query via {filters}"
+                    "description": "Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder"
                 },
                 "globals": {
                     "description": "Extra globals for the query",
@@ -27123,7 +27142,8 @@
                     "type": "boolean"
                 },
                 "filters": {
-                    "$ref": "#/definitions/HogQLFilters"
+                    "$ref": "#/definitions/HogQLFilters",
+                    "description": "Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder"
                 },
                 "kind": {
                     "const": "HogQLQuery",
@@ -27223,6 +27243,10 @@
                 "materializedColumnsOptimizationMode": {
                     "enum": ["disabled", "optimized"],
                     "type": "string"
+                },
+                "mergeFederatedAggregateJoins": {
+                    "description": "Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap",
+                    "type": "boolean"
                 },
                 "optimizeJoinedFilters": {
                     "type": "boolean"
@@ -28424,6 +28448,7 @@
                 "google-cloud-storage",
                 "google-ads",
                 "google-analytics",
+                "google-calendar",
                 "google-search-console",
                 "google-sheets",
                 "linkedin-ads",
@@ -36947,6 +36972,7 @@
                 "experiment created",
                 "experiment analyzed",
                 "experiment view recordings",
+                "experiment replay vision scanner created",
                 "feature flag created",
                 "session_replay_set_filters",
                 "session_replay_experiment_link_clicked",
