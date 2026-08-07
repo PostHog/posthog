@@ -8,10 +8,6 @@ from .avo.template_avo import (
     TemplateAvoMigrator,
     template as avo,
 )
-from .google_pubsub.template_google_pubsub import (
-    TemplateGooglePubSubMigrator,
-    template as google_pubsub,
-)
 from .hubspot.template_hubspot import (
     TemplateHubspotMigrator,
     template as hubspot,
@@ -70,7 +66,6 @@ HOG_FUNCTION_TEMPLATES = [
     blank_site_destination,
     blank_site_app,
     avo,
-    google_pubsub,
     hubspot,
     hubspot_event,
     intercom,
@@ -111,7 +106,6 @@ HOG_FUNCTION_TEMPLATES = [
 
 HOG_FUNCTION_MIGRATORS = {
     TemplateSendGridMigrator.plugin_url: TemplateSendGridMigrator,
-    TemplateGooglePubSubMigrator.plugin_url: TemplateGooglePubSubMigrator,
     TemplatePostHogMigrator.plugin_url: TemplatePostHogMigrator,
     TemplateHubspotMigrator.plugin_url: TemplateHubspotMigrator,
     TemplateRudderstackMigrator.plugin_url: TemplateRudderstackMigrator,
