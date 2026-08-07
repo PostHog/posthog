@@ -8,6 +8,7 @@ import React from 'react'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -30,7 +31,7 @@ import type { BillingLimitConfig } from './billingLimitConfig'
 import { billingLogic } from './billingLogic'
 import type { BillingAlertConfig, SwitchPlanPayload, UnsubscribeError } from './billingLogic'
 import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
-import { paymentEntryLogic } from './paymentEntryLogic'
+import { activateErrorMessage, paymentEntryLogic } from './paymentEntryLogic'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 const DEFAULT_BILLING_LIMIT: number = 500
@@ -1208,7 +1209,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 }
             } catch (error) {
                 posthog.captureException(new Error('payment entry api error - product upgrade error', { cause: error }))
-                lemonToast.error('Failed to activate subscription. Please try again.')
+                if (error instanceof ApiError && error.data?.must_setup_payment) {
+                    paymentEntryLogic.actions.setRedirectPath(redirectPath || null)
+                    paymentEntryLogic.actions.showPaymentEntryModal()
+                } else {
+                    lemonToast.error(activateErrorMessage(error))
+                }
             } finally {
                 actions.setBillingProductLoading(null)
             }

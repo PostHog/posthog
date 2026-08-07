@@ -64,14 +64,35 @@ describe('paymentEntryLogic', () => {
         })
 
         it('surfaces a toast when activate throws', async () => {
-            // 500 body is unused — api.create rejects on non-2xx before reading JSON.
-            setupActivate([500])
+            // A 5xx is a genuine server error — show the generic retry message, not a raw detail.
+            setupActivate([500, { detail: 'A server error occurred.' }])
 
             await expectLogic(logic, () => logic.actions.startPaymentEntryFlow()).toFinishAllListeners()
 
             expect(toastErrorSpy).toHaveBeenCalledWith('Failed to activate subscription. Please try again.')
             expect(logic.values.paymentEntryModalOpen).toBe(false)
             expect(logic.values.apiError).toBe(null)
+        })
+
+        it('surfaces the billing reason when activate returns a structured 4xx', async () => {
+            setupActivate([400, { detail: 'Your card was declined' }])
+
+            await expectLogic(logic, () => logic.actions.startPaymentEntryFlow()).toFinishAllListeners()
+
+            expect(toastErrorSpy).toHaveBeenCalledWith('Your card was declined')
+            expect(logic.values.paymentEntryModalOpen).toBe(false)
+        })
+
+        it('opens the payment entry modal when a 4xx signals must_setup_payment', async () => {
+            setupActivate([400, { must_setup_payment: true }])
+
+            await expectLogic(logic, () =>
+                logic.actions.startPaymentEntryFlow(null, '/replay/home')
+            ).toFinishAllListeners()
+
+            expect(logic.values.paymentEntryModalOpen).toBe(true)
+            expect(logic.values.redirectPath).toBe('/replay/home')
+            expect(toastErrorSpy).not.toHaveBeenCalled()
         })
 
         it('opens the payment entry modal when activate signals must_setup_payment', async () => {

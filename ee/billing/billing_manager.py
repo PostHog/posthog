@@ -354,7 +354,13 @@ class BillingManager:
 
         handle_billing_service_error(res)
 
-        return res.json()
+        try:
+            return res.json()
+        except JSONDecodeError:
+            logger.exception(
+                f"Billing service returned a non-JSON body on activate: {res.status_code}, body: {res.text}"
+            )
+            raise Exception(f"Billing service returned a non-JSON body: {res.status_code}", "body:", res.text)
 
     def deactivate_products(self, organization: Organization, products: str) -> None:
         res = requests.post(

@@ -929,6 +929,44 @@ class TestActivateBillingAPI(APILicensedTest):
         response = self.client.get(url, {"products": "product_1:plan_1"})
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
+    @patch("ee.billing.billing_manager.BillingManager.activate_subscription")
+    def test_activate_billing_service_error_returns_structured_400(self, mock_activate_subscription):
+        # A billing service failure used to escape as a bare 500 with no actionable detail; it must
+        # now surface the upstream reason as a 400 the payment flow can read.
+        mock_activate_subscription.side_effect = Exception(
+            "Billing service returned bad status code: 400",
+            "body:",
+            {"error_message": "Your card was declined", "code": "card_declined", "must_setup_payment": True},
+        )
+
+        response = self.client.post(
+            "/api/billing/activate", {"products": "all_products:"}, content_type="application/json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "statusText": "Billing service returned bad status code: 400",
+                "detail": "Your card was declined",
+                "link": None,
+                "code": "card_declined",
+                "must_setup_payment": True,
+            },
+        )
+
+    @patch("ee.billing.billing_manager.BillingManager.activate_subscription")
+    def test_activate_without_structured_body_still_500s(self, mock_activate_subscription):
+        # A failure that carries no structured billing body is a genuine server error and must not
+        # be masked as a 400.
+        mock_activate_subscription.side_effect = Exception("something unexpected blew up")
+
+        response = self.client.post(
+            "/api/billing/activate", {"products": "all_products:"}, content_type="application/json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     @patch("ee.billing.billing_manager.BillingManager.deactivate_products")
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
     def test_deactivate_success(self, mock_get_billing, mock_deactivate_products):

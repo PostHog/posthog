@@ -199,7 +199,26 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def activate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         organization = self._get_org_required()
         billing_manager = self.get_billing_manager()
-        res = billing_manager.activate_subscription(organization, request.data)
+        try:
+            res = billing_manager.activate_subscription(organization, request.data)
+        except Exception as e:
+            # A billing service failure carries the upstream JSON body as its third arg (see
+            # handle_billing_service_error). Surface it as a structured 400 so the payment flow can
+            # show the real reason (e.g. a declined card) instead of a bare 500. A failure without a
+            # structured body is a genuine server error, so let it propagate.
+            detail_object = e.args[2] if len(e.args) > 2 else None
+            if not isinstance(detail_object, dict):
+                raise
+            return Response(
+                {
+                    "statusText": e.args[0],
+                    "detail": detail_object.get("error_message", detail_object.get("detail")),
+                    "link": detail_object.get("link"),
+                    "code": detail_object.get("code"),
+                    "must_setup_payment": detail_object.get("must_setup_payment", False),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return Response(res, status=status.HTTP_200_OK)
 
     class DeactivateSerializer(serializers.Serializer):
