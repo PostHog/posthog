@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            UPDATE posthog_grouptypemapping\n            SET name_singular = CASE WHEN $3 THEN $4 ELSE name_singular END,\n                name_plural = CASE WHEN $5 THEN $6 ELSE name_plural END,\n                detail_dashboard_id = CASE WHEN $7 THEN $8 ELSE detail_dashboard_id END,\n                default_columns = CASE WHEN $9 THEN $10 ELSE default_columns END\n            WHERE project_id = $1 AND group_type_index = $2\n            RETURNING id::bigint as \"id!\", team_id::bigint as \"team_id!\",\n                      project_id as \"project_id!\",\n                      group_type, group_type_index,\n                      name_singular, name_plural, default_columns,\n                      detail_dashboard_id::bigint, created_at\n            ",
+  "query": "\n            UPDATE posthog_grouptypemapping\n            SET name_singular = CASE WHEN $3 THEN $4 ELSE name_singular END,\n                name_plural = CASE WHEN $5 THEN $6 ELSE name_plural END,\n                detail_dashboard_id = CASE WHEN $7 THEN $8 ELSE detail_dashboard_id END,\n                default_columns = CASE WHEN $9 THEN $10 ELSE default_columns END,\n                created_at = CASE WHEN $11 THEN $12 ELSE created_at END\n            WHERE project_id = $1 AND group_type_index = $2\n            RETURNING id::bigint as \"id!\", team_id::bigint as \"team_id!\",\n                      project_id as \"project_id!\",\n                      group_type, group_type_index,\n                      name_singular, name_plural, default_columns,\n                      detail_dashboard_id::bigint, created_at\n            ",
   "describe": {
     "columns": [
       {
@@ -65,7 +65,9 @@
         "Bool",
         "Int4",
         "Bool",
-        "TextArray"
+        "TextArray",
+        "Bool",
+        "Timestamptz"
       ]
     },
     "nullable": [
@@ -81,5 +83,5 @@
       true
     ]
   },
-  "hash": "b35c743e141eda92fd6cfcf7302c700c6b498b2c6dc4f949ed0d621534d59316"
+  "hash": "8c35e28e5f7ebb6f194c8af0843434abe6be0c6fa597c0b7e8cb2e1f6f3cd697"
 }
