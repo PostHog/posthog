@@ -137,6 +137,34 @@ describe('accountBillingLogic', () => {
             expect(logic.values.ephemeralHiddenSeriesKeysByShortId).toEqual({})
         })
 
+        it('hides and shows all series at once without touching the other insight, and reports the bulk toggle', () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+            mountForKind()
+
+            logic.actions.toggleHiddenSeriesKey('insight-b', 'Recordings-1', 2)
+            logic.actions.setAllSeriesHidden('insight-a', ['Events-0', 'Recordings-1', 'Flags-2'], true)
+            expect(logic.values.ephemeralHiddenSeriesKeysByShortId).toEqual({
+                'insight-a': ['Events-0', 'Recordings-1', 'Flags-2'],
+                'insight-b': ['Recordings-1'],
+            })
+            expect(captureSpy).toHaveBeenLastCalledWith('customer analytics account usage series bulk toggled', {
+                kind,
+                is_hidden: true,
+                series_count: 3,
+            })
+
+            logic.actions.setAllSeriesHidden('insight-a', ['Events-0', 'Recordings-1', 'Flags-2'], false)
+            expect(logic.values.ephemeralHiddenSeriesKeysByShortId).toEqual({
+                'insight-a': [],
+                'insight-b': ['Recordings-1'],
+            })
+            expect(captureSpy).toHaveBeenLastCalledWith('customer analytics account usage series bulk toggled', {
+                kind,
+                is_hidden: false,
+                series_count: 3,
+            })
+        })
+
         // Environments without the saved billing insight (or a failing fetch) must degrade to an
         // empty list, which is what drives the tab's not-found state instead of a crash or broken chart.
         it.each([

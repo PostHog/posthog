@@ -24,6 +24,10 @@ ACTIVITY_ID_OTHER = 99
 STATUS_ID_SUCCESS = 1
 STATUS_ID_FAILURE = 2
 
+# Required on every OCSF event. An audit trail records what happened rather than scoring it, so
+# every entry is Informational; consumers derive severity from their own detection rules.
+SEVERITY_ID_INFORMATIONAL = 1
+
 # `activity` is an unconstrained CharField with no enum and ~57 distinct values in production, so
 # only the ones carrying real volume are mapped. Everything else falls through to activity_id 99
 # plus activity_name, which is OCSF's documented mechanism for an unmapped source activity.
@@ -100,12 +104,16 @@ class ActivityLogOCSFSerializer(serializers.ModelSerializer):
             "category_uid": CATEGORY_UID_IAM,
             "type_uid": class_uid * 100 + activity_id,
             "activity_id": activity_id,
+            "severity_id": SEVERITY_ID_INFORMATIONAL,
             "status_id": STATUS_ID_FAILURE if instance.activity in _FAILURE_ACTIVITIES else STATUS_ID_SUCCESS,
             "entity": {
                 "type": instance.scope,
                 "uid": instance.item_id,
                 "name": detail.get("name"),
             },
+            # Everything here is PostHog-specific with no OCSF equivalent, which is what `unmapped`
+            # is for. Entity Management has no attribute for which fields changed, and the class has
+            # no top-level `org`, so tenancy identifiers have nowhere else to go either.
             "unmapped": {
                 "activity": instance.activity,
                 "changed_fields": changed_fields,
@@ -113,21 +121,27 @@ class ActivityLogOCSFSerializer(serializers.ModelSerializer):
                 "organization_id": str(instance.organization_id) if instance.organization_id else None,
                 "was_impersonated": instance.was_impersonated,
                 "is_system": instance.is_system,
-                "client": instance.client,
             },
         }
 
         if activity_id == ACTIVITY_ID_OTHER:
             event["activity_name"] = instance.activity
 
+        # OCSF requires an actor to carry at least one of app_name, app_uid, invoked_by, process,
+        # session or user, so it is only emitted when there is something to put in it.
+        actor: dict[str, Any] = {}
         if instance.user is not None:
-            event["actor"] = {
-                "user": {
-                    "uid": str(instance.user.uuid),
-                    "email_addr": instance.user.email,
-                    "name": instance.user.first_name,
-                }
+            actor["user"] = {
+                "uid": str(instance.user.uuid),
+                "email_addr": instance.user.email,
+                "name": instance.user.first_name,
             }
+        if instance.client:
+            # `app_name` is "the client application or service that initiated the activity", which is
+            # what the x-posthog-client header records.
+            actor["app_name"] = instance.client
+        if actor:
+            event["actor"] = actor
 
         if instance.ip_address:
             event["src_endpoint"] = {"ip": instance.ip_address}

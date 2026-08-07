@@ -252,6 +252,53 @@ export interface OrganizationAIAccessRequestResponseApi {
 }
 
 /**
+ * * `never` - never
+ * * `live` - live
+ * * `stale` - stale
+ */
+export type FreshnessEnumApi = (typeof FreshnessEnumApi)[keyof typeof FreshnessEnumApi]
+
+export const FreshnessEnumApi = {
+    Never: 'never',
+    Live: 'live',
+    Stale: 'stale',
+} as const
+
+export interface DataFreshnessSourceApi {
+    /** The product this timestamp is about, as a `ProductKey` (e.g. `session_replay`, `logs`). Not an enum: products declare their own data sources, so the set grows without an API change. */
+    data_source: string
+    /** When data of this kind last reached the project. Only sources with data inside the lookback window are listed. */
+    last_data_at: string
+}
+
+export interface DataFreshnessProjectApi {
+    /** ID of the project this freshness verdict is for. */
+    team_id: number
+    /** `live` if data of any kind arrived within `quiet_after_days`, `stale` if none did, `never` if the project has never ingested anything at all.
+     *
+     * * `never` - never
+     * * `live` - live
+     * * `stale` - stale */
+    freshness: FreshnessEnumApi
+    /**
+     * When data of any kind last reached the project, or null if nothing arrived within the lookback window.
+     * @nullable
+     */
+    last_data_at: string | null
+    /** Per-source breakdown, most recently active first. */
+    sources: DataFreshnessSourceApi[]
+}
+
+export interface OrganizationDataFreshnessApi {
+    /** One entry per project the requesting user can see. */
+    results: DataFreshnessProjectApi[]
+    /** How many days back the check looks. Data older than this is not visible to the check. */
+    lookback_days: number
+    /** How many days without data make a project or source count as quiet. */
+    quiet_after_days: number
+}
+
+/**
  * * `engineering` - Engineering
  * * `data` - Data
  * * `product` - Product Management
@@ -760,9 +807,20 @@ export interface ChangeRequestRejectApi {
     reason: string
 }
 
+export interface CommentSlackThreadRefApi {
+    /** Slack channel ID this discussion is mirrored to. */
+    channel_id: string
+    /** Deep link that opens the mirrored Slack thread. */
+    url: string
+}
+
 export interface CommentApi {
     readonly id: string
-    readonly created_by: UserBasicApi
+    readonly created_by: UserBasicApi | null
+    /** @maxLength 79 */
+    scope?: string
+    /** Metadata for the comment target, anchor, thread state, and owning task. */
+    item_context?: unknown
     /** @nullable */
     deleted?: boolean | null
     mentions?: number[]
@@ -771,6 +829,8 @@ export interface CommentApi {
     is_task?: boolean
     /** The user who marked this task complete. Null for open tasks and non-task comments. */
     readonly completed_by: UserBasicApi | null
+    /** The Slack thread this comment's discussion is mirrored to, or null. Set only on a tracked thread-root comment; used to surface an 'Open in Slack' link and hide re-sending. */
+    readonly slack_thread: CommentSlackThreadRefApi | null
     /** @nullable */
     content?: string | null
     rich_content?: unknown
@@ -781,9 +841,6 @@ export interface CommentApi {
      * @nullable
      */
     item_id?: string | null
-    item_context?: unknown
-    /** @maxLength 79 */
-    scope: string
     /**
      * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
      * @nullable
@@ -803,7 +860,11 @@ export interface PaginatedCommentListApi {
 
 export interface PatchedCommentApi {
     readonly id?: string
-    readonly created_by?: UserBasicApi
+    readonly created_by?: UserBasicApi | null
+    /** @maxLength 79 */
+    scope?: string
+    /** Metadata for the comment target, anchor, thread state, and owning task. */
+    item_context?: unknown
     /** @nullable */
     deleted?: boolean | null
     mentions?: number[]
@@ -812,6 +873,8 @@ export interface PatchedCommentApi {
     is_task?: boolean
     /** The user who marked this task complete. Null for open tasks and non-task comments. */
     readonly completed_by?: UserBasicApi | null
+    /** The Slack thread this comment's discussion is mirrored to, or null. Set only on a tracked thread-root comment; used to surface an 'Open in Slack' link and hide re-sending. */
+    readonly slack_thread?: CommentSlackThreadRefApi | null
     /** @nullable */
     content?: string | null
     rich_content?: unknown
@@ -822,9 +885,6 @@ export interface PatchedCommentApi {
      * @nullable
      */
     item_id?: string | null
-    item_context?: unknown
-    /** @maxLength 79 */
-    scope?: string
     /**
      * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
      * @nullable
@@ -832,6 +892,43 @@ export interface PatchedCommentApi {
     readonly completed_at?: string | null
     /** @nullable */
     source_comment?: string | null
+}
+
+export interface SendCommentToSlackApi {
+    /** ID of the Slack integration (kind='slack') whose bot posts the thread. */
+    integration_id: number
+    /**
+     * Slack channel ID to create the mirrored thread in. The bot must be a member of the channel.
+     * @maxLength 255
+     */
+    channel_id: string
+}
+
+export interface CommentSlackThreadApi {
+    readonly id: string
+    /** Resource type of the mirrored discussion (e.g. Insight). */
+    readonly scope: string
+    /**
+     * ID of the resource the discussion is attached to.
+     * @nullable
+     */
+    readonly item_id: string | null
+    /** The thread-root comment whose replies mirror to the Slack thread. */
+    readonly source_comment: string
+    /** Slack integration used to post to and read from the thread. */
+    readonly integration: number
+    /** Slack channel the mirrored thread lives in. */
+    readonly slack_channel_id: string
+    /** Slack thread timestamp anchoring the mirrored thread. */
+    readonly slack_thread_ts: string
+    /**
+     * Slack workspace ID, used to route inbound replies back.
+     * @nullable
+     */
+    readonly slack_team_id: string | null
+    readonly created_at: string
+    /** User who mirrored the discussion. Null if since deleted. */
+    readonly created_by: UserBasicApi | null
 }
 
 export interface PinnedSceneTabApi {
@@ -1477,6 +1574,10 @@ export type CommentsListParams = {
      * @minLength 1
      */
     source_comment?: string
+    /**
+     * Owning task for task, task_artifact, and desktop_canvas comment scopes.
+     */
+    task_id?: string
 }
 
 export type CommentsListCompleted = (typeof CommentsListCompleted)[keyof typeof CommentsListCompleted]
