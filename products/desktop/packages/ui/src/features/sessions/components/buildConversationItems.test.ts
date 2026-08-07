@@ -1062,6 +1062,26 @@ describe("buildConversationItems", () => {
       expect(lastTurnInfo?.isComplete).toBe(true);
     });
 
+    it("pins the steer bubble at the tail while the interrupted reply keeps streaming", () => {
+      const events = [
+        userPromptMsg(1000, 1, "write me a poem"),
+        agentMessageMsg(1001, "Roses are red, "),
+        steerPromptMsg(1002, 2, "what error are you hitting?"),
+        steerAckMsg(1003, 2),
+        agentMessageMsg(1004, "violets are blue."),
+      ];
+
+      const { items } = buildConversationItems(events, null);
+
+      // Mid-stream: the bubble is already visible, and the reply's later
+      // chunks land above it.
+      expect(summarize(items)).toEqual([
+        "user:write me a poem",
+        "Roses are red, violets are blue.",
+        "user:what error are you hitting?",
+      ]);
+    });
+
     it("renders an accepted steer at the turn's end when no consumption boundary arrives", () => {
       const events = [
         userPromptMsg(1000, 1, "write me a poem"),

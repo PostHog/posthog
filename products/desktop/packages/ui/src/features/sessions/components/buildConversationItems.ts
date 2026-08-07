@@ -141,11 +141,13 @@ export interface ItemBuilder {
   /** Runs that emitted `_posthog/run_started`; until then the setup card's
    *  "agent" step stays in_progress rather than completing at HTTP-boot time. */
   runStartedRunIds: Set<string>;
-  /** Steer bubbles waiting for their consumption point. A steer joins the
-   *  turn that is already streaming, so its bubble renders where the model
-   *  consumed it (`_posthog/steer_applied`) rather than cutting the streamed
-   *  reply at arrival time. Keyed by the steer's prompt id so a declined ack
-   *  can drop it before the backend redelivers the message as a follow-up. */
+  /** Steer bubbles not yet consumed by the model. A steer joins the turn
+   *  that is already streaming, so its bubble renders immediately but floats
+   *  at the turn's tail: the interrupted reply keeps streaming above it, and
+   *  the bubble settles in place when the model consumes the steer
+   *  (`_posthog/steer_applied`) or the turn ends. Keyed by the steer's
+   *  prompt id so a declined ack can withdraw the bubble before the backend
+   *  redelivers the message as a follow-up. */
   pendingSteers: Map<
     number | string,
     Extract<ConversationItem, { type: "user_message" }>
@@ -225,11 +227,17 @@ function markThoughtCompletionInItems(
   }
 }
 
+/** Items the streaming reply produces enter above any floating steer
+ *  bubbles, which stay pinned at the tail until the model consumes them. */
+function activeTailIndex(b: ItemBuilder): number {
+  return b.items.length - b.pendingSteers.size;
+}
+
 function pushItem(b: ItemBuilder, update: RenderItem, ts?: number) {
   const turn = b.currentTurn;
   if (!turn) return;
   turn.itemCount++;
-  b.items.push({
+  b.items.splice(activeTailIndex(b), 0, {
     type: "session_update",
     id: `${turn.id}-item-${b.nextId()}`,
     update,
@@ -455,7 +463,7 @@ export function finalizeBuilder(
   // state (local sessions). For cloud sessions isPromptPending is
   // null, meaning that the response hasn't streamed "in" yet
   if (isPromptPending === false) {
-    flushPendingSteers(b);
+    settlePendingSteers(b);
     for (const turn of b.pendingPrompts.values()) {
       turn.isComplete = true;
       turn.durationMs = 0;
@@ -500,27 +508,29 @@ function handlePromptRequest(
     return;
   }
 
-  // A steer joins the turn that is already streaming: keep that turn open,
-  // and hold the steer's bubble until the model consumes it
-  // (`_posthog/steer_applied`) or the turn ends, so the reply being streamed
-  // stays one block instead of splitting at the arrival point. The steer's
-  // prompt response is a synthetic ack handled by handleSteerAck, so it is
-  // not registered in pendingPrompts.
+  // A steer joins the turn that is already streaming: keep that turn open
+  // and pin the steer's bubble to the turn's tail. The interrupted reply
+  // keeps streaming above the bubble until the model consumes the steer
+  // (`_posthog/steer_applied`) or the turn ends; the steered reply then
+  // lands below it. The steer's prompt response is a synthetic ack handled
+  // by handleSteerAck, so it is not registered in pendingPrompts.
   const isSteer =
     (msg.params as { _meta?: { steer?: unknown } } | undefined)?._meta
       ?.steer === true;
   if (isSteer && b.currentTurn && !b.currentTurn.isComplete) {
-    b.pendingSteers.set(msg.id, {
+    const bubble: Extract<ConversationItem, { type: "user_message" }> = {
       type: "user_message",
       id: `turn-${ts}-${msg.id}-user`,
       content: userContent,
       timestamp: ts,
       attachments: userPrompt.attachments,
-    });
+    };
+    b.pendingSteers.set(msg.id, bubble);
+    b.items.push(bubble);
     return;
   }
 
-  flushPendingSteers(b);
+  settlePendingSteers(b);
 
   const turnId = `turn-${ts}-${msg.id}`;
   const toolCalls = new Map<string, ToolCall>();
@@ -607,33 +617,47 @@ function trailingInsertIndex(b: ItemBuilder): number {
   return insertIndex;
 }
 
-function insertNextPendingSteer(b: ItemBuilder): boolean {
-  const next = b.pendingSteers.entries().next();
+function settleOldestPendingSteer(b: ItemBuilder): boolean {
+  const next = b.pendingSteers.keys().next();
   if (next.done) return false;
-  const [promptId, item] = next.value;
-  b.pendingSteers.delete(promptId);
-  b.items.splice(trailingInsertIndex(b), 0, item);
+  b.pendingSteers.delete(next.value);
   return true;
 }
 
-function flushPendingSteers(b: ItemBuilder) {
-  while (insertNextPendingSteer(b)) {
-    // Drain in send order; each bubble lands at the current end of the turn.
-  }
+function settlePendingSteers(b: ItemBuilder) {
+  b.pendingSteers.clear();
 }
 
 /** A declined steer never reaches the model and the backend redelivers it as
- *  a normal follow-up, so keeping its bubble queued would render it twice. */
+ *  a normal follow-up, so leaving the bubble would render the message twice. */
+function withdrawFloatingSteer(
+  b: ItemBuilder,
+  promptId: number | string,
+  bubble: ConversationItem,
+) {
+  b.pendingSteers.delete(promptId);
+  const idx = b.items.indexOf(bubble);
+  if (idx === -1) return;
+  b.items.splice(idx, 1);
+  for (const entry of b.shellExecutes.values()) {
+    if (entry.index > idx) entry.index--;
+  }
+  for (const card of b.progressCards.values()) {
+    if (card.itemIndex > idx) card.itemIndex--;
+  }
+}
+
 function handleSteerAck(
   b: ItemBuilder,
   msg: { id: number | string; result?: unknown },
 ) {
-  if (!b.pendingSteers.has(msg.id)) return;
+  const bubble = b.pendingSteers.get(msg.id);
+  if (!bubble) return;
   const accepted =
     (msg.result as { _meta?: { steer?: unknown } } | undefined)?._meta
       ?.steer === true;
   if (!accepted) {
-    b.pendingSteers.delete(msg.id);
+    withdrawFloatingSteer(b, msg.id, bubble);
   }
 }
 
@@ -662,9 +686,9 @@ function completePromptTurn(
 ) {
   if (turn.isComplete) return;
 
-  // A steer whose consumption boundary never arrived still has to render;
-  // the turn ending is the last ordered place for it.
-  flushPendingSteers(b);
+  // A steer whose consumption boundary never arrived settles where it
+  // floats; the turn ending is its last ordered position.
+  settlePendingSteers(b);
 
   turn.isComplete = true;
   turn.durationMs += ts;
@@ -717,8 +741,9 @@ function handleNotification(
         cwd: params.cwd,
         result: params.result,
       };
-      b.shellExecutes.set(params.id, { item, index: b.items.length });
-      b.items.push(item);
+      const index = activeTailIndex(b);
+      b.shellExecutes.set(params.id, { item, index });
+      b.items.splice(index, 0, item);
     }
     return;
   }
@@ -747,7 +772,7 @@ function handleNotification(
   }
 
   if (isNotification(msg.method, POSTHOG_NOTIFICATIONS.STEER_APPLIED)) {
-    if (!insertNextPendingSteer(b)) {
+    if (!settleOldestPendingSteer(b)) {
       b.pendingTextBlockBreak = true;
     }
     return;
@@ -896,7 +921,7 @@ function ensureProgressCardForGroup(
   const card: ProgressCardState = {
     steps: new Map(),
     renderItem,
-    itemIndex: b.items.length,
+    itemIndex: activeTailIndex(b),
     runId: colon >= 0 ? group.slice(colon + 1) : "",
   };
   b.progressCards.set(group, card);
@@ -1223,7 +1248,8 @@ function appendTextChunk(
 ) {
   if (update.content.type !== "text") return;
 
-  const lastItem = b.items[b.items.length - 1];
+  const tail = activeTailIndex(b);
+  const lastItem = b.items[tail - 1];
   if (
     !b.pendingTextBlockBreak &&
     lastItem?.type === "session_update" &&
@@ -1232,7 +1258,7 @@ function appendTextChunk(
     "content" in lastItem.update &&
     lastItem.update.content.type === "text"
   ) {
-    b.items[b.items.length - 1] = {
+    b.items[tail - 1] = {
       ...lastItem,
       update: {
         ...lastItem.update,
