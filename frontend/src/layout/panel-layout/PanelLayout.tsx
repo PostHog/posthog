@@ -1,5 +1,8 @@
+import './PanelLayout.scss'
+
 import { cva } from 'cva'
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { useRef } from 'react'
 
 import { IconX } from '@posthog/icons'
 
@@ -84,20 +87,39 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
     useMountedLogic(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     useMountedLogic(supportTicketCounterLogic) // Start polling for unread tickets on app load
 
+    const navContainerRef = useRef<HTMLDivElement>(null)
+
+    // On mobile this is the only navigation control, and its whole response is the nav sliding in.
+    // Driving that slide purely off React state means the commit that applies the transform is
+    // shared with — and can be starved by — a heavy scene mounting, so the toggle looks dead for
+    // seconds after a navigation. Writing the open state to a data attribute here, in the click
+    // handler, lets the CSS transition fire immediately regardless of the main thread; the action
+    // still runs so React state (icon, aria-expanded, scrims) catches up once the scene settles.
+    const toggleMobileNav = (): void => {
+        const nextVisible = !isLayoutNavbarVisibleForMobile
+        navContainerRef.current?.setAttribute('data-mobile-nav-open', String(nextVisible))
+        showLayoutNavBar(nextVisible)
+    }
+
     return (
         <>
             {isMobileLayout && (
                 <ButtonPrimitive
-                    onClick={() => showLayoutNavBar(!isLayoutNavbarVisibleForMobile)}
+                    onClick={toggleMobileNav}
                     iconOnly
                     aria-label={isLayoutNavbarVisibleForMobile ? 'Close navigation' : 'Open navigation'}
+                    aria-expanded={isLayoutNavbarVisibleForMobile}
                     className="fixed top-1 left-1 z-760 rounded-lg bg-surface-primary border border-primary shadow-sm"
                 >
                     {isLayoutNavbarVisibleForMobile ? <IconX /> : <IconMenu />}
                 </ButtonPrimitive>
             )}
             <div
+                ref={navContainerRef}
                 id="project-panel-layout"
+                // Slide state lives in a data attribute (not an inline transform) so the click
+                // handler can paint it without waiting for a React commit — see toggleMobileNav.
+                data-mobile-nav-open={isMobileLayout ? String(isLayoutNavbarVisibleForMobile) : undefined}
                 className={cn(
                     panelLayoutStyles({
                         isLayoutNavbarVisibleForMobile,
@@ -112,15 +134,14 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
                 style={
                     isMobileLayout
                         ? ({
-                              // Use CSS transform for slide animation
+                              // The slide transform/transition live in PanelLayout.scss, keyed off
+                              // data-mobile-nav-open, so the toggle can drive them outside React.
                               '--project-panel-width': `${panelWidth}px`,
                               position: 'fixed' as const,
                               top: 0,
                               left: 0,
                               bottom: 0,
                               width: 'var(--project-navbar-width)',
-                              transform: isLayoutNavbarVisibleForMobile ? 'translateX(0)' : 'translateX(-100%)',
-                              transition: 'transform 0.2s ease-out',
                               // Container holds the nav only on mobile (panel renders separately
                               // below). Drop its z to the navbar layer so the dim overlay can slot
                               // between nav (this container) and the panel.

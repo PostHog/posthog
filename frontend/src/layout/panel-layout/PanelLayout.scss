@@ -1,0 +1,27 @@
+// Mobile nav slide.
+//
+// On mobile the nav is the app's only navigation control, and its whole response to a tap is
+// sliding in. Both the show/hide and the transform used to be driven by React state (a `hidden`
+// utility class and an inline transform), so the tap only took effect on the next React commit —
+// which is shared with, and can be starved by, a heavy scene mounting. That left the toggle
+// looking dead for seconds right after a navigation.
+//
+// Keying the visibility off the `data-mobile-nav-open` attribute instead lets the hamburger's
+// click handler set it imperatively, before React commits, so the transition fires regardless of
+// what the main thread is doing. The `#id[attr]` selector outranks the Tailwind display utilities
+// (`hidden`/`block`/`flex`) that the cva still emits, so it wins without touching that class list.
+//
+// The attribute is only rendered on mobile (< 992px); on desktop the nav uses the grid layout and
+// none of these rules apply.
+#project-panel-layout[data-mobile-nav-open] {
+    display: flex;
+    transition: transform 0.2s ease-out;
+}
+
+#project-panel-layout[data-mobile-nav-open='false'] {
+    transform: translateX(-100%);
+}
+
+#project-panel-layout[data-mobile-nav-open='true'] {
+    transform: translateX(0);
+}
