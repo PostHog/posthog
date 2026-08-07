@@ -77,6 +77,7 @@ MAX_LIMIT = 200
 DEFAULT_LIMIT = 50
 
 CACHE_TIMEOUT_SECONDS = 300
+CACHE_VERSION = "v2"
 
 UTC = ZoneInfo("UTC")
 
@@ -91,7 +92,7 @@ def _cache_key(
     to_slot = date_to or "_now"
     # Suffix only when set, so bucketless requests keep their pre-bucket_minutes cache keys.
     bucket_slot = f":{bucket_minutes}" if bucket_minutes else ""
-    return f"personal_spend:{email}:{date_from}:{to_slot}:{product}:{limit}{bucket_slot}"
+    return f"personal_spend:{CACHE_VERSION}:{email}:{date_from}:{to_slot}:{product}:{limit}{bucket_slot}"
 
 
 def _parse_date_param(value: str, field: str, now: datetime.datetime) -> datetime.datetime:
@@ -797,13 +798,16 @@ def _fetch_by_day_model(
 ) -> list[dict[str, Any]]:
     top_models_query = parse_select(
         f"""
-        SELECT arrayJoin(topK({BY_DAY_MODEL_TOP_MODELS})(properties.$ai_model)) AS model
+        SELECT properties.$ai_model AS model
         FROM events
         WHERE {{event_in}}
             AND {{product_filter}}
             AND {{email_filter}}
             AND {{timestamp_filter}}
             AND isNotNull(properties.$ai_model)
+        GROUP BY model
+        ORDER BY sum(toFloat(properties.$ai_total_cost_usd)) DESC, model ASC
+        LIMIT {{limit}}
         """
     )
     top_models_result = execute_hogql_query(
@@ -813,6 +817,7 @@ def _fetch_by_day_model(
             "product_filter": _product_filter(product),
             "email_filter": _email_filter(email),
             "timestamp_filter": _timestamp_filter(from_dt, to_dt),
+            "limit": ast.Constant(value=BY_DAY_MODEL_TOP_MODELS),
         },
         team=team,
         query_type="PersonalSpendByDayModelTopModels",

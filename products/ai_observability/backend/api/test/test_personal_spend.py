@@ -553,6 +553,32 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         assert len(rows) == 7
         assert rows["Other"]["generation_count"] == 5
 
+    def test_by_day_model_selects_top_models_by_cost_not_generation_count(self) -> None:
+        timestamp = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
+        self._create_generation(cost=100.0, model="rare-expensive", timestamp=timestamp, trace_id="rare")
+        for occurrence in range(7):
+            self._create_generation(
+                cost=1.0,
+                model="frequent-cheap",
+                timestamp=timestamp,
+                trace_id=f"frequent-{occurrence}",
+            )
+        for index in range(6):
+            self._create_generation(
+                cost=10.0,
+                model=f"medium-{index}",
+                timestamp=timestamp,
+                trace_id=f"medium-{index}",
+            )
+        flush_persons_and_events()
+
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-15&date_to=2026-06-16")
+        rows = {row["model"]: row for row in response.json()["by_day_model"]}
+
+        assert "rare-expensive" in rows
+        assert "frequent-cheap" not in rows
+        assert rows["Other"]["cost_usd"] == 17.0
+
     def test_by_day_model_keeps_named_top_models_when_unmodeled_events_exist(self) -> None:
         timestamp = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
         for index in range(6):
