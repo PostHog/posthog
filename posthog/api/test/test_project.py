@@ -694,6 +694,16 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             name="User Analytics",
             initiating_user=self.user,
         )
+        Project.objects.create_with_team(
+            organization=self.organization,
+            name="Acme Non-prod",
+            initiating_user=self.user,
+        )
+        Project.objects.create_with_team(
+            organization=self.organization,
+            name="Acme NON PROD Portal",
+            initiating_user=self.user,
+        )
 
         response = self.client.get("/api/projects/?search=Analytics")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -712,6 +722,12 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
         self.assertEqual(len(results), 0)
+
+        for query in ("NON%20PROD", "%22NON%20PROD%22"):
+            response = self.client.get(f"/api/projects/?search={query}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            results = response.json()["results"]
+            self.assertEqual([r["name"] for r in results], ["Acme NON PROD Portal"])
 
     def test_read_only_api_key_cannot_update_project_config_fields(self):
         """API keys with only project:read scope should not be able to modify config fields via /api/projects/."""

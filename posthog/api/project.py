@@ -13,7 +13,7 @@ from django.utils.dateparse import parse_datetime
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
-from rest_framework import exceptions, filters, request, response, serializers, viewsets
+from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
@@ -53,6 +53,7 @@ from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
+from posthog.filters import PhraseSearchFilter
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
@@ -1358,7 +1359,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     queryset = Project.objects.all().select_related("organization").prefetch_related("teams")
     lookup_field = "id"
     ordering = "-created_by"
-    filter_backends = [filters.SearchFilter]
+    filter_backends = [PhraseSearchFilter]
     search_fields = ["name"]
 
     def safely_get_queryset(self, queryset):
