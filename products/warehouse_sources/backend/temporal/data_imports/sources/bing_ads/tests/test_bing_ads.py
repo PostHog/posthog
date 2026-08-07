@@ -312,7 +312,9 @@ class TestKeywordPerformanceReport:
         assert result.primary_keys == ["KeywordId", "TimePeriod"]
         assert result.partition_mode == "datetime"
 
-        list(result.items())
+        items = result.items()
+        assert isinstance(items, Iterable)
+        list(items)
         mock_fetch_chunks.assert_called_once()
 
 
