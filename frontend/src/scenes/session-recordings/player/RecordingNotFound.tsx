@@ -57,7 +57,7 @@ export function RecordingNotFound({ sessionRecordingId }: { sessionRecordingId?:
                 }
             />
             {sessionRecordingId && (
-                <div className="mb-12 mt-4 w-full max-w-xl shrink-0 px-4">
+                <div className="-mt-16 mb-12 w-full max-w-xl shrink-0 px-4">
                     <ReplayCaptureDiagnosticsPanel sessionId={sessionRecordingId} />
                 </div>
             )}

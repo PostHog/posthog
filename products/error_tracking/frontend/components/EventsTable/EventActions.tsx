@@ -6,14 +6,7 @@ import { ErrorEventType } from 'lib/components/Errors/types'
 import { getRecordingStatus, getSessionId } from 'lib/components/Errors/utils'
 import { useRecordingButton } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconLink, IconPlayCircle } from 'lib/lemon-ui/icons'
-import {
-    Button,
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-    Spinner,
-} from 'lib/ui/quill'
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Spinner } from 'lib/ui/quill'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
