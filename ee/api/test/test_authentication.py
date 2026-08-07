@@ -9,6 +9,7 @@ import pytest
 from freezegun.api import freeze_time
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core import mail
 from django.core.exceptions import ValidationError
 from django.test import override_settings
@@ -21,6 +22,7 @@ from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 
@@ -287,6 +289,89 @@ class TestEEAuthenticationAPI(APILicensedTest):
         with self.settings(**GOOGLE_MOCK_SETTINGS), patch("posthog.api.authentication.auth", side_effect=exception):
             response = self.client.get("/login/google-oauth2/")
         self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
+
+    def test_misconfigured_provider_does_not_sign_out_the_current_session(self):
+        # Google isn't configured here, so the provider check fails. It has to run before the session
+        # is touched, otherwise a misconfigured provider signs people out.
+        response = self.client.get("/login/google-oauth2/")
+
+        self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
+        self.assertTrue(self.client.session.get("_auth_user_id"))
+
+    def test_sso_reauth_keeps_the_session(self):
+        with self.settings(**GOOGLE_MOCK_SETTINGS):
+            session_key_before = self.client.session.session_key
+            response = self.client.get("/login/google-oauth2/?reauth=true&next=/settings/user")
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("accounts.google.com", response.headers["Location"])
+        self.assertEqual(self.client.session.session_key, session_key_before)
+
+    def test_failed_sso_reauth_returns_to_the_page_that_asked_for_it(self):
+        with (
+            self.settings(**GOOGLE_MOCK_SETTINGS),
+            patch(
+                "posthog.api.authentication.auth",
+                side_effect=AuthConnectionError(cast(Any, "google-oauth2"), "unreachable"),
+            ),
+        ):
+            response = self.client.get("/login/google-oauth2/?reauth=true&next=/settings/user")
+
+        self.assertRedirects(
+            response, "/settings/user?error_code=improperly_configured_sso", fetch_redirect_response=False
+        )
+        self.assertTrue(self.client.session.get("_auth_user_id"))
+
+    def _begin_google_reauth(self) -> str:
+        response = self.client.get(f"/login/google-oauth2/?reauth=true&next=/settings/user&email={self.user.email}")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        return self.client.session["google-oauth2_state"]
+
+    @patch("social_core.backends.base.BaseAuth.request")
+    def test_sso_reauth_refreshes_the_sensitive_action_window(self, mock_request):
+        UserSocialAuth.objects.create(user=self.user, provider="google-oauth2", uid="google-sub-123")
+        session = self.client.session
+        session[settings.SESSION_STEP_UP_REQUIRED_KEY] = True
+        session.save()
+        last_reauth_at_before = session[settings.SESSION_LAST_REAUTH_AT_KEY]
+
+        with self.settings(**GOOGLE_MOCK_SETTINGS):
+            state = self._begin_google_reauth()
+            mock_request.return_value.json.return_value = {
+                "access_token": "123",
+                "email": self.user.email,
+                "sub": "google-sub-123",
+            }
+            response = self.client.get(f"/complete/google-oauth2/?code=2&state={state}")
+
+        self.assertRedirects(response, "/settings/user", fetch_redirect_response=False)
+        self.assertEqual(self.client.session.get("_auth_user_id"), str(self.user.pk))
+        self.assertGreater(self.client.session[settings.SESSION_LAST_REAUTH_AT_KEY], last_reauth_at_before)
+        self.assertIsNone(self.client.session.get(settings.SESSION_STEP_UP_REQUIRED_KEY))
+
+        login_activity = ActivityLog.objects.filter(scope="User", activity="logged_in").latest("created_at")
+        login_context = cast(dict, login_activity.detail)["context"]
+        self.assertEqual(login_context["reauth"], True)
+        self.assertEqual(login_context["login_method"], "Google OAuth")
+
+    @patch("social_core.backends.base.BaseAuth.request")
+    def test_sso_reauth_with_a_different_identity_is_rejected_without_signing_out(self, mock_request):
+        last_reauth_at_before = self.client.session[settings.SESSION_LAST_REAUTH_AT_KEY]
+
+        with self.settings(**GOOGLE_MOCK_SETTINGS):
+            state = self._begin_google_reauth()
+            mock_request.return_value.json.return_value = {
+                "access_token": "123",
+                "email": "someone-else@posthog.com",
+                "sub": "unassociated-sub",
+            }
+            response = self.client.get(f"/complete/google-oauth2/?code=2&state={state}")
+
+        self.assertRedirects(response, "/settings/user?error_code=reauth_user_mismatch", fetch_redirect_response=False)
+        self.assertEqual(self.client.session.get("_auth_user_id"), str(self.user.pk))
+        self.assertEqual(self.client.session[settings.SESSION_LAST_REAUTH_AT_KEY], last_reauth_at_before)
+        # The stranger's identity must not have been linked to the signed-in account
+        self.assertFalse(UserSocialAuth.objects.filter(user=self.user).exists())
 
     def test_existing_session_remains_valid_when_sso_enforced(self):
         """Test that existing password-authenticated sessions remain valid after SSO is enforced"""
