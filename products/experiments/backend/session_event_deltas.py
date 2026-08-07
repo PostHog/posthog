@@ -96,7 +96,12 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_test_accounts_filter,
     normalize_to_exposure_criteria,
 )
-from products.experiments.backend.metric_events import MetricEventSource, SharedHogQLDatabase, resolve_metric_events
+from products.experiments.backend.metric_events import (
+    MetricEventSource,
+    SharedHogQLDatabase,
+    build_source_condition,
+    resolve_metric_events,
+)
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.session_exposure import SessionExposure, resolve_session_exposure
 
@@ -396,9 +401,13 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
     too_early = len(qualified_arms) < 2
 
     candidates: list[ExperimentWatchCard] = []
+    metric_nodes: dict[str, list[EventsNode]] = {}
     if not too_early:
         candidates = _pick_behavior_cards(scan, arm_keys=qualified_arms)
-        candidates += _metric_card_candidates(metrics, arm_keys=qualified_arms, never_linked=exposure.never_linked)
+        metric_cards, metric_nodes = _metric_card_candidates(
+            metrics, arm_keys=qualified_arms, never_linked=exposure.never_linked
+        )
+        candidates += metric_cards
 
     cards: list[ExperimentWatchCard] = []
     if candidates:
@@ -406,6 +415,7 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
             setup,
             wanted=[(candidate.event, candidate.variant) for candidate in candidates],
             covered_from=scan.covered_from,
+            metric_nodes=metric_nodes,
         )
         for candidate in candidates:
             session_ids = recordings.get((candidate.event, candidate.variant), [])
@@ -689,10 +699,13 @@ def _query_event_deltas(
     # A (person, session) group can carry no exposure at all: server-side events reuse a client
     # session's `$session_id` under their own person, so a covered session can hold a second
     # person who was never exposed in it. Such a group's `session_variant` is NULL and its
-    # `first_exposure` is the epoch default, and both selections below stay correct only because
-    # ClickHouse aggregates skip NULL arguments — countDistinct can't count the NULL toward "saw
-    # two variants", and argMin can't let the epoch-timestamped NULL win. Wrapping these values in
-    # coalesce/assumeNotNull would silently misattribute every person who shares a session.
+    # `first_exposure` is the epoch default, and the variant selections below stay correct only
+    # because ClickHouse aggregates skip NULL arguments — countDistinct can't count the NULL toward
+    # "saw two variants", and argMin can't let the epoch-timestamped NULL win. Wrapping these
+    # values in coalesce/assumeNotNull would silently misattribute every person who shares a
+    # session. The person's behavior and session count get no such implicit protection — their
+    # inputs are non-null even in an unexposed group — so both are conditioned on the group
+    # carrying an exposure explicitly, in `person_rows` below.
     if multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
         # Mirrors get_variant_selection_expr across the person's sessions rather than within one.
         variant_expr: ast.Expr = ast.Call(
@@ -731,13 +744,25 @@ def _query_event_deltas(
     # sessions has seven times the chance to have done anything than one seen in two. Measured on a
     # production experiment that difference alone put nine in ten event names on the same side of
     # the comparison; one session each removes it.
+    # Exposed sessions only, for both the count and the behavior read: a person can also appear in
+    # a covered session someone else was exposed in, and reading behavior from there would break
+    # "read from the first session *they* were exposed in" — their real exposed session's events
+    # silently replaced by whatever they did in a session the comparison never bucketed them by.
+    group_is_exposed = ast.CompareOperation(
+        op=ast.CompareOperationOp.Gt,
+        left=ast.Field(chain=["session_variants"]),
+        right=ast.Constant(value=0),
+    )
     person_rows = ast.SelectQuery(
         select=[
             ast.Alias(alias="variant", expr=variant_expr),
-            ast.Alias(alias="session_count", expr=ast.Call(name="count", args=[])),
+            ast.Alias(alias="session_count", expr=ast.Call(name="countIf", args=[group_is_exposed])),
             ast.Alias(
                 alias="event_names",
-                expr=ast.Call(name="argMin", args=[ast.Field(chain=["event_names"]), ast.Field(chain=["started"])]),
+                expr=ast.Call(
+                    name="argMinIf",
+                    args=[ast.Field(chain=["event_names"]), ast.Field(chain=["started"]), group_is_exposed],
+                ),
             ),
         ],
         select_from=ast.JoinExpr(table=session_rows),
@@ -776,12 +801,13 @@ def _query_event_deltas(
             ast.OrderExpr(expr=ast.Field(chain=["event_name"]), order="ASC"),
             ast.OrderExpr(expr=ast.Field(chain=["variant"]), order="ASC"),
         ],
-        limit=ast.Constant(value=MAX_DELTA_EVENT_ROWS),
+        # One past the cap, so a result that lands exactly on it isn't read as cut short.
+        limit=ast.Constant(value=MAX_DELTA_EVENT_ROWS + 1),
     )
 
     rows = [(str(row[0]), str(row[1]), int(row[2]), int(row[3])) for row in setup.run(query)]
-    events_truncated = len(rows) >= MAX_DELTA_EVENT_ROWS
-    if events_truncated and rows:
+    events_truncated = len(rows) > MAX_DELTA_EVENT_ROWS
+    if events_truncated:
         # The ceiling can land between an event's arm rows, which would read as one arm never
         # having done it. Dropping the last event name is exact rather than nearly right.
         last_event = rows[-1][0]
@@ -895,14 +921,20 @@ def _pick_behavior_cards(scan: SessionEventDeltaScan, *, arm_keys: list[str]) ->
 
 def _metric_card_candidates(
     metrics: list[MetricEventSource], *, arm_keys: list[str], never_linked: frozenset[str]
-) -> list[ExperimentWatchCard]:
+) -> tuple[list[ExperimentWatchCard], dict[str, list[EventsNode]]]:
     """Shortcut cards to recordings around the experiment's own metric events, one per arm.
 
     No strength and no comparison claim: what happened to the metric is the results tab's answer.
     These cards only say "here is the metric's event happening on screen, in this arm". Events that
     have only ever been captured server-side can't back a recording and are skipped outright.
+
+    Also returns each card event's source nodes from the metric whose name the card carries, so the
+    recordings lookup can honor that metric's property filters: the card is labeled with the
+    metric's name, and a recording of the event happening outside the metric would be mislabeled.
     """
     named: list[tuple[str, str]] = []
+    owner_by_event: dict[str, str] = {}
+    nodes_by_event: dict[str, list[EventsNode]] = {}
     for metric in metrics:
         for source in metric.sources:
             node = source.node
@@ -910,11 +942,17 @@ def _metric_card_candidates(
                 continue
             if node.event in UNCOMPARABLE_EVENTS or node.event in never_linked:
                 continue
-            if any(node.event == event for event, _name in named):
-                continue
-            named.append((node.event, metric.metric_name))
+            if node.event not in owner_by_event:
+                owner_by_event[node.event] = metric.metric_uuid
+                nodes_by_event[node.event] = [node]
+                named.append((node.event, metric.metric_name))
+            elif owner_by_event[node.event] == metric.metric_uuid:
+                # Another source of the owning metric on the same event — a funnel can repeat an
+                # event across steps with different filters, and any of them counts as the metric.
+                nodes_by_event[node.event].append(node)
 
-    return [
+    kept = named[:MAX_METRIC_CARD_EVENTS]
+    cards = [
         ExperimentWatchCard(
             kind=WatchCardKind.METRIC,
             event=event,
@@ -924,13 +962,18 @@ def _metric_card_candidates(
             recording_count=0,
             session_ids=[],
         )
-        for event, metric_name in named[:MAX_METRIC_CARD_EVENTS]
+        for event, metric_name in kept
         for arm_key in arm_keys
     ]
+    return cards, {event: nodes_by_event[event] for event, _name in kept}
 
 
 def _recordings_for_cards(
-    setup: _QuerySetup, *, wanted: list[tuple[str, str]], covered_from: datetime
+    setup: _QuerySetup,
+    *,
+    wanted: list[tuple[str, str]],
+    covered_from: datetime,
+    metric_nodes: Optional[dict[str, list[EventsNode]]] = None,
 ) -> dict[tuple[str, str], list[str]]:
     """Recent recorded sessions per (event, arm) pair, most recent first.
 
@@ -941,11 +984,36 @@ def _recordings_for_cards(
     """
     wanted_events = sorted({event for event, _arm in wanted})
     wanted_arms = sorted({arm for _event, arm in wanted})
-    wanted_event_rows = ast.CompareOperation(
-        op=ast.CompareOperationOp.In,
-        left=ast.Field(chain=["event"]),
-        right=ast.Constant(value=wanted_events),
-    )
+    # A metric card's event counts only where the metric's own property filters hold: the card
+    # carries the metric's name, so a recording of the event happening outside the metric would be
+    # mislabeled. An unfiltered source subsumes any filtered one on the same event, so an event
+    # with one stays on the plain name match.
+    filtered_nodes = {
+        event: nodes
+        for event, nodes in (metric_nodes or {}).items()
+        if event in wanted_events and all(node.properties or node.fixedProperties for node in nodes)
+    }
+    plain_events = [event for event in wanted_events if event not in filtered_nodes]
+
+    def card_event_match() -> ast.Expr:
+        # Rebuilt per use site, like the setup's own builders: the HogQL resolver annotates ast
+        # nodes in place, so one instance can't appear in two clauses of the same query.
+        conditions: list[ast.Expr] = []
+        if plain_events:
+            conditions.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["event"]),
+                    right=ast.Constant(value=plain_events),
+                )
+            )
+        for nodes in filtered_nodes.values():
+            conditions.extend(build_source_condition(node, setup.team) for node in nodes)
+        if not conditions:
+            return ast.Constant(value=False)
+        return ast.Or(exprs=conditions) if len(conditions) > 1 else conditions[0]
+
+    wanted_event_rows = card_event_match()
     if setup.exposure.used_fallback:
         # The stamped flag property rides on the wanted events themselves, so their names are the
         # whole predicate.
@@ -984,10 +1052,7 @@ def _recordings_for_cards(
                 alias="events_present",
                 expr=ast.Call(
                     name="groupUniqArrayIf",
-                    args=[
-                        ast.Field(chain=["event"]),
-                        ast.Call(name="has", args=[ast.Constant(value=wanted_events), ast.Field(chain=["event"])]),
-                    ],
+                    args=[ast.Field(chain=["event"]), card_event_match()],
                 ),
             ),
         ],
@@ -1036,9 +1101,15 @@ def _recordings_for_cards(
         limit=ast.Constant(value=MAX_CARD_RECORDING_CANDIDATES * max(len(wanted_events) * len(wanted_arms), 1)),
     )
 
+    # The query emits every (wanted event, wanted arm) pair that occurs — a carded event also
+    # happens in arms that earned no card — but only the pairs a card actually asked for go on to
+    # the replay existence check, which pays per id.
+    wanted_pairs = set(wanted)
     candidates: dict[tuple[str, str], list[str]] = {}
     for row in setup.run(candidates_query):
-        candidates.setdefault((str(row[0]), str(row[1])), []).append(str(row[2]))
+        pair = (str(row[0]), str(row[1]))
+        if pair in wanted_pairs:
+            candidates.setdefault(pair, []).append(str(row[2]))
 
     all_session_ids = sorted({session_id for ids in candidates.values() for session_id in ids})
     if not all_session_ids:

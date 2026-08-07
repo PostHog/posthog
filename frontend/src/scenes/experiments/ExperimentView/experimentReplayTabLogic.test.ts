@@ -803,6 +803,26 @@ describe('experimentReplayTabLogic', () => {
         expect(logic.values.sessionEventDeltas).toEqual(DELTA_RESPONSE)
     })
 
+    it('does not fire a duplicate comparison when the shelf is closed and reopened mid-load', async () => {
+        let resolveLoad: (value: unknown) => void = () => {}
+        ;(experimentsSessionEventDeltasCreate as jest.Mock).mockImplementation(
+            () => new Promise((resolve) => (resolveLoad = resolve))
+        )
+
+        logic.actions.toggleBehaviorComparison()
+        await expectLogic(logic).toDispatchActions(['loadSessionEventDeltas'])
+
+        logic.actions.toggleBehaviorComparison()
+        logic.actions.toggleBehaviorComparison()
+        await expectLogic(logic).toMatchValues({ sessionEventDeltasLoading: true })
+
+        expect(experimentsSessionEventDeltasCreate).toHaveBeenCalledTimes(1)
+
+        resolveLoad(DELTA_RESPONSE)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.sessionEventDeltas).toEqual(DELTA_RESPONSE)
+    })
+
     it("shows a selected card's recordings, in the variant the card belongs to", async () => {
         await expectLogic(logic, () => {
             logic.actions.setMetricSelected('metric-purchase', true)

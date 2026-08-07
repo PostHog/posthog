@@ -799,10 +799,10 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             }
         },
         // Opening the panel is what runs the comparison — it is the heaviest read here, and most
-        // visits to the tab don't want it. Reopening reuses what's loaded; the server-side cache
-        // covers a deliberate reload.
+        // visits to the tab don't want it. Reopening reuses what's loaded or lets a pending load
+        // finish rather than firing a duplicate; the server-side cache covers a deliberate reload.
         toggleBehaviorComparison: () => {
-            if (values.behaviorComparisonOpen && !values.sessionEventDeltas) {
+            if (values.behaviorComparisonOpen && !values.sessionEventDeltas && !values.sessionEventDeltasLoading) {
                 actions.loadSessionEventDeltas()
             }
         },

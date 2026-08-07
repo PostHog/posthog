@@ -326,6 +326,37 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert data["metric_events"] == ["purchase", "server charge"]
 
     @rank_anything
+    def test_metric_cards_respect_the_metrics_property_filters(self) -> None:
+        experiment = self._create_experiment(
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": "33333333-3333-3333-3333-333333333333",
+                    "name": "Enterprise purchases",
+                    "source": {
+                        "kind": "EventsNode",
+                        "event": "purchase",
+                        "properties": [{"key": "plan", "value": "enterprise", "operator": "exact", "type": "event"}],
+                    },
+                }
+            ]
+        )
+        self._session(variants=["control"], events=[])
+        matching = self._session(variants=["test"], events=["purchase"], properties={"plan": "enterprise"})
+        self._session(variants=["test"], events=["purchase"], properties={"plan": "free"})
+        flush_persons_and_events()
+
+        data = self._post_deltas(experiment).json()
+
+        # The card carries the metric's name, so a purchase outside the metric's filter on it would
+        # be a mislabeled recording, not a shortcut to the metric happening.
+        metric_cards = self._cards(data, "metric")
+        assert [(card["event"], card["variant"]) for card in metric_cards] == [("purchase", "test")]
+        assert metric_cards[0]["session_ids"] == [matching]
+        assert metric_cards[0]["recording_count"] == 1
+
+    @rank_anything
     def test_friction_events_land_on_their_own_shelf(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
         self._arm("control", [["pricing_faq"]] * 2)
@@ -446,6 +477,41 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
 
         assert [(arm["key"], arm["persons"]) for arm in data["arms"]] == [("control", 1), ("test", 1)]
         assert data["multiple_variant_persons"] == 0
+        # The shared session started before their own, so an unconditioned "first covered session"
+        # would read the strayer's behavior as backend_ping and lose pricing_faq — behavior comes
+        # from the first session they were exposed in, and only exposed sessions count.
+        assert sorted((card["event"], card["variant"]) for card in self._cards(data, "behavior")) == [
+            ("checkout_start", "control"),
+            ("pricing_faq", "test"),
+        ]
+        assert [(arm["key"], arm["sessions"]) for arm in data["arms"]] == [("control", 1), ("test", 1)]
+
+    # The fixture produces exactly five (event x arm) rows: two totals, 'faq' in both arms, and
+    # 'rare_event' in one. The cap can't tell "exactly at the ceiling" from "cut short" unless the
+    # query fetches one row past it, so both sides of the boundary are pinned. Past the cap,
+    # 'rare_event' sorts last and must vanish whole — a card built on a partial read would claim
+    # one arm never did it — while the totals sort first, so the arms' counts survive any cut.
+    @parameterized.expand(
+        [
+            ("exactly_at_cap", 5, False, [("rare_event", "test")]),
+            ("past_cap", 4, True, []),
+        ]
+    )
+    @rank_anything
+    def test_event_row_cap_drops_whole_events_only_past_the_cap(
+        self, _name: str, cap: int, truncated: bool, expected_cards: list[tuple[str, str]]
+    ) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
+        self._session(variants=["control"], events=["faq"])
+        self._session(variants=["test"], events=["faq", "rare_event"])
+        flush_persons_and_events()
+
+        with patch.object(session_event_deltas, "MAX_DELTA_EVENT_ROWS", cap):
+            data = self._post_deltas(experiment).json()
+
+        assert data["events_truncated"] is truncated
+        assert [(card["event"], card["variant"]) for card in self._cards(data, "behavior")] == expected_cards
+        assert [(arm["key"], arm["persons"]) for arm in data["arms"]] == [("control", 1), ("test", 1)]
 
     @rank_anything
     def test_an_action_based_exposure_still_backs_its_cards_with_recordings(self) -> None:
