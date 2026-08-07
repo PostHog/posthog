@@ -90,7 +90,7 @@ export interface UpsertWizardRepositoryDetectionRequestApi {
     /** Why the run failed. Exactly one of `report` / `error` must be set. */
     error?: DetectionErrorApi | null
     /**
-     * TaskRun UUID of the cloud run producing this result. Omit for local runs. Must match the run currently stamped on the row when one is; a mismatch is rejected.
+     * TaskRun UUID of the cloud run producing this result. Omit for local runs. Must match the run currently stamped on the row when one is; a mismatch is rejected, and omitting it keeps the stamped run in place.
      * @nullable
      */
     task_run_id?: string | null
