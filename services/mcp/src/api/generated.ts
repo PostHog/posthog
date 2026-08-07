@@ -13476,6 +13476,52 @@ export namespace Schemas {
     }
 
     /**
+     * Sync state of one connected calendar (read-only).
+     */
+    export interface CalendarSyncStatus {
+      /** Id of the google-calendar integration. */
+      readonly integration_id: number;
+      /**
+         * When the last sync run completed; null before the first sync.
+         * @nullable
+         */
+      readonly last_synced_at: string | null;
+      /** Whether a sync run is currently in flight. */
+      readonly is_syncing: boolean;
+    }
+
+    /**
+     * Request body of the calendar sync-now trigger.
+     */
+    export interface CalendarSyncTrigger {
+      /** Id of the google-calendar integration to sync. */
+      integration_id: number;
+    }
+
+    /**
+     * * `started` - started
+     * * `already_running` - already_running
+     */
+    export type CalendarSyncTriggerResponseStatusEnum = typeof CalendarSyncTriggerResponseStatusEnum[keyof typeof CalendarSyncTriggerResponseStatusEnum];
+
+
+    export const CalendarSyncTriggerResponseStatusEnum = {
+      Started: 'started',
+      AlreadyRunning: 'already_running',
+    } as const;
+
+    /**
+     * Response of the calendar sync-now trigger.
+     */
+    export interface CalendarSyncTriggerResponse {
+      /** 'started' (a sync run began) or 'already_running' (a sync for this calendar was already in flight, so this was a no-op).
+       *
+       * * `started` - started
+       * * `already_running` - already_running */
+      status: CalendarSyncTriggerResponseStatusEnum;
+    }
+
+    /**
      * * `needs_approval` - needs_approval
      * * `disabled` - disabled
      * * `removed` - removed
@@ -43807,6 +43853,11 @@ export namespace Schemas {
       readonly response_status: string;
       /** Whether this attendee organized the meeting. */
       readonly is_organizer: boolean;
+      /**
+         * UUID of the PostHog person resolved for this attendee, if any.
+         * @nullable
+         */
+      readonly person_id: string | null;
     }
 
     /**
@@ -46971,6 +47022,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: MaxCoreMemory[];
+    }
+
+    export interface PaginatedMeetingList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Meeting[];
     }
 
     export interface PaginatedMessageCategoryList {
@@ -79231,6 +79291,21 @@ export namespace Schemas {
      * Include ended assignments (the full timeline), not just active ones.
      */
     include_history?: boolean;
+    };
+
+    export type AccountsMeetingsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter meetings by title or attendee email/name.
+     */
+    search?: string;
     };
 
     export type AccountsSummariesListParams = {
