@@ -189,9 +189,25 @@ const TRIPWIRE_RULES = [
     ['.oxlintrc.json', JAVASCRIPT],
     ['.oxfmtrc*', JAVASCRIPT],
     ['.nvmrc', JAVASCRIPT],
+    ['postcss.config.js', JAVASCRIPT],
+    ['.stylelintrc.js', JAVASCRIPT],
+    ['.stylelintignore', JAVASCRIPT],
+    ['.kearc', JAVASCRIPT],
+    // State the posthog-cli schema command writes for this repo, recording the
+    // hash and output path of the generated event definitions. cli/ reads and
+    // rewrites it (cli/src/experimental/schema.rs), and its only generated
+    // output here is frontend/src/lib/posthog-typed.ts, both of which the
+    // javascript domain covers. Nothing in Python reads it.
+    ['posthog.json', JAVASCRIPT],
     ['mypy.ini', PYTHON],
     ['pytest.ini', PYTHON],
     ['conftest.py', PYTHON],
+    ['manage.py', PYTHON],
+    ['pytest_boot_gc.py', PYTHON],
+    ['dagster_cloud.yaml', PYTHON],
+    // Serves the Django app in the production image, so the module paths it
+    // names are the ones a Python change can rename out from under it.
+    ['unit.json.tpl', PYTHON],
 
     // Lockfiles and workspace manifests stay universal. pnpm-workspace.yaml
     // lists frontend, nodejs, services, tools, products, and three rust node
@@ -213,6 +229,9 @@ const TRIPWIRE_RULES = [
     ['.github/**', UNIVERSAL],
     ['docker-compose*.yml', UNIVERSAL],
     ['Dockerfile*', UNIVERSAL],
+    // Decides what lands in the build context of every image built from the
+    // repository root, so it belongs with the Dockerfiles above.
+    ['.dockerignore', UNIVERSAL],
     ['proto/**', UNIVERSAL],
     // schema.json generates posthog/schema.py, and both sides are committed.
     ['frontend/src/queries/schema.json', UNIVERSAL],
@@ -236,7 +255,11 @@ const TRIPWIRE_RULES = [
     // change lands on both sides of the fe/py split at once.
     ['tools/openapi-codegen/**', UNIVERSAL],
     // Ownership data read by the backend, frontend, and script suites alike.
+    // The root owners.yaml is the fallback every path resolves through when no
+    // nearer file claims it, so it has the same readers as the tooling. A
+    // product's own owners.yaml is not here: it keeps its product lane.
     ['tools/owners/**', UNIVERSAL],
+    ['owners.yaml', UNIVERSAL],
     ['.test_durations', UNIVERSAL],
     ['.test_quarantine.json', UNIVERSAL],
     // bin/ appears in the backend, frontend, and E2E path filters alike.
@@ -245,13 +268,23 @@ const TRIPWIRE_RULES = [
     // Holds the Depot-runner copies of the workflows and composite actions in
     // .github/, so it decides what runs for everyone the same way.
     ['.depot/**', UNIVERSAL],
+    // Names the Depot project every container build and runner is billed and
+    // cached against. rust/depot.json is deliberately not here: it configures
+    // builds of that workspace only, and the rust rules below hold it to them.
+    ['depot.json', UNIVERSAL],
     // The toolchain every suite runs inside. ci-python.yml gates on
     // .flox/env/manifest.toml for that reason.
     ['.flox/**', UNIVERSAL],
+    // The environment every suite runs inside: hogli loads .env.development and
+    // .env.services before starting anything, the sandbox image bakes the same
+    // pair, and .envrc activates the flox environment above. The two .example
+    // files ride along rather than earning a rule of their own.
+    ['.env*', UNIVERSAL],
     // ClickHouse, Postgres, and Temporal configuration mounted by every
     // docker-compose file, so it defines the services all the suites test
-    // against.
+    // against. The collector config is mounted the same way, from the root.
     ['docker/**', UNIVERSAL],
+    ['otel-collector-config*.yaml', UNIVERSAL],
     // duckgres.yaml is mounted into the same stack, and intent-map.yaml steers
     // bin/sandbox and hogli, both already tripwires.
     ['devenv/**', UNIVERSAL],
@@ -265,6 +298,11 @@ const TRIPWIRE_RULES = [
 // being guessed at.
 const COMMON_PYTHON = ['hogql_parser', 'hogvm', 'ingestion', 'migration_utils', 'plugin_transpiler', 'alerting']
 const COMMON_FRONTEND = ['esbuilder', 'storybook', 'tailwind', 'replay-shared', 'replay-headless']
+
+// Subdirectories of common/ that both language families read. Test data owned
+// by neither: the ai-multimodal fixtures are loaded by a product's Playwright
+// spec and recorded by a Python script sitting beside them.
+const COMMON_FULLSTACK = ['fixtures']
 
 // Tools that own their whole test story and that no suite imports, so they can
 // hold a lane of their own. Everything else under tools/ falls through to the
@@ -285,10 +323,15 @@ const TOOLS_INDEPENDENT = [
 ]
 
 // Top-level trees that hold a lane instead of falling through to ALL, keyed by
-// directory. Every entry names the suite that would catch a conflict in it, and
-// a tree nobody has placed here still widens, so the list grows by decision
-// rather than by default.
+// the first path segment, which is the directory for a tree and the file name
+// for a file sitting at the repository root. Every entry names the suite that
+// would catch a conflict in it, and a tree nobody has placed here still widens,
+// so the list grows by decision rather than by default.
 const STANDALONE_TREES = new Map([
+    // The cargo-dist workspace, whose only member is cli/. It decides what the
+    // released posthog-cli artifacts contain, and ci-cli.yml builds those from
+    // services/mcp sources, so it takes the same pair cli/ does.
+    ['dist-workspace.toml', ['cli', 'svc:mcp']],
     // A cargo workspace of its own (cli/Cargo.lock, outside rust/ and outside
     // the pnpm workspace). ci-cli.yml also builds it from services/mcp sources,
     // so the two trees have to share a lane.
@@ -334,8 +377,32 @@ const REPO_CONFIG_DIRS = [
     '.vscode',
     '.zed',
 ]
-for (const dir of REPO_CONFIG_DIRS) {
-    STANDALONE_TREES.set(dir, ['repo-config'])
+
+// The same class of file, one per root path rather than one per tree: the
+// ignore and rule files belonging to the directories above, the VCS settings,
+// the review bot's config, and the license. No suite reads any of them. The
+// tools that do read them (direnv, watchman, the worktree helpers, the desktop
+// MCP client) either run outside CI or are driven by bin/, which is universal
+// and so overlaps this lane already.
+//
+// .dockerignore and the .env files are deliberately not here. Both are read by
+// something that every suite runs inside, and both are tripwires above.
+const REPO_CONFIG_FILES = [
+    '.cursorignore',
+    '.cursorrules',
+    '.editorconfig',
+    '.git-blame-ignore-revs',
+    '.gitattributes',
+    '.gitignore',
+    '.mcp.json',
+    '.watchmanconfig',
+    '.worktreeinclude',
+    '.worktreelink',
+    'LICENSE',
+    'greptile.json',
+]
+for (const entry of [...REPO_CONFIG_DIRS, ...REPO_CONFIG_FILES]) {
+    STANDALONE_TREES.set(entry, ['repo-config'])
 }
 
 // Supports the three forms used in TRIPWIRES: `**` spanning directories, `*`
@@ -1128,10 +1195,21 @@ function addRustLanes(targets, context) {
     return true
 }
 
-const TRIPWIRE_DOMAIN_LANES = new Map([
+// The nodejs lane on its own. No tripwire resolves to it, because a file that
+// can break the ingestion suite can almost always break more than that. The
+// rust rules below still need to name it without dragging in the frontend.
+const NODE = 'node'
+
+function addNodeLanes(targets) {
+    targets.add('node:ingestion')
+    return true
+}
+
+const DOMAIN_LANES = new Map([
     [PYTHON, addPythonLanes],
     [JAVASCRIPT, addJavaScriptLanes],
     [RUST, addRustLanes],
+    [NODE, addNodeLanes],
     [PRODUCT_SURFACE, addProductSurfaceLanes],
 ])
 
@@ -1139,8 +1217,44 @@ const TRIPWIRE_DOMAIN_LANES = new Map([
 // to abandon the per-file accumulation and report the whole set.
 function applyTripwireDomain(domain, file, targets, context) {
     const resolved = domain === SEMGREP ? (context.semgrepDomains || new Map()).get(file) || UNIVERSAL : domain
-    const addLanes = TRIPWIRE_DOMAIN_LANES.get(resolved)
+    const addLanes = DOMAIN_LANES.get(resolved)
     return addLanes ? addLanes(targets, context) : false
+}
+
+// Paths under rust/ that belong to no crate, and the domains that read them. A
+// crate directory answers for itself; these do not, so each entry is a decision
+// and a subdirectory nobody has placed here still widens.
+const RUST_NON_CRATE_RULES = [
+    // posthog/conftest.py replays these files to build the persons database
+    // every backend test runs against, so the schema they declare is Python's
+    // as much as it is Rust's.
+    ['rust/persons_migrations/', [RUST, PYTHON]],
+    // The cyclotron tables the nodejs CDP consumers read and write.
+    ['rust/cyclotron-node-migrations/', [RUST, NODE]],
+    ['rust/behavioral_cohorts_migrations/', [RUST]],
+    ['rust/flags_read_store_migrations/', [RUST]],
+    // The entrypoints of the sqlx-migrate image, which applies every set above.
+    // rust/affected-services declares the same grouping in
+    // NON_CRATE_IMAGE_TRIGGERS, and this list has to stay a superset of it.
+    ['rust/bin/', [RUST, PYTHON, NODE]],
+    // Cargo and nextest settings: every crate compiles and tests under them.
+    ['rust/.cargo/', [RUST]],
+    ['rust/.config/', [RUST]],
+]
+
+// A file sitting directly at rust/ configures the cargo workspace itself (the
+// Dockerfiles its images build from, the compose stack, the dotfiles, the
+// license), so the crates are its readers. That reasoning does not extend to a
+// subdirectory, which could hold anything, so one the rules above do not name
+// returns false and widens.
+function applyRustNonCrateLanes(file, targets, context) {
+    const rule = RUST_NON_CRATE_RULES.find(([prefix]) => file.startsWith(prefix))
+    const isWorkspaceRoot = file.split('/').length === 2
+    if (!rule && !isWorkspaceRoot) {
+        return false
+    }
+    const domains = rule ? rule[1] : [RUST]
+    return domains.every((domain) => DOMAIN_LANES.get(domain)(targets, context))
 }
 
 function computeTargets(changedFiles, context) {
@@ -1276,6 +1390,14 @@ function computeTargets(changedFiles, context) {
                 allFeProducts()
                 continue
             }
+            // A file at the root of common/ is the tree's own package marker,
+            // shared by whichever subdirectories import it, so it takes both
+            // families rather than guessing at one.
+            if (segments.length === 2 || COMMON_FULLSTACK.includes(segments[1])) {
+                allPyProducts()
+                allFeProducts()
+                continue
+            }
             return everything(context)
         }
         if (top === 'rust') {
@@ -1286,10 +1408,22 @@ function computeTargets(changedFiles, context) {
             const crate = rustGraph.byDir.find(
                 (entry) => file.startsWith(`rust/${entry.dir}/`) || file === `rust/${entry.dir}`
             )
-            if (!crate) {
+            if (crate) {
+                targets.add(rustCrate(crate.name))
+                continue
+            }
+            if (!applyRustNonCrateLanes(file, targets, context)) {
                 return everything(context)
             }
-            targets.add(rustCrate(crate.name))
+            continue
+        }
+        // A file at the root of products/ is shared by all of them: the package
+        // marker, the conftest every product's tests collect, the database
+        // routing map, the lint config. It cannot be held to one product, and
+        // nothing outside the two language families reads any of it.
+        if (top === 'products' && segments.length === 2) {
+            allPyProducts()
+            allFeProducts()
             continue
         }
         if (top === 'products' && segments.length > 2) {
