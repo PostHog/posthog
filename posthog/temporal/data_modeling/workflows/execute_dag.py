@@ -30,8 +30,13 @@ from posthog.temporal.data_modeling.workflows.materialize_view import (
 )
 
 from products.data_modeling.backend.facade.models import DataModelingJobEngine
+from products.data_quality.backend.facade.contracts import CHECK_SUITE_WORKFLOW_NAME
 
 MAX_CONCURRENT_CHILDREN = 10
+
+# Guards the post-materialization check-suite command so in-flight DAG runs, whose histories predate
+# it, replay without a non-determinism error.
+DATA_QUALITY_PATCH_ID = "data-quality-post-materialization-2026-08"
 
 
 class EmptyDAGOrCycleError(Exception):
@@ -424,6 +429,9 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         get_dag_node_count_metric("failed").record(failed_nodes)
         get_dag_node_count_metric("skipped").record(skipped_nodes)
 
+        if temporalio.workflow.patched(DATA_QUALITY_PATCH_ID):
+            await self._run_data_quality_checks(inputs, node_results)
+
         return ExecuteDAGResult(
             dag_id=inputs.dag_id,
             scheduled_nodes=len(node_results),
@@ -433,3 +441,38 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             duration_seconds=duration_seconds,
             node_results=node_results,
         )
+
+    async def _run_data_quality_checks(self, inputs: ExecuteDAGInputs, node_results: list[NodeResult]) -> None:
+        """Fire the check suite for the models this run actually materialized.
+
+        Best-effort and fully isolated: started by registered name so data_modeling never imports
+        the catalog product, and ABANDON so a check suite can neither delay nor fail the DAG. The
+        node ids come from recorded activity results, so replay stays deterministic.
+        """
+        materialized_node_ids = [
+            result.node_id
+            for result in node_results
+            # rows_materialized is None for ephemeral nodes, which have no table to check.
+            if result.success and not result.skipped and result.rows_materialized is not None
+        ]
+        if not materialized_node_ids:
+            return
+
+        try:
+            await temporalio.workflow.start_child_workflow(
+                CHECK_SUITE_WORKFLOW_NAME,
+                {
+                    "team_id": inputs.team_id,
+                    "trigger": "materialization",
+                    "node_ids": materialized_node_ids,
+                },
+                id=f"data-quality-run-suite-{inputs.dag_id}-{temporalio.workflow.info().run_id}",
+                parent_close_policy=ParentClosePolicy.ABANDON,
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+                execution_timeout=dt.timedelta(hours=1),
+            )
+        except Exception as e:
+            capture_exception(e)
+            temporalio.workflow.logger.warning(
+                "Could not start the data quality check suite", extra=inputs.properties_to_log
+            )

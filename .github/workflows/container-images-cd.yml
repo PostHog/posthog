@@ -813,6 +813,8 @@ jobs:
                         - 'posthog/temporal/data_warehouse/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/warehouse/**'
+                        - 'products/data_catalog/**'
+                        - 'products/data_quality/**'
                         - 'products/data_modeling/**'
                         - 'products/data_warehouse/**'
                         - 'posthog/management/commands/**'
