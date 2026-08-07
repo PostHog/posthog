@@ -54,8 +54,10 @@ service PersonHogLeader {
   // sealed source snapshots into the target person's document under the
   // owner's per-person lock, produce the folded document to the
   // changelog, and return it. Properties fold target-wins: the target
-  // keeps every key it has, snapshots fill still-absent keys in request
-  // order, then the merge event's $set overrides and $set_once fills.
+  // keeps every key it has, snapshots fill still-absent keys in ordinal
+  // order (sorted by the fold itself, so precedence is deterministic
+  // across re-drives), then the merge event's $set overrides and
+  // $set_once fills.
   // Scalars fold as created_at = min(target, sources),
   // is_identified = true, and last_seen_at = max(target, sources); the
   // version is max(target, max sealed) + 1 — at or above every sealed

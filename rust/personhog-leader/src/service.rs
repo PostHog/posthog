@@ -1203,41 +1203,59 @@ impl PersonHogLeader for PersonHogLeaderService {
         track(sanitize_for_jsonb(&mut event_set));
         track(sanitize_for_jsonb(&mut event_set_once));
         struct SealedSnapshot {
+            ordinal: i32,
             properties: serde_json::Value,
             version: i64,
             created_at: i64,
             last_seen_at: Option<i64>,
         }
+        let mut seen_ordinals =
+            std::collections::HashSet::with_capacity(req.sealed_snapshots.len());
         let mut snapshots: Vec<SealedSnapshot> = Vec::with_capacity(req.sealed_snapshots.len());
         for snapshot in &req.sealed_snapshots {
+            let Some(person) = &snapshot.person else {
+                return Err(Status::invalid_argument(
+                    "sealed snapshot is missing its person",
+                ));
+            };
             // A snapshot for the wrong person, or a death document, can
             // only be a saga bug — folding it silently would launder it
             // into the target.
-            if snapshot.team_id != req.team_id {
+            if person.team_id != req.team_id {
                 return Err(Status::invalid_argument(
                     "sealed snapshot belongs to a different team than the target",
                 ));
             }
-            if snapshot.id == req.person_id {
+            if person.id == req.person_id {
                 return Err(Status::invalid_argument(
                     "sealed snapshot is the merge target itself",
                 ));
             }
-            if snapshot.is_deleted {
+            if person.is_deleted {
                 return Err(Status::invalid_argument(
                     "sealed snapshot is a death document; only living sealed state folds",
                 ));
             }
+            if !seen_ordinals.insert(snapshot.ordinal) {
+                return Err(Status::invalid_argument(
+                    "sealed snapshots carry a duplicate ordinal; precedence would be ambiguous",
+                ));
+            }
             let mut properties =
-                parse_json_object_field(&snapshot.properties, "sealed snapshot properties")?;
+                parse_json_object_field(&person.properties, "sealed snapshot properties")?;
             track(sanitize_for_jsonb(&mut properties));
             snapshots.push(SealedSnapshot {
+                ordinal: snapshot.ordinal,
                 properties,
-                version: snapshot.version,
-                created_at: snapshot.created_at,
-                last_seen_at: snapshot.last_seen_at,
+                version: person.version,
+                created_at: person.created_at,
+                last_seen_at: person.last_seen_at,
             });
         }
+        // Precedence comes from the recorded pair order, not from the
+        // request: a re-drive that lists sources differently must fold
+        // the same document.
+        snapshots.sort_by_key(|snapshot| snapshot.ordinal);
 
         let cache_key = PersonCacheKey {
             team_id: req.team_id,

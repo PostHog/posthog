@@ -18,7 +18,7 @@ use http_body_util::BodyExt;
 use personhog_coordination::routing_table::StashHandler;
 use personhog_proto::personhog::types::v1::{
     FoldPersonDocumentRequest, FoldPersonDocumentResponse, GetPersonRequest, GetPersonResponse,
-    Person, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    Person, SealedSourceSnapshot, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 use personhog_router::backend::{LeaderBackend, LeaderBackendConfig, StashTable};
 use personhog_router::stash_handler::RouterStashHandler;
@@ -535,7 +535,10 @@ async fn a_semantic_refusal_passes_through_instead_of_bouncing() {
     let req = FoldPersonDocumentRequest {
         team_id: person.team_id,
         person_id: person.id,
-        sealed_snapshots: vec![Person::default()],
+        sealed_snapshots: vec![SealedSourceSnapshot {
+            person: Some(Person::default()),
+            ordinal: 0,
+        }],
         event_set: b"{}".to_vec(),
         event_set_once: b"{}".to_vec(),
         op_id: "0192b4a0-0000-7000-8000-000000000000".to_string(),

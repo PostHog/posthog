@@ -356,6 +356,15 @@ enum ReleaseOutcome {
 
 message ReleaseFenceResponse {}
 
+// A sealed source snapshot paired with its precedence ordinal — the
+// pair order the saga recorded in lifecycle_op_person. The fold sorts
+// by ordinal itself rather than trusting request order, so a re-drive
+// that lists sources differently still folds the same document.
+message SealedSourceSnapshot {
+  Person person = 1;
+  int32 ordinal = 2;
+}
+
 // FoldPersonDocumentRequest folds sealed source snapshots into the merge
 // target's document (see PersonHogLeader.FoldPersonDocument). The
 // snapshots are the sources' final word — each was returned by
@@ -365,10 +374,12 @@ message FoldPersonDocumentRequest {
   // The merge target. The fold is computed by its owning leader from its
   // authoritative cache plus the snapshots below.
   int64 person_id = 2;
-  // Sealed source snapshots in property-precedence order: earlier
-  // snapshots beat later ones, and the target beats all. Must be
-  // non-empty — a merge with no sealed sources has nothing to fold.
-  repeated Person sealed_snapshots = 3;
+  // Sealed source snapshots. Property precedence follows the ordinals —
+  // a lower ordinal beats a higher one on contested keys, and the
+  // target beats all — in whatever order the request lists them;
+  // duplicate ordinals are rejected. Must be non-empty — a merge with
+  // no sealed sources has nothing to fold.
+  repeated SealedSourceSnapshot sealed_snapshots = 3;
   // JSON-encoded maps from the merge event. event_set overrides on
   // conflict (matching ingestion's $identify behavior); event_set_once
   // fills only still-absent keys.
