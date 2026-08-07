@@ -78,25 +78,45 @@ const RETIRED_QUERY_KEYS: ReadonlySet<string> = new Set([
     'usePresortedEventsTable', // removed when event presorting became automatic (#46333)
 ])
 
+// Keys we never recurse into: free-form user data (`values` holds HogQL variable substitutions) and
+// large server-response blobs that can't hold query-schema fields. Skipping them keeps this off the
+// hot path for big payloads and avoids touching arbitrary user keys.
+const OPAQUE_QUERY_KEYS: ReadonlySet<string> = new Set(['values', 'response', 'result', 'results'])
+
 /** Recursively drop retired keys from a persisted query before it reaches the backend. Pure: never
- * mutates the input. Leaves free-form `values` (HogQL variable substitutions) untouched, since those
- * are arbitrary user data and could legitimately contain any key. */
-export function stripRetiredQueryFields<T>(node: T): T {
-    if (Array.isArray(node)) {
-        return node.map((value) => stripRetiredQueryFields(value)) as unknown as T
-    }
+ * mutates the input, and returns the same reference when nothing changes so the common case (no
+ * retired keys) allocates nothing. Guards against cycles so a self-referential object can't hang. */
+export function stripRetiredQueryFields<T>(node: T, seen: WeakSet<object> = new WeakSet()): T {
     if (node === null || typeof node !== 'object') {
         return node
     }
+    if (seen.has(node)) {
+        return node
+    }
+    seen.add(node)
 
+    if (Array.isArray(node)) {
+        let changed = false
+        const mapped = node.map((value) => {
+            const next = stripRetiredQueryFields(value, seen)
+            changed = changed || next !== value
+            return next
+        })
+        return (changed ? mapped : node) as unknown as T
+    }
+
+    let changed = false
     const result: Record<string, any> = {}
     for (const [key, value] of Object.entries(node as Record<string, any>)) {
         if (RETIRED_QUERY_KEYS.has(key)) {
+            changed = true
             continue
         }
-        result[key] = key === 'values' ? value : stripRetiredQueryFields(value)
+        const next = OPAQUE_QUERY_KEYS.has(key) ? value : stripRetiredQueryFields(value, seen)
+        changed = changed || next !== value
+        result[key] = next
     }
-    return result as T
+    return (changed ? result : node) as T
 }
 
 /**

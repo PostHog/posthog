@@ -200,6 +200,14 @@ describe('query', () => {
             }
             expect(stripRetiredQueryFields(query)).toEqual(query)
         })
+
+        it('returns the same reference and terminates on a self-referential query', () => {
+            // performQuery runs this on every query; a cyclic object must not hang the recursion.
+            const query: Record<string, any> = { kind: NodeKind.HogQLQuery, query: 'select 1' }
+            query.self = query
+            const result = stripRetiredQueryFields(query)
+            expect(result).toBe(query)
+        })
     })
 
     it('strips retired query fields before sending the request to the backend', async () => {
