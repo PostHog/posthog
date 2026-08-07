@@ -59,14 +59,38 @@
                     "type": "boolean"
                 },
                 "properties": {
-                    "items": {
-                        "additionalProperties": {},
-                        "propertyNames": {
-                            "type": "string"
+                    "anyOf": [
+                        {
+                            "items": {
+                                "additionalProperties": {},
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "type": "object"
+                            },
+                            "type": "array"
                         },
-                        "type": "object"
-                    },
-                    "type": "array"
+                        {
+                            "properties": {
+                                "type": {
+                                    "enum": ["AND", "OR"],
+                                    "type": "string"
+                                },
+                                "values": {
+                                    "items": {
+                                        "additionalProperties": {},
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "type": "object"
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["type", "values"],
+                            "type": "object"
+                        }
+                    ]
                 },
                 "source": {
                     "default": "events",
@@ -241,14 +265,38 @@
                                         "type": "boolean"
                                     },
                                     "properties": {
-                                        "items": {
-                                            "additionalProperties": {},
-                                            "propertyNames": {
-                                                "type": "string"
+                                        "anyOf": [
+                                            {
+                                                "items": {
+                                                    "additionalProperties": {},
+                                                    "propertyNames": {
+                                                        "type": "string"
+                                                    },
+                                                    "type": "object"
+                                                },
+                                                "type": "array"
                                             },
-                                            "type": "object"
-                                        },
-                                        "type": "array"
+                                            {
+                                                "properties": {
+                                                    "type": {
+                                                        "enum": ["AND", "OR"],
+                                                        "type": "string"
+                                                    },
+                                                    "values": {
+                                                        "items": {
+                                                            "additionalProperties": {},
+                                                            "propertyNames": {
+                                                                "type": "string"
+                                                            },
+                                                            "type": "object"
+                                                        },
+                                                        "type": "array"
+                                                    }
+                                                },
+                                                "required": ["type", "values"],
+                                                "type": "object"
+                                            }
+                                        ]
                                     },
                                     "source": {
                                         "default": "events",
