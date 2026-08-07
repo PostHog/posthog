@@ -125,7 +125,7 @@ export const uploadArtifactTool = defineLocalTool({
         return errorResult("PostHog did not confirm the artifact upload.");
       }
 
-      // The finalize endpoint returns a presigned download URL on each artifact.
+      // The finalize endpoint returns a stable download URL on each artifact.
       // Read it defensively: the field rides in on TaskRunArtifact once the
       // api-client is regenerated against the updated OpenAPI spec, and older
       // backends simply omit it.

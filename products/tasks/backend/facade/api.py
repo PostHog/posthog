@@ -38,6 +38,7 @@ import posthoganalytics
 from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.integration import Integration
+from posthog.utils import absolute_uri
 
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
@@ -204,6 +205,7 @@ __all__ = [
     "prepare_task_run_artifact_uploads",
     "prepare_task_staged_artifacts",
     "presign_task_run_artifact",
+    "presign_task_run_artifact_download",
     "read_task_run_artifact",
     "read_task_run_logs",
     "record_comment_activity",
@@ -2599,6 +2601,10 @@ def _build_artifact_storage_path(run: TaskRun, artifact_id: str, name: str) -> t
     return safe_name, f"{prefix}/{artifact_id[:8]}_{safe_name}"
 
 
+def _build_artifact_download_path(run: TaskRun, artifact_id: str) -> str:
+    return f"/api/projects/{run.team_id}/tasks/{run.task_id}/runs/{run.id}/artifacts/{artifact_id}/download/"
+
+
 def _tag_artifact_object(run: TaskRun, storage_path: str) -> None:
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
 
@@ -2854,13 +2860,16 @@ def finalize_task_run_artifact_uploads(
     for storage_path in new_storage_paths:
         _tag_artifact_object(run, storage_path)
 
-    # Mint a fresh presigned download URL per response entry so the caller (e.g. the
-    # upload_artifact tool) can surface a link to the file. Presigned URLs expire, so
-    # they are attached to the response only and never written back to the manifest.
+    # Attach a download URL per response entry so the caller (e.g. the upload_artifact
+    # tool) can surface a link to the file. The app URL redirects to a fresh presigned
+    # URL on each request, so unlike a raw presigned URL it stays short and never
+    # expires; it is attached to the response only and never written back to the manifest.
     response_entries: list[dict] = []
     for entry in finalized_entries:
-        presigned_url = object_storage.get_presigned_url(entry["storage_path"])
-        response_entries.append({**entry, "url": presigned_url} if presigned_url else dict(entry))
+        entry_id = entry.get("id")
+        response_entries.append(
+            {**entry, "url": absolute_uri(_build_artifact_download_path(run, entry_id))} if entry_id else dict(entry)
+        )
 
     return response_entries, None
 
@@ -3028,6 +3037,35 @@ def set_task_run_artifacts_dismissed(
         _save_artifact_manifest(locked_run, manifest)
 
     return manifest, None
+
+
+def presign_task_run_artifact_download(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str
+) -> tuple[str | None, str | None]:
+    """Presign a download URL for an artifact addressed by its manifest id.
+
+    Returns ``(url, error)``: ``(None, None)`` if the run isn't found, ``(None, "not_found")`` if
+    the artifact isn't on the run, ``(None, "unavailable")`` if presigning fails, else ``(url, None)``.
+    """
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None, None
+
+    entry = next((a for a in run.artifacts or [] if a.get("id") == artifact_id), None)
+    if entry is None:
+        return None, "not_found"
+
+    filename = str(entry.get("name") or "artifact").replace('"', "")
+    url = object_storage.get_presigned_url(
+        entry["storage_path"],
+        content_type=str(entry.get("content_type") or "") or None,
+        content_disposition=f'attachment; filename="{filename}"',
+    )
+    if not url:
+        return None, "unavailable"
+    return url, None
 
 
 def read_task_run_artifact(
