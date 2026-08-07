@@ -43,7 +43,6 @@ export const scene: SceneExport<PromptLogicProps> = {
         promptName: name && name !== 'new' ? name : 'new',
         // kea-router JSON-decodes query values, so ?edit=true arrives as boolean true
         mode: String(searchParams?.edit) === 'true' ? PromptMode.Edit : PromptMode.View,
-        selectedVersion: searchParams?.version ? Number(searchParams.version) || null : null,
     }),
 }
 

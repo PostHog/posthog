@@ -103,16 +103,44 @@ def _effective_port(scheme: str, port: Optional[int]) -> Optional[int]:
     return _DEFAULT_PORTS.get(scheme)
 
 
+def _seconds_from_epoch_reset(value: str) -> Optional[float]:
+    try:
+        reset_epoch = int(value)
+    except ValueError:
+        return None
+    return reset_epoch - datetime.now(UTC).timestamp()
+
+
+def _seconds_from_rfc3339_reset(value: str) -> Optional[float]:
+    try:
+        reset_at = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if reset_at.tzinfo is None:
+        reset_at = reset_at.replace(tzinfo=UTC)
+    return (reset_at - datetime.now(UTC)).total_seconds()
+
+
+# Rate-limit reset headers to fall back on when a 429 carries no ``Retry-After``, each paired with
+# the parser that turns its value into "seconds from now until the budget replenishes".
+_RATE_LIMIT_RESET_HEADERS: tuple[tuple[str, Callable[[str], Optional[float]]], ...] = (
+    # Anthropic rate limits per organization and documents this RFC 3339 instant as when the request
+    # budget replenishes. Its Admin API (the usage/cost report endpoints an Anthropic source pages
+    # through) answers 429 without a ``Retry-After``, so this is the only delay it advertises.
+    ("anthropic-ratelimit-requests-reset", _seconds_from_rfc3339_reset),
+    # Sentry signals its rate-limit window with a UNIX epoch timestamp rather than ``Retry-After``,
+    # and Sentry's flat / fan-out endpoints (e.g. ``project_users``) sync through this client too.
+    ("X-Sentry-Rate-Limit-Reset", _seconds_from_epoch_reset),
+)
+
+
 def _parse_retry_after(response: Response) -> Optional[float]:
     """Best-effort retry delay (seconds) from a rate-limited / erroring response.
 
-    Honors the standard ``Retry-After`` header (delta-seconds or HTTP-date)
-    first. When it's absent, falls back to Sentry's ``X-Sentry-Rate-Limit-Reset``
-    (a UNIX epoch timestamp): Sentry's API signals its rate-limit window with
-    that header rather than ``Retry-After``, and Sentry's flat / fan-out
-    endpoints (e.g. ``project_users``) sync through this generic client, so
-    without it a 429 backs off on the short exponential fallback and exhausts
-    retries while still rate-limited. Capped at ``MAX_RETRY_AFTER_SECONDS``.
+    Honors the standard ``Retry-After`` header (delta-seconds or HTTP-date) first, then the
+    vendor rate-limit reset headers in ``_RATE_LIMIT_RESET_HEADERS``. Without a server-provided
+    delay a 429 backs off on the short exponential fallback and the attempt budget is spent long
+    before the limit window clears. Capped at ``MAX_RETRY_AFTER_SECONDS``.
     """
     retry_after_header = response.headers.get("Retry-After")
     if retry_after_header:
@@ -125,16 +153,16 @@ def _parse_retry_after(response: Response) -> Optional[float]:
                 return None
             return min(max(0.0, (dt - datetime.now(UTC)).total_seconds()), MAX_RETRY_AFTER_SECONDS)
 
-    reset_header = response.headers.get("X-Sentry-Rate-Limit-Reset")
-    if reset_header:
-        try:
-            reset_epoch = int(reset_header)
-        except ValueError:
+    for header, parse in _RATE_LIMIT_RESET_HEADERS:
+        value = response.headers.get(header)
+        if not value:
+            continue
+        wait_seconds = parse(value)
+        # A reset already in the past says the window has cleared — nothing to honor, so fall
+        # through to the caller's exponential backoff rather than retrying with no delay at all.
+        if wait_seconds is None or wait_seconds <= 0:
             return None
-        wait_seconds = reset_epoch - int(datetime.now(UTC).timestamp())
-        if wait_seconds <= 0:
-            return None
-        return min(float(wait_seconds), MAX_RETRY_AFTER_SECONDS)
+        return min(wait_seconds, MAX_RETRY_AFTER_SECONDS)
 
     return None
 

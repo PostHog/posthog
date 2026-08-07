@@ -53,7 +53,7 @@ from ..models import (
     MCPToolPolicy,
     TeamMCPGatewayConfig,
 )
-from ..policy import GatewayCaller, PolicyContext, is_policy_state_allowed
+from ..policy import GatewayCaller, PolicyContext, is_destructive_tool, is_policy_state_allowed
 
 logger = structlog.get_logger(__name__)
 
@@ -438,6 +438,9 @@ class ResolvedToolPolicySerializer(serializers.Serializer):
     tool_name = serializers.CharField(help_text="Tool name as exposed by the upstream server.")
     description = serializers.CharField(allow_blank=True, help_text="Tool description from the upstream server.")
     input_schema = MCPToolInputSchemaField(help_text="JSON Schema describing the tool's input arguments.")
+    is_destructive = serializers.BooleanField(
+        help_text="Whether the canonical gateway heuristic treats this tool as destructive."
+    )
     policy_state = serializers.ChoiceField(choices=APPROVAL_STATES, help_text="Effective state for the scope.")
     team_state = serializers.ChoiceField(
         choices=APPROVAL_STATES,
@@ -460,6 +463,12 @@ class ResolvedToolPolicySerializer(serializers.Serializer):
 # which returns the team's single config object rather than a collection.
 @extend_schema_serializer(many=False)
 class TeamMCPGatewayConfigSerializer(serializers.ModelSerializer):
+    registered_template_ids = serializers.SerializerMethodField(
+        help_text=(
+            "Catalog template ids that already have a gateway registration, including registrations hidden from "
+            "the requesting member. Clients use this list to avoid presenting disabled or revoked templates as new."
+        )
+    )
     is_admin = serializers.SerializerMethodField(
         help_text="Whether the requesting user can administer the gateway (org admin or explicit project admin)."
     )
@@ -472,6 +481,7 @@ class TeamMCPGatewayConfigSerializer(serializers.ModelSerializer):
             "default_servers_enabled",
             "member_default_preset",
             "agent_default_preset",
+            "registered_template_ids",
             "is_admin",
         ]
         extra_kwargs = {
@@ -497,6 +507,16 @@ class TeamMCPGatewayConfigSerializer(serializers.ModelSerializer):
                 "help_text": "Baseline preset deriving default policies for tools an agent has no explicit row for."
             },
         }
+
+    @extend_schema_field(serializers.ListField(child=serializers.UUIDField()))
+    def get_registered_template_ids(self, obj: TeamMCPGatewayConfig) -> list[str]:
+        template_ids = (
+            MCPGatewayServer.objects.for_team(obj.team_id)
+            .exclude(template_id__isnull=True)
+            .order_by("template_id")
+            .values_list("template_id", flat=True)
+        )
+        return [str(template_id) for template_id in template_ids]
 
     @extend_schema_field(serializers.BooleanField())
     def get_is_admin(self, obj: TeamMCPGatewayConfig) -> bool:
@@ -740,11 +760,17 @@ class AuditQuerySerializer(serializers.Serializer):
     )
 
 
+class AuditCountsQuerySerializer(serializers.Serializer):
+    actor_service_account_id = serializers.UUIDField(
+        required=False, help_text="Only count calls made by this service account."
+    )
+
+
 class AuditCountsSerializer(serializers.Serializer):
-    all = serializers.IntegerField(help_text="Every audited tool call.")
-    agents = serializers.IntegerField(help_text="Calls made by service accounts.")
-    approvals = serializers.IntegerField(help_text="Calls that were approved or are awaiting approval.")
-    blocked = serializers.IntegerField(help_text="Calls the gateway blocked.")
+    all = serializers.IntegerField(help_text="Every audited tool call visible to the requesting user.")
+    agents = serializers.IntegerField(help_text="Visible calls made by service accounts.")
+    approvals = serializers.IntegerField(help_text="Visible calls that were approved or are awaiting approval.")
+    blocked = serializers.IntegerField(help_text="Visible calls the gateway blocked.")
 
 
 class GatewayMemberSummarySerializer(serializers.Serializer):
@@ -966,6 +992,7 @@ class MCPGatewayServerViewSet(
                     "tool_name": tool_name,
                     "description": description,
                     "input_schema": input_schema,
+                    "is_destructive": is_destructive_tool(tool_name, annotations),
                     "policy_state": resolved.state,
                     "team_state": resolved.team_state,
                     "locked": resolved.locked or (scope_type != "team" and resolved.team_state == "do_not_use"),
@@ -1168,6 +1195,34 @@ class MCPServiceAccountViewSet(
             raise NotFound("Gateway server not found.")
 
         if data["enabled"]:
+            user = cast(User, request.user)
+            if (
+                MCPMemberServerRevocation.objects.for_team(self.team_id)
+                .filter(gateway_server=server, user_id=user.id)
+                .exists()
+            ):
+                raise PermissionDenied(
+                    "Your access to this server is turned off. Ask a project admin to restore it before sharing it with an agent."
+                )
+
+            installation = installation_for_agent_grant(self.team_id, server, user.id)
+            if installation is None:
+                raise serializers.ValidationError(
+                    {"gateway_server_id": "Connect this server before sharing access with an agent."}
+                )
+            if not installation.is_enabled:
+                raise serializers.ValidationError(
+                    {"gateway_server_id": "Turn on your connection before sharing access with an agent."}
+                )
+            if _installation_needs_reauth(installation):
+                raise serializers.ValidationError(
+                    {"gateway_server_id": "Reconnect this server before sharing access with an agent."}
+                )
+            if _installation_pending_oauth(installation):
+                raise serializers.ValidationError(
+                    {"gateway_server_id": "Finish connecting this server before sharing access with an agent."}
+                )
+
             policies = data.get("policies") or []
             raise_for_policies_above_team_ceiling(
                 policy_entries_above_team_ceiling(
@@ -1177,11 +1232,6 @@ class MCPServiceAccountViewSet(
                     entries=policies,
                 )
             )
-            installation = installation_for_agent_grant(self.team_id, server, cast(User, request.user).id)
-            if installation is None:
-                raise serializers.ValidationError(
-                    {"gateway_server_id": "Connect this server before sharing access with an agent."}
-                )
             with transaction.atomic():
                 MCPServiceAccountServerAccess.objects.for_team(self.team_id).update_or_create(
                     service_account=account,
@@ -1189,7 +1239,7 @@ class MCPServiceAccountViewSet(
                     defaults={
                         "team_id": self.team_id,
                         "installation": installation,
-                        "granted_by": cast(User, request.user),
+                        "granted_by": user,
                     },
                 )
                 for entry in policies:
@@ -1272,8 +1322,9 @@ class MCPAuditEventViewSet(
     mixins.RetrieveModelMixin,
     viewsets.GenericViewSet,
 ):
-    """Read-only trail of proxied tool calls. Admin-only — it exposes what
-    every member and agent has been doing."""
+    """Read-only trail of proxied tool calls. Project admins see all calls.
+    Members see calls made through their connections, including calls made by
+    agents using connections they shared."""
 
     scope_object = "project"
     scope_object_read_actions = ["list", "retrieve", "counts"]
@@ -1282,22 +1333,16 @@ class MCPAuditEventViewSet(
     queryset = MCPAuditEvent.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[MCPAuditEvent]) -> QuerySet[MCPAuditEvent]:
-        return (
-            MCPAuditEvent.objects.for_team(self.team_id)
-            .select_related("actor_user", "actor_service_account")
-            .order_by("-created_at")
-        )
-
-    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        self._require_project_admin()
-        return super().retrieve(request, *args, **kwargs)
+        events = MCPAuditEvent.objects.for_team(self.team_id)
+        if not self._is_project_admin():
+            events = events.filter(installation__user_id=cast(User, self.request.user).id)
+        return events.select_related("actor_user", "actor_service_account").order_by("-created_at")
 
     @validated_request(
         query_serializer=AuditQuerySerializer,
         responses={200: OpenApiResponse(response=MCPAuditEventSerializer(many=True))},
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        self._require_project_admin()
         query = request.validated_query_data
         queryset = self.filter_queryset(self.get_queryset())
 
@@ -1316,13 +1361,18 @@ class MCPAuditEventViewSet(
         serializer = self.get_serializer(page, many=True)
         return self.get_paginated_response(serializer.data)
 
-    @extend_schema(responses={200: OpenApiResponse(response=AuditCountsSerializer)})
+    @validated_request(
+        query_serializer=AuditCountsQuerySerializer,
+        responses={200: OpenApiResponse(response=AuditCountsSerializer)},
+    )
     @action(detail=False, methods=["get"], url_path="counts")
     def counts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Totals backing the quick-filter chips."""
-        self._require_project_admin()
+        queryset = self.get_queryset()
+        if account_id := request.validated_query_data.get("actor_service_account_id"):
+            queryset = queryset.filter(actor_service_account_id=account_id)
         return Response(
-            MCPAuditEvent.objects.for_team(self.team_id).aggregate(
+            queryset.aggregate(
                 all=Count("id"),
                 agents=Count("id", filter=Q(actor_service_account__isnull=False)),
                 approvals=Count("id", filter=Q(decision__in=["approved", "pending"])),

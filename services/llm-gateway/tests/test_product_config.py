@@ -46,6 +46,22 @@ class TestCheckProductAccess:
             ("llm_gateway", "personal_api_key", None, "claude-3-opus", True, None),
             ("llm_gateway", "oauth_access_token", "any-app-id", "gpt-4o", False, "not authorized"),
             ("llm_gateway", "personal_api_key", None, None, True, None),
+            (
+                "llm_gateway",
+                "personal_api_key",
+                None,
+                "deepseek-ai/deepseek-v4-flash-0731",
+                False,
+                "not allowed",
+            ),
+            (
+                "review_hog",
+                "personal_api_key",
+                None,
+                "deepseek-ai/deepseek-v4-flash-0731",
+                True,
+                None,
+            ),
             # ci allows API keys with any model (used by e2e test runs); OAuth rejected (no app IDs)
             ("ci", "personal_api_key", None, "claude-3-opus", True, None),
             ("ci", "oauth_access_token", "any-app-id", "gpt-4o", False, "not authorized"),
@@ -54,6 +70,14 @@ class TestCheckProductAccess:
             ("posthog_code", "oauth_access_token", "invalid-app-id", None, False, "not authorized"),
             ("posthog_code", "oauth_access_token", POSTHOG_CODE_US_APP_ID, None, True, None),
             ("posthog_code", "oauth_access_token", POSTHOG_CODE_EU_APP_ID, None, True, None),
+            (
+                "posthog_code",
+                "oauth_access_token",
+                POSTHOG_CODE_US_APP_ID,
+                "deepseek-ai/deepseek-v4-flash-0731",
+                True,
+                None,
+            ),
             # wizard allows API keys and OAuth with valid app ID
             ("wizard", "personal_api_key", None, "claude-3-opus", True, None),
             ("wizard", "oauth_access_token", "invalid-app-id", None, False, "not authorized"),
@@ -157,12 +181,21 @@ class TestCheckProductAccess:
             "gpt-5.3-codex",
             "gpt-5.2",
             "gpt-5-mini",
+            "deepseek-ai/deepseek-v4-flash-0731",
         ],
     )
     def test_posthog_code_allows_restricted_models_with_valid_app_id(self, model: str):
         allowed, error = check_product_access("posthog_code", "oauth_access_token", POSTHOG_CODE_US_APP_ID, model)
         assert allowed is True
         assert error is None
+
+    def test_slack_app_rejects_deepseek_despite_shared_allowlist(self):
+        allowed, error = check_product_access(
+            "slack_app", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "deepseek-ai/deepseek-v4-flash-0731"
+        )
+        assert allowed is False
+        assert error is not None
+        assert "not allowed" in error
 
     @pytest.mark.parametrize(
         "model",
@@ -291,6 +324,7 @@ class TestCheckProductAccess:
             "gpt-5.3-codex",
             "gpt-5.2",
             "gpt-5-mini",
+            "gpt-5.6-sol",
         ],
     )
     def test_background_agents_allows_configured_models(self, model: str):

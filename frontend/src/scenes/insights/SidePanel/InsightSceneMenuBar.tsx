@@ -147,9 +147,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     const showFileMenu = true // file ops (project tree, terraform) always available
     const showEditMenu = true // duplicate always available
     const showCreateEndpoint =
-        featureFlags[FEATURE_FLAGS.ENDPOINTS] &&
-        isSavedInsight &&
-        !getAccessControlDisabledReason(AccessControlResourceType.Endpoint, AccessControlLevel.Editor)
+        isSavedInsight && !getAccessControlDisabledReason(AccessControlResourceType.Endpoint, AccessControlLevel.Editor)
     const showCreateMetric = !!featureFlags[FEATURE_FLAGS.PRODUCT_DATA_CATALOG] && isSavedInsight
     const showAddToNotebook = isSavedInsight
     const showCreateMenu =

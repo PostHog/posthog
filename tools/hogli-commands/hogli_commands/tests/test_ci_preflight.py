@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 from hogli.cli import cli
-from hogli_commands.ci_preflight import _staleness_risks
+from hogli_commands.ci_preflight import DIFF_CHECKS, _pnpm_workspace_root, _run_workspace_scoped, _staleness_risks
 
 runner = CliRunner()
 
@@ -128,3 +128,82 @@ class TestStalenessRisks:
         assert len(risks) == len(expected_fragments)
         for fragment, risk in zip(expected_fragments, risks):
             assert fragment in risk
+
+
+class TestWorkspaceScopedLockfile:
+    """The lockfile check must validate each pnpm workspace against its own lockfile.
+    These hit the real repo layout, like TestDetectTestType in test_test_runner.py."""
+
+    @pytest.mark.parametrize(
+        "file_path,expected_workspace",
+        [
+            ("package.json", "."),
+            ("frontend/package.json", "."),
+            ("nodejs/package.json", "."),
+            ("products/desktop/package.json", "products/desktop"),
+            ("products/desktop/pnpm-lock.yaml", "products/desktop"),
+            ("products/desktop/packages/core/package.json", "products/desktop"),
+            # agent has a publish-only pnpm-lock.yaml but is a desktop workspace member
+            ("products/desktop/packages/agent/package.json", "products/desktop"),
+            ("tools/hedgebox-dummy/package.json", "tools/hedgebox-dummy"),
+        ],
+    )
+    def test_workspace_root_resolution(self, file_path: str, expected_workspace: str) -> None:
+        assert _pnpm_workspace_root(file_path) == expected_workspace
+
+    @pytest.mark.parametrize(
+        "changed,expected_dirs",
+        [
+            (["products/desktop/package.json"], ["products/desktop"]),
+            (["package.json"], ["."]),
+            (["package.json", "products/desktop/packages/core/package.json"], [".", "products/desktop"]),
+        ],
+    )
+    @patch("hogli_commands.ci_preflight._workspace_install_present", return_value=True)
+    @patch("hogli_commands.ci_preflight.shutil.which", return_value="/usr/bin/pnpm")
+    @patch("hogli_commands.ci_preflight.subprocess.run")
+    def test_lockfile_runs_once_per_workspace(
+        self,
+        mock_run: MagicMock,
+        mock_which: MagicMock,
+        mock_install: MagicMock,
+        changed: list[str],
+        expected_dirs: list[str],
+    ) -> None:
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        lockfile = next(chk for chk in DIFF_CHECKS if chk.key == "lockfile")
+        assert lockfile.workspace_scoped
+        lockfile.matched = changed
+
+        status, detail = _run_workspace_scoped(lockfile, do_fix=False)
+
+        assert status == "pass"
+        ran_dirs = [call.kwargs["cwd"] for call in mock_run.call_args_list]
+        from hogli.manifest import REPO_ROOT
+
+        assert ran_dirs == [REPO_ROOT if d == "." else REPO_ROOT / d for d in expected_dirs]
+
+    @patch("hogli_commands.ci_preflight._workspace_install_present", return_value=True)
+    @patch("hogli_commands.ci_preflight.shutil.which", return_value="/usr/bin/pnpm")
+    @patch("hogli_commands.ci_preflight.subprocess.run")
+    def test_lockfile_failure_names_the_workspace(
+        self, mock_run: MagicMock, mock_which: MagicMock, mock_install: MagicMock
+    ) -> None:
+        mock_run.return_value = MagicMock(returncode=1, stdout="ERR_PNPM_OUTDATED_LOCKFILE", stderr="")
+        lockfile = next(chk for chk in DIFF_CHECKS if chk.key == "lockfile")
+        lockfile.matched = ["products/desktop/package.json"]
+
+        status, detail = _run_workspace_scoped(lockfile, do_fix=False)
+
+        assert status == "fail"
+        assert "products/desktop: ERR_PNPM_OUTDATED_LOCKFILE" in detail
+
+    @patch("hogli_commands.ci_preflight._workspace_install_present", return_value=False)
+    def test_lockfile_skips_workspace_without_install(self, mock_install: MagicMock) -> None:
+        lockfile = next(chk for chk in DIFF_CHECKS if chk.key == "lockfile")
+        lockfile.matched = ["products/desktop/package.json"]
+
+        status, detail = _run_workspace_scoped(lockfile, do_fix=False)
+
+        assert status == "skipped"
+        assert "products/desktop: needs node" in detail

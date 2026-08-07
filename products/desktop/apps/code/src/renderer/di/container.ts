@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { useDevFlagsStore } from "@features/dev-toolbar/devFlagsStore";
 import { TypedContainer } from "@inversifyjs/strongly-typed";
 import type { TrpcRouter } from "@main/trpc/router";
+import { canvasApplicationModule } from "@posthog/core/canvas/canvas.module";
 import {
   CLOUD_TASK_CLIENT,
   type CloudTaskClient,
@@ -126,6 +127,7 @@ import {
   MCP_APP_HOST_COMPONENT,
   MCP_SANDBOX_PROXY_URL,
 } from "@posthog/ui/features/mcp-apps/identifiers";
+import { ARTIFACT_HTML_FRAME_COMPONENT } from "@posthog/ui/features/sessions/components/artifactHtmlFrameHost";
 import { MCP_TOOL_BLOCK_COMPONENT } from "@posthog/ui/features/sessions/components/session-update/identifiers";
 import {
   localHandoffDialog,
@@ -155,6 +157,7 @@ import {
   diffWorkerFactory,
   reviewHost,
 } from "@renderer/features/code-review/reviewHost";
+import { ElectronArtifactHtmlFrame } from "@renderer/platform-adapters/electron-artifact-html-frame";
 import {
   taskDeletionHost,
   taskDeletionWorkspaceClient,
@@ -278,6 +281,10 @@ container.bind(FOCUS_CONTROLLER_DEPS).toConstantValue(focusDeps);
 // code-review host (diff worker factory + expanded-review sidebar)
 container.bind(DIFF_WORKER_FACTORY).toConstantValue(diffWorkerFactory);
 container.bind<ReviewHost>(REVIEW_HOST).toConstantValue(reviewHost);
+
+container
+  .bind(ARTIFACT_HTML_FRAME_COMPONENT)
+  .toConstantValue(ElectronArtifactHtmlFrame);
 
 // sessions MCP tool renderer slot
 container.bind(MCP_TOOL_BLOCK_COMPONENT).toConstantValue(McpToolBlock);
@@ -426,6 +433,10 @@ container.bind(SKILLS_WORKSPACE_CLIENT).toConstantValue({
 
 // sessions (cloud-artifact + title-generator)
 container.load(sessionsModule);
+
+// canvas generation orchestration (deps: task service, model resolver, title
+// generator — all renderer-bound; persistence effects come in via its gateway)
+container.load(canvasApplicationModule);
 container
   .bind(CLOUD_ARTIFACT_READ_FILE_AS_BASE64)
   .toConstantValue((filePath: string) =>

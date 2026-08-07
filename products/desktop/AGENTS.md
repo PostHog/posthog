@@ -119,6 +119,7 @@ For each new file or meaningful change:
 - Bespoke clients that wrap `trpcClient.x` one-to-one.
 - `*Port`, `*_PORT`, or `ports.ts` naming.
 - Business logic in `apps/<host>`.
+- New ad-hoc broad in-app announcement or promo surfaces (flag-gated promo cards, dismissible banners, one-time modals). Broad announcements are remotely controlled via the `posthog-desktop-announcements` flag payload — see [docs/ANNOUNCEMENTS.md](./docs/ANNOUNCEMENTS.md).
 
 ## Host Boundary
 
@@ -218,15 +219,6 @@ await boot(container);
 - `pnpm --filter <pkg> typecheck|test|build`: run a scoped task.
 - `pnpm --filter code package|make`: package the Electron app.
 - `node scripts/check-host-boundaries.mjs`: verify host boundary allowlist.
-
-## Merging PRs
-
-All merges into `main` go through the Trunk merge queue. Never run `gh pr merge` or click the GitHub merge button -- both are blocked by branch ruleset.
-
-- Enqueue: `gh pr comment <number> --body "/trunk merge"`. Cancel: `gh pr comment <number> --body "/trunk cancel"`.
-- After enqueueing, babysit the PR until it merges or fails -- follow [`.claude/skills/merging-prs/SKILL.md`](./.claude/skills/merging-prs/SKILL.md) for the preflight, poll, and failure-handling loop.
-- Queue progress is the `Trunk Merge Queue (main)` check run on the PR's head commit. On failure the Trunk bot comments with links to the failing workflows; fix, push, and re-enqueue.
-- Never force-push a branch while it is in the queue -- it removes the PR from the queue.
 
 ## UI Components
 
@@ -336,6 +328,7 @@ See [docs/testing.md](./docs/testing.md).
 - [docs/architecture.md](./docs/architecture.md)
 - [docs/conventions.md](./docs/conventions.md)
 - [docs/testing.md](./docs/testing.md)
+- [docs/ANNOUNCEMENTS.md](./docs/ANNOUNCEMENTS.md)
 - [docs/DEEP-LINKS.md](./docs/DEEP-LINKS.md)
 - [docs/LOCAL-DEVELOPMENT.md](./docs/LOCAL-DEVELOPMENT.md)
 - [docs/UPDATES.md](./docs/UPDATES.md)

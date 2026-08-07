@@ -16,11 +16,11 @@ from temporalio.testing import WorkflowEnvironment
 
 from posthog.sync import database_sync_to_async
 
+from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseSourceJobStatus
 from products.managed_warehouse.backend.logic.verification import (
     DuckLakeCopyVerificationParameter,
     DuckLakeCopyVerificationQuery,
 )
-from products.managed_warehouse.backend.models import DuckgresServer
 from products.managed_warehouse.backend.storage import DeltaTableSnapshotWorkload, StagedDeltaTable, compute_staging_uri
 from products.managed_warehouse.backend.temporal import ducklake_copy_data_imports_workflow as ducklake_module
 from products.managed_warehouse.backend.temporal.ducklake_copy_data_imports_workflow import (
@@ -135,83 +135,6 @@ async def test_ducklake_copy_data_imports_gate_respects_feature_flag(monkeypatch
     assert captured["groups"] == {"organization": str(ateam.organization_id), "project": str(ateam.id)}
     assert captured["only_evaluate_locally"] is True
     assert captured["send_feature_flag_events"] is False
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_prepare_excludes_only_v3_sink_owned_schemas(ateam, monkeypatch):
-    # On a sink-enabled team the duckgres sink owns v3 sources, so the copy workflow
-    # must drop those — but keep copying non-v3 sources the sink never follows. The
-    # exclusion is per-source, not the old wholesale team-level skip.
-    monkeypatch.setattr(ducklake_module, "_fetch_delta_partition_columns", lambda table_uri, *, team_id: ["created_at"])
-    monkeypatch.setattr(ducklake_module, "is_dev_mode", lambda: False)
-    # get_duckgres_server_by_team_org resolves the staging URI via its own module-level
-    # is_dev_mode, so it needs the same override or it short-circuits to None in tests.
-    monkeypatch.setattr("products.managed_warehouse.backend.common.is_dev_mode", lambda: False)
-    monkeypatch.setattr(
-        "products.managed_warehouse.backend.temporal.ducklake_copy_data_imports_workflow.feature_enabled_or_false",
-        lambda *args, **kwargs: True,  # duckgres-batch-sink on
-    )
-    from products.warehouse_sources.backend.facade import pipelines as warehouse_source_pipelines
-
-    monkeypatch.setattr(
-        warehouse_source_pipelines, "is_pipeline_v3_enabled", lambda team_id, source_type: source_type == "Postgres"
-    )
-
-    await database_sync_to_async(DuckgresServer.objects.create)(
-        organization_id=ateam.organization_id,
-        host="h",
-        username="root",
-        password="x",
-        bucket="bucket",
-    )
-    # Sink membership now lives in the duckgres control plane; toggle it at the seam the
-    # activity reads (membership resolution itself is covered in the enablement tests).
-    member = {"value": True}
-    monkeypatch.setattr(
-        "products.managed_warehouse.backend.temporal.ducklake_copy_data_imports_workflow.is_duckgres_sink_team_member",
-        lambda team_id: member["value"],
-    )
-
-    credential = await database_sync_to_async(DataWarehouseCredential.objects.create)(
-        team=ateam, access_key="k", access_secret="s"
-    )
-    v3_source = await database_sync_to_async(ExternalDataSource.objects.create)(
-        team=ateam, source_id="v3", connection_id="c1", source_type="Postgres", status="Running"
-    )
-    v3_schema = await database_sync_to_async(ExternalDataSchema.objects.create)(team=ateam, name="pg", source=v3_source)
-    non_v3_source = await database_sync_to_async(ExternalDataSource.objects.create)(
-        team=ateam, source_id="nv3", connection_id="c2", source_type="Stripe", status="Running"
-    )
-    non_v3_table = await database_sync_to_async(DataWarehouseTable.objects.create)(
-        team=ateam,
-        name="charges",
-        format="Delta",
-        url_pattern="s3://bucket/path",
-        credential=credential,
-        external_data_source=non_v3_source,
-        columns={"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"}},
-    )
-    non_v3_schema = await database_sync_to_async(ExternalDataSchema.objects.create)(
-        team=ateam,
-        name="charges",
-        source=non_v3_source,
-        table=non_v3_table,
-        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
-        sync_type_config={"incremental_field": "created_at", "incremental_field_type": "DateTime"},
-    )
-
-    inputs = DataImportsDuckLakeCopyInputs(team_id=ateam.id, job_id="job", schema_ids=[v3_schema.id, non_v3_schema.id])
-
-    result = await prepare_data_imports_ducklake_metadata_activity(inputs)
-
-    # v3 source dropped (sink owns it); non-v3 source still copied.
-    assert [m.source_schema_id for m in result] == [str(non_v3_schema.id)]
-
-    member["value"] = False
-    result_without_membership = await prepare_data_imports_ducklake_metadata_activity(inputs)
-
-    assert {m.source_schema_id for m in result_without_membership} == {str(v3_schema.id), str(non_v3_schema.id)}
 
 
 @pytest.mark.asyncio
@@ -1128,7 +1051,7 @@ async def test_workflow_records_successful_post_gate_metrics(monkeypatch):
     workflow_finished_at = started_at + dt.timedelta(minutes=5, seconds=12)
     workload = DeltaTableSnapshotWorkload(file_count=3, row_count=30, byte_count=300)
     verification_result = ducklake_module.DuckLakeCopyDataImportsVerificationResult(name="row_count", passed=True)
-    execute_activity = AsyncMock(side_effect=[True, [_workflow_model()], workload, [verification_result]])
+    execute_activity = AsyncMock(side_effect=[True, None, [_workflow_model()], workload, [verification_result], None])
     metrics = _mock_copy_workflow_metrics(monkeypatch)
     monkeypatch.setattr(ducklake_module.workflow, "execute_activity", execute_activity)
     monkeypatch.setattr(
@@ -1145,31 +1068,101 @@ async def test_workflow_records_successful_post_gate_metrics(monkeypatch):
     metrics.finished.add.assert_called_once_with(1)
     metrics.duration_getter.assert_called_once_with(team_id=1, status="completed")
     metrics.duration.record.assert_called_once_with(312.0)
-    metrics.last_success_getter.assert_called_once_with(team_id=1, schema_id="schema-123")
+    metrics.last_success_getter.assert_called_once_with(team_id=1, schema_id=_workflow_schema_id())
     metrics.last_success.set.assert_called_once_with(schema_finished_at.timestamp())
-    metrics.files_getter.assert_called_once_with(team_id=1, schema_id="schema-123")
+    metrics.files_getter.assert_called_once_with(team_id=1, schema_id=_workflow_schema_id())
     metrics.files.record.assert_called_once_with(3.0)
-    metrics.rows_getter.assert_called_once_with(team_id=1, schema_id="schema-123")
+    metrics.rows_getter.assert_called_once_with(team_id=1, schema_id=_workflow_schema_id())
     metrics.rows.record.assert_called_once_with(30.0)
-    metrics.bytes_getter.assert_called_once_with(team_id=1, schema_id="schema-123")
+    metrics.bytes_getter.assert_called_once_with(team_id=1, schema_id=_workflow_schema_id())
     metrics.bytes.record.assert_called_once_with(300.0)
     metrics.verification_getter.assert_called_once_with(
         team_id=1,
-        schema_id="schema-123",
+        schema_id=_workflow_schema_id(),
         check_name="row_count",
         status="passed",
     )
     metrics.verification.add.assert_called_once_with(1)
+    assert _recorded_source_job_statuses(execute_activity) == [
+        ducklake_module.ManagedWarehouseSourceJobStatus.RUNNING,
+        ducklake_module.ManagedWarehouseSourceJobStatus.COMPLETED,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_workflow_skips_source_job_state_for_pre_patch_history(monkeypatch):
+    started_at = dt.datetime(2026, 7, 31, 12, 0, 0)
+    schema_finished_at = started_at + dt.timedelta(minutes=4)
+    workflow_finished_at = started_at + dt.timedelta(minutes=5)
+    verification_result = ducklake_module.DuckLakeCopyDataImportsVerificationResult(name="row_count", passed=True)
+    execute_activity = AsyncMock(
+        side_effect=[
+            True,
+            [_workflow_model()],
+            DeltaTableSnapshotWorkload(file_count=3, row_count=30, byte_count=300),
+            [verification_result],
+        ]
+    )
+    metrics = _mock_copy_workflow_metrics(monkeypatch)
+    patched = MagicMock(return_value=False)
+    monkeypatch.setattr(ducklake_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(ducklake_module.workflow, "patched", patched)
+    monkeypatch.setattr(
+        ducklake_module.workflow,
+        "now",
+        MagicMock(side_effect=[started_at, schema_finished_at, workflow_finished_at]),
+    )
+
+    await DuckLakeCopyDataImportsWorkflow().run(_workflow_inputs())
+
+    patched.assert_called_once_with(ducklake_module._SOURCE_JOB_STATE_PATCH_ID)
+    assert _recorded_source_job_statuses(execute_activity) == []
+    metrics.finished_getter.assert_called_once_with(team_id=1, status="completed")
+
+
+@pytest.mark.asyncio
+async def test_workflow_retries_completed_state_without_recording_failure(monkeypatch):
+    started_at = dt.datetime(2026, 7, 31, 12, 0, 0)
+    schema_finished_at = started_at + dt.timedelta(minutes=4)
+    workflow_finished_at = started_at + dt.timedelta(minutes=5)
+    verification_result = ducklake_module.DuckLakeCopyDataImportsVerificationResult(name="row_count", passed=True)
+    execute_activity = AsyncMock(
+        side_effect=[
+            True,
+            None,
+            [_workflow_model()],
+            DeltaTableSnapshotWorkload(file_count=3, row_count=30, byte_count=300),
+            [verification_result],
+            RuntimeError("completion write failed"),
+            None,
+        ]
+    )
+    metrics = _mock_copy_workflow_metrics(monkeypatch)
+    monkeypatch.setattr(ducklake_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(
+        ducklake_module.workflow,
+        "now",
+        MagicMock(side_effect=[started_at, schema_finished_at, workflow_finished_at]),
+    )
+
+    await DuckLakeCopyDataImportsWorkflow().run(_workflow_inputs())
+
+    assert _recorded_source_job_statuses(execute_activity) == [
+        ducklake_module.ManagedWarehouseSourceJobStatus.RUNNING,
+        ducklake_module.ManagedWarehouseSourceJobStatus.COMPLETED,
+        ducklake_module.ManagedWarehouseSourceJobStatus.COMPLETED,
+    ]
+    metrics.finished_getter.assert_called_once_with(team_id=1, status="completed")
 
 
 @pytest.mark.asyncio
 async def test_workflow_records_failed_post_gate_metrics(monkeypatch):
     started_at = dt.datetime(2026, 7, 31, 12, 0, 0)
     failed_at = started_at + dt.timedelta(seconds=5)
-    execute_activity = AsyncMock(side_effect=[True, RuntimeError("prepare failed")])
+    execute_activity = AsyncMock(side_effect=[True, None, RuntimeError("prepare failed"), None])
     metrics = _mock_copy_workflow_metrics(monkeypatch)
     monkeypatch.setattr(ducklake_module.workflow, "execute_activity", execute_activity)
-    monkeypatch.setattr(ducklake_module.workflow, "now", MagicMock(side_effect=[started_at, failed_at]))
+    monkeypatch.setattr(ducklake_module.workflow, "now", MagicMock(side_effect=[started_at, failed_at, failed_at]))
 
     with pytest.raises(RuntimeError, match="prepare failed"):
         await DuckLakeCopyDataImportsWorkflow().run(_workflow_inputs())
@@ -1181,16 +1174,24 @@ async def test_workflow_records_failed_post_gate_metrics(monkeypatch):
     metrics.duration.record.assert_called_once_with(5.0)
     metrics.last_success_getter.assert_not_called()
     metrics.files_getter.assert_not_called()
+    assert _recorded_source_job_statuses(execute_activity) == [
+        ducklake_module.ManagedWarehouseSourceJobStatus.RUNNING,
+        ducklake_module.ManagedWarehouseSourceJobStatus.FAILED,
+    ]
 
 
 @pytest.mark.asyncio
 async def test_workflow_records_skipped_status_when_no_models_are_resolved(monkeypatch):
     started_at = dt.datetime(2026, 7, 31, 12, 0, 0)
     finished_at = started_at + dt.timedelta(seconds=2)
-    execute_activity = AsyncMock(side_effect=[True, []])
+    execute_activity = AsyncMock(side_effect=[True, None, [], None])
     metrics = _mock_copy_workflow_metrics(monkeypatch)
     monkeypatch.setattr(ducklake_module.workflow, "execute_activity", execute_activity)
-    monkeypatch.setattr(ducklake_module.workflow, "now", MagicMock(side_effect=[started_at, finished_at]))
+    monkeypatch.setattr(
+        ducklake_module.workflow,
+        "now",
+        MagicMock(side_effect=[started_at, finished_at, finished_at]),
+    )
 
     await DuckLakeCopyDataImportsWorkflow().run(_workflow_inputs())
 
@@ -1198,10 +1199,15 @@ async def test_workflow_records_skipped_status_when_no_models_are_resolved(monke
     metrics.duration_getter.assert_called_once_with(team_id=1, status="skipped")
     metrics.duration.record.assert_called_once_with(2.0)
     metrics.last_success_getter.assert_not_called()
+    assert _recorded_source_job_statuses(execute_activity) == [
+        ducklake_module.ManagedWarehouseSourceJobStatus.RUNNING,
+        ducklake_module.ManagedWarehouseSourceJobStatus.SKIPPED,
+    ]
 
 
 def _mock_copy_workflow_metrics(monkeypatch):
     metrics = MagicMock()
+    monkeypatch.setattr(ducklake_module.workflow, "patched", MagicMock(return_value=True))
     for name in ("started", "finished", "duration", "last_success", "files", "rows", "bytes", "verification"):
         getter = MagicMock(return_value=getattr(metrics, name))
         setattr(metrics, f"{name}_getter", getter)
@@ -1217,16 +1223,28 @@ def _workflow_inputs() -> DataImportsDuckLakeCopyInputs:
     )
 
 
+def _workflow_schema_id() -> str:
+    return str(_workflow_inputs().schema_ids[0])
+
+
 def _workflow_model() -> DuckLakeCopyDataImportsMetadata:
     return DuckLakeCopyDataImportsMetadata(
         model_label="postgres_customers",
-        source_schema_id="schema-123",
+        source_schema_id=_workflow_schema_id(),
         source_schema_name="customers",
         source_normalized_name="customers",
         source_table_uri="s3://bucket/team_1/customers",
         ducklake_schema_name="posthog_data_imports_team_1",
         ducklake_table_name="postgres_customers_abc12345",
     )
+
+
+def _recorded_source_job_statuses(execute_activity: AsyncMock) -> list[ManagedWarehouseSourceJobStatus]:
+    return [
+        call.args[1].status
+        for call in execute_activity.await_args_list
+        if call.args[0] is ducklake_module.record_managed_warehouse_source_job_activity
+    ]
 
 
 def test_copy_data_imports_to_ducklake_activity_raises_when_no_catalog(monkeypatch):
@@ -1373,6 +1391,7 @@ async def test_ducklake_copy_data_imports_workflow_skips_when_feature_flag_disab
                 ducklake_copy_data_imports_gate_activity,
                 ducklake_module.prepare_data_imports_ducklake_metadata_activity,
                 ducklake_module.copy_data_imports_to_ducklake_activity,
+                ducklake_module.record_managed_warehouse_source_job_activity,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
@@ -1399,7 +1418,7 @@ async def test_ducklake_copy_data_imports_workflow_runs_when_feature_flag_enable
         return [
             DuckLakeCopyDataImportsMetadata(
                 model_label="postgres_customers",
-                source_schema_id="schema-123",
+                source_schema_id=str(inputs.schema_ids[0]),
                 source_schema_name="customers",
                 source_normalized_name="customers",
                 source_table_uri="s3://bucket/team_1/customers",
@@ -1420,8 +1439,6 @@ async def test_ducklake_copy_data_imports_workflow_runs_when_feature_flag_enable
     monkeypatch.setattr(
         ducklake_module,
         "feature_enabled_or_false",
-        # Key-aware: the gate checks the duckgres-batch-sink exclusion first,
-        # and a catch-all True would wrongly trip it.
         lambda key, *args, **kwargs: key == "ducklake-data-imports-copy-workflow",
     )
     monkeypatch.setattr(ducklake_module, "prepare_data_imports_ducklake_metadata_activity", metadata_stub)
@@ -1444,6 +1461,7 @@ async def test_ducklake_copy_data_imports_workflow_runs_when_feature_flag_enable
                 ducklake_module.prepare_data_imports_ducklake_metadata_activity,
                 ducklake_module.copy_data_imports_to_ducklake_activity,
                 ducklake_module.verify_data_imports_ducklake_copy_activity,
+                ducklake_module.record_managed_warehouse_source_job_activity,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
@@ -1486,7 +1504,7 @@ async def test_ducklake_copy_data_imports_workflow_calls_cleanup_after_verify(mo
         return [
             DuckLakeCopyDataImportsMetadata(
                 model_label="postgres_customers",
-                source_schema_id="schema-123",
+                source_schema_id=str(inputs.schema_ids[0]),
                 source_schema_name="customers",
                 source_normalized_name="customers",
                 source_table_uri="s3://bucket/team_1/customers",
@@ -1512,8 +1530,6 @@ async def test_ducklake_copy_data_imports_workflow_calls_cleanup_after_verify(mo
     monkeypatch.setattr(
         ducklake_module,
         "feature_enabled_or_false",
-        # Key-aware: the gate checks the duckgres-batch-sink exclusion first,
-        # and a catch-all True would wrongly trip it.
         lambda key, *args, **kwargs: key == "ducklake-data-imports-copy-workflow",
     )
     monkeypatch.setattr(ducklake_module, "prepare_data_imports_ducklake_metadata_activity", metadata_stub)
@@ -1538,6 +1554,7 @@ async def test_ducklake_copy_data_imports_workflow_calls_cleanup_after_verify(mo
                 ducklake_module.copy_data_imports_to_ducklake_activity,
                 ducklake_module.verify_data_imports_ducklake_copy_activity,
                 ducklake_module.cleanup_data_imports_staging_activity,
+                ducklake_module.record_managed_warehouse_source_job_activity,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):

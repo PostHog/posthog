@@ -114,6 +114,11 @@ jobs:
     # unlabeled-cancel trap: a no-op event runs only this job, never touches the
     # `preview`/`teardown` concurrency group, so it can't cancel an active build.
     decide:
+        # A preview for the queue's branch would outlive it by minutes, so the
+        # answer is always "do nothing" — skip before spending the API calls.
+        # Downstream jobs key off `needs.decide.outputs.build`, which is empty
+        # when this skips, so they stay skipped too.
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         name: '[Optional] decide eligibility'
         runs-on: ubuntu-24.04
         timeout-minutes: 5

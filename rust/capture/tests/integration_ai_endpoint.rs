@@ -14,6 +14,8 @@ use capture::sinks::Event;
 use capture::time::TimeSource;
 use capture::v0_request::{OverflowReason, ProcessedEvent};
 use chrono::{DateTime, TimeZone, Utc};
+use common_ingestion_warnings::test_support::CollectingEmitter;
+use common_ingestion_warnings::{WarningEmitter, WarningType, CAPTURE_AI_EVENTS};
 use common_redis::MockRedisClient;
 use futures::StreamExt;
 use integration_utils::{test_lifecycle_handlers, DEFAULT_CONFIG, DEFAULT_TEST_TIME};
@@ -201,6 +203,65 @@ fn setup_ai_test_router() -> Router {
         false,                            // ai_events_overflow_enabled
         None,                             // ingestion_warning_emitter
     )
+}
+
+/// A router whose emit sites are live, plus the emitter to assert against.
+/// Mirrors `setup_ai_test_router` and differs only in the last argument.
+fn setup_ai_router_collecting_warnings() -> (Router, Arc<CollectingEmitter>) {
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
+
+    let timesource = FixedTime {
+        time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
+            .expect("Invalid fixed time format")
+            .with_timezone(&Utc),
+    };
+    let redis = Arc::new(MockRedisClient::new());
+
+    let mut cfg = DEFAULT_CONFIG.clone();
+    cfg.capture_mode = CaptureMode::Events;
+
+    let quota_limiter =
+        CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
+
+    let emitter = Arc::new(CollectingEmitter::default());
+    let warning_emitter: Option<Arc<dyn WarningEmitter>> = Some(emitter.clone());
+
+    let app = router(
+        timesource,
+        readiness,
+        liveness,
+        Arc::new(TestSink),
+        redis,
+        None,
+        quota_limiter,
+        TokenDropper::default(),
+        None, // event_restriction_service
+        None, // recorder_handle
+        CaptureMode::Events,
+        None,
+        25 * 1024 * 1024,
+        false,
+        1_i64,
+        false,
+        0.0_f32,
+        26_214_400,
+        Some(create_mock_blob_storage()),
+        None,
+        256,
+        10 * 1024 * 1024,
+        50 * 1024 * 1024,
+        None,
+        None,
+        None,
+        None,
+        8,
+        None,
+        AiRouting::Primary,
+        false,
+        warning_emitter,
+    );
+
+    (app, emitter)
 }
 
 // ============================================================================
@@ -3276,4 +3337,132 @@ async fn test_ai_endpoint_verified_gateway_event_still_subject_to_global_quota()
         0,
         "verified gateway event must still obey the global Events quota"
     );
+}
+
+// ============================================================================
+// PHASE 11: INGESTION WARNINGS
+// ============================================================================
+//
+// The mapping, details, and count are pinned at the helper level in
+// `ingestion_warnings::ai`. These cover what a unit test can't: that the emit
+// seam is wired into the handler at all, that attribution reaches it from the
+// event part, and that a rejection still produces its original HTTP response.
+
+#[tokio::test]
+async fn non_ai_event_name_warns_and_still_returns_400() {
+    let (app, emitter) = setup_ai_router_collecting_warnings();
+    let client = TestClient::new(app);
+
+    // Analytics sent to the AI path: the mistake invalid_ai_event exists for.
+    let form = Form::new().part(
+        "event",
+        Part::bytes(
+            serde_json::to_vec(&json!({
+                "uuid": uuid::Uuid::now_v7().to_string(),
+                "event": "$pageview",
+                "distinct_id": "user-1",
+                "properties": {"$ai_model": "gpt-4", "$lib": "posthog-python", "$lib_version": "3.1.0"}
+            }))
+            .unwrap(),
+        )
+        .mime_str("application/json")
+        .unwrap(),
+    );
+
+    let resp = send_multipart_request(&client, form, Some("test_token")).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    let emitted = emitter.emitted();
+    assert_eq!(emitted.len(), 1);
+    assert_eq!(emitted[0].warning, WarningType::InvalidAiEvent);
+    assert_eq!(emitted[0].source, CAPTURE_AI_EVENTS);
+    assert_eq!(emitted[0].token, "test_token");
+    assert_eq!(emitted[0].count, 1);
+    assert_eq!(
+        emitted[0].extra_details.get("eventName"),
+        Some(&json!("$pageview"))
+    );
+    // Attribution came off the event part's own properties.
+    assert_eq!(
+        emitted[0].extra_details.get("lib"),
+        Some(&json!("posthog-python"))
+    );
+    assert_eq!(
+        emitted[0].extra_details.get("libVersion"),
+        Some(&json!("3.1.0"))
+    );
+    assert_eq!(
+        emitted[0].extra_details.get("path"),
+        Some(&json!("/i/v0/ai"))
+    );
+}
+
+#[tokio::test]
+async fn missing_ai_model_warns_as_invalid_ai_event() {
+    let (app, emitter) = setup_ai_router_collecting_warnings();
+    let client = TestClient::new(app);
+
+    let form = create_ai_event_form("$ai_generation", "user-2", json!({"foo": "bar"}));
+    let resp = send_multipart_request(&client, form, Some("test_token")).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    let emitted = emitter.emitted();
+    assert_eq!(emitted.len(), 1);
+    assert_eq!(emitted[0].warning, WarningType::InvalidAiEvent);
+    // No $lib in the properties, so attribution falls back rather than dropping keys.
+    assert_eq!(emitted[0].extra_details.get("lib"), Some(&json!("unknown")));
+}
+
+// Structural failures happen before the event part parses, so this also covers
+// the pre-event-part attribution fallback on the seam.
+#[tokio::test]
+async fn unknown_multipart_field_warns_as_invalid_ai_payload() {
+    let (app, emitter) = setup_ai_router_collecting_warnings();
+    let client = TestClient::new(app);
+
+    let form = create_ai_event_form("$ai_generation", "user-3", json!({"$ai_model": "gpt-4"}))
+        .part(
+            "surprise",
+            Part::bytes(b"data".to_vec())
+                .mime_str("application/json")
+                .unwrap(),
+        );
+
+    let resp = send_multipart_request(&client, form, Some("test_token")).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    let emitted = emitter.emitted();
+    assert_eq!(emitted.len(), 1);
+    assert_eq!(emitted[0].warning, WarningType::InvalidAiPayload);
+    assert_eq!(
+        emitted[0].extra_details.get("part"),
+        Some(&json!("surprise"))
+    );
+}
+
+// A missing Bearer header is pre-token, so there is no team to attribute to and
+// the seam must stay silent. This is the property that keeps unattributable
+// failures out of the warnings table.
+#[tokio::test]
+async fn unauthenticated_request_never_warns() {
+    let (app, emitter) = setup_ai_router_collecting_warnings();
+    let client = TestClient::new(app);
+
+    let form = create_ai_event_form("$ai_generation", "user-4", json!({"$ai_model": "gpt-4"}));
+    let resp = send_multipart_request(&client, form, None).await;
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    assert!(emitter.emitted().is_empty());
+}
+
+#[tokio::test]
+async fn valid_ai_event_never_warns() {
+    let (app, emitter) = setup_ai_router_collecting_warnings();
+    let client = TestClient::new(app);
+
+    let form = create_ai_event_form("$ai_generation", "user-5", json!({"$ai_model": "gpt-4"}));
+    let resp = send_multipart_request(&client, form, Some("test_token")).await;
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert!(emitter.emitted().is_empty());
 }

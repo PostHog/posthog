@@ -149,6 +149,9 @@ class PostHogConnectionForwardResponseSerializer(serializers.Serializer):
     data = serializers.JSONField(help_text="The target project's response body, passed through.")  # type: ignore[assignment]
 
 
+# A `posthog` connection is an integration kind, so route its codegen (frontend types, MCP tools)
+# to the integrations product rather than the core bucket this module's path would otherwise imply.
+@extend_schema(extensions={"x-product": "integrations"})
 class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Replay requests against another PostHog project via a `posthog` connection you created."""
 

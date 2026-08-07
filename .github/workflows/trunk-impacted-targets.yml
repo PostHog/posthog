@@ -7,8 +7,10 @@ name: Trunk impacted targets
 # Targets are computed by .github/scripts/trunk-impacted-targets.js, which maps
 # changed paths onto lane names. Trunk runs two PRs in parallel only when their
 # target sets are disjoint, so that script is biased toward over-reporting and
-# falls back to "ALL" (overlaps everything, the old single-lane behavior)
-# whenever it cannot classify a change with confidence.
+# claims every known target (the old single-lane behavior) whenever it cannot
+# classify a change with confidence. The "ALL" sentinel below is reserved for
+# the degraded cases where the target list cannot be computed at all, which
+# means "unknown" rather than "everything".
 #
 # The upload authenticates with the org API token (x-api-token) on internal PRs.
 # Fork PR workflow runs do NOT receive repo secrets — GitHub withholds them from
@@ -97,8 +99,9 @@ jobs:
                   echo "$changed" | sed 's/^/  /'
                   printf '%s\n' "$changed" > "$RUNNER_TEMP/changed-files.txt"
 
-                  # The script prints "ALL" or a JSON array on stdout and never
-                  # exits non-zero; it degrades to "ALL" internally on any error.
+                  # The script prints a JSON array on stdout, or the JSON string "ALL" when it
+                  # could not enumerate the targets, and never exits non-zero;
+                  # it degrades to "ALL" internally on any error.
                   computed="$(printf '%s\n' "$changed" | node .github/scripts/trunk-impacted-targets.js)"
                   printf 'targets=%s\n' "$(jq -cn --argjson t "$computed" '{impactedTargets: $t}')" >> "$GITHUB_OUTPUT"
 

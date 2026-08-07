@@ -619,6 +619,15 @@ async fn write_property_definitions_batch(
         // must lead with the DISTINCT ON keys; the trailing keys make the surviving row deterministic
         // and pick the most useful one to write - a non-null property_type (then is_numerical),
         // mirroring the DO UPDATE that only fills a NULL property_type.
+        //
+        // The DO UPDATE guard checks both sides of the conflict on purpose. Testing only the
+        // stored row means an already-known untyped property still fires the UPDATE, writing
+        // property_type NULL over NULL and is_numerical false over false: a new tuple version
+        // carrying no new information, plus index maintenance, on by far the most common path
+        // through this statement. Requiring EXCLUDED.property_type to be non-null keeps only
+        // the writes that actually resolve a type. is_numerical needs no separate check because
+        // it is derived from property_type (see `into_updates` in types.rs), so an incoming NULL
+        // type always carries is_numerical false and can never be the new information.
         let result = sqlx::query(r#"
             INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, team_id, project_id, property_type)
                 SELECT DISTINCT ON (COALESCE(project_id, team_id::bigint), name, type, COALESCE(group_type_index, -1))
@@ -642,7 +651,8 @@ async fn write_property_definitions_batch(
                 DO UPDATE SET
                     property_type=EXCLUDED.property_type,
                     is_numerical=EXCLUDED.is_numerical
-                WHERE posthog_propertydefinition.property_type IS NULL"#,
+                WHERE posthog_propertydefinition.property_type IS NULL
+                    AND EXCLUDED.property_type IS NOT NULL"#,
             )
             .bind(&batch.ids)
             .bind(&batch.names)

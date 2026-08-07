@@ -80,9 +80,6 @@ export type LogsIngestionConsumerConfig = {
     LOGS_TRANSFORMATIONS_BATCH_BUDGET_MS: number
     /** Max failed invocations whose logs are captured, per function per message. */
     LOGS_TRANSFORMATIONS_MAX_ERROR_LOGS_PER_FUNCTION: number
-    /** Fraction of messages (0–1) on which HogWatcher state is read and aggregate VM cost reported.
-     * 0 (default) keeps the watcher fully dormant — no Redis traffic. */
-    LOGS_TRANSFORMATIONS_HOG_WATCHER_SAMPLE_RATE: number
     REDIS_URL: string
     REDIS_POOL_MIN_SIZE: number
     REDIS_POOL_MAX_SIZE: number
@@ -121,7 +118,6 @@ export function getDefaultLogsIngestionConsumerConfig(): LogsIngestionConsumerCo
         LOGS_TRANSFORMATIONS_MESSAGE_BUDGET_MS: 100,
         LOGS_TRANSFORMATIONS_BATCH_BUDGET_MS: 2000,
         LOGS_TRANSFORMATIONS_MAX_ERROR_LOGS_PER_FUNCTION: 3,
-        LOGS_TRANSFORMATIONS_HOG_WATCHER_SAMPLE_RATE: 0,
         // Overlapping fields with CommonConfig, included for standalone usage
         // ok to connect to localhost over plaintext
         // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport

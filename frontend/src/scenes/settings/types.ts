@@ -251,6 +251,7 @@ export type SettingId =
     | 'session-table-version'
     | 'sidebar-auto-suggest'
     | 'sidebar-items'
+    | 'sidebar-layout'
     | 'sidebar-my-tools'
     | 'snippet'
     | 'snippet-v2'

@@ -412,12 +412,18 @@ pub async fn persist_observation_ends(
     run_id: RunId,
     epoch: DispatchEpoch,
     ends: &ObservationEnds,
+    marker_topic: &str,
 ) -> Result<(), CompletionStoreError> {
     let updated = sqlx::query_scalar::<_, RunId>(
         r#"
         UPDATE cohort_backfill_runs
         SET marker_watch = jsonb_set(
-                coalesce(marker_watch, jsonb_build_object('schema', $4::bigint, 'positions', '{}'::jsonb)),
+                coalesce(
+                    marker_watch,
+                    jsonb_build_object(
+                        'schema', $4::bigint, 'topic', $5::text, 'positions', '{}'::jsonb
+                    )
+                ),
                 '{ends}', $3::jsonb, true
             ),
             updated_at = now()
@@ -429,6 +435,7 @@ pub async fn persist_observation_ends(
     .bind(epoch.as_datetime())
     .bind(Json(ends))
     .bind(i64::from(MARKER_WATCH_SCHEMA))
+    .bind(marker_topic)
     .fetch_optional(pool)
     .await?;
     fence(updated, run_id, CompletionOperation::PersistEnds)
@@ -444,6 +451,7 @@ pub async fn persist_marker_observations(
     epoch: DispatchEpoch,
     bit_updates: &[(CohortId, PartitionBitmap)],
     positions: &WatchPositions,
+    marker_topic: &str,
 ) -> Result<(), CompletionStoreError> {
     let mut tx = pool.begin().await?;
     // The positions write also proves the fence: its RETURNING gates the whole transaction.
@@ -454,7 +462,10 @@ pub async fn persist_marker_observations(
         r#"
         UPDATE cohort_backfill_runs
         SET marker_watch = jsonb_set(
-                coalesce(marker_watch, jsonb_build_object('schema', $4::bigint, 'ends', NULL)),
+                coalesce(
+                    marker_watch,
+                    jsonb_build_object('schema', $4::bigint, 'topic', $5::text, 'ends', NULL)
+                ),
                 '{positions}', $3::jsonb, true
             ),
             updated_at = now()
@@ -466,6 +477,7 @@ pub async fn persist_marker_observations(
     .bind(epoch.as_datetime())
     .bind(Json(positions))
     .bind(i64::from(MARKER_WATCH_SCHEMA))
+    .bind(marker_topic)
     .fetch_optional(&mut *tx)
     .await?;
     if fenced.is_none() {
@@ -821,6 +833,7 @@ pub async fn discover_completions(
     pool: &PgPool,
     allowlist: &TeamAllowlist,
     kinds: &[RunKind],
+    marker_topic: &str,
 ) -> Result<Vec<DiscoveredCompletion>, CompletionStoreError> {
     let bound_kinds = kinds.iter().map(|kind| kind.as_str()).collect::<Vec<_>>();
     let rows = match allowlist {
@@ -840,7 +853,10 @@ pub async fn discover_completions(
                 .await?
         }
     };
-    Ok(rows.into_iter().filter_map(classify_row).collect())
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| classify_row(row, marker_topic))
+        .collect())
 }
 
 /// How many runs hold `reconciling`, per kind — including the observed ones discovery drops, which
@@ -879,7 +895,7 @@ pub async fn count_reconciling_by_kind(
         .collect())
 }
 
-fn classify_row(row: CompletionRunRow) -> Option<DiscoveredCompletion> {
+fn classify_row(row: CompletionRunRow, marker_topic: &str) -> Option<DiscoveredCompletion> {
     let status = match row.status.as_str() {
         "seeding" => CompletionStatus::Seeding,
         "reconciling" => CompletionStatus::Reconciling,
@@ -893,6 +909,7 @@ fn classify_row(row: CompletionRunRow) -> Option<DiscoveredCompletion> {
         reconcile_observed_at: row.reconcile_observed_at,
         reconcile_hwms: row.reconcile_hwms.map(|json| json.0),
         marker_watch: row.marker_watch.map(|json| json.0),
+        expected_marker_topic: marker_topic,
     });
     Some(DiscoveredCompletion {
         run_id: row.id,

@@ -199,6 +199,11 @@ export interface HogFunctionMinimalApi {
     readonly execution_order: number | null
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
+    /**
+     * When config was last staged for review, or null when nothing is staged.
+     * @nullable
+     */
+    readonly draft_updated_at: string | null
 }
 
 export interface PaginatedHogFunctionMinimalListApi {
@@ -452,6 +457,17 @@ export interface HogFunctionApi {
     readonly batch_export_id: string | null
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
+    /** Incremented every time the live config changes. See the revisions endpoint. */
+    readonly version: number
+    /** Config staged for review but not live yet: a full snapshot of hog, inputs_schema, inputs, filters, mappings and masking. Null when nothing is staged. Publish or discard it to clear. */
+    readonly draft: unknown
+    /**
+     * When config was last staged for review, or null when nothing is staged.
+     * @nullable
+     */
+    readonly draft_updated_at: string | null
+    /** Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally. */
+    base_updated_at?: string
 }
 
 /**
@@ -530,6 +546,17 @@ export interface PatchedHogFunctionApi {
     readonly batch_export_id?: string | null
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type?: SearchMatchTypeEnumApi | null
+    /** Incremented every time the live config changes. See the revisions endpoint. */
+    readonly version?: number
+    /** Config staged for review but not live yet: a full snapshot of hog, inputs_schema, inputs, filters, mappings and masking. Null when nothing is staged. Publish or discard it to clear. */
+    readonly draft?: unknown
+    /**
+     * When config was last staged for review, or null when nothing is staged.
+     * @nullable
+     */
+    readonly draft_updated_at?: string | null
+    /** Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally. */
+    base_updated_at?: string
 }
 
 /**
@@ -543,8 +570,10 @@ export type HogFunctionInvocationApiGlobals = { [key: string]: unknown }
 export type HogFunctionInvocationApiClickhouseEvent = { [key: string]: unknown }
 
 export interface HogFunctionInvocationApi {
-    /** Full function configuration to test. */
-    configuration: HogFunctionApi
+    /** Full function configuration to test. Omit when use_draft is true. */
+    configuration?: HogFunctionApi
+    /** Test the function's staged draft instead of passing a configuration. Staged secret inputs are used; secrets the draft doesn't change fall back to the live values. 400 when nothing is staged. */
+    use_draft?: boolean
     /** Mock global variables available during test invocation. */
     globals?: HogFunctionInvocationApiGlobals
     /** Mock ClickHouse event data to test the function with. */
@@ -576,6 +605,35 @@ export type AppMetricsTotalsResponseApiTotals = { [key: string]: number }
 
 export interface AppMetricsTotalsResponseApi {
     totals: AppMetricsTotalsResponseApiTotals
+}
+
+export interface HogFunctionPublishRequestApi {
+    /** False (default) previews the publish: returns which config fields would change without changing anything. True applies the staged draft to the live function. */
+    confirm?: boolean
+    /** From the preview response, and required when confirm=true on an enabled function. Expires after 15 minutes, and any edit to the draft or the live config invalidates it (409), so you always publish the exact draft you previewed. */
+    confirm_token?: string
+}
+
+export interface HogFunctionPublishResponseApi {
+    /** Whether the draft was applied to the live function. */
+    published: boolean
+    /**
+     * The staged draft's timestamp, for reference; publishing is confirmed via confirm_token.
+     * @nullable
+     */
+    draft_updated_at: string | null
+    /**
+     * Echo this back with confirm=true to publish the previewed draft. Only set on previews.
+     * @nullable
+     */
+    confirm_token: string | null
+    /**
+     * Config fields publishing would change (hog, inputs_schema, inputs, filters, mappings, masking). Only set on previews.
+     * @nullable
+     */
+    changed_fields: string[] | null
+    /** The function after publishing (only set when published=true). */
+    function?: HogFunctionApi | null
 }
 
 /**
@@ -644,6 +702,36 @@ export interface HogInvocationRerunResponseApi {
     queued_count: number
     /** Always 0 — rerun runs asynchronously. Kept for response shape stability. */
     skipped_count: number
+}
+
+export interface HogFunctionRevisionBasicApi {
+    /** Function version this snapshot was published as. */
+    readonly version: number
+    readonly created_at: string
+    readonly created_by: UserBasicApi | null
+}
+
+export interface PaginatedHogFunctionRevisionBasicListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: HogFunctionRevisionBasicApi[]
+}
+
+export interface HogFunctionRevisionApi {
+    /** Function version this snapshot was published as. */
+    readonly version: number
+    readonly created_at: string
+    readonly created_by: UserBasicApi | null
+    /** Full snapshot of the function's config fields (hog, inputs_schema, inputs, filters, mappings, masking) at this version. */
+    readonly content: unknown
+}
+
+export interface HogFunctionRevisionRestoreRequestApi {
+    /** Replace the open staged draft with this revision's config. Without it, restoring while a draft is open returns 409. */
+    overwrite?: boolean
 }
 
 /**
@@ -905,6 +993,17 @@ export const HogFunctionsMetricsTotalsRetrieveInterval = {
     Day: 'day',
     Week: 'week',
 } as const
+
+export type HogFunctionsRevisionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
 
 export type PluginConfigsLogsListParams = {
     /**

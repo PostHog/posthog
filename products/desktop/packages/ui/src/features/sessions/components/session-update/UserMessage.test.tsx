@@ -13,6 +13,7 @@ import { UserMessage } from "./UserMessage";
 function renderWithFlags(node: ReactNode, bluebirdEnabled: boolean) {
   const flags: FeatureFlags = {
     isEnabled: () => bluebirdEnabled,
+    getPayload: () => undefined,
     onFlagsLoaded: () => () => {},
   };
   const container = new Container();

@@ -45,11 +45,6 @@ class TestFinalizerKindCoverage(SimpleTestCase):
 class TestBackfillFinalizer(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        feature_patch = mock.patch(
-            "products.cohorts.backend.models.dependencies.posthoganalytics.feature_enabled", return_value=False
-        )
-        feature_patch.start()
-        self.addCleanup(feature_patch.stop)
 
         celery_patch = mock.patch("products.cohorts.backend.backfill.finalize.current_app")
         self.mock_celery_app = celery_patch.start()

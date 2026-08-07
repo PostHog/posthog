@@ -302,16 +302,16 @@ export function TaskListView({
                     addSpacingBefore={false}
                     tooltipContent={folder?.path ?? group.id}
                     onNewTask={() => {
-                      if (groupFolderId) {
-                        openTaskInput({
-                          folderId: groupFolderId,
-                          folderRunEnvironment: mostRecentRunEnvironment(
-                            group.tasks,
-                          ),
-                        });
-                      } else {
-                        openTaskInput();
-                      }
+                      openTaskInput({
+                        folderId: groupFolderId,
+                        // Cloud-only groups have no registered folder, and the
+                        // group id is the repo slug — without it the new-task
+                        // screen would keep whichever repo was last used.
+                        folderRepository: group.id,
+                        folderRunEnvironment: mostRecentRunEnvironment(
+                          group.tasks,
+                        ),
+                      });
                     }}
                     newTaskTooltip={`Start new task in ${folder?.name ?? group.name}`}
                     onContextMenu={

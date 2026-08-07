@@ -46,6 +46,34 @@ describe('sourceWizardLogic', () => {
         }
     })
 
+    it('advances from the webhook step to the progress step without also completing the wizard', () => {
+        // Regression test: onSubmit used to read `values.currentStep` again after onNext()
+        // advanced it, so a single click on step 4 (webhook) fell through into the step-5
+        // completion branch in the same call, skipping the progress step entirely.
+        const postgresSource = {
+            name: 'Postgres',
+            iconPath: '',
+            caption: null,
+            fields: [],
+        } as SourceConfig
+        const onComplete = jest.fn()
+        const logic = sourceWizardLogic({ availableSources: { Postgres: postgresSource }, onComplete })
+        const unmount = logic.mount()
+
+        try {
+            logic.actions.selectConnector(postgresSource)
+            logic.actions.setStep(4)
+            logic.actions.setWebhookResult({ success: true, webhook_url: 'https://example.com/webhook' })
+
+            logic.actions.onSubmit()
+
+            expect(logic.values.currentStep).toEqual(5)
+            expect(onComplete).not.toHaveBeenCalled()
+        } finally {
+            unmount()
+        }
+    })
+
     it('does not hydrate the same source URL again after the wizard has started', () => {
         const postgresSource = {
             name: 'Postgres',

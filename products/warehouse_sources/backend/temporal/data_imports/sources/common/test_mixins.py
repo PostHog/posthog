@@ -1,3 +1,4 @@
+import socket
 from dataclasses import dataclass
 
 import pytest
@@ -331,6 +332,51 @@ class TestTunnelYieldsLoopbackOnly(SimpleTestCase):
             with pytest.raises(Exception, match="non-loopback"):
                 with cm:
                     pass
+
+
+class TestSSHTunnelHostIsCheckedAtConnect(SimpleTestCase):
+    # The SSH hop is a raw socket that no egress proxy sees, and the sync path reaches these
+    # entry points without ever running `ssh_tunnel_is_valid`, so what they do here is the only
+    # control on where the tunnel's first connection goes.
+    @staticmethod
+    def _resolves_to(ip: str) -> list:
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (ip, 0))]
+
+    @staticmethod
+    def _tunnel_cm(entrypoint: str, config, team_id: int):
+        if entrypoint == "open_ssh_tunnel":
+            return open_ssh_tunnel(config, team_id)
+        return make_ssh_tunnel_factory(config, team_id)()
+
+    @parameterized.expand([("open_ssh_tunnel",), ("factory",)])
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_connects_to_the_resolved_ip_rather_than_the_hostname(self, entrypoint: str):
+        config = FakeConfig(ssh_tunnel=FakeSSHTunnelConfig(enabled=True, host="bastion.example.com"))
+        with (
+            patch(f"{_MIXINS_MODULE}.SSHTunnel") as mock_ssh,
+            patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", return_value=self._resolves_to("93.184.216.34")),
+            patch(f"{_MIXINS_MODULE}.logger"),
+        ):
+            tunnel = mock_ssh.from_config.return_value.get_tunnel.return_value.__enter__.return_value
+            tunnel.local_bind_host, tunnel.local_bind_port = "127.0.0.1", 55555
+            with self._tunnel_cm(entrypoint, config, 999):
+                pass
+            get_tunnel = mock_ssh.from_config.return_value.get_tunnel
+            assert get_tunnel.call_args.kwargs["ssh_host"] == "93.184.216.34"
+
+    @parameterized.expand([("open_ssh_tunnel",), ("factory",)])
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_host_resolving_to_an_internal_ip_is_refused_before_any_connection(self, entrypoint: str):
+        config = FakeConfig(ssh_tunnel=FakeSSHTunnelConfig(enabled=True, host="bastion.example.com"))
+        with (
+            patch(f"{_MIXINS_MODULE}.SSHTunnel") as mock_ssh,
+            patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", return_value=self._resolves_to("10.0.0.1")),
+            patch(f"{_MIXINS_MODULE}.logger"),
+        ):
+            with pytest.raises(Exception, match="SSH tunnel host not allowed"):
+                with self._tunnel_cm(entrypoint, config, 999):
+                    pass
+            mock_ssh.from_config.return_value.get_tunnel.assert_not_called()
 
 
 class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):

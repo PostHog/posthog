@@ -21,12 +21,6 @@ from uuid import UUID
 __all__ = [
     "CPUnavailableError",
     "DuckgresQueryServerConfig",
-    "DuckgresSinkBackfillPlanInput",
-    "DuckgresSinkBackfillRunReference",
-    "DuckgresSinkState",
-    "DuckgresSinkStateCreateInput",
-    "DuckgresSinkStateGaugeStats",
-    "DuckgresSinkStateRecord",
     "DuckgresStoredBucketConfig",
     "DuckgresStoredServerConfig",
     "DuckLakeCatalogConnectionConfig",
@@ -34,6 +28,10 @@ __all__ = [
     "DuckLakeTableResult",
     "ManagedWarehouseBackfillState",
     "ManagedWarehouseProvisionStatus",
+    "ManagedWarehouseSourceJobRecord",
+    "ManagedWarehouseSourceJobStatus",
+    "ManagedWarehouseSourceJobUpdate",
+    "ManagedWarehouseSourceJobWorkflow",
     "ManagedWarehouseTableNames",
     "ManagedWarehouseTeamMembership",
 ]
@@ -89,7 +87,6 @@ class DuckgresStoredServerConfig:
     query_server: DuckgresQueryServerConfig
     catalog: DuckLakeCatalogConnectionConfig | None
     bucket: DuckgresStoredBucketConfig | None
-    sink_max_concurrency: int
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -122,6 +119,52 @@ class ManagedWarehouseBackfillState:
     table_suffix: str | None
 
 
+class ManagedWarehouseSourceJobWorkflow(StrEnum):
+    COPY = "copy"
+    REGISTER = "register"
+
+
+class ManagedWarehouseSourceJobStatus(StrEnum):
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+    STALE = "stale"
+
+
+@dataclass(frozen=True, kw_only=True)
+class ManagedWarehouseSourceJobUpdate:
+    team_id: int
+    schema_ids: list[UUID]
+    source_job_id: str
+    attempt_id: str
+    workflow_type: ManagedWarehouseSourceJobWorkflow
+    status: ManagedWarehouseSourceJobStatus
+    started_at: datetime
+    finished_at: datetime | None = None
+    latest_error: str | None = None
+    workflow_id: str | None = None
+    workflow_run_id: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class ManagedWarehouseSourceJobRecord:
+    id: UUID
+    team_id: int
+    environment_id: int
+    schema_id: UUID
+    source_job_id: str
+    attempt_id: str
+    workflow_type: ManagedWarehouseSourceJobWorkflow
+    status: ManagedWarehouseSourceJobStatus
+    started_at: datetime
+    finished_at: datetime | None
+    latest_error: str | None
+    workflow_id: str | None
+    workflow_run_id: str | None
+    last_completed_at: datetime | None = None
+
+
 @dataclass
 class DuckLakeQueryResult:
     columns: list[str]
@@ -141,65 +184,3 @@ class DuckLakeTableResult:
     row_count: int
     file_size_bytes: int = 0
     file_size_delta_bytes: int = 0
-
-
-class DuckgresSinkState(StrEnum):
-    PENDING_BACKFILL = "pending_backfill"
-    BACKFILLING = "backfilling"
-    PRIMED = "primed"
-    NEEDS_RESYNC = "needs_resync"
-
-
-@dataclass(frozen=True, kw_only=True)
-class DuckgresSinkStateCreateInput:
-    team_id: int
-    schema_id: UUID
-    state: DuckgresSinkState = DuckgresSinkState.PENDING_BACKFILL
-    snapshot_version: int | None = None
-    plan_cutoff: datetime | None = None
-    backfill_run_uuid: str | None = None
-    chunk_count: int | None = None
-    chunks_applied: int = 0
-    last_error: str | None = None
-    consecutive_failures: int = 0
-    first_failed_at: datetime | None = None
-    queue_last_applied_at: datetime | None = None
-
-
-@dataclass(frozen=True, kw_only=True)
-class DuckgresSinkBackfillPlanInput:
-    snapshot_version: int
-    backfill_run_uuid: str
-    chunk_count: int
-
-
-@dataclass(frozen=True, kw_only=True)
-class DuckgresSinkBackfillRunReference:
-    schema_id: UUID
-    backfill_run_uuid: str | None
-
-
-@dataclass(frozen=True, kw_only=True)
-class DuckgresSinkStateRecord:
-    id: UUID
-    team_id: int
-    schema_id: UUID
-    state: DuckgresSinkState
-    snapshot_version: int | None = None
-    plan_cutoff: datetime | None = None
-    backfill_run_uuid: str | None = None
-    chunk_count: int | None = None
-    chunks_applied: int = 0
-    last_error: str | None = None
-    consecutive_failures: int = 0
-    first_failed_at: datetime | None = None
-    queue_last_applied_at: datetime | None = None
-    updated_at: datetime | None = None
-    organization_id: UUID | None = None
-
-
-@dataclass(frozen=True, kw_only=True)
-class DuckgresSinkStateGaugeStats:
-    counts: dict[DuckgresSinkState, int]
-    failing_count: int
-    oldest_failure_at: datetime | None

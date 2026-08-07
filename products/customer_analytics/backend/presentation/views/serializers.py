@@ -401,7 +401,11 @@ class CustomPropertySyncRunSerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True)
     trigger = serializers.CharField(
         read_only=True,
-        help_text="What started the run: 'scheduled' (rode a warehouse sync), 'manual', or 'backfill'.",
+        help_text=(
+            "What started the run: 'scheduled' (rode a warehouse sync), 'sync' (a warehouse sync "
+            "started from the UI), 'manual' (a backfill started from the UI), or 'backfill' (the "
+            "automatic backfill run when a mapping is created or re-enabled)."
+        ),
     )
     status = serializers.CharField(read_only=True, help_text="Run status: 'running', 'completed', or 'failed'.")
     started_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When the run began.")

@@ -36,6 +36,10 @@ DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     "signals": ProductCostLimit(limit_usd=25000.0, window_seconds=86400),
     "posthog_ai": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
     "changelog_bot": ProductCostLimit(limit_usd=500.0, window_seconds=86400),
+    # Path-cleaning suggestions: haiku-only, a few short calls per team per week. The product is
+    # unbilled and reachable with any feature-gated llm_gateway:read key, so a tight cap bounds
+    # abuse of the shared budget rather than real usage.
+    "web_analytics": ProductCostLimit(limit_usd=100.0, window_seconds=86400),
 }
 
 DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
@@ -44,12 +48,6 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
         burst_window_seconds=2592000,  # 30 days
         sustained_limit_usd=100.0,
         sustained_window_seconds=2592000,  # 30 days
-    ),
-    "posthog_code": UserCostLimit(
-        burst_limit_usd=500.0,
-        burst_window_seconds=86400,
-        sustained_limit_usd=3000.0,
-        sustained_window_seconds=2592000,
     ),
     "background_agents": UserCostLimit(
         burst_limit_usd=500.0,
@@ -77,21 +75,6 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
         sustained_window_seconds=2592000,
     ),
 }
-
-FREE_PLAN_COST_LIMIT = UserCostLimit(
-    burst_limit_usd=20.0,
-    burst_window_seconds=86400,
-    sustained_limit_usd=20.0,
-    sustained_window_seconds=2592000,
-)
-
-ORG_BILLED_USER_COST_LIMIT = UserCostLimit(
-    burst_limit_usd=float("inf"),
-    burst_window_seconds=86400,
-    sustained_limit_usd=float("inf"),
-    sustained_window_seconds=2592000,
-)
-
 
 _COST_LIMIT_KEY_ALIASES: dict[str, str] = {
     "array": "posthog_code",

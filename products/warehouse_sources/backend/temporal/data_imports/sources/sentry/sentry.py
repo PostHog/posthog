@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     IncrementalConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.settings import (
     ALLOWED_SENTRY_API_BASE_URLS,
@@ -196,9 +197,9 @@ def _sentry_retention_incremental_window(cursor_path: str) -> IncrementalConfig:
     }
 
 
-def _retention_window(incremental_value: Any = None) -> tuple[str, str]:
+def _retention_window(incremental_value: Any = None) -> SyncWindow[str]:
     now = datetime.now(UTC)
-    return _retention_bounded_start_param(incremental_value), _start_param_for_sentry(now)
+    return SyncWindow(start=_retention_bounded_start_param(incremental_value), end=_start_param_for_sentry(now))
 
 
 def _parse_next_link(link_header: str) -> str | None:
@@ -638,7 +639,7 @@ def _iter_sessions_rows(
     incremental_value: Any = None,
 ) -> Iterator[dict[str, Any]]:
     """Release health sessions, flattened to one row per interval per group."""
-    start, end = _retention_window(incremental_value)
+    window = _retention_window(incremental_value)
     payload = _fetch_json(
         base_api_url,
         _endpoint_path("sessions", organization_slug=organization_slug),
@@ -647,8 +648,8 @@ def _iter_sessions_rows(
             "field": ["sum(session)", "count_unique(user)"],
             "groupBy": ["project", "release", "environment", "session.status"],
             "interval": "1d",
-            "start": start,
-            "end": end,
+            "start": window.start,
+            "end": window.end,
         },
     )
 
@@ -680,7 +681,7 @@ def _iter_organization_stats_rows(
     single period total when it is, which would make the interval column meaningless.
     Per-project volume lives in ``organization_stats_summary``.
     """
-    start, end = _retention_window(incremental_value)
+    window = _retention_window(incremental_value)
     payload = _fetch_json(
         base_api_url,
         _endpoint_path("organization_stats", organization_slug=organization_slug),
@@ -689,8 +690,8 @@ def _iter_organization_stats_rows(
             "field": "sum(quantity)",
             "groupBy": ["outcome", "category", "reason"],
             "interval": "1d",
-            "start": start,
-            "end": end,
+            "start": window.start,
+            "end": window.end,
         },
     )
 

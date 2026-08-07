@@ -14,6 +14,7 @@ use async_trait::async_trait;
 use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::{create_kafka_producer, KafkaContext};
 use health::HealthRegistry;
+use personhog_coordination::authority::AuthorityClock;
 use personhog_coordination::coordinator::{Coordinator, CoordinatorConfig};
 use personhog_coordination::error::Result;
 use personhog_coordination::pod::{PodConfig, PodHandle};
@@ -344,6 +345,11 @@ pub async fn start_leader_pod(
     // One dirty index per pod, shared by handler and service exactly as
     // main.rs wires them: warming seeds the marks the service consults.
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
+    // One per pod, shared by handler and service exactly as main.rs
+    // wires them: otherwise `release_partition` clears a map the
+    // service never reads, and the floors survive a handoff in tests
+    // while production drops them.
+    let emitted_versions = Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000));
     // Recovery must read the broker the service produces to.
     let recovery = test_recovery(&mock_cluster.bootstrap_servers());
     let warming = test_warming_config(name, &mock_cluster.bootstrap_servers());
@@ -358,7 +364,11 @@ pub async fn start_leader_pod(
         Arc::clone(&dirty_index),
         warming,
         pools,
+        None,
+        None,
+        std::sync::Arc::clone(&emitted_versions),
     );
+    let authority = Arc::new(AuthorityClock::unclaimed());
     let pod = PodHandle::new(
         store,
         PodConfig {
@@ -370,6 +380,7 @@ pub async fn start_leader_pod(
         },
         Arc::new(handler),
         None,
+        authority,
     );
     let pod_token = cancel.child_token();
     tokio::spawn(async move { pod.run(pod_token).await });
@@ -387,6 +398,12 @@ pub async fn start_leader_pod(
         recovery,
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        None,
+        // A live claim rather than none, so the lease gate on the read
+        // and write paths is exercised by every test built on this
+        // fixture instead of being skipped by all of them.
+        Some(live_authority()),
+        std::sync::Arc::clone(&emitted_versions),
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
@@ -425,6 +442,11 @@ pub async fn start_leader_pod_with_lease_ttl(
     let heartbeat_secs = (lease_ttl as u64 / 3).max(1);
     let inflight = Arc::new(InflightTracker::new());
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
+    // One per pod, shared by handler and service exactly as main.rs
+    // wires them: otherwise `release_partition` clears a map the
+    // service never reads, and the floors survive a handoff in tests
+    // while production drops them.
+    let emitted_versions = Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000));
     let recovery = test_recovery(&mock_cluster.bootstrap_servers());
     let warming = test_warming_config(name, &mock_cluster.bootstrap_servers());
     let pools = Arc::new(WarmClientPools::new(
@@ -438,7 +460,11 @@ pub async fn start_leader_pod_with_lease_ttl(
         Arc::clone(&dirty_index),
         warming,
         pools,
+        None,
+        None,
+        std::sync::Arc::clone(&emitted_versions),
     );
+    let authority = Arc::new(AuthorityClock::unclaimed());
     let pod = PodHandle::new(
         store,
         PodConfig {
@@ -452,6 +478,7 @@ pub async fn start_leader_pod_with_lease_ttl(
         },
         Arc::new(handler),
         None,
+        authority,
     );
     let pod_token = cancel.child_token();
     tokio::spawn(async move { pod.run(pod_token).await });
@@ -468,6 +495,9 @@ pub async fn start_leader_pod_with_lease_ttl(
         recovery,
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        None,
+        None,
+        std::sync::Arc::clone(&emitted_versions),
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
@@ -556,6 +586,9 @@ pub async fn start_leader_with_pg_fallback(
         test_recovery(&mock_cluster.bootstrap_servers()),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        None,
+        None,
+        std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -575,4 +608,130 @@ pub async fn start_leader_with_pg_fallback(
     tokio::time::sleep(Duration::from_millis(10)).await;
 
     (addr, cache, mock_cluster)
+}
+
+/// Comfortably above the test config's `message.timeout.ms`, which
+/// librdkafka requires the broker bound to cover.
+pub const BROKER_TXN_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Fenced producers pointed at the local broker.
+///
+/// Lives here rather than beside the fencing tests because the *service*
+/// needs it too: without a way to build `PersonHogLeaderService` with
+/// fencing on, its entire fenced write arm — the version settlement, the
+/// cache eviction, the four-way error mapping — is unreachable from any
+/// test.
+pub fn fenced_producers_for(topic: &str) -> personhog_leader::fencing::FencedChangelogProducers {
+    let mut kafka = test_kafka_config();
+    kafka.kafka_hosts = KAFKA_BOOTSTRAP.to_string();
+    personhog_leader::fencing::FencedChangelogProducers::new(
+        personhog_leader::fencing::FencedProducerConfig {
+            kafka,
+            topic: topic.to_string(),
+            init_timeout: Duration::from_secs(10),
+            commit_timeout: Duration::from_secs(10),
+            broker_txn_timeout: BROKER_TXN_TIMEOUT,
+            window: Duration::from_millis(5),
+            settle_budget: Duration::from_secs(5),
+        },
+    )
+}
+
+/// A handoff handler wired to real fenced producers, in the shape
+/// production runs: fencing on, and a lease whose renewals are current.
+///
+/// Deliberately not `None` for the authority. A fixture that leaves a
+/// mechanism out makes every test written against it exercise the
+/// degenerate path, and the gate stops being covered by anything —
+/// which is exactly how all four of its call sites became deletable
+/// with the suite green. Tests that need a lapsed claim pass their own.
+#[allow(dead_code)]
+pub fn test_handoff_handler(
+    topic: &str,
+    fenced: Arc<personhog_leader::fencing::FencedChangelogProducers>,
+) -> personhog_leader::coordination::LeaderHandoffHandler {
+    handoff_handler_with(
+        topic,
+        fenced,
+        Arc::new(personhog_leader::inflight::InflightTracker::new()),
+        live_authority(),
+    )
+}
+
+/// The same handler, holding an authority clock the caller controls.
+///
+/// Acquisition is gated on the published claim, so every branch that
+/// declines to take the epoch is unreachable while the handler carries no
+/// clock at all.
+#[allow(dead_code)]
+pub fn test_handoff_handler_with_authority(
+    topic: &str,
+    fenced: Arc<personhog_leader::fencing::FencedChangelogProducers>,
+    authority: Arc<AuthorityClock>,
+) -> personhog_leader::coordination::LeaderHandoffHandler {
+    handoff_handler_with(
+        topic,
+        fenced,
+        Arc::new(personhog_leader::inflight::InflightTracker::new()),
+        authority,
+    )
+}
+
+/// The same handler, sharing its inflight tracker with the caller — the
+/// only way to observe when the drain closes admissions relative to when
+/// it waits.
+#[allow(dead_code)]
+pub fn test_handoff_handler_with_inflight(
+    topic: &str,
+    fenced: Arc<personhog_leader::fencing::FencedChangelogProducers>,
+    inflight: Arc<personhog_leader::inflight::InflightTracker>,
+) -> personhog_leader::coordination::LeaderHandoffHandler {
+    handoff_handler_with(topic, fenced, inflight, live_authority())
+}
+
+/// Takes the authority clock by value rather than as an `Option`.
+///
+/// A fixture that can be built without one produces tests that exercise
+/// the ungated path by default, and the gate stops being covered by
+/// anything — which is how all four of its call sites became deletable
+/// with the suite green. Requiring it makes that configuration
+/// unbuildable rather than merely discouraged.
+fn handoff_handler_with(
+    topic: &str,
+    fenced: Arc<personhog_leader::fencing::FencedChangelogProducers>,
+    inflight: Arc<personhog_leader::inflight::InflightTracker>,
+    authority: Arc<AuthorityClock>,
+) -> personhog_leader::coordination::LeaderHandoffHandler {
+    let mut warming = test_warming_config("test", KAFKA_BOOTSTRAP);
+    warming.topic = topic.to_string();
+    personhog_leader::coordination::LeaderHandoffHandler::new(
+        Arc::new(PartitionedCache::new(1 << 20)),
+        inflight,
+        Arc::new(DirtyIndex::new(1_000_000)),
+        warming,
+        Arc::new(personhog_leader::warming::WarmClientPools::new(
+            &test_kafka_config(),
+            "test",
+            "personhog-writer",
+        )),
+        Some(fenced),
+        Some(authority),
+        Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
+    )
+}
+
+/// A clock holding a claim its keepalive is still confirming.
+#[allow(dead_code)]
+/// A claim that stays valid for the whole of any test.
+///
+/// The TTL is deliberately far longer than production's. Validity lapses
+/// once no renewal has been confirmed for two thirds of the TTL, and
+/// nothing renews this one — so a production-shaped 30s TTL gives a 20s
+/// margin, which the fencing suite's longest tests already reach. Tests
+/// that want a lapsed claim surrender explicitly rather than waiting one
+/// out.
+pub fn live_authority() -> Arc<AuthorityClock> {
+    let clock = Arc::new(AuthorityClock::unclaimed());
+    clock.begin_session(Duration::from_secs(3600), std::time::Instant::now());
+    clock
 }

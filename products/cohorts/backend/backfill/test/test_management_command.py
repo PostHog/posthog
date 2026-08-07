@@ -29,14 +29,6 @@ from products.cohorts.backend.models.cohort import Cohort, CohortType
     BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET=1_000_000,
 )
 class TestCreateCohortBackfillRunCommand(BaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        feature_patch = mock.patch(
-            "products.cohorts.backend.models.dependencies.posthoganalytics.feature_enabled", return_value=False
-        )
-        feature_patch.start()
-        self.addCleanup(feature_patch.stop)
-
     def _cohort(self, event: str) -> Cohort:
         return Cohort.objects.create(
             team=self.team,

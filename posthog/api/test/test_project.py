@@ -47,6 +47,83 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             "Only the project belonging to the scoped organization should be listed, the other one should be excluded",
         )
 
+    @parameterized.expand(
+        [
+            ("exact_match", "Hedgebox"),
+            ("different_case", "HEDGEBOX"),
+            ("surrounding_whitespace", "  Hedgebox  "),
+        ]
+    )
+    def test_cannot_create_project_with_duplicate_name_in_same_organization(self, _name, duplicate_name):
+        self._set_unlimited_projects()
+        Project.objects.create_with_team(organization=self.organization, name="Hedgebox", initiating_user=self.user)
+
+        response = self.client.post("/api/projects/", {"name": duplicate_name})
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertIn("already a project called", response.json()["detail"])
+        self.assertEqual(Project.objects.filter(organization=self.organization, name__iexact="hedgebox").count(), 1)
+
+    def test_cannot_create_project_duplicating_a_stored_name_with_whitespace(self):
+        # The stored side is trimmed too: a legacy name saved with surrounding whitespace
+        # still blocks its clean form (and vice versa is covered by the parameterized test)
+        self._set_unlimited_projects()
+        Project.objects.create_with_team(organization=self.organization, name="  Hedgebox  ", initiating_user=self.user)
+
+        response = self.client.post("/api/projects/", {"name": "Hedgebox"})
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertIn("already a project called", response.json()["detail"])
+
+    def test_can_create_project_with_same_name_as_project_in_another_organization(self):
+        self._set_unlimited_projects()
+        other_organization = Organization.objects.create(name="Other org")
+        Project.objects.create_with_team(organization=other_organization, name="Hedgebox", initiating_user=None)
+
+        response = self.client.post("/api/projects/", {"name": "Hedgebox"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Hedgebox")
+
+    def test_creating_projects_without_name_generates_unique_default_names(self):
+        self._set_unlimited_projects()
+        # The fixture project already holds the plain default name
+        self.assertEqual(self.project.name, "Default project")
+
+        first_response = self.client.post("/api/projects/", {})
+        second_response = self.client.post("/api/projects/", {})
+
+        self.assertEqual(first_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(first_response.json()["name"], "Default project 2")
+        self.assertEqual(second_response.json()["name"], "Default project 3")
+
+    def test_cannot_rename_project_to_duplicate_name(self):
+        Project.objects.create_with_team(organization=self.organization, name="Hedgebox", initiating_user=self.user)
+
+        response = self.client.patch(f"/api/projects/{self.project.id}/", {"name": "hedgebox"})
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertIn("already a project called", response.json()["detail"])
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.name, "Default project")
+
+    def test_preexisting_projects_with_duplicate_names_can_still_be_updated(self):
+        # Duplicates created before the uniqueness rule must keep working, including saves that
+        # resubmit the unchanged name alongside other fields
+        duplicate_project, _ = Project.objects.create_with_team(
+            organization=self.organization, name=self.project.name, initiating_user=self.user
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{duplicate_project.id}/",
+            {"name": duplicate_project.name, "product_description": "still saveable"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        duplicate_project.refresh_from_db()
+        self.assertEqual(duplicate_project.product_description, "still saveable")
+
     def test_cannot_create_second_demo_project(self):
         # Create first demo project
         Project.objects.create_with_team(

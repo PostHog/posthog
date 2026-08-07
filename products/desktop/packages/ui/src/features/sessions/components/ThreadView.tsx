@@ -1,16 +1,12 @@
-import {
-  ConversationView,
-  type ConversationViewProps,
-} from "@posthog/ui/features/sessions/components/ConversationView";
+import type { ConversationViewProps } from "@posthog/ui/features/sessions/components/ConversationView";
 import { AcpChatThread } from "@posthog/ui/features/sessions/components/chat-thread/ChatThread";
-import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 
-export function ThreadView(props: ConversationViewProps) {
-  const useNewChatThread = useSettingsStore((state) => state.useNewChatThread);
+/** Props still take `ConversationView`'s shape until that component is deleted. */
+type ThreadViewProps = ConversationViewProps & {
+  /** See `SharedChatThreadProps.groupToolCalls`. */
+  groupToolCalls?: boolean;
+};
 
-  return useNewChatThread ? (
-    <AcpChatThread {...props} />
-  ) : (
-    <ConversationView {...props} />
-  );
+export function ThreadView(props: ThreadViewProps) {
+  return <AcpChatThread {...props} />;
 }

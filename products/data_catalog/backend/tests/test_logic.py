@@ -17,7 +17,7 @@ from products.data_catalog.backend.logic.metrics import (
     update_metric,
     upsert_metric,
 )
-from products.data_catalog.backend.logic.validation import validate_metric_definition
+from products.data_catalog.backend.logic.validation import MAX_DESCRIPTION_LENGTH, validate_metric_definition
 from products.data_catalog.backend.models import Metric
 from products.product_analytics.backend.models.insight import Insight
 
@@ -74,6 +74,12 @@ class TestMetricUpsert(BaseTest):
         with self.assertRaises(ValidationError):
             self._upsert(name)
 
+    def test_description_capped_at_max_length(self) -> None:
+        self._upsert("mrr", description="x" * MAX_DESCRIPTION_LENGTH)
+        with self.assertRaises(ValidationError) as ctx:
+            self._upsert("arr", description="x" * (MAX_DESCRIPTION_LENGTH + 1))
+        assert "description" in ctx.exception.detail
+
     def test_concurrent_create_retries_to_single_row(self) -> None:
         # Simulate the race: the pre-check misses, create hits the unique constraint (IntegrityError),
         # and the retry finds and refines the row the other writer created. Guards the except branch.
@@ -102,6 +108,12 @@ class TestMetricUpdate(BaseTest):
         with self.assertRaises(ValidationError):
             update_metric(metric, team=self.team, user=self.user, name="arr")
 
+    def test_update_rejects_overlong_description(self) -> None:
+        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="v1")
+        with self.assertRaises(ValidationError) as ctx:
+            update_metric(metric, team=self.team, user=self.user, description="x" * (MAX_DESCRIPTION_LENGTH + 1))
+        assert "description" in ctx.exception.detail
+
     def test_update_definition_reextracts_tables(self) -> None:
         metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="v1")
         updated = update_metric(
@@ -114,11 +126,29 @@ class TestMetricUpdate(BaseTest):
 
 
 class TestValidateMetricDefinition(BaseTest):
-    def test_valid_hogql_extracts_referenced_tables(self) -> None:
-        _, tables = validate_metric_definition(
-            {"kind": "HogQLQuery", "query": "select count() from events"}, self.team, self.user
-        )
-        assert tables == ["events"]
+    @parameterized.expand(
+        [
+            ("plain", "select count() from events", ["events"]),
+            (
+                "cte_excluded",
+                "with monthly as (select count() as c from events) select c from monthly join persons on 1 = 1",
+                ["events", "persons"],
+            ),
+            (
+                "cte_shadowing_real_table",
+                "with events as (select uuid from events) select uuid from events",
+                ["events"],
+            ),
+            (
+                "join_constraint_subquery",
+                "select count() from persons join groups on persons.id in (select person_id from events)",
+                ["events", "groups", "persons"],
+            ),
+        ]
+    )
+    def test_valid_hogql_extracts_referenced_tables(self, _name: str, query: str, expected: list[str]) -> None:
+        _, tables = validate_metric_definition({"kind": "HogQLQuery", "query": query}, self.team, self.user)
+        assert tables == expected
 
     def test_insight_viz_node_is_unwrapped(self) -> None:
         canonical, _ = validate_metric_definition(

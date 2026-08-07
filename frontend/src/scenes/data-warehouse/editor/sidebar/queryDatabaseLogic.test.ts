@@ -205,6 +205,46 @@ describe('queryDatabaseLogic', () => {
         ).toEqual(false)
     })
 
+    it('opens and focuses a located table after the collapsed tree remounts', () => {
+        initKeaTests()
+        const logic = queryDatabaseLogic()
+        logic.mount()
+        databaseTableListLogic.findMounted()?.actions.loadDatabaseSuccess({
+            tables: {
+                events: {
+                    id: 'events',
+                    name: 'events',
+                    type: 'posthog',
+                    fields: {},
+                },
+            },
+            joins: [],
+        })
+        const focusItem = jest.fn()
+
+        logic.actions.locateTable('events')
+
+        expect(logic.values.expandedFolders).toEqual(
+            expect.arrayContaining(['sources', 'source-posthog', 'table-events'])
+        )
+        expect(logic.values.tableToLocate).toEqual('events')
+
+        logic.actions.setTreeRef({
+            current: {
+                focusItem,
+                getVisibleItems: () => [],
+            },
+        })
+
+        expect(focusItem).toHaveBeenCalledWith('table-events', {
+            scrollPosition: 'top-third',
+            behavior: 'smooth',
+        })
+        expect(logic.values.tableToLocate).toBeNull()
+
+        logic.unmount()
+    })
+
     describe('failed schema load', () => {
         let logic: ReturnType<typeof queryDatabaseLogic.build>
 
