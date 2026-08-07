@@ -29,7 +29,6 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
-from posthog.permissions import PremiumFeaturePermission
 from posthog.tasks import exporter
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -37,6 +36,7 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from .field_discovery import AdvancedActivityLogFieldDiscovery
 from .filters import AdvancedActivityLogFilterManager, validate_detail_filters
 from .ocsf import ActivityLogOCSFSerializer
+from .permissions import ActivityLogPremiumFeaturePermission, requested_scopes_are_billing_exempt
 from .utils import get_activity_log_lookback_restriction
 
 ACTIVITY_LOG_ORDERING_DESCENDING = "-created_at"
@@ -116,6 +116,23 @@ def apply_organization_scoped_filter(
         return queryset.filter(Q(team_id=team_id) | Q(team_id__isnull=True, organization_id=organization_id))
     else:
         return queryset.filter(team_id=team_id)
+
+
+def apply_lookback_restriction(
+    queryset: QuerySet[ActivityLog], organization: Organization, request: Request
+) -> QuerySet[ActivityLog]:
+    """Trim history the organization's plan no longer covers.
+
+    Skipped for requests narrowed to the billing-exempt scopes: that history is not part of the paid
+    activity log, so truncating it would hide feature flag and experiment changes from free plans.
+    """
+    if requested_scopes_are_billing_exempt(request):
+        return queryset
+
+    lookback_date = get_activity_log_lookback_restriction(organization)
+    if lookback_date:
+        return queryset.filter(created_at__gte=lookback_date)
+    return queryset
 
 
 class ActivityLogSerializer(serializers.ModelSerializer):
@@ -272,7 +289,7 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
     serializer_class = ActivityLogSerializer
     pagination_class = ActivityLogPagination
     filter_rewrite_rules = {"project_id": "team_id"}
-    permission_classes = [PremiumFeaturePermission]
+    permission_classes = [ActivityLogPremiumFeaturePermission]
     premium_feature_on_cloud = AvailableFeature.AUDIT_LOGS
 
     @extend_schema(parameters=[ActivityLogQueryParamsSerializer])
@@ -306,9 +323,7 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
         if params.get("page"):
             queryset = queryset.order_by(*activity_log_ordering(self.request))
 
-        lookback_date = get_activity_log_lookback_restriction(self.organization)
-        if lookback_date:
-            queryset = queryset.filter(created_at__gte=lookback_date)
+        queryset = apply_lookback_restriction(queryset, self.organization, self.request)
 
         queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
         queryset = restrict_loop_activity(queryset, self.team_id, self.request.user)
@@ -528,7 +543,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     scope_object = "activity_log"
     scope_object_read_actions = ["list", "retrieve", "available_filters"]
     queryset = ActivityLog.objects.all()
-    permission_classes = [PremiumFeaturePermission]
+    permission_classes = [ActivityLogPremiumFeaturePermission]
     premium_feature_on_cloud = AvailableFeature.AUDIT_LOGS
 
     def _should_skip_parents_filter(self) -> bool:
@@ -590,10 +605,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             self.organization.id,
         )
 
-        # Apply lookback restriction based on feature limits
-        lookback_date = get_activity_log_lookback_restriction(self.organization)
-        if lookback_date:
-            queryset = queryset.filter(created_at__gte=lookback_date)
+        queryset = apply_lookback_restriction(queryset, self.organization, self.request)
 
         queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
         queryset = restrict_loop_activity(queryset, self.team_id, self.request.user)
@@ -741,7 +753,7 @@ class OrganizationAdvancedActivityLogsViewSet(AdvancedActivityLogsViewSet):
     Restricted to organization admins and owners.
     """
 
-    permission_classes = [PremiumFeaturePermission, OrganizationActivityLogPermission]
+    permission_classes = [ActivityLogPremiumFeaturePermission, OrganizationActivityLogPermission]
     # The parent declares {"project_id": "team_id"} but our nested route only carries
     # organization_id, so the rewrite would KeyError on missing "project_id". Reset it.
     filter_rewrite_rules: dict[str, str] = {}
@@ -754,9 +766,7 @@ class OrganizationAdvancedActivityLogsViewSet(AdvancedActivityLogsViewSet):
     def safely_get_queryset(self, queryset) -> QuerySet:
         queryset = queryset.select_related("user")
 
-        lookback_date = get_activity_log_lookback_restriction(self.organization)
-        if lookback_date:
-            queryset = queryset.filter(created_at__gte=lookback_date)
+        queryset = apply_lookback_restriction(queryset, self.organization, self.request)
 
         queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
         # Org route: no single team_id (this endpoint is org-nested), so use the org-wide variant.

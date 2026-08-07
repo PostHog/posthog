@@ -6,3 +6,8 @@ CACHE_KEY_PREFIX = "activity_log:details_fields"
 # Fallbacks need to be kept in sync with the smallest AUDIT_LOG feature limits in billing
 ADVANCED_ACTIVITY_LOGS_LOOKBACK_FALLBACK_LIMIT = 2
 ADVANCED_ACTIVITY_LOGS_LOOKBACK_FALLBACK_UNIT = "months"
+
+# Scopes that shipped as part of their own product long before activity logs became a paid feature,
+# so their history stays available on every plan and outside the plan's retention window.
+# Keep in sync with BILLING_EXEMPT_ACTIVITY_SCOPES in frontend/src/lib/components/ActivityLog/activityLogLogic.tsx
+BILLING_EXEMPT_SCOPES: frozenset[str] = frozenset({"FeatureFlag", "Experiment"})

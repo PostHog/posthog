@@ -1,6 +1,7 @@
 import { MakeLogicType, connect, kea, listeners, path, selectors } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
 
+import { isActivityScopeBillingExempt } from 'lib/components/ActivityLog/activityLogLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -124,7 +125,11 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 tabs.push(SidePanelTab.Max)
                 tabs.push(SidePanelTab.Notebooks)
 
-                if (sceneSidePanelContext?.activity_scope && hasAvailableFeature(AvailableFeature.AUDIT_LOGS)) {
+                if (
+                    sceneSidePanelContext?.activity_scope &&
+                    (hasAvailableFeature(AvailableFeature.AUDIT_LOGS) ||
+                        isActivityScopeBillingExempt(sceneSidePanelContext.activity_scope))
+                ) {
                     tabs.push(SidePanelTab.Activity)
                 }
                 tabs.push(SidePanelTab.Discussion)

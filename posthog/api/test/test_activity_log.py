@@ -243,6 +243,73 @@ class TestActivityLogAuditLogsGate(APIBaseTest):
 
         assert res.status_code == status.HTTP_200_OK
 
+    @parameterized.expand(
+        [
+            ("activity_log", "scope=FeatureFlag"),
+            ("activity_log", "scope=Experiment"),
+            ("activity_log", "scopes=FeatureFlag,Experiment"),
+            ("advanced_activity_logs", "scopes=FeatureFlag"),
+            ("advanced_activity_logs", 'scopes=["FeatureFlag","Experiment"]'),
+            ("advanced_activity_logs", "scopes=FeatureFlag&scopes=Experiment"),
+        ]
+    )
+    def test_exempt_scopes_allowed_on_cloud_without_audit_logs_feature(self, endpoint: str, query: str) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        with self.is_cloud(True):
+            res = self.client.get(f"/api/projects/{self.team.id}/{endpoint}/?{query}")
+
+        assert res.status_code == status.HTTP_200_OK
+
+    @parameterized.expand(
+        [
+            ("activity_log", "scope=Insight"),
+            ("activity_log", "scopes=FeatureFlag,Insight"),
+            ("activity_log", "scope=FeatureFlag&item_id=1&scopes=Insight,Experiment"),
+            ("advanced_activity_logs", "scopes=Insight"),
+            ("advanced_activity_logs", 'scopes=["FeatureFlag","Insight"]'),
+            ("advanced_activity_logs", "scopes=FeatureFlag&scopes=Insight"),
+        ]
+    )
+    def test_non_exempt_scopes_still_blocked_on_cloud_without_audit_logs_feature(
+        self, endpoint: str, query: str
+    ) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        with self.is_cloud(True):
+            res = self.client.get(f"/api/projects/{self.team.id}/{endpoint}/?{query}")
+
+        assert res.status_code == status.HTTP_402_PAYMENT_REQUIRED
+
+    def test_exempt_scopes_are_not_truncated_by_the_plan_lookback_window(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.AUDIT_LOGS, "name": "Activity logs", "limit": 2, "unit": "months"}
+        ]
+        self.organization.save()
+
+        with freeze_time("2023-01-01T12:00:00Z"):
+            for scope, item_id in (("FeatureFlag", "flag-1"), ("Insight", "insight-1")):
+                log_activity(
+                    organization_id=self.organization.id,
+                    team_id=self.team.id,
+                    user=self.user,
+                    was_impersonated=False,
+                    item_id=item_id,
+                    scope=scope,
+                    activity="created",
+                    detail=Detail(name="seed"),
+                    force_save=True,
+                )
+
+        with freeze_time("2023-06-01T12:00:00Z"), self.is_cloud(True):
+            exempt = self.client.get(f"/api/projects/{self.team.id}/activity_log/?scope=FeatureFlag")
+            gated = self.client.get(f"/api/projects/{self.team.id}/activity_log/?scope=Insight")
+
+        assert [r["item_id"] for r in exempt.json()["results"]] == ["flag-1"]
+        assert gated.json()["results"] == []
+
 
 class TestOrganizationAdvancedActivityLogsViewSet(APIBaseTest):
     """Tests for the org-scoped activity logs viewset at /api/organizations/<id>/advanced_activity_logs/."""

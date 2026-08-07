@@ -9,7 +9,11 @@ import { Suspense, useEffect, useRef, useState } from 'react'
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTabs, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { ActivityLogLogicProps, activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
+import {
+    ActivityLogLogicProps,
+    activityLogLogic,
+    isActivityScopeBillingExempt,
+} from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityChange, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -279,7 +283,11 @@ export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLo
             {caption && <div className="page-caption">{caption}</div>}
             <PayGateMini
                 feature={AvailableFeature.AUDIT_LOGS}
-                overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
+                overrideShouldShowGate={
+                    user?.is_impersonated ||
+                    !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS] ||
+                    isActivityScopeBillingExempt(scope)
+                }
             >
                 <ActivityLogContents scope={scope} id={id} caption={caption} startingPage={startingPage} />
             </PayGateMini>

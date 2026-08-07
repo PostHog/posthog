@@ -5,6 +5,7 @@ import { IconList, IconNotification } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
 
 import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
+import { isActivityScopeBillingExempt } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogSubscribeMenu } from 'lib/components/ActivityLog/ActivityLogSubscribeMenu'
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -101,7 +102,11 @@ export const SidePanelActivity = (): JSX.Element => {
             <PayGateMini
                 feature={AvailableFeature.AUDIT_LOGS}
                 className="flex flex-col flex-1 overflow-hidden"
-                overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
+                overrideShouldShowGate={
+                    user?.is_impersonated ||
+                    !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS] ||
+                    isActivityScopeBillingExempt(contextFromPage?.scope)
+                }
             >
                 <div className="flex flex-col flex-1 overflow-hidden">
                     <div className="mx-2 shrink-0">
