@@ -206,6 +206,9 @@ tools:
                     JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts
                     that have any of the listed tags.
         feature_flag: customer-analytics-csp
+    accounts-meetings-list:
+        operation: accounts_meetings_list
+        enabled: false
     accounts-notebooks-create:
         operation: accounts_notebooks_create
         enabled: true

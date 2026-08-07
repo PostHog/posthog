@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     OwnershipLostError,
+    _is_dns_resolution_transient_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.health import HealthState
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
@@ -154,6 +155,8 @@ class TestProcessSingle:
             "20009.59457503306999908717 is too large to store in a Decimal128 of precision 24.",
             "Primary key required for incremental syncs",
             "Source column type changed: 'price' has values that no longer fit its stored type int64",
+            "[Errno 5] An error occurred (XMinioStorageFull) when calling the CopyObject operation: "
+            "Storage backend has reached its minimum free drive threshold. Please delete a few objects to proceed.",
         ],
     )
     @pytest.mark.asyncio
@@ -191,6 +194,13 @@ class TestProcessSingle:
             ("ExternalDataSchema matching query does not exist.", False),
             # A genuine non-retryable failure must still surface so real bugs aren't hidden.
             ("20009.59 is too large to store in a Decimal128 of precision 24.", True),
+            # Storage backend out of disk space is an operational condition operators need to
+            # act on, not a customer-caused error — it must keep going to error tracking.
+            (
+                "[Errno 5] An error occurred (XMinioStorageFull) when calling the CopyObject operation: "
+                "Storage backend has reached its minimum free drive threshold. Please delete a few objects to proceed.",
+                True,
+            ),
         ],
     )
     @pytest.mark.asyncio
@@ -578,6 +588,52 @@ class TestRecoverySweep:
         )
 
 
+class TestDnsResolutionTransientErrorClassification:
+    @pytest.mark.parametrize(
+        "message, expected",
+        [
+            ("[Errno -3] Temporary failure in name resolution", True),
+            ("TEMPORARY FAILURE IN NAME RESOLUTION", True),  # case-insensitive
+            ("could not translate host name", False),
+            ("connection to server was lost during table metadata discovery", False),
+        ],
+    )
+    def test_classifies_operational_errors(self, message: str, expected: bool) -> None:
+        assert _is_dns_resolution_transient_error(psycopg.OperationalError(message)) is expected
+
+    def test_ignores_non_operational_errors(self) -> None:
+        # The DNS resolver's EAI_AGAIN only ever surfaces via psycopg.OperationalError;
+        # a generic exception carrying the same text must not be misclassified.
+        assert _is_dns_resolution_transient_error(RuntimeError("Temporary failure in name resolution")) is False
+
+    @pytest.mark.asyncio
+    async def test_recovery_loop_does_not_report_dns_resolution_error(self):
+        # Reproduces the reported issue: a resolver hiccup while reconnecting to the queue
+        # DB during the periodic recovery sweep must be treated as self-healing (logged,
+        # not sent to error tracking) since the sweep already retries every interval.
+        consumer = _make_consumer(recovery_interval_seconds=0.01)
+        swept = asyncio.Event()
+
+        async def raise_dns_error(*args: Any, **kwargs: Any) -> list[PendingBatch]:
+            swept.set()
+            raise psycopg.OperationalError("[Errno -3] Temporary failure in name resolution")
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
+                side_effect=raise_dns_error,
+            ),
+            patch.object(consumer, "_reconcile_failed_runs", new_callable=AsyncMock),
+            patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            loop_task = asyncio.create_task(consumer._recovery_loop())
+            await asyncio.wait_for(swept.wait(), timeout=2.0)
+            consumer._shutdown.set()
+            await asyncio.wait_for(loop_task, timeout=5.0)
+
+        mock_capture.assert_not_called()
+
+
 class TestStartupLiveness:
     @pytest.mark.asyncio
     async def test_heartbeat_reports_liveness_while_startup_sweep_runs(self):
@@ -879,6 +935,10 @@ class TestPollBackoff:
             assert consumer._poll_retry_delay() == 8.0
             consumer._consecutive_poll_failures = 20  # far past the cap
             assert consumer._poll_retry_delay() == 30.0  # POLL_BACKOFF_MAX_SECONDS
+            # A prolonged outage grows the count without bound; 2 ** (failures - 1) used
+            # to overflow float here and crash the consumer instead of returning the cap.
+            consumer._consecutive_poll_failures = 5000
+            assert consumer._poll_retry_delay() == 30.0
 
     def test_jitter_is_added_within_one_interval(self):
         consumer = _make_consumer(poll_interval_seconds=2.0)
