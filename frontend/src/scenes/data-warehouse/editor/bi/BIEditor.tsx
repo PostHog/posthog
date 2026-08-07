@@ -32,6 +32,7 @@ import {
     BIAggregation,
     BIDateBucket,
     BI_FIELD_DRAG_MIME_TYPE,
+    BI_QUERY_LIMITS,
     BIFilterOperator,
     BIShelf,
     BIField,
@@ -49,7 +50,7 @@ const CHART_TYPE_OPTIONS: { value: ChartDisplayType; label: string; icon: JSX.El
     { value: ChartDisplayType.ActionsStackedBar, label: 'Stacked bar chart', icon: <IconLifecycle /> },
     { value: ChartDisplayType.ActionsAreaGraph, label: 'Area chart', icon: <IconAreaChart /> },
     { value: ChartDisplayType.ActionsPie, label: 'Pie chart', icon: <IconPieChart /> },
-    { value: ChartDisplayType.TwoDimensionalHeatmap, label: '2D heatmap', icon: <IconHeatmap /> },
+    { value: ChartDisplayType.TwoDimensionalHeatmap, label: 'Pivot table', icon: <IconHeatmap /> },
     { value: ChartDisplayType.BoldNumber, label: 'Big number', icon: <Icon123 /> },
 ]
 
@@ -86,6 +87,11 @@ const DATE_BUCKET_OPTIONS: { value: BIDateBucket | null; label: string }[] = [
     { value: 'year', label: 'Year' },
 ]
 
+const LIMIT_OPTIONS = BI_QUERY_LIMITS.map((limit) => ({
+    value: limit,
+    label: limit === 1000 ? '1k' : limit === 10000 ? '10k' : limit === 50000 ? '50k' : String(limit),
+}))
+
 export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
     const logic = biEditorLogic({ tabId })
     const { activeDropShelf, activeExpressionEditorId, availableDataSources, config, databaseLoading } =
@@ -108,6 +114,7 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
         setFilterCustomExpression,
         setFilterOperator,
         setFilterValue,
+        setLimit,
         setValueAggregation,
         setValueCustomExpression,
     } = useActions(logic)
@@ -170,6 +177,16 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                             truncateText={{ maxWidthClass: 'max-w-96' }}
                             dropdownMaxContentWidth
                             data-attr="bi-editor-data-source"
+                        />
+                        <LemonSelect
+                            value={config.limit}
+                            options={LIMIT_OPTIONS}
+                            onChange={setLimit}
+                            renderButtonContent={(option) => `Limit: ${option?.label ?? config.limit}`}
+                            aria-label="Query row limit"
+                            size="small"
+                            dropdownMatchSelectWidth={false}
+                            data-attr="bi-editor-query-limit"
                         />
                         <LemonButton
                             type="secondary"

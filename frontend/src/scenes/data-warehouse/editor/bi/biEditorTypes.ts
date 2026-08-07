@@ -13,6 +13,10 @@ export type BIAggregation = 'count' | 'count_distinct' | 'sum' | 'average' | 'mi
 
 export type BIDateBucket = 'minute' | 'hour' | 'day' | 'week' | 'month' | 'quarter' | 'year'
 
+export const BI_QUERY_LIMITS = [100, 1000, 10000, 50000] as const
+
+export type BIQueryLimit = (typeof BI_QUERY_LIMITS)[number]
+
 export type BIFilterOperator =
     | 'equals'
     | 'not_equals'
@@ -66,7 +70,7 @@ export interface BIConfig {
     columns: BIField[]
     values: BIValue[]
     filters: BIFilter[]
-    limit: number
+    limit: BIQueryLimit
 }
 
 export interface BIEditorState {
@@ -308,9 +312,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
         values.some((value) => !value) ||
         !filters ||
         filters.some((filter) => !filter) ||
-        typeof candidate.limit !== 'number' ||
-        !Number.isInteger(candidate.limit) ||
-        candidate.limit <= 0
+        !BI_QUERY_LIMITS.includes(candidate.limit as BIQueryLimit)
     ) {
         return null
     }
@@ -322,7 +324,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
         columns: columns as BIField[],
         values: values as BIValue[],
         filters: filters as BIFilter[],
-        limit: candidate.limit,
+        limit: candidate.limit as BIQueryLimit,
     }
     const fields = [
         ...config.rows,
@@ -345,6 +347,14 @@ function sanitizeAlias(value: string): string {
         .toLowerCase()
 
     return alias || 'value'
+}
+
+function dimensionAlias(shelf: 'row' | 'column', field: BIField, index: number): string {
+    return `bi_${shelf}_${sanitizeAlias(field.name || field.expression)}${index > 0 ? `_${index + 1}` : ''}`
+}
+
+function aggregationAlias(value: BIValue, index: number): string {
+    return `${value.aggregation}_${sanitizeAlias(value.field.name)}${index > 0 ? `_${index + 1}` : ''}`
 }
 
 const DOTTED_IDENTIFIER_REGEX = /^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*$/
@@ -429,10 +439,20 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
         return null
     }
 
-    const dimensions = [...config.rows, ...config.columns].filter(
-        (field) => field.expression.trim() || field.name.trim()
-    )
-    const dimensionExpressions = dimensions.map(fieldExpression)
+    const rowDimensions = config.rows
+        .map((field, index) => ({ alias: dimensionAlias('row', field, index), field }))
+        .filter(({ field }) => field.expression.trim() || field.name.trim())
+    const columnDimensions = config.columns
+        .map((field, index) => ({ alias: dimensionAlias('column', field, index), field }))
+        .filter(({ field }) => field.expression.trim() || field.name.trim())
+    const dimensions = [...rowDimensions, ...columnDimensions]
+    const dimensionExpressions = dimensions.map(({ field }) => fieldExpression(field))
+    const isPivotTable = config.chartType === ChartDisplayType.TwoDimensionalHeatmap
+    const dimensionSelectExpressions = dimensions.map(({ alias, field }) => {
+        const expression = fieldExpression(field)
+
+        return isPivotTable ? `${expression} AS ${alias}` : expression
+    })
     const configuredValues = config.values
         .map((value) => ({ value, expression: aggregationExpression(value) }))
         .filter(
@@ -440,12 +460,12 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
         )
     const valueExpressions =
         configuredValues.length > 0
-            ? configuredValues.map(({ value, expression }, index) => {
-                  const alias = `${value.aggregation}_${sanitizeAlias(value.field.name)}${index > 0 ? `_${index + 1}` : ''}`
-                  return `${expression} AS ${escapePropertyAsHogQLIdentifier(alias)}`
-              })
+            ? configuredValues.map(
+                  ({ value, expression }, index) =>
+                      `${expression} AS ${escapePropertyAsHogQLIdentifier(aggregationAlias(value, index))}`
+              )
             : ['count(*) AS count']
-    const selectExpressions = [...dimensionExpressions, ...valueExpressions]
+    const selectExpressions = [...dimensionSelectExpressions, ...valueExpressions]
     const filters = config.filters
         .filter(
             (filter) =>
@@ -471,6 +491,18 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
 
     const query = queryParts.join('\n')
 
+    const pivotTableSettings = isPivotTable
+        ? {
+              heatmap: {
+                  xAxisColumn: columnDimensions[0]?.alias,
+                  yAxisColumn: rowDimensions[0]?.alias,
+                  valueColumn: configuredValues[0] ? aggregationAlias(configuredValues[0].value, 0) : 'count',
+                  xAxisLabel: columnDimensions[0]?.field.name || columnDimensions[0]?.field.expression || undefined,
+                  yAxisLabel: rowDimensions[0]?.field.name || rowDimensions[0]?.field.expression || undefined,
+              },
+          }
+        : undefined
+
     return {
         query,
         node: {
@@ -481,6 +513,7 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
                 connectionId: config.source.connectionId,
             },
             display: config.chartType,
+            ...(pivotTableSettings ? { chartSettings: pivotTableSettings } : {}),
         },
     }
 }

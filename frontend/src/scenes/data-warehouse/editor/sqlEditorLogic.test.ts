@@ -1776,6 +1776,31 @@ describe('sqlEditorLogic', () => {
             biLogic.unmount()
         })
 
+        it('regenerates the query and URL when the result limit changes', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, {
+                q: 'SELECT event, count(*) FROM events GROUP BY event LIMIT 1000',
+                mode: BIEditorView.BI,
+                bi: config,
+            })
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            await expectLogic(biLogic, () => biLogic.actions.setLimit(10000)).toFinishAllListeners()
+
+            expect(logic.values.queryInput).toContain('LIMIT 10000')
+            expect(router.values.hashParams.bi).toEqual({ ...config, limit: 10000 })
+
+            biLogic.unmount()
+        })
+
         it('clears incompatible fields and opens persisted blank shelf fields for editing', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,

@@ -87,6 +87,30 @@ describe('BI editor query generation', () => {
         expect(result?.query).toContain('count(*) AS count')
     })
 
+    it('maps BI rows, columns, and values to pivot table axes and cells', () => {
+        const result = buildBIQuery({
+            source: { table: 'events' },
+            chartType: ChartDisplayType.TwoDimensionalHeatmap,
+            rows: [eventField],
+            columns: [timestampField],
+            values: [{ field: revenueField, aggregation: 'sum' }],
+            filters: [],
+            limit: 1000,
+        })
+
+        expect(result?.query).toContain('event AS bi_row_event')
+        expect(result?.query).toContain('timestamp AS bi_column_timestamp')
+        expect(result?.node.chartSettings).toEqual({
+            heatmap: {
+                xAxisColumn: 'bi_column_timestamp',
+                yAxisColumn: 'bi_row_event',
+                valueColumn: 'sum_revenue',
+                xAxisLabel: 'timestamp',
+                yAxisLabel: 'event',
+            },
+        })
+    })
+
     it('ignores blank shelf fields until they are configured', () => {
         const blankField: BIField = {
             id: 'blank-field',
