@@ -3,6 +3,7 @@ import type { UserBasic } from "@posthog/shared/domain-types";
 import type { EditorSelection } from "@posthog/ui/features/code-editor/components/CodeMirrorEditor";
 import { CommentAnnotation } from "@posthog/ui/features/code-review/components/CommentAnnotation";
 import { CommentComposer } from "@posthog/ui/features/sessions/components/CommentComposer";
+import { SelectionCommentActionButton } from "@posthog/ui/features/sessions/components/SelectionCommentActionButton";
 import { computeCommentActionPlacement } from "@posthog/ui/features/sessions/components/selectionCommentAction";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { useCallback, useEffect, useState } from "react";
@@ -111,7 +112,7 @@ function SelectionComposerCard({
   const [submitting, setSubmitting] = useState(false);
   const actionSize = expanded
     ? { width: Math.min(420, window.innerWidth * 0.8), height: 180 }
-    : { width: showActionText ? 116 : 30, height: 30 };
+    : { width: showActionText ? 104 : 28, height: 28 };
   const style = computeCommentActionPlacement(
     { top: anchor.top, right: anchor.left, bottom: anchor.bottom },
     { width: window.innerWidth, height: window.innerHeight },
@@ -135,27 +136,21 @@ function SelectionComposerCard({
 
   if (!expanded) {
     const action = (
-      <button
-        type="button"
-        aria-label={actionLabel}
-        data-selection-comment-overlay=""
-        className={
-          showActionText
-            ? "fixed z-50 flex h-[30px] cursor-pointer select-none items-center gap-1.5 rounded-full border border-gray-5 bg-gray-2 px-3 font-semibold text-gray-12 text-xs shadow-md transition hover:bg-gray-4 hover:shadow-lg"
-            : "fixed z-50 flex h-[30px] w-[30px] cursor-pointer select-none items-center justify-center rounded-full border border-gray-5 bg-gray-2 font-semibold text-gray-12 shadow-md transition hover:bg-gray-4 hover:shadow-lg"
-        }
-        style={style}
+      <SelectionCommentActionButton
+        label={actionLabel}
+        iconOnly={!showActionText}
+        position={style}
         onClick={() => setUserExpanded(true)}
       >
         {showActionText ? (
           <>
-            <ChatCircle size={14} weight="bold" />
+            <ChatCircle size={13} weight="bold" />
             Comment
           </>
         ) : (
-          <Plus size={14} weight="bold" />
+          <Plus size={13} weight="bold" />
         )}
-      </button>
+      </SelectionCommentActionButton>
     );
     // The text button names itself; only the icon-only variant needs a label
     // on hover.

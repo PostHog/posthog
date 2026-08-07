@@ -20,7 +20,10 @@ import {
   type HighlightResolution,
   readCommentContext,
 } from "./commentViewTypes";
-import { installSelectionSettleGate } from "./selectionCommentAction";
+import {
+  commentActionAnchorRect,
+  installSelectionSettleGate,
+} from "./selectionCommentAction";
 
 type HighlightRect = {
   id: string;
@@ -324,10 +327,10 @@ export function ArtifactTextAnnotations({
       );
       if (!anchor) return;
       // Anchor to the selection's end line, where the pointer was released.
-      const clientRects = range.getClientRects?.() ?? [];
-      const endRect = clientRects.length
-        ? clientRects[clientRects.length - 1]
-        : range.getBoundingClientRect();
+      const endRect = commentActionAnchorRect(
+        range.getClientRects?.() ?? [],
+        range.getBoundingClientRect(),
+      );
       setPendingAnchor(anchor);
       setSelection({
         text: anchor.quote,

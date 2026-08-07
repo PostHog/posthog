@@ -6,7 +6,10 @@ import {
   FREEFORM_QUILL_CSS_URLS,
 } from "@posthog/core/canvas/freeformWhitelist";
 import { resolveTextCommentAnchor } from "@posthog/core/comments/anchors";
-import { installSelectionSettleGate } from "@posthog/ui/features/sessions/components/selectionCommentAction";
+import {
+  commentActionAnchorRect,
+  installSelectionSettleGate,
+} from "@posthog/ui/features/sessions/components/selectionCommentAction";
 
 // Builds the HTML document loaded into the freeform-canvas sandbox iframe.
 //
@@ -287,6 +290,7 @@ export function buildSandboxDocument(
       true,
     );
 
+    const selectionAnchorRect = ${commentActionAnchorRect.toString()};
     const clearTextSelection = () => post({ type: "text-selection-cleared" });
     let selectionTimer = 0;
     const reportTextSelection = () => {
@@ -318,8 +322,7 @@ export function buildSandboxDocument(
       }
       // The END line's rect, so the host anchors the comment action where the
       // pointer was released rather than at the whole-range bounding box.
-      const clientRects = range.getClientRects();
-      const rect = clientRects.length ? clientRects[clientRects.length - 1] : range.getBoundingClientRect();
+      const rect = selectionAnchorRect(range.getClientRects(), range.getBoundingClientRect());
       post({
         type: "text-selection",
         selection: {

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   COMMENT_ACTION_BUTTON_THEMES,
+  commentActionAnchorRect,
   commentActionButtonCss,
   commentActionButtonCssVars,
   computeCommentActionPlacement,
@@ -156,10 +157,45 @@ function cssVarField(
     "--ph-comment-action-border": "border",
     "--ph-comment-action-hover": "hoverBackground",
     "--ph-comment-action-shadow": "shadow",
-    "--ph-comment-action-hover-shadow": "hoverShadow",
   };
   return fields[variable];
 }
+
+describe("commentActionAnchorRect", () => {
+  const box = (left: number, top: number, right: number, bottom: number) => ({
+    left,
+    top,
+    right,
+    bottom,
+    width: right - left,
+    height: bottom - top,
+  });
+  const fallback = box(0, 0, 10, 10);
+
+  it("ignores the wrapper box a multi-line selection reports, anchoring to the last line", () => {
+    const firstLine = box(600, 340, 1213, 364);
+    const lastLine = box(628, 447, 866, 470);
+    // A blockquote/paragraph wrapper encloses every line box and, in DOM order,
+    // can come last — the case that threw the action to the far right.
+    const wrapper = box(578, 310, 1274, 596);
+
+    expect(
+      commentActionAnchorRect([firstLine, lastLine, wrapper], fallback),
+    ).toBe(lastLine);
+  });
+
+  it("takes the right-most box when the selection ends on a line split across elements", () => {
+    const plain = box(100, 40, 180, 60);
+    const bolded = box(180, 40, 240, 60);
+
+    expect(commentActionAnchorRect([bolded, plain], fallback)).toBe(bolded);
+  });
+
+  it("falls back when the range reports no boxes at all", () => {
+    expect(commentActionAnchorRect([], fallback)).toBe(fallback);
+    expect(commentActionAnchorRect([box(5, 5, 5, 5)], fallback)).toBe(fallback);
+  });
+});
 
 describe("computeCommentActionPlacement", () => {
   const bounds = { width: 1000, height: 700 };

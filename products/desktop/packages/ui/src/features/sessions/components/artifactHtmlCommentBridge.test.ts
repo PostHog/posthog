@@ -78,9 +78,9 @@ describe("artifactHtmlCommentBridge", () => {
     expect(actionButton(dom)?.style.display).toBe("flex");
     expect(actionButton(dom)?.textContent).toBe("Comment");
     // Anchored right of the selection end (110 + 8), centered on the end
-    // line (50 - 15).
+    // line (50 - 14).
     expect(actionButton(dom)?.style.left).toBe("118px");
-    expect(actionButton(dom)?.style.top).toBe("35px");
+    expect(actionButton(dom)?.style.top).toBe("36px");
     dom.window.close();
   });
 
