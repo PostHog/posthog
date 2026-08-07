@@ -17,7 +17,7 @@ from unittest.mock import Mock, patch
 
 import click
 from click.testing import CliRunner
-from hogli_commands import pr_assets, upload_video
+from hogli_commands import pr_assets, pr_upload, upload_video
 
 _URL = "https://raw.githubusercontent.com/PostHog/pr-assets/deadbeef/2026/07/a91c.mp4"
 
@@ -27,6 +27,14 @@ def mp4(tmp_path: Path) -> Path:
     path = tmp_path / "frontend-qa.mp4"
     path.write_bytes(b"\x00\x00\x00\x18ftypmp42 fake bytes")
     return path
+
+
+@pytest.fixture(autouse=True)
+def no_detected_pr() -> Iterator[None]:
+    # Detection shells out to gh, so without this the suite reads whatever branch it runs
+    # on and these tests pass or fail depending on whether that branch has a PR.
+    with patch.object(pr_upload, "_open_pull_request", return_value=None):
+        yield
 
 
 @contextmanager
@@ -70,6 +78,16 @@ def test_upload_uses_video_commit_message(mp4: Path) -> None:
 
     assert result.exit_code == 0
     assert publish.call_args.kwargs["message"] == "add video"
+
+
+def test_pr_flag_reaches_the_commit_message(mp4: Path) -> None:
+    # Guards the wiring, which each command does for itself: a --pr the command accepts but
+    # never forwards would leave the asset untraceable.
+    with _publishes(_URL) as publish:
+        result = CliRunner(mix_stderr=False).invoke(upload_video.upload_video, ["--yes", "--pr", "1234", str(mp4)])
+
+    assert result.exit_code == 0
+    assert publish.call_args.kwargs["message"] == "add video for posthog#1234"
 
 
 def test_label_rejected_for_multiple_files(mp4: Path, tmp_path: Path) -> None:

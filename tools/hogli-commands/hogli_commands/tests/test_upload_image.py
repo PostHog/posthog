@@ -18,7 +18,7 @@ from unittest.mock import Mock, patch
 
 import click
 from click.testing import CliRunner
-from hogli_commands import pr_assets, upload_image
+from hogli_commands import pr_assets, pr_upload, upload_image
 
 _URL = "https://raw.githubusercontent.com/PostHog/pr-assets/abc123/2026/07/f7c1.png"
 
@@ -28,6 +28,14 @@ def png(tmp_path: Path) -> Path:
     path = tmp_path / "diagram.png"
     path.write_bytes(b"\x89PNG\r\n\x1a\n fake bytes")
     return path
+
+
+@pytest.fixture(autouse=True)
+def no_detected_pr() -> Iterator[None]:
+    # Detection shells out to gh, so without this the suite reads whatever branch it runs
+    # on and these tests pass or fail depending on whether that branch has a PR.
+    with patch.object(pr_upload, "_open_pull_request", return_value=None):
+        yield
 
 
 @contextmanager
@@ -65,6 +73,16 @@ def test_command_caption_rendering(png: Path, alt: str, expected_label: str) -> 
         result = CliRunner(mix_stderr=False).invoke(upload_image.upload_image, ["--yes", "--alt", alt, str(png)])
 
     assert result.stdout.strip() == f"![{expected_label}]({_URL})"
+
+
+def test_pr_flag_reaches_the_commit_message(png: Path) -> None:
+    # Guards the wiring, which each command does for itself: a --pr the command accepts but
+    # never forwards would leave the asset untraceable.
+    with _publishes(_URL) as publish:
+        result = CliRunner(mix_stderr=False).invoke(upload_image.upload_image, ["--yes", "--pr", "1234", str(png)])
+
+    assert result.exit_code == 0
+    assert publish.call_args.kwargs["message"] == "add screenshot for posthog#1234"
 
 
 def test_requires_yes_before_uploading(png: Path) -> None:
