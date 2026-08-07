@@ -10,6 +10,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from django.db import connection
+from django.db.models import F
 from django.test.utils import CaptureQueriesContext
 
 from dateutil import parser
@@ -28,6 +29,7 @@ from posthog.test.test_journeys import journeys_for
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
+from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
     EXPERIMENT_EXPOSURE_EVENT_FLAG,
@@ -9570,3 +9572,76 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
         body = stale_write.json()
         self.assertEqual(body["current_version"], snapshot["version"] + 1)
         self.assertNotIn("conflicting_fields", body)
+
+    def test_duplicate_patch_racing_the_lock_window_succeeds_as_noop(self) -> None:
+        # The UI sometimes dispatches one save as two parallel PATCHes: the loser reaches the
+        # row-locked version re-check only after the winner committed the identical change.
+        # It must succeed with the current state instead of 409ing on a change that saved.
+        snapshot = self._create_experiment("lock-window-twin", metrics=[self._metric("base")])
+        real_sync = ExperimentService._sync_feature_flag_on_update
+
+        def twin_write_then_sync(service: ExperimentService, *args: Any, **kwargs: Any) -> None:
+            Experiment.objects.filter(pk=snapshot["id"]).update(description="the same edit", version=F("version") + 1)
+            return real_sync(service, *args, **kwargs)
+
+        with patch.object(
+            ExperimentService, "_sync_feature_flag_on_update", autospec=True, side_effect=twin_write_then_sync
+        ):
+            duplicate = self._patch(
+                snapshot["id"],
+                {
+                    "description": "the same edit",
+                    "version": snapshot["version"],
+                    "original_experiment": self._original_with_scalars(snapshot),
+                },
+            )
+
+        self.assertEqual(duplicate.status_code, status.HTTP_200_OK, duplicate.json())
+        self.assertEqual(duplicate.json()["description"], "the same edit")
+        self.assertEqual(duplicate.json()["version"], snapshot["version"] + 1)
+
+    def test_stale_running_time_config_edit_merges_over_estimate_churn(self) -> None:
+        # The calculator auto-save rewrites recommended_* on every results load, so a tab is
+        # routinely several versions behind holding a stale estimate echo. Editing the MDE from
+        # that tab must not read as a double-edit of running_time_calculation.
+        created = self._create_experiment("rtc-churn", metrics=[self._metric("base")])
+        seeded = self._patch(
+            created["id"],
+            {
+                "running_time_calculation": {
+                    "minimum_detectable_effect": 5,
+                    "recommended_running_time": 9,
+                    "recommended_sample_size": 800,
+                }
+            },
+        )
+        self.assertEqual(seeded.status_code, status.HTTP_200_OK)
+        snapshot = seeded.json()
+
+        churn = self._patch(
+            snapshot["id"],
+            {
+                "running_time_calculation": {
+                    "minimum_detectable_effect": 5,
+                    "recommended_running_time": 30,
+                    "recommended_sample_size": 4000,
+                }
+            },
+        )
+        self.assertEqual(churn.status_code, status.HTTP_200_OK)
+
+        stale_config_edit = self._patch(
+            snapshot["id"],
+            {
+                "running_time_calculation": {
+                    "minimum_detectable_effect": 10,
+                    "recommended_running_time": 9,
+                    "recommended_sample_size": 800,
+                },
+                "version": snapshot["version"],
+                "original_experiment": self._original_with_scalars(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_config_edit.status_code, status.HTTP_200_OK, stale_config_edit.json())
+        self.assertEqual(stale_config_edit.json()["running_time_calculation"]["minimum_detectable_effect"], 10)
