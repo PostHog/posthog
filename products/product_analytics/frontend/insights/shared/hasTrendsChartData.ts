@@ -11,6 +11,10 @@ export function hasTrendsChartData(indexedResults: IndexedTrendResult[] | undefi
         if (Number.isFinite(result.aggregated_value) && result.aggregated_value !== 0) {
             return true
         }
-        return !!result.data && result.count !== 0
+        // Check the array that actually gets plotted, not the scalar `count`. For a formula series
+        // the backend computes `count` as a ratio-of-sums over whole-period totals, which can net to
+        // zero while the per-interval `data` it plots is clearly non-zero (e.g. `A - B` totals cancel
+        // but individual buckets differ), so trusting `count` blanks a chart that has real points.
+        return !!result.data && result.data.some((value) => Number.isFinite(value) && value !== 0)
     })
 }
