@@ -7,7 +7,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
-from posthog.cdp.templates.slack.template_slack import template as template_slack
+from posthog.cdp.test.template_fixtures import slack_template as template_slack
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 

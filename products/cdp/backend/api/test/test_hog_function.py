@@ -12,7 +12,7 @@ from rest_framework import status
 
 from posthog.cdp.templates.helpers import mock_transpile
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
-from posthog.cdp.templates.slack.template_slack import template as template_slack
+from posthog.cdp.test.template_fixtures import slack_template as template_slack
 
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.hog_function import (

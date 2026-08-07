@@ -12,8 +12,10 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
-from posthog.cdp.templates.microsoft_teams.template_microsoft_teams import template as template_microsoft_teams
-from posthog.cdp.templates.slack.template_slack import template as template_slack
+from posthog.cdp.test.template_fixtures import (
+    microsoft_teams_template as template_microsoft_teams,
+    slack_template as template_slack,
+)
 from posthog.clickhouse.client import sync_execute
 from posthog.models.team.team import Team
 from posthog.models.user import User

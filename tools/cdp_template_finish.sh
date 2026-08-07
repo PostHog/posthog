@@ -33,6 +33,42 @@ PYEOF
 done
 
 .venv/bin/ruff check posthog/cdp/templates/__init__.py
+
+# Deleting a template file breaks anything that imported the module. Callers outside
+# posthog/cdp/ import it by module path rather than by template id, so grepping for the id
+# misses them — check the imports actually resolve.
+.venv/bin/python - <<'PYEOF'
+import ast
+import pathlib
+import sys
+
+missing = []
+for path in pathlib.Path(".").rglob("*.py"):
+    if "node_modules" in str(path) or ".venv" in str(path):
+        continue
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except Exception:
+        continue
+    for node in ast.walk(tree):
+        modules = []
+        if isinstance(node, ast.ImportFrom) and node.module:
+            modules = [node.module]
+        elif isinstance(node, ast.Import):
+            modules = [a.name for a in node.names]
+        for module in modules:
+            if not module.startswith("posthog.cdp."):
+                continue
+            base = pathlib.Path(module.replace(".", "/"))
+            # A bare directory counts: this repo uses implicit namespace packages.
+            if not base.with_suffix(".py").exists() and not base.is_dir():
+                missing.append(f"{path}: {module}")
+
+if missing:
+    sys.stderr.write("dangling imports of deleted template modules:\n  " + "\n  ".join(sorted(set(missing))) + "\n")
+    raise SystemExit(1)
+PYEOF
+
 (cd nodejs && npx prettier --write "src/cdp/templates/_destinations/${VENDOR}/" src/cdp/templates/index.ts >/dev/null)
 (cd nodejs && npx eslint "src/cdp/templates/_destinations/${VENDOR}/" src/cdp/templates/index.ts)
 

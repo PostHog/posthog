@@ -6,7 +6,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
-from posthog.cdp.templates.slack.template_slack import template as template_slack
+from posthog.cdp.test.template_fixtures import slack_template as template_slack
 from posthog.models import Team
 from posthog.models.integration import Integration
 
