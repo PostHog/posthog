@@ -16,10 +16,12 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url, extract_plain_text_from_rich_content
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.redis import get_client
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV
 
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel, Status
+from products.conversations.backend.reply_dedupe import REPLY_IN_PROGRESS_ERROR_TYPE, ReplyFingerprint, reserve
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -1456,6 +1458,88 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         assert entry is not None
         assert entry.detail is not None
         assert entry.detail["changes"][0]["after"] == "plain note"
+
+
+# The Support composer posts its replies through this endpoint, and both gateways and operators
+# retry those requests. The guard's own behavior is covered in
+# products/conversations/backend/tests/test_reply_dedupe.py; these are the wiring cases.
+class TestCommentsSupportReplyDedupe(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        get_client().flushall()
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="dedupe-session",
+            distinct_id="dedupe-user",
+            status=Status.OPEN,
+        )
+
+    def _post(self, **overrides: Any) -> Any:
+        payload: dict[str, Any] = {
+            "content": "Have you tried clearing the cache?",
+            "scope": "conversations_ticket",
+            "item_id": str(self.ticket.id),
+            "item_context": {"author_type": "support", "is_private": False},
+        }
+        payload.update(overrides)
+        return self.client.post(f"/api/projects/{self.team.id}/comments", payload, format="json")
+
+    @mock.patch("posthog.api.comments.produce_discussion_mention_events")
+    @mock.patch("posthog.tasks.email.send_discussions_mentioned.delay")
+    def test_retried_support_reply_returns_the_original_without_notifying_twice(
+        self, mock_send_email: mock.MagicMock, mock_produce_events: mock.MagicMock
+    ) -> None:
+        mentioned = User.objects.create_and_join(self.organization, "mentioned-dedupe@posthog.com", None)
+        rich_content = {
+            "type": "doc",
+            "content": [{"type": "paragraph", "content": [{"type": "ph-mention", "attrs": {"id": mentioned.id}}]}],
+        }
+
+        first = self._post(rich_content=rich_content)
+        second = self._post(rich_content=rich_content)
+
+        assert first.status_code == status.HTTP_201_CREATED
+        assert second.status_code == status.HTTP_200_OK
+        assert second.json()["id"] == first.json()["id"]
+        assert Comment.objects.filter(scope="conversations_ticket", item_id=str(self.ticket.id)).count() == 1
+        assert mock_send_email.call_count == 1
+        assert mock_produce_events.call_count == 1
+
+    def test_reply_still_being_created_returns_a_conflict(self) -> None:
+        fingerprint = ReplyFingerprint.build(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Have you tried clearing the cache?",
+            rich_content=None,
+            item_context={"author_type": "support", "is_private": False},
+        )
+        assert fingerprint is not None
+        reserve(fingerprint)
+
+        response = self._post()
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json()["error_type"] == REPLY_IN_PROGRESS_ERROR_TYPE
+        assert not Comment.objects.filter(scope="conversations_ticket").exists()
+
+    @parameterized.expand(
+        [
+            ("internal_ticket_discussion", {"scope": "Ticket"}),
+            ("customer_message", {"item_context": {"author_type": "customer", "is_private": False}}),
+            ("task", {"is_task": True}),
+            ("notebook_comment", {"scope": "Notebook", "item_context": None}),
+        ]
+    )
+    def test_non_support_messages_are_still_created_twice(self, _name: str, overrides: dict[str, Any]) -> None:
+        first = self._post(**overrides)
+        second = self._post(**overrides)
+
+        assert first.status_code == status.HTTP_201_CREATED
+        assert second.status_code == status.HTTP_201_CREATED
+        assert second.json()["id"] != first.json()["id"]
 
 
 TICKET_SCOPE_CASES = [("conversations_ticket",), ("Ticket",)]
