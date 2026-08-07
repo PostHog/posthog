@@ -86,6 +86,12 @@ class DuckLakeCopyVerificationResult:
     sql: str | None = None
     error: str | None = None
 
+    @property
+    def could_not_run(self) -> bool:
+        """True when the check never produced a value to compare — a transient/infra fault
+        (query raised, no rows, non-numeric) rather than the copy running and being out of tolerance."""
+        return not self.passed and self.observed_value is None
+
 
 @dataclasses.dataclass
 class DuckLakeCopyWorkflowGateInputs:
@@ -370,6 +376,16 @@ def verify_ducklake_copy_activity(inputs: DuckLakeCopyActivityInputs) -> list[Du
             failures=[dataclasses.asdict(result) for result in failed],
         )
 
+    # A check that couldn't execute tells us nothing about whether the copy is correct. When that is
+    # the only kind of failure, raise a retryable error so the activity retry policy re-runs
+    # verification instead of the workflow permanently failing the copy over a transient fault.
+    could_not_run = [result for result in failed if result.could_not_run]
+    if could_not_run and not any(not result.could_not_run for result in failed):
+        raise ApplicationError(
+            "DuckLake copy verification could not run",
+            type="DuckLakeVerificationCouldNotRun",
+        )
+
     return results
 
 
@@ -439,7 +455,9 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
                     start_to_close_timeout=dt.timedelta(minutes=10),
                     heartbeat_timeout=dt.timedelta(minutes=2),
                     retry_policy=RetryPolicy(
-                        maximum_attempts=1,
+                        # Give transient verification faults (e.g. a DuckLake engine error) a retry
+                        # cushion before the copy is treated as unverifiable.
+                        maximum_attempts=3,
                     ),
                 )
 
@@ -450,15 +468,26 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
 
                 failed_checks = [result for result in verification_results if not result.passed]
                 if failed_checks:
-                    failure_payload = [dataclasses.asdict(result) for result in failed_checks]
+                    # Keep the rendered SQL and table names in the log, out of the exception message,
+                    # so every affected table groups into one error tracking issue instead of minting a
+                    # new fingerprint each time.
                     logger.error(
                         "DuckLake verification failed",
                         model_label=model.model_label,
-                        failures=failure_payload,
+                        failures=[dataclasses.asdict(result) for result in failed_checks],
                     )
+                    if any(not result.could_not_run for result in failed_checks):
+                        # A check ran and the copy is genuinely out of tolerance — do not retry.
+                        raise ApplicationError(
+                            "DuckLake copy verification found a mismatch",
+                            non_retryable=True,
+                            type="DuckLakeVerificationMismatch",
+                        )
+                    # Every failing check couldn't execute; fail retryably so a later run can
+                    # re-verify rather than permanently failing the copy.
                     raise ApplicationError(
-                        f"DuckLake copy verification failed: {failure_payload}",
-                        non_retryable=True,
+                        "DuckLake copy verification could not run",
+                        type="DuckLakeVerificationCouldNotRun",
                     )
 
                 if model.staging_uri:

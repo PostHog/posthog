@@ -855,12 +855,15 @@ def test_verify_data_imports_ducklake_copy_activity_handles_query_failure(monkey
     )
     inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
 
-    results = verify_data_imports_ducklake_copy_activity(inputs)
+    from temporalio.exceptions import ApplicationError
 
-    assert len(results) == 1
-    assert results[0].name == "failing_query"
-    assert results[0].passed is False
-    assert results[0].error == "Query execution failed"
+    # A query that can't execute is an inconclusive verification, not a proven mismatch: the activity
+    # must raise a retryable error so the copy isn't permanently failed over a transient fault.
+    with pytest.raises(ApplicationError) as exc_info:
+        verify_data_imports_ducklake_copy_activity(inputs)
+
+    assert exc_info.value.non_retryable is False
+    assert "Query execution failed" not in str(exc_info.value)
     mock_conn.__exit__.assert_called_once()
 
 
@@ -1178,6 +1181,46 @@ async def test_workflow_records_failed_post_gate_metrics(monkeypatch):
         ducklake_module.ManagedWarehouseSourceJobStatus.RUNNING,
         ducklake_module.ManagedWarehouseSourceJobStatus.FAILED,
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "verification_result, expected_non_retryable",
+    [
+        pytest.param(
+            ducklake_module.DuckLakeCopyDataImportsVerificationResult(
+                name="row_count", passed=False, observed_value=5.0, expected_value=0.0, tolerance=0.0
+            ),
+            True,
+            id="mismatch_is_permanent",
+        ),
+        pytest.param(
+            ducklake_module.DuckLakeCopyDataImportsVerificationResult(
+                name="row_count", passed=False, error="INTERNAL Error", sql="SELECT count(*) FROM secret_table"
+            ),
+            False,
+            id="could_not_run_is_retryable",
+        ),
+    ],
+)
+async def test_workflow_verification_failure_retryability_depends_on_cause(
+    monkeypatch, verification_result, expected_non_retryable
+):
+    from temporalio.exceptions import ApplicationError
+
+    started_at = dt.datetime(2026, 7, 31, 12, 0, 0)
+    failed_at = started_at + dt.timedelta(seconds=5)
+    execute_activity = AsyncMock(side_effect=[True, None, [_workflow_model()], None, [verification_result], None])
+    _mock_copy_workflow_metrics(monkeypatch)
+    monkeypatch.setattr(ducklake_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(ducklake_module.workflow, "now", MagicMock(side_effect=[started_at, failed_at, failed_at]))
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await DuckLakeCopyDataImportsWorkflow().run(_workflow_inputs())
+
+    assert exc_info.value.non_retryable is expected_non_retryable
+    # Rendered SQL and table names stay out of the message so affected tables group into one issue.
+    assert "secret_table" not in str(exc_info.value)
 
 
 @pytest.mark.asyncio
