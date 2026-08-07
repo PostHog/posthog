@@ -28,10 +28,10 @@ describe("uploadArtifactTool", () => {
     prepareTaskArtifactUploads.mockResolvedValue([
       {
         id: "artifact-1",
-        name: "report.csv",
+        name: "report [final].csv",
         type: "output",
         size: 7,
-        storage_path: "tasks/artifacts/report.csv",
+        storage_path: "tasks/artifacts/report-final.csv",
         expires_in: 300,
         presigned_post: {
           url: "https://storage.example/upload",
@@ -42,12 +42,12 @@ describe("uploadArtifactTool", () => {
     finalizeTaskArtifactUploads.mockResolvedValue([
       {
         id: "artifact-1",
-        name: "report.csv",
+        name: "report [final].csv",
         type: "output",
         size: 7,
-        storage_path: "tasks/artifacts/report.csv",
+        storage_path: "tasks/artifacts/report-final.csv",
         uploaded_at: "2026-01-01T00:00:00Z",
-        url: "https://storage.example/download/report.csv",
+        url: "https://storage.example/download/report-final.csv?X-Amz-Signature=secret",
       },
     ]);
   });
@@ -62,13 +62,17 @@ describe("uploadArtifactTool", () => {
 
     const result = await uploadArtifactTool.handler(
       { cwd, taskId: "task-1", taskRunId: "run-1" },
-      { path: "report.csv", contentType: "text/csv" },
+      {
+        path: "report.csv",
+        name: "report [final].csv",
+        contentType: "text/csv",
+      },
     );
 
     expect(result.isError).toBeUndefined();
     expect(prepareTaskArtifactUploads).toHaveBeenCalledWith("task-1", "run-1", [
       {
-        name: "report.csv",
+        name: "report [final].csv",
         type: "output",
         source: "agent_output",
         size: 7,
@@ -87,13 +91,15 @@ describe("uploadArtifactTool", () => {
           id: "artifact-1",
           type: "output",
           source: "agent_output",
-          storage_path: "tasks/artifacts/report.csv",
+          storage_path: "tasks/artifacts/report-final.csv",
         }),
       ],
     );
     expect(result.content[0]?.text).toContain(
-      "https://storage.example/download/report.csv",
+      String.raw`[report \[final\].csv](<https://storage.example/download/report-final.csv>)`,
     );
+    expect(result.content[0]?.text).not.toContain("X-Amz-Signature");
+    expect(result.content[0]?.text).not.toContain("secret");
   });
 
   it("rejects files outside the session workspace", async () => {
