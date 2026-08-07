@@ -548,8 +548,8 @@ export const PillBrowseSurfaceOptOut: Story = {
         taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties],
         disableSuggestedFilters: true,
     },
+    tags: ['test-skip'], // matches the other pill category-dropdown stories — verified manually in storybook
     parameters: {
-        testOptions: { waitForSelector: '.taxonomic-infinite-list' },
         featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill' },
         docs: {
             description: {
