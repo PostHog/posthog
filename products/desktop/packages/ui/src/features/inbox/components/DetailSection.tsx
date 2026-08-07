@@ -30,7 +30,7 @@ export function DetailSection({
     >
       <div className="flex min-w-0 select-none items-center gap-3">
         <CollapsibleTrigger className="min-w-0 flex-1 text-left">
-          <Icon weight="bold" aria-hidden />
+          <Icon size={15} weight="bold" aria-hidden />
           <Text
             render={<span />}
             size="sm"
