@@ -6,7 +6,10 @@ import {
   AgentPluginsService,
   agentPluginRuntimeMcpName,
 } from "./agent-plugins";
-import type { AgentPluginHttpProxy } from "./http-proxy";
+import type {
+  AgentPluginHttpProxy,
+  AgentPluginHttpProxyRegistration,
+} from "./http-proxy";
 import { loadAgentPlugin } from "./loader";
 import {
   AGENT_PLUGINS_MANIFEST_SCHEMA,
@@ -72,6 +75,53 @@ function createHttpProxy(): AgentPluginHttpProxy {
     register: vi.fn(async ({ id }: { id: string }) => `http://127.0.0.1/${id}`),
     unregisterRun: vi.fn(),
     unregisterInstallation: vi.fn(),
+  };
+}
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve = (): void => {};
+  const promise = new Promise<void>((complete) => {
+    resolve = complete;
+  });
+  return { promise, resolve };
+}
+
+function createDeferredHttpProxy(): {
+  proxy: AgentPluginHttpProxy;
+  active: Map<string, AgentPluginHttpProxyRegistration>;
+  registrationStarted: Promise<void>;
+  releaseRegistration: () => void;
+} {
+  const active = new Map<string, AgentPluginHttpProxyRegistration>();
+  const started = deferred();
+  const release = deferred();
+  let registrationCount = 0;
+  const proxy: AgentPluginHttpProxy = {
+    register: vi.fn(async (registration) => {
+      registrationCount += 1;
+      if (registrationCount === 1) {
+        started.resolve();
+        await release.promise;
+      }
+      active.set(registration.id, registration);
+      return `http://127.0.0.1/${registration.id}`;
+    }),
+    unregisterRun: vi.fn((runId) => {
+      for (const [id, registration] of active) {
+        if (registration.runId === runId) active.delete(id);
+      }
+    }),
+    unregisterInstallation: vi.fn((installationId) => {
+      for (const [id, registration] of active) {
+        if (registration.installationId === installationId) active.delete(id);
+      }
+    }),
+  };
+  return {
+    proxy,
+    active,
+    registrationStarted: started.promise,
+    releaseRegistration: release.resolve,
   };
 }
 
@@ -858,5 +908,103 @@ describe("Agent Plugins skills support", () => {
     expect(httpProxy.unregisterInstallation).toHaveBeenCalledWith(
       installation.id,
     );
+  });
+
+  it("serializes disable behind an in-flight MCP activation", async () => {
+    const pluginDirectory = path.join(root, "plugin-disable-race");
+    await writePlugin(pluginDirectory);
+    await writeMcp(pluginDirectory, {
+      analytics: {
+        type: "streamable-http",
+        url: "https://mcp.example.com/mcp",
+      },
+    });
+    const deferredProxy = createDeferredHttpProxy();
+    const service = createService(
+      path.join(root, "app-data-disable-race"),
+      [pluginDirectory],
+      deferredProxy.proxy,
+    );
+    const installation = await registerSelectedPlugin(service);
+
+    const activation = service.prepareRuntimeMcpServers("run-1", new Set());
+    await deferredProxy.registrationStarted;
+    const disable = service.setEnabled(installation.id, false);
+    expect(deferredProxy.proxy.unregisterInstallation).not.toHaveBeenCalled();
+
+    deferredProxy.releaseRegistration();
+    await activation;
+    await disable;
+
+    expect(deferredProxy.active.size).toBe(0);
+    expect(deferredProxy.proxy.unregisterInstallation).toHaveBeenCalledWith(
+      installation.id,
+    );
+    await expect(
+      service.prepareRuntimeMcpServers("run-2", new Set()),
+    ).resolves.toEqual([]);
+    expect(deferredProxy.proxy.register).toHaveBeenCalledTimes(1);
+  });
+
+  it("serializes removal behind an in-flight MCP activation", async () => {
+    const pluginDirectory = path.join(root, "plugin-remove-race");
+    await writePlugin(pluginDirectory);
+    await writeMcp(pluginDirectory, {
+      analytics: {
+        type: "streamable-http",
+        url: "https://mcp.example.com/mcp",
+      },
+    });
+    const deferredProxy = createDeferredHttpProxy();
+    const service = createService(
+      path.join(root, "app-data-remove-race"),
+      [pluginDirectory],
+      deferredProxy.proxy,
+    );
+    const installation = await registerSelectedPlugin(service);
+
+    const activation = service.prepareRuntimeMcpServers("run-1", new Set());
+    await deferredProxy.registrationStarted;
+    const removal = service.unregister(installation.id);
+    expect(deferredProxy.proxy.unregisterInstallation).not.toHaveBeenCalled();
+
+    deferredProxy.releaseRegistration();
+    await activation;
+    await removal;
+
+    expect(deferredProxy.active.size).toBe(0);
+    expect(deferredProxy.proxy.unregisterInstallation).toHaveBeenCalledWith(
+      installation.id,
+    );
+    await expect(service.list()).resolves.toEqual([]);
+  });
+
+  it("serializes concurrent MCP activations without leaking targets", async () => {
+    const pluginDirectory = path.join(root, "plugin-concurrent-race");
+    await writePlugin(pluginDirectory);
+    await writeMcp(pluginDirectory, {
+      analytics: {
+        type: "streamable-http",
+        url: "https://mcp.example.com/mcp",
+      },
+    });
+    const deferredProxy = createDeferredHttpProxy();
+    const service = createService(
+      path.join(root, "app-data-concurrent-race"),
+      [pluginDirectory],
+      deferredProxy.proxy,
+    );
+    await registerSelectedPlugin(service);
+
+    const first = service.prepareRuntimeMcpServers("run-1", new Set());
+    await deferredProxy.registrationStarted;
+    const second = service.prepareRuntimeMcpServers("run-1", new Set());
+    expect(deferredProxy.proxy.register).toHaveBeenCalledTimes(1);
+
+    deferredProxy.releaseRegistration();
+    await Promise.all([first, second]);
+
+    expect(deferredProxy.proxy.register).toHaveBeenCalledTimes(2);
+    expect(deferredProxy.active.size).toBe(1);
   });
 });

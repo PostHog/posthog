@@ -240,7 +240,7 @@ export class AgentPluginsService {
     });
   }
 
-  async prepareRuntimeMcpServers(
+  prepareRuntimeMcpServers(
     taskRunId: string,
     reservedServerNames: ReadonlySet<string>,
   ): Promise<McpServerConnection[]> {
@@ -248,8 +248,26 @@ export class AgentPluginsService {
       throw new Error(`Unsafe taskRunId: ${JSON.stringify(taskRunId)}`);
     }
 
+    return this.withStateTransaction(async () => {
+      this.httpProxy.unregisterRun(taskRunId);
+      try {
+        return await this.prepareRuntimeMcpServersLocked(
+          taskRunId,
+          reservedServerNames,
+        );
+      } catch (error) {
+        this.httpProxy.unregisterRun(taskRunId);
+        throw error;
+      }
+    });
+  }
+
+  private async prepareRuntimeMcpServersLocked(
+    taskRunId: string,
+    reservedServerNames: ReadonlySet<string>,
+  ): Promise<McpServerConnection[]> {
     const claimedServerNames = new Set(reservedServerNames);
-    const state = await this.withStateTransaction(() => this.readState());
+    const state = await this.readState();
     const installations = state.installations
       .filter((installation) => installation.enabled)
       .sort(
@@ -314,7 +332,7 @@ export class AgentPluginsService {
     return runtimeServers;
   }
 
-  async prepareRuntimePlugins(
+  prepareRuntimePlugins(
     taskRunId: string,
     reservedSkillNames: ReadonlySet<string>,
     onSkillSkipped: (pluginName: string, skillName: string) => void = () => {},
@@ -323,12 +341,31 @@ export class AgentPluginsService {
       throw new Error(`Unsafe taskRunId: ${JSON.stringify(taskRunId)}`);
     }
 
-    const runtimeRoot = this.runtimeRoot(taskRunId);
-    await this.removeManagedPath(runtimeRoot);
-    await this.makeManagedDirectory(runtimeRoot);
+    return this.withStateTransaction(async () => {
+      const runtimeRoot = this.runtimeRoot(taskRunId);
+      await this.removeManagedPath(runtimeRoot);
+      await this.makeManagedDirectory(runtimeRoot);
+      try {
+        return await this.prepareRuntimePluginsLocked(
+          taskRunId,
+          reservedSkillNames,
+          onSkillSkipped,
+        );
+      } catch (error) {
+        await this.removeManagedPath(runtimeRoot);
+        throw error;
+      }
+    });
+  }
 
+  private async prepareRuntimePluginsLocked(
+    taskRunId: string,
+    reservedSkillNames: ReadonlySet<string>,
+    onSkillSkipped: (pluginName: string, skillName: string) => void,
+  ): Promise<RuntimeAgentPlugin[]> {
+    const runtimeRoot = this.runtimeRoot(taskRunId);
     const claimedSkillNames = new Set(reservedSkillNames);
-    const state = await this.withStateTransaction(() => this.readState());
+    const state = await this.readState();
     const installations = state.installations
       .filter((installation) => installation.enabled)
       .sort(
@@ -409,10 +446,12 @@ export class AgentPluginsService {
     return plugins;
   }
 
-  async cleanupRuntimePlugins(taskRunId: string): Promise<void> {
-    if (!isSafePathSegment(taskRunId)) return;
-    this.httpProxy.unregisterRun(taskRunId);
-    await this.removeManagedPath(this.runtimeRoot(taskRunId));
+  cleanupRuntimePlugins(taskRunId: string): Promise<void> {
+    if (!isSafePathSegment(taskRunId)) return Promise.resolve();
+    return this.withStateTransaction(async () => {
+      this.httpProxy.unregisterRun(taskRunId);
+      await this.removeManagedPath(this.runtimeRoot(taskRunId));
+    });
   }
 
   private addRuntimeDiagnostic(
