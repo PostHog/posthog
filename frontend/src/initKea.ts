@@ -126,6 +126,13 @@ export function initKea({
                 if (error?.name === 'AbortError') {
                     return
                 }
+                // A loader that fully handled its own failure (dropped stale state, showed a
+                // tailored message) flags the error so we skip the generic toast and the
+                // error-tracking capture below — e.g. dashboardsModel recovering from a 404 on a
+                // dashboard that was deleted elsewhere.
+                if (error?.handledByLoader) {
+                    return
+                }
                 // Read-only mode (`ReadOnlyModeError`) flows through this path unchanged:
                 // it extends `ApiError` with `status=403`, so the `!(isLoadAction && error.status === 403)`
                 // condition already suppresses the toast for load actions, and write actions

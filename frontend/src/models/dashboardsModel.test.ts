@@ -2,9 +2,11 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { useMocks } from '~/mocks/jest'
+import { mswServer, useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DashboardBasicType } from '~/types'
 
@@ -185,6 +187,89 @@ describe('the dashboards model', () => {
                 })
         })
     })
+
+    it('prunes cached rows that a completed full load no longer returns', async () => {
+        // Seed the cache from the default mock, which includes generated dashboards (1, 2, 4).
+        await expectLogic(logic, () => logic.actions.loadDashboards()).toDispatchActions(['loadDashboardsSuccess'])
+        expect(logic.values.rawDashboards[6]).not.toBeUndefined()
+
+        // Dashboards 3 and 5 survive; everything else is deleted elsewhere, so the next full
+        // load omits it. Generated dashboards are excluded from the list endpoint on purpose.
+        // Reset first so this handler wins over the default from `beforeEach`.
+        mswServer.resetHandlers()
+        useMocks({
+            get: {
+                '/api/environments/:team_id/dashboards/': () => [
+                    200,
+                    {
+                        count: 2,
+                        results: [
+                            { id: 3, name: 'Dashboard: 789' },
+                            { id: 5, name: 'Dashboard: 112' },
+                        ],
+                        next: undefined,
+                    },
+                ],
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.loadDashboards())
+            .toDispatchActions(['loadDashboardsSuccess'])
+            .toFinishAllListeners()
+
+        // Returned rows stay; a real row the load didn't return is pruned.
+        expect(logic.values.rawDashboards[3]).not.toBeUndefined()
+        expect(logic.values.rawDashboards[5]).not.toBeUndefined()
+        expect(logic.values.rawDashboards[6]).toBeUndefined()
+        // Generated dashboards are preserved even though the endpoint never returns them.
+        expect(logic.values.rawDashboards[1]).not.toBeUndefined()
+        expect(logic.values.rawDashboards[2]).not.toBeUndefined()
+    })
+
+    const mutationCases: [string, string[], (id: number) => void][] = [
+        [
+            'pinDashboard',
+            ['pinDashboard', 'pruneDashboards', 'pinDashboardFailure'],
+            (id) => logic.actions.pinDashboard(id, DashboardEventSource.MoreDropdown),
+        ],
+        [
+            'unpinDashboard',
+            ['unpinDashboard', 'pruneDashboards', 'unpinDashboardFailure'],
+            (id) => logic.actions.unpinDashboard(id, DashboardEventSource.MoreDropdown),
+        ],
+        [
+            'deleteDashboard',
+            ['deleteDashboard', 'pruneDashboards', 'deleteDashboardFailure'],
+            (id) => logic.actions.deleteDashboard({ id, deleteInsights: false }),
+        ],
+    ]
+
+    it.each(mutationCases)(
+        'drops the row and shows a friendly message when %s 404s',
+        async (_name, actions, trigger) => {
+            const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+            initKeaTests()
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/dashboards/': () => [
+                        200,
+                        { count: 1, results: [{ id: 5, name: 'Dashboard: 112' }], next: undefined },
+                    ],
+                },
+                patch: { '/api/environments/:team_id/dashboards/:id/': () => [404, { detail: 'Not found.' }] },
+            })
+            logic = dashboardsModel()
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['dashboardsFullyLoaded'])
+            expect(logic.values.rawDashboards[5]).not.toBeUndefined()
+
+            await expectLogic(logic, () => trigger(5)).toDispatchActions(actions)
+
+            expect(logic.values.rawDashboards[5]).toBeUndefined()
+            expect(errorToast).toHaveBeenCalledWith("This dashboard no longer exists. We've removed it from the list.")
+            errorToast.mockRestore()
+        }
+    )
 
     it('clears primary_dashboard from team when deleting the primary dashboard', async () => {
         const primaryDashboardId = 42

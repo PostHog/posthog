@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
@@ -477,6 +477,21 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             }
         },
     })),
+    afterMount(({ cache }) => {
+        // `dashboardsModel` is permanently mounted and only loads once on app start, so its list
+        // goes stale as dashboards are deleted elsewhere. Refetch when the scene is entered and
+        // when the tab regains focus so rows that no longer exist drop out of the list.
+        const refreshDashboards = (): void => {
+            if (!dashboardsModel.values.dashboardsLoading) {
+                dashboardsModel.actions.loadDashboards()
+            }
+        }
+        refreshDashboards()
+        cache.disposables.add(() => {
+            window.addEventListener('focus', refreshDashboards)
+            return () => window.removeEventListener('focus', refreshDashboards)
+        })
+    }),
     listeners(({ actions, values }) => ({
         setSearch: ({ search }) => {
             actions.loadSearchedDashboards({
