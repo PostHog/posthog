@@ -464,6 +464,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "warehouse_view"
     if name == "datawarehousesavedqueryfolder":
         return "warehouse_view"
+    if name == "datawarehouseexpression":
+        return "warehouse_view"
     if name == "datawarehousetable":
         return "warehouse_table"
     if name == "customerjourney":
