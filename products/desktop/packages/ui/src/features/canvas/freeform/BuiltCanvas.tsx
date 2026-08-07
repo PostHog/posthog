@@ -2,8 +2,8 @@ import { assertCanvasCapability } from "@posthog/core/canvas/canvasCapabilities"
 import {
   type CanvasCommentHighlight,
   type CanvasNavIntent,
-  type CanvasTheme,
   type CanvasTextSelection,
+  type CanvasTheme,
   canvasToHostMessageSchema,
 } from "@posthog/core/canvas/freeformSchemas";
 import type { CanvasCapabilities } from "@posthog/shared";
