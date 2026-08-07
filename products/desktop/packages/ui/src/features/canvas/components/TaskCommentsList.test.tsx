@@ -612,7 +612,7 @@ describe("TaskCommentsList", () => {
     expect(emptySourceOption).toHaveTextContent("0");
   });
 
-  it("stops following the main pane once a source is picked by hand", () => {
+  it("resumes following the main pane after All sources is selected", () => {
     mocks.activeArtifactId = "b";
     const { rerender } = render(<TaskCommentsList task={task} timeline={[]} />);
 
@@ -621,7 +621,20 @@ describe("TaskCommentsList", () => {
     mocks.activeArtifactId = "a";
     rerender(<TaskCommentsList task={task} timeline={[]} />);
 
-    expect(screen.getByText("Second thread")).toBeTruthy();
+    expect(screen.queryByText("Second thread")).toBeNull();
+    expect(screen.getByText("Tighten this summary")).toBeTruthy();
+  });
+
+  it("stops following the main pane while a specific source is selected", () => {
+    mocks.activeArtifactId = null;
+    const { rerender } = render(<TaskCommentsList task={task} timeline={[]} />);
+
+    fireEvent.click(screen.getByLabelText("Filter by source"));
+    fireEvent.click(screen.getAllByText("report.md").at(-1) as HTMLElement);
+    mocks.activeArtifactId = "b";
+    rerender(<TaskCommentsList task={task} timeline={[]} />);
+
+    expect(screen.queryByText("Second thread")).toBeNull();
     expect(screen.getByText("Tighten this summary")).toBeTruthy();
   });
 

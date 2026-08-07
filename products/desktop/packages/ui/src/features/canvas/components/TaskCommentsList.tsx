@@ -613,7 +613,7 @@ export function TaskCommentsList({
               <DropdownMenuRadioGroup
                 value={sourceFilter}
                 onValueChange={(value) => {
-                  sourceFilterTouched.current = true;
+                  sourceFilterTouched.current = value !== ALL_SOURCES;
                   setSourceFilter(value);
                 }}
               >
