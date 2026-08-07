@@ -23,7 +23,7 @@ import api, { ApiMethodOptions } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { uuid } from 'lib/utils/dom'
-import { shouldCancelQuery } from 'lib/utils/requests'
+import { isAbortedRequest, shouldCancelQuery } from 'lib/utils/requests'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { compareDataNodeQuery, haveVariablesOrFiltersChanged, validateQuery } from 'scenes/insights/utils/queryUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -1038,6 +1038,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             actions.abortQuery({ queryId })
                         }
                         breakpoint()
+                        // An aborted request is a non-event: a newer load superseded it, or the query was
+                        // cancelled. If its rejection lands after the newer load already succeeded, breakpoint()
+                        // above no longer throws, so rethrowing here would strand an error banner over a table
+                        // that actually loaded. Keep the current response instead of failing. Timeouts (504) still
+                        // fall through to a real failure.
+                        if (isAbortedRequest(error)) {
+                            return values.response
+                        }
                         throw error
                     }
                 },

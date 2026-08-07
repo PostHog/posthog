@@ -638,6 +638,40 @@ describe('dataNodeLogic', () => {
         )
     })
 
+    it('does not surface an error when a load is aborted after data already loaded', async () => {
+        // An earlier test leaves jest fake timers installed; our real-time delays need real timers.
+        jest.useRealTimers()
+        const results = [commonResult]
+        // Control the mock sequence exactly: first load resolves, the superseding load aborts.
+        mockedQuery.mockReset()
+        mockedQuery.mockResolvedValueOnce({ results })
+        logic = dataNodeLogic({
+            key: testUniqueKey,
+            query: setLatestVersionsOnQuery({
+                kind: NodeKind.EventsQuery,
+                select: ['*', 'event', 'timestamp'],
+            }),
+        })
+        logic.mount()
+        await expectLogic(logic)
+            .delay(0)
+            .toMatchValues({ responseError: null, response: partial({ results }) })
+
+        // A superseded/aborted request must be treated as a non-event: it should not strand an
+        // error banner over the table that already loaded.
+        mockedQuery.mockRejectedValueOnce(new DOMException('Aborted', 'AbortError'))
+        dataNodeLogic({
+            key: testUniqueKey,
+            query: setLatestVersionsOnQuery({
+                kind: NodeKind.EventsQuery,
+                select: ['*', 'event', 'timestamp', 'person'],
+            }),
+        })
+        await expectLogic(logic)
+            .delay(0)
+            .toMatchValues({ responseError: null, response: partial({ results }) })
+    })
+
     it('passes limitContext to api', async () => {
         const query = setLatestVersionsOnQuery({
             kind: NodeKind.EventsQuery,

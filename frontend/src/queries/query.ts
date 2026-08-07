@@ -1,6 +1,7 @@
 import api, { ApiMethodOptions } from 'lib/api'
 import posthog from 'lib/posthog-typed'
 import { delay } from 'lib/utils/async'
+import { isAbortedRequest } from 'lib/utils/requests'
 
 import {
     DashboardFilter,
@@ -286,15 +287,19 @@ export async function performQuery<N extends DataNode>(
     } catch (e) {
         // Raw error detail/message can echo query fragments, so telemetry only gets status and code
         const error = e as (Error & { status?: number; code?: string | null }) | null
-        posthog.capture('query failed', {
-            query: queryNode,
-            queryId,
-            duration: performance.now() - startTime,
-            error_status: error?.status ?? null,
-            error_code: error?.code ?? null,
-            uses_data_warehouse_source: queryUsesDataWarehouse(queryNode),
-            ...logParams,
-        })
+        // An aborted request is a client-cancelled fetch (e.g. a superseded search keystroke), not a
+        // query failure. Recording it would bury genuine failures under cancellation noise.
+        if (!isAbortedRequest(error)) {
+            posthog.capture('query failed', {
+                query: queryNode,
+                queryId,
+                duration: performance.now() - startTime,
+                error_status: error?.status ?? null,
+                error_code: error?.code ?? null,
+                uses_data_warehouse_source: queryUsesDataWarehouse(queryNode),
+                ...logParams,
+            })
+        }
         throw e
     }
 }

@@ -970,7 +970,6 @@ export const ReplayFiltersTab = ({
                             <LemonButton
                                 id="replay-filters-feedback-button"
                                 type="tertiary"
-                                status="danger"
                                 size="small"
                                 data-attr="replay-filters-feedback-button"
                             >
