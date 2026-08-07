@@ -551,7 +551,11 @@ export class PostgresPersonRepository
             )
         }
 
-        const distinctIds = [primaryDistinctId, ...extraDistinctIds]
+        // Dedupe by distinct id: ON CONFLICT DO UPDATE raises 21000 when one command
+        // carries the same key twice, even when the WHERE qual would exclude the row.
+        const distinctIds = [primaryDistinctId, ...extraDistinctIds].filter(
+            (entry, index, all) => all.findIndex((other) => other.distinctId === entry.distinctId) === index
+        )
         for (const distinctId of distinctIds) {
             distinctId.version ||= 0
         }
@@ -720,16 +724,6 @@ export class PostgresPersonRepository
                 created: true,
             }
         } catch (error) {
-            // Handle constraint violation - another process created the person concurrently
-            if (error instanceof Error && error.message.includes('unique constraint')) {
-                // This is not of type CreatePersonResult?
-                return {
-                    success: false,
-                    error: 'CreationConflict',
-                    distinctIds: distinctIds.map((d) => d.distinctId),
-                }
-            }
-
             if (this.isPropertiesSizeConstraintViolation(error)) {
                 // For createPerson, we just log and reject since there's no existing person to update
                 personPropertiesSizeViolationCounter.inc({

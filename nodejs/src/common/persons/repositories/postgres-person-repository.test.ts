@@ -417,6 +417,31 @@ describe('PostgresPersonRepository', () => {
             })
         })
 
+        it('createPerson dedupes repeated distinct ids instead of failing the multi-insert', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const uuid = new UUIDT().toString()
+
+            const result = await repository.createPerson(
+                TIMESTAMP,
+                {},
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                uuid,
+                { distinctId: 'dup-did' },
+                [{ distinctId: 'dup-did' }]
+            )
+
+            if (!result.success) {
+                throw new Error('Expected creation to succeed')
+            }
+            // One person message and one mapping message: the duplicate collapsed.
+            expect(result.messages).toHaveLength(2)
+            await expect(repository.fetchPerson(team.id, 'dup-did')).resolves.toMatchObject({ uuid })
+        })
+
         it('createPerson undoes its insert when a distinct id is owned by a live mapping', async () => {
             const team = await getFirstTeam(hub.postgres)
             await createTestPerson(team.id, 'contested-did')
