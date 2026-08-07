@@ -193,6 +193,20 @@ SESSION_INIT_PROBE_HOSTS = (
     "api.anthropic.com",
 )
 
+_MODAL_NETWORK_POLICY_REJECTION_MARKERS = (
+    "outbound_domain_allowlist",
+    "outbound domain allowlist",
+    "domain allowlist",
+    "allowed domains",
+)
+
+
+def _is_modal_network_policy_rejection(error: BaseException) -> bool:
+    if not isinstance(error, ModalInvalidError):
+        return False
+    message = str(error).casefold()
+    return any(marker in message for marker in _MODAL_NETWORK_POLICY_REJECTION_MARKERS)
+
 
 def _session_init_probe_hosts() -> list[str]:
     """Hosts the startup-failure egress probe checks. Both gateway settings
@@ -946,7 +960,7 @@ class ModalSandbox(SandboxBase):
                 with capture_modal_output_if_debug() as modal_output:
                     sb = modal.Sandbox.create(**attempt_kwargs)  # type: ignore[arg-type]
             except Exception as e:
-                if isinstance(e, ModalInvalidError) and config.outbound_domain_allowlist is not None:
+                if config.outbound_domain_allowlist is not None and _is_modal_network_policy_rejection(e):
                     raise SandboxNetworkPolicyError(
                         "Modal rejected the requested sandbox network policy.",
                         {

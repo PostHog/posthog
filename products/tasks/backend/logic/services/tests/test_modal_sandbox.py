@@ -1285,7 +1285,7 @@ class TestModalSandboxCreateImageFallback:
         assert sandbox.config.snapshot_restored is True
         assert sandbox.config.image_fallback is not None
 
-    def test_image_fallback_preserves_vm_network_policy_on_every_attempt(self):
+    def test_unrelated_invalid_error_preserves_vm_network_policy_on_fallback(self):
         config = SandboxConfig(
             name="t",
             template=SandboxTemplate.VM_BASE,
@@ -1301,7 +1301,7 @@ class TestModalSandboxCreateImageFallback:
         def sandbox_create(**kwargs: Any) -> Any:
             attempts.append(kwargs)
             if kwargs["image"] is overlaid_custom:
-                raise RuntimeError("image build failed")
+                raise ModalInvalidError("invalid image reference")
             return mock_sb
 
         with (
