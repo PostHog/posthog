@@ -2,6 +2,36 @@ import { useHostTRPC } from "@posthog/host-router/react";
 import type { PrConversationComment } from "@posthog/shared";
 import { useQueries } from "@tanstack/react-query";
 
+type PrCommentsResult = {
+  data?: PrConversationComment[] | null;
+  isLoading: boolean;
+  isError: boolean;
+};
+
+export function combinePrCommentResults(
+  prUrls: string[],
+  results: PrCommentsResult[],
+): {
+  byUrl: Array<[string, PrConversationComment[]]>;
+  isLoading: boolean;
+  isError: boolean;
+} {
+  const failed = results.filter(
+    (result) => result.isError || result.data === null,
+  ).length;
+  return {
+    byUrl: prUrls.map(
+      (prUrl, index) =>
+        [prUrl, results[index]?.data ?? []] as [
+          string,
+          PrConversationComment[],
+        ],
+    ),
+    isLoading: results.some((result) => result.isLoading),
+    isError: results.length > 0 && failed === results.length,
+  };
+}
+
 /**
  * Conversation comments for several PRs at once. GitHub has no batch endpoint
  * for these, so this is one request per PR — fine for the handful a task
@@ -22,20 +52,6 @@ export function usePrCommentsForUrls(prUrls: string[]) {
         prev,
       retry: 1,
     })),
-    combine: (results) => ({
-      // Null from the server means "couldn't fetch", which reads the same as
-      // "nothing to show" in a list that isn't only about one PR.
-      byUrl: prUrls.map(
-        (prUrl, index) =>
-          [prUrl, results[index]?.data ?? []] as [
-            string,
-            PrConversationComment[],
-          ],
-      ),
-      isLoading: results.some((result) => result.isLoading),
-      isError: results.some(
-        (result, index) => result.isError || results[index]?.data === null,
-      ),
-    }),
+    combine: (results) => combinePrCommentResults(prUrls, results),
   });
 }
