@@ -156,14 +156,17 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .mypy_cache
+                  # No prefix restore-keys: a fine-grained cache is only valid for the deps and
+                  # mypy config it was built under, so we restore exactly that hash (built on
+                  # master) and run cold when pyproject/mypy.ini change, rather than inheriting a
+                  # mismatched cache from an unrelated tree.
                   key: mypy-cache-${{ runner.os }}-3.12-mypy2-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
-                  restore-keys: |
-                      mypy-cache-${{ runner.os }}-3.12-mypy2-
 
             - name: Check static typing
               shell: bash -e {0}
-              env:
-                  MYPY_NUM_WORKERS: 2
+              # Single-process: MYPY_NUM_WORKERS > 0 enables experimental parallel checking, whose
+              # worker handshake dies ("Failed to establish connection with worker: No status file
+              # found") when it contends for the runner with the background `parallel:` steps below.
               run: mypy --version && mypy --cache-fine-grained .
 
             - name: Save mypy cache
