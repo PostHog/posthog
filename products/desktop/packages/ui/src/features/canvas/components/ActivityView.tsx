@@ -173,6 +173,7 @@ export function ActivityRow({
   onNavigate?: () => void;
   compact?: boolean;
 }) {
+  const commentsEnabled = useCommentsEnabled();
   const isAgentActivity =
     item.activityKind === "awaiting_input" ||
     item.activityKind === "completed" ||
@@ -185,13 +186,17 @@ export function ActivityRow({
       task_id: item.taskId,
     });
     onOpen(item);
-    if (item.commentId && item.commentTarget) {
+    if (commentsEnabled && item.commentId && item.commentTarget) {
       useCommentNavigationStore
         .getState()
         .requestCommentFocus(item.taskId, item.commentTarget, item.commentId);
     }
     onNavigate?.();
-    if (channelId && item.commentTarget?.scope === "desktop_canvas") {
+    if (
+      commentsEnabled &&
+      channelId &&
+      item.commentTarget?.scope === "desktop_canvas"
+    ) {
       useCanvasChatPanelStore.getState().openComments();
       navigateToChannelDashboard(channelId, item.commentTarget.itemId);
       return;

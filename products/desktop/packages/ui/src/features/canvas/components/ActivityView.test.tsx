@@ -7,6 +7,7 @@ const navigation = vi.hoisted(() => ({
   toChannelTask: vi.fn(),
   toTaskDetail: vi.fn(),
 }));
+const commentsFlag = vi.hoisted(() => ({ enabled: true }));
 
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToChannelDashboard: navigation.toChannelDashboard,
@@ -19,7 +20,7 @@ import { useCommentNavigationStore } from "@posthog/ui/features/sessions/comment
 import { ActivityRow, activityHeadline } from "./ActivityView";
 
 vi.mock("@posthog/ui/features/sessions/useCommentsEnabled", () => ({
-  useCommentsEnabled: () => true,
+  useCommentsEnabled: () => commentsFlag.enabled,
 }));
 
 function item(overrides: Partial<TaskActivityItem>): TaskActivityItem {
@@ -41,6 +42,7 @@ function item(overrides: Partial<TaskActivityItem>): TaskActivityItem {
 
 describe("activityHeadline", () => {
   beforeEach(() => {
+    commentsFlag.enabled = true;
     navigation.toChannelTask.mockReset();
     navigation.toChannelDashboard.mockReset();
     navigation.toTaskDetail.mockReset();
@@ -152,5 +154,36 @@ describe("activityHeadline", () => {
       nonce: expect.any(Number),
       openCommentsTab: true,
     });
+  });
+
+  it("does not open comment navigation while comments are disabled", () => {
+    commentsFlag.enabled = false;
+    const activity = item({
+      activityKind: "owned_item_comment",
+      channelId: "channel-1",
+      commentId: "comment-1",
+      commentTarget: { scope: "desktop_canvas", itemId: "canvas-1" },
+    });
+
+    render(
+      <ActivityRow
+        item={activity}
+        channelId="channel-1"
+        onOpen={vi.fn()}
+        onMarkRead={vi.fn()}
+      />,
+    );
+    const activityButton = screen
+      .getByText("commented on your canvas")
+      .closest("button");
+    if (!activityButton) throw new Error("Expected activity row button");
+    fireEvent.click(activityButton);
+
+    expect(navigation.toChannelTask).toHaveBeenCalledWith(
+      "channel-1",
+      "task-1",
+    );
+    expect(navigation.toChannelDashboard).not.toHaveBeenCalled();
+    expect(useCommentNavigationStore.getState().focusByTask).toEqual({});
   });
 });
