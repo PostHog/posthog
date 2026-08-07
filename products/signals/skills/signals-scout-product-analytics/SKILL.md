@@ -82,6 +82,10 @@ For each watchlist flow whose cadence is due (default: re-score daily flows ~dai
 
 Spend a slice of each run widening coverage: pull any newly-saved funnel/retention/lifecycle insights (by `created_at` / `last_modified_at` recency in `system.insights`) and add the strong ones; refresh the inferred flow if the activation milestones changed. Importance decays — every few days reconcile the watchlist against what's actually saved and viewed; retire flows whose insights were deleted.
 
+**Timezone footgun:** HogQL parses a naive timestamp literal in the _project_ timezone, not UTC, so a UTC cursor interpolated into a bare `toDateTime('…')` shifts the window by the project's offset — and when that offset exceeds your run interval the whole window lands in the future, so the scan returns nothing on a project that is editing flows all day. Use `now() - INTERVAL N DAY` for recency windows; when you need a fixed boundary, write `toDateTime('<ts>', 'UTC')`.
+
+**Prove a zero before you trust it.** If the incremental scan finds no modified insights, re-count over a broad window (e.g. 7d) before concluding nothing changed. A zero next to a healthy broad count means your window is wrong, not that the team stopped editing flows — don't advance the cursor on a scan you couldn't verify, and say both counts in the close-out.
+
 ### Save memory as you go
 
 Maintain the watchlist and baselines as you work, encoding the category in the key prefix so a future run finds it with one `text=` search:

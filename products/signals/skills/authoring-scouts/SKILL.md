@@ -100,6 +100,12 @@ When the project's metrics catalog is enabled, it may hold a governed definition
 Where a governed metric exists, reference it by name in any `references/queries.md` you ship, and label every hand-written derivation there a noncanonical fallback — an unlabeled "validated query" outranks the harness's catalog-first rule at run time, which is exactly how a scout ends up re-deriving a number the team already governs.
 Freshness, availability, and schema checks are exempt: they stay schema-first, with no catalog detour.
 
+A third rule binds any scout that **scans on a time window** — which is most of them.
+Two clocks are in play: HogQL resolves a naive datetime literal in the _project's_ timezone, while everything the harness hands a run (`started_at`, run rows, scratchpad timestamps) is UTC.
+Mixing them shifts a scan window by the project's UTC offset, and when that offset exceeds the scan interval the window lands entirely in the future — the query returns zero rows on a live surface and the run closes out "quiet" with nothing having errored.
+Prefer `now() - INTERVAL N` arithmetic, make the zone explicit on any literal you do write, and give the scout a way to tell a broken window from a quiet surface.
+[`references/scout-anatomy.md`](references/scout-anatomy.md) has the rules and the control-count pattern that catches it.
+
 ## Run posture (config)
 
 A scout's schedule and emit behavior live on its `SignalScoutConfig`, separate from the skill body.

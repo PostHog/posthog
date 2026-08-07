@@ -8,6 +8,7 @@ Keep the body lean and push depth into references — every line of the body is 
 - Naming
 - Frontmatter
 - Body structure (the ten canonical sections)
+- Time bounds and incremental scans
 - References
 - Skeleton — specialist scout
 - Skeleton — broad / cross-product scout
@@ -109,6 +110,43 @@ The fleet's specialists all share this shape:
 
 Not every scout needs all ten sections, but every scout needs 1 (discriminator), 2 (quick close-out), 3 (orient), 7 (decide), 8 (disqualifiers), and 10 (close out).
 Sections 4–6 and 9 are where a specialist earns its keep.
+
+## Time bounds and incremental scans
+
+Two clocks are in play on every run, and mixing them silently corrupts a scan.
+HogQL resolves a **naive** datetime literal in the **project's** timezone, so `toDateTime('2026-01-02 10:00:00')` is project-local, not UTC.
+Everything the harness hands a scout — `started_at`, run rows, scratchpad timestamps — is UTC.
+A scout that keeps a UTC cursor and interpolates it into a naive literal therefore reads a window shifted by the project's UTC offset.
+
+The failure mode is silent and total rather than partial.
+When the offset exceeds the scan interval, the whole window lands in the future, the query returns zero rows on a busy surface, and the run closes out "quiet" with a confident summary.
+Nothing errors, so the scout advances its cursor and overwrites its baselines with zeros — and does it again on every subsequent run.
+A window shorter than the offset is the dangerous case; a longer one still returns rows, just the wrong ones, which is harder to notice.
+
+**Rules for any scout that scans on a time window:**
+
+1. **Prefer relative arithmetic.** `now() - INTERVAL N DAY` needs no literal and cannot be misread. Reach for a literal only when you genuinely need a fixed boundary.
+2. **When you do write a literal, make the zone explicit** — `toDateTime('<ts>', 'UTC')`, or an ISO-8601 string with a `Z` suffix. Never a bare `toDateTime('YYYY-MM-DD HH:MM:SS')`.
+3. **Read timestamps back in the zone you store them in** — `toTimeZone(timestamp, 'UTC') AS ts_utc` — so the cursor you write matches the cursor you read.
+4. **Store instants in UTC, not project-local time.** Across a DST transition a local wall-clock cursor is ambiguous for one hour and nonexistent for another, so it can double-scan or skip an hour.
+5. **Bucket in project time deliberately.** `toDate()` and `toStartOfDay()` already resolve in the project's timezone — usually what you want for day-grain analysis, but it means a UTC cursor and a `toDate()` bucket are two different clocks in one query. Know which you're using and why.
+
+### Prove a zero before you trust it
+
+Prevention leaks, so a scout that scans incrementally shouldn't be able to report "nothing new" without evidence.
+Pair the incremental window with a broad control over the same source:
+
+```sql
+SELECT
+  countIf(timestamp >= toDateTime('<cursor>', 'UTC')) AS window_rows,
+  countIf(timestamp >= now() - INTERVAL 7 DAY)        AS control_rows
+FROM events
+WHERE event = '<the watched event>'
+```
+
+`window_rows` at zero alongside a healthy `control_rows` means the **window** is broken, not that the surface is quiet.
+Treat it as a scan fault: don't advance the cursor, don't overwrite a good baseline with zeros, and don't close out quiet.
+State both counts in the close-out so the next run — and a human reading the summary — can tell a genuinely idle surface from a blind one.
 
 ## References
 
