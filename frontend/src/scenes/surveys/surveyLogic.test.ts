@@ -332,6 +332,38 @@ describe('translation validation', () => {
         })
         expect(logic.values.aiGeneratedTranslationFields).toEqual(['translations.es.thankYouMessageHeader'])
     })
+
+    it('sends appearance submit and back button labels in the AI translation draft', async () => {
+        // Guards the button-label gap: if these drop out of the draft payload, "Translate with AI"
+        // never sees them as source and silently can't translate the submit/back buttons.
+        const generateTranslations = surveysGenerateTranslationsCreate as jest.MockedFunction<
+            typeof surveysGenerateTranslationsCreate
+        >
+        generateTranslations.mockResolvedValue({
+            translations: {},
+            questions: [],
+            generated_field_paths: [],
+            trace_id: 'trace-1',
+        })
+        const survey = {
+            ...createPersistedSurvey(),
+            appearance: {
+                ...createPersistedSurvey().appearance,
+                submitButtonText: 'Submit',
+                backButtonText: 'Back',
+            },
+        } as Survey
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+            logic.actions.generateTranslationDrafts('es')
+        }).toFinishAllListeners()
+
+        const draftSurvey = generateTranslations.mock.calls[0][2].survey as Record<string, unknown>
+        expect(draftSurvey.appearance).toEqual(
+            expect.objectContaining({ submitButtonText: 'Submit', backButtonText: 'Back' })
+        )
+    })
 })
 
 describe('set response-based survey branching', () => {

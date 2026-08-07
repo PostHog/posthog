@@ -184,6 +184,8 @@ type SurveyTranslationDraftPayload = {
         thankYouMessageHeader?: string
         thankYouMessageDescription?: string
         thankYouMessageCloseButtonText?: string
+        submitButtonText?: string
+        backButtonText?: string
     }
     questions?: SurveyTranslationDraftQuestion[]
     translations?: Survey['translations']
@@ -235,6 +237,8 @@ function getSurveyTranslationDraftPayload(survey: Survey | NewSurvey): SurveyTra
             thankYouMessageHeader: survey.appearance?.thankYouMessageHeader,
             thankYouMessageDescription: survey.appearance?.thankYouMessageDescription,
             thankYouMessageCloseButtonText: survey.appearance?.thankYouMessageCloseButtonText,
+            submitButtonText: survey.appearance?.submitButtonText,
+            backButtonText: survey.appearance?.backButtonText,
         },
         questions: survey.questions.map((question, index): SurveyTranslationDraftQuestion => {
             const draftQuestion: SurveyTranslationDraftQuestion = {
@@ -3363,6 +3367,8 @@ export const surveyLogic = kea<surveyLogicType>([
                         key: 'thankYouMessageCloseButtonText',
                         defaultValue: survey.appearance?.thankYouMessageCloseButtonText,
                     },
+                    { key: 'submitButtonText', defaultValue: survey.appearance?.submitButtonText },
+                    { key: 'backButtonText', defaultValue: survey.appearance?.backButtonText },
                 ]
 
                 // Get all languages
