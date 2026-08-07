@@ -278,11 +278,11 @@ export interface experimentReplayTabLogicActions {
     reportTabViewed: () => {
         value: true
     }
-    setMetricFilterMode: (mode: ExperimentReplayMetricFilterMode) => {
-        mode: ExperimentReplayMetricFilterMode
-    }
     selectWatchCard: (card: ExperimentWatchCardApi | null) => {
         card: ExperimentWatchCardApi | null
+    }
+    setMetricFilterMode: (mode: ExperimentReplayMetricFilterMode) => {
+        mode: ExperimentReplayMetricFilterMode
     }
     setMetricSelected: (
         metricUuid: string,
