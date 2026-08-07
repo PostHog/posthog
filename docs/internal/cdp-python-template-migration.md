@@ -177,6 +177,24 @@ tests.
 
 ### Recipe
 
+Two scripts do the mechanical half. Both read the Python with `ast`, so they run without Django or a database.
+
+```bash
+# Generate the Node template from the Python one
+python tools/cdp_template_to_ts.py posthog/cdp/templates/slack/template_slack.py
+
+# Prove the ported code is byte-identical (--git reads the Python from a commit you already deleted it in)
+python tools/cdp_template_verify.py --git HEAD~1 posthog/cdp/templates/slack/template_slack.py \
+    nodejs/src/cdp/templates/_destinations/slack/slack.template.ts
+```
+
+Running the Node template tests needs the Hog compiler, which shells out to Python:
+
+```bash
+export PATH="$PWD/.venv/bin:$PATH" SECRET_KEY=<any 32+ chars> DEBUG=1
+cd nodejs && npx jest src/cdp/templates/_destinations/<vendor>
+```
+
 1. **Create the Node template.** `nodejs/src/cdp/templates/_destinations/<vendor>/<slug>.template.ts`, exporting
    `export const template: HogFunctionTemplate = {...}`. Keep the Python vendor directory name — it is already
    snake_case, which matches most of `_destinations/`. Copy `code` verbatim; do not reformat it.
@@ -202,10 +220,14 @@ tests.
 4. **Delete the Python side**: the `template_*.py`, its `test_*.py`, and the entries in
    `posthog/cdp/templates/__init__.py`. Remove the vendor directory when it is empty.
 
-5. **Verify.** Run `hogli test nodejs/src/cdp/templates/_destinations/<vendor>` and the parity check. Then boot
-   the dev stack, run `python manage.py sync_hog_function_templates`, and confirm the row for that
-   `template_id` has the same `sha` as before the change. Same sha means nothing user-visible moved. A changed
-   sha needs an explanation in the PR body.
+5. **Verify.** Run the Node tests, then `cdp_template_verify.py` — a byte-identical `code` is the property that
+   makes the port invisible to existing functions. Boot the dev stack and run
+   `python manage.py sync_hog_function_templates` when you want end-to-end confirmation that the row for that
+   `template_id` keeps its `sha`. A changed sha needs an explanation in the PR body.
+
+   Watch for invisible characters. `template-customerio` carried a non-breaking space in its Hog source, which
+   only the byte comparison caught. Normalizing it would have flagged every live Customer.io function as
+   modified.
 
 ### Sequencing
 
