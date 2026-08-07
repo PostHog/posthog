@@ -1,10 +1,12 @@
 import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
 
 import { billingLogic } from 'scenes/billing/billingLogic'
 
+import { billingJson } from '~/mocks/fixtures/_billing'
+import { useMocks } from '~/mocks/jest'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { BillingType } from '~/types'
 
 describe('billingLogic', () => {
     beforeEach(() => {
@@ -34,11 +36,12 @@ describe('billingLogic', () => {
             expect(scrollIntoView).toHaveBeenCalledTimes(1)
         })
 
-        it('falls back to the parent product when the add-on has no anchor', () => {
+        it('falls back to the parent product when the add-on has no anchor', async () => {
+            // billingJson's platform_and_support product carries the enterprise add-on, which is
+            // rendered without its own anchor — so the scroll must fall back to the parent product.
+            useMocks({ get: { '/api/billing': () => [200, billingJson] } })
             billingLogic.mount()
-            billingLogic.actions.loadBillingSuccess({
-                products: [{ type: 'platform_and_support', addons: [{ type: 'enterprise' }] }],
-            } as BillingType)
+            await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
             const parentScrollIntoView = addAnchor('billing-product-platform_and_support')
 
             billingLogic.actions.scrollToProduct('enterprise')
