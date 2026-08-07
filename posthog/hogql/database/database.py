@@ -1632,7 +1632,7 @@ class Database(BaseModel):
                         resolver=PERSONS,
                     )
 
-                _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database)
+                _add_error_tracking_fields(database)
 
         with timings.measure("session_table", emit_span=True):
             if not database._is_direct_query() and (
@@ -2229,11 +2229,7 @@ def _error_tracking_event_exprs() -> dict[str, ast.Expr]:
     # the parser's min-cacheable length, so they would otherwise re-parse on every build.
     return {
         "event_issue_id": parse_expr("toUUID(properties.$exception_issue_id)"),
-        # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.fingerprint`` is not Nullable
-        "issue_id": parse_expr(
-            "if(not(empty(exception_issue_override.issue_id)), exception_issue_override.issue_id, event_issue_id)",
-            start=None,
-        ),
+        "issue_id": parse_expr("fingerprint_issue_state.issue_id", start=None),
         "issue_id_v2": parse_expr("fingerprint_issue_state.issue_id", start=None),
         "issue_name": parse_expr("fingerprint_issue_state.issue_name", start=None),
         "issue_description": parse_expr("fingerprint_issue_state.issue_description", start=None),
@@ -2244,7 +2240,7 @@ def _error_tracking_event_exprs() -> dict[str, ast.Expr]:
     }
 
 
-def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: Database) -> None:
+def _add_error_tracking_fields(database: Database) -> None:
     exprs = copy.deepcopy(_error_tracking_event_exprs())
     table = database.get_table("events")
     # convert event_issue_id to UUID to match type of `issue_id` on the overrides table
