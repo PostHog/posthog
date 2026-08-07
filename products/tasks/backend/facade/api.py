@@ -2415,15 +2415,46 @@ def set_task_run_output(
     return _task_run_detail_to_dto(run)
 
 
+def _entries_show_agent_activity(entries: list[dict]) -> bool:
+    """Classify a log batch as agent activity, but only judge batches that speak ACP.
+
+    Within an ACP batch, only ``session/*`` notifications count as the agent doing work.
+    Infra frames (``_posthog/console``, credential-refresh notices, errors) must not reset
+    the workflow's inactivity timeout: the workflow's own periodic credential refresh makes
+    the sandbox log a line, so counting every frame lets a run whose agent went silent keep
+    itself alive forever.
+
+    Batches with no ACP frame at all are not sandbox chatter, they come from callers that
+    only ever post generic ``{type, message}`` entries. Those runs have always relied on the
+    append itself as their heartbeat, so they keep the old behaviour rather than silently
+    losing their inactivity extension.
+    """
+    saw_acp_frame = False
+    for entry in entries:
+        notification = entry.get("notification")
+        if not isinstance(notification, dict):
+            continue
+        saw_acp_frame = True
+        method = notification.get("method")
+        if isinstance(method, str) and method.startswith("session/"):
+            return True
+    return bool(entries) and not saw_acp_frame
+
+
 def append_task_run_log(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, entries: list[dict]
 ) -> contracts.TaskRunDetailDTO | None:
-    """Append log entries to a run's S3 log and heartbeat its workflow."""
+    """Append log entries to a run's S3 log and heartbeat its workflow.
+
+    The heartbeat only reports the agent as active when the entries show real agent
+    activity; sandbox infra frames are still appended but heartbeat with
+    ``agent_active=False``, which the workflow's signal handler ignores.
+    """
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
     run.append_log(entries)
-    run.heartbeat_workflow(agent_active=True)
+    run.heartbeat_workflow(agent_active=_entries_show_agent_activity(entries))
     return _task_run_detail_to_dto(run)
 
 
