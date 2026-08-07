@@ -26,17 +26,17 @@ export const featureFlagConditionWarningLogic = kea<featureFlagConditionWarningL
     })),
 
     selectors({
-        warning: [
+        issues: [
             (s, p) => [s.cohortsById, p.properties, p.evaluationRuntime],
             (
                 cohortsById: Partial<Record<string | number, CohortType>>,
                 properties: AnyPropertyFilter[],
                 evaluationRuntime: FeatureFlagEvaluationRuntime
-            ): string | undefined => {
+            ): string[] => {
                 // Local evaluation is only relevant for server-side SDKs, so only show the warning
                 // for flags that can be evaluated server-side (ALL or SERVER)
                 if (evaluationRuntime === FeatureFlagEvaluationRuntime.CLIENT) {
-                    return
+                    return []
                 }
 
                 const issues: string[] = []
@@ -72,14 +72,15 @@ export const featureFlagConditionWarningLogic = kea<featureFlagConditionWarningL
                     }
                 })
 
-                if (issues.length === 0) {
-                    return undefined
-                }
-
-                const uniqueIssues = [...new Set(issues)]
-
-                return uniqueIssues.join(', ')
+                return [...new Set(issues)]
             },
         ],
+
+        warning: [
+            (s) => [s.issues],
+            (issues: string[]): string | undefined => (issues.length === 0 ? undefined : issues.join(', ')),
+        ],
+
+        hasStaticCohort: [(s) => [s.issues], (issues: string[]): boolean => issues.includes('static cohorts')],
     }),
 ])
