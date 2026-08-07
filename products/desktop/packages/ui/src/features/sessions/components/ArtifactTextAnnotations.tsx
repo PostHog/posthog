@@ -23,12 +23,21 @@ import {
 
 type HighlightRect = {
   id: string;
+  label: string;
   left: number;
   top: number;
   width: number;
   height: number;
   active: boolean;
 };
+
+export function textHighlightLabel(comment: ResourceComment): string {
+  const user = comment.created_by;
+  const author = user
+    ? [user.first_name, user.last_name].filter(Boolean).join(" ") || user.email
+    : "Unknown user";
+  return `Open comment from ${author}`;
+}
 
 function rangeFromOffsets(
   root: HTMLElement,
@@ -178,6 +187,7 @@ export function ArtifactTextAnnotations({
       for (const box of dedupeClientRects(range.getClientRects())) {
         nextRects.push({
           id: comment.id,
+          label: textHighlightLabel(comment),
           left: box.left - containerBox.left + container.scrollLeft,
           top: box.top - containerBox.top + container.scrollTop,
           width: box.width,
@@ -334,7 +344,7 @@ export function ArtifactTextAnnotations({
                 : "rgba(250, 204, 21, 0.32)",
             }}
             onClick={() => onActivateThread(rect.id)}
-            aria-label="Open comment thread"
+            aria-label={rect.label}
           />
         ))}
       </div>
