@@ -28,9 +28,9 @@ export function getPersonColorIndex(identifier: string | null | undefined): numb
 }
 
 export type PersonPropType =
-    | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never; id?: never }
-    | { properties?: Record<string, any>; distinct_ids?: never; distinct_id?: string; id?: never }
-    | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: string; id: string }
+    | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never; id?: never; uuid?: string }
+    | { properties?: Record<string, any>; distinct_ids?: never; distinct_id?: string; id?: never; uuid?: string }
+    | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: string; id: string; uuid?: string }
 
 export interface PersonDisplayProps {
     person?: PersonPropType | null
@@ -150,6 +150,13 @@ export const asLink = (person?: PersonPropType | null): string | undefined => {
     if (!person?.properties) {
         return undefined
     }
+    // Prefer the UUID route (`/persons/<uuid>`) because it resolves the person by id, which still works
+    // for merged, deleted, or previously-anonymous subjects whose distinct id has no profile row and would
+    // otherwise dead-end the distinct-id route on "Person not found". The distinct-id route stays as the fallback.
+    const uuid = person.id || person.uuid
+    if (uuid) {
+        return urls.personByUUID(uuid)
+    }
     if (person.distinct_id) {
         return urls.personByDistinctId(person.distinct_id)
     }
@@ -157,7 +164,7 @@ export const asLink = (person?: PersonPropType | null): string | undefined => {
     if (bestDistinctId) {
         return urls.personByDistinctId(bestDistinctId)
     }
-    return person.id ? urls.personByUUID(person.id) : undefined
+    return undefined
 }
 
 /**
