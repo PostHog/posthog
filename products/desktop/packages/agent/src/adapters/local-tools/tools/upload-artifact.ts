@@ -130,7 +130,12 @@ export const uploadArtifactTool = defineLocalTool({
       // api-client is regenerated against the updated OpenAPI spec, and older
       // backends simply omit it.
       const downloadUrl = (finalizedEntry as { url?: string }).url;
-      const linkText = downloadUrl ? ` Download URL: ${downloadUrl}` : "";
+      // Ask for a markdown link rather than a bare URL: the desktop app renders
+      // an artifact link as a chip that opens the file in-app, and the link text
+      // becomes its label. A bare URL falls back to showing the whole signed URL.
+      const linkText = downloadUrl
+        ? ` Reference it as a markdown link: [${name}](${downloadUrl})`
+        : "";
 
       return {
         content: [
