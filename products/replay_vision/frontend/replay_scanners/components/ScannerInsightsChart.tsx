@@ -32,7 +32,7 @@ function scannerIdFilter(scannerId: string): AnyPropertyFilter {
     }
 }
 
-function buildQuery(
+export function buildQuery(
     scannerId: string,
     scannerType: ScannerType,
     dateFrom: string | null,
@@ -99,19 +99,23 @@ function buildQuery(
         }
     }
     if (scannerType === 'scorer') {
-        const scoreSeries = (math: PropertyMathType): TrendsQuery['series'][number] => ({
+        // All three series share the `$recording_observed` event and differ only by `math`, which the
+        // label resolver never reads — so without a name each one humanizes to "recording_observed" in
+        // the legend and tooltip. Name them by the statistic they carry so the lines stay distinguishable.
+        const scoreSeries = (math: PropertyMathType, name: string): TrendsQuery['series'][number] => ({
             kind: NodeKind.EventsNode,
             event: RECORDING_OBSERVED_EVENT,
             math,
             math_property: 'scanner_output_score',
+            custom_name: name,
             properties: [base],
         })
         return {
             kind: NodeKind.TrendsQuery,
             series: [
-                scoreSeries(PropertyMathType.Median),
-                scoreSeries(PropertyMathType.P90),
-                scoreSeries(PropertyMathType.Average),
+                scoreSeries(PropertyMathType.Median, 'Median'),
+                scoreSeries(PropertyMathType.P90, 'P90'),
+                scoreSeries(PropertyMathType.Average, 'Average'),
             ],
             trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
             dateRange,
