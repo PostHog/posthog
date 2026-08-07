@@ -15,7 +15,14 @@ DATAWAREHOUSE_BUCKET = os.getenv("DATAWAREHOUSE_BUCKET", "data-warehouse")
 BUCKET_URL = os.getenv("BUCKET_URL", "s3://data-warehouse")
 BUCKET_PATH = os.getenv("BUCKET_PATH", "data-warehouse")
 
-USE_LOCAL_SETUP = TEST or (DEBUG and len(os.getenv("OBJECT_STORAGE_ENDPOINT", "http://objectstorage:19000")) > 0)
+# Every warehouse code path branches on this: delta write creds, HogQL S3 read creds, saved-query
+# url_pattern. Self-hosted-style stacks that run DEBUG=0 against an in-stack MinIO (hogbox PR
+# previews, hobby-like composes) need to force the local path, otherwise they reach for real AWS creds.
+USE_LOCAL_SETUP = get_from_env(
+    "USE_LOCAL_SETUP",
+    TEST or (DEBUG and len(os.getenv("OBJECT_STORAGE_ENDPOINT", "http://objectstorage:19000")) > 0),
+    type_cast=str_to_bool,
+)
 
 PYARROW_DEBUG_LOGGING = get_from_env("PYARROW_DEBUG_LOGGING", False, type_cast=str_to_bool)
 
