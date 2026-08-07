@@ -4,12 +4,12 @@ import { Link } from '@posthog/lemon-ui'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTag, type LemonTagType } from 'lib/lemon-ui/LemonTag'
-import { safeHttpUrl } from 'scenes/inbox/utils/reportPresentation'
 
 import type {
     PgAnalyzeIssueReferenceApi,
     PgAnalyzeIssueSignalExtraApi,
 } from 'products/signals/frontend/generated/api.schemas'
+import { safeHttpUrl } from 'products/signals/frontend/inbox/utils/reportPresentation'
 
 import { ExternalSignalCard } from './ExternalSignalCard'
 import type { SignalCardEntry, SignalCardProps } from './types'

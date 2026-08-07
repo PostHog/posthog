@@ -4,9 +4,10 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import type { PaginatedResponse } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { SignalSourceProduct, SignalSourceType } from 'scenes/inbox/types'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ExternalDataSourceType } from '~/queries/schema/schema-general'
@@ -18,9 +19,8 @@ import {
     engineeringAnalyticsCiSignalsConfigUpdate,
 } from 'products/engineering_analytics/frontend/generated/api'
 import type { CISignalsConfigApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
+import { SignalSourceProduct, SignalSourceType } from 'products/signals/frontend/inbox/types'
 
-import type { PaginatedResponse } from '../../lib/api'
-import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import { captureSignalSourceConnected, captureSignalSourceDisabled } from './inboxAnalytics'
 import { SignalSourceConfig, SignalSourceConfigStatus, ToggleSignalSourceParams } from './types'
 

@@ -8,6 +8,7 @@ import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import {
     INBOX_PRODUCT_TYPE,
@@ -18,12 +19,11 @@ import {
 import { teamLogic } from 'scenes/teamLogic'
 
 import { BillingProductV2Type } from '~/types'
+import type { BillingType } from '~/types'
 
 import { signalsReportsRefundSummaryRetrieve } from 'products/signals/frontend/generated/api'
 import type { SignalReportRefundSummaryResponseApi } from 'products/signals/frontend/generated/api.schemas'
 
-import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
-import type { BillingType } from '../../../types'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 
 export type InboxUsageStatus = 'normal' | 'warning' | 'limit'
