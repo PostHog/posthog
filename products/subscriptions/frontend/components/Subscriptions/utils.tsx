@@ -7,10 +7,15 @@ import { IconSlack } from 'lib/lemon-ui/icons'
 import { range } from 'lib/utils/arrays'
 import { urls } from 'scenes/urls'
 
-import { SubscriptionAIPromptMaxLength } from '~/queries/schema/schema-general'
+import { SubscriptionAIPromptMaxLength, SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
 import { InsightShortId, SubscriptionType, WeekdayType } from '~/types'
 
 export const AI_PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength.CHARACTERS
+
+// A null count (loading or fetch failed) fails open — the backend POST check is the hard limit.
+export function isFreeTierCreateAtLimit(subscriptionCount: number | null): boolean {
+    return subscriptionCount !== null && subscriptionCount >= SubscriptionFreeTierLimit.COUNT
+}
 
 export interface SubscriptionBaseProps {
     dashboardId?: number
@@ -43,13 +48,6 @@ export const SUBSCRIPTION_PREFILL_PARAMS = {
     viaNotification: 'notification',
     viaExport: 'export',
 } as const
-
-/** Surfaces that deep-link into the prefilled form, so the readout can compare them. */
-export const SUBSCRIPTION_PREFILL_VIA_VALUES: readonly string[] = [
-    SUBSCRIPTION_PREFILL_PARAMS.viaToast,
-    SUBSCRIPTION_PREFILL_PARAMS.viaNotification,
-    SUBSCRIPTION_PREFILL_PARAMS.viaExport,
-]
 
 export const urlForSubscription = (
     id: number | 'new',

@@ -27,10 +27,16 @@ import {
     ALL_DAYS,
     AI_PROMPT_MAX_LENGTH,
     SUBSCRIPTION_PREFILL_PARAMS,
-    SUBSCRIPTION_PREFILL_VIA_VALUES,
     SubscriptionBaseProps,
     urlForSubscription,
 } from './utils'
+
+// Surfaces that deep-link into the prefilled form, so the readout can compare them.
+const PREFILL_VIA_VALUES: readonly string[] = [
+    SUBSCRIPTION_PREFILL_PARAMS.viaToast,
+    SUBSCRIPTION_PREFILL_PARAMS.viaNotification,
+    SUBSCRIPTION_PREFILL_PARAMS.viaExport,
+]
 
 function validatePrompt(
     resource_type: SubscriptionType['resource_type'],
@@ -768,9 +774,8 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 // default, so "Create subscription" doesn't require an extra no-op edit to enable.
                 actions.setSubscriptionValues(prefill)
                 cache.prefillBaseline = { ...NEW_SUBSCRIPTION, ...prefill }
-                // Every nudge surface — repeat-view toast, notification, export toast — enters the
-                // flow through this route. The export nudge is its own experiment, so it reports a
-                // separate event rather than another `via` value on the repeat-view one.
+                // Every nudge surface enters the flow through this route. The export nudge is its
+                // own experiment, so it reports a separate event rather than another `via` value.
                 const via = searchParams[SUBSCRIPTION_PREFILL_PARAMS.viaParam]
                 posthog.capture(
                     via === SUBSCRIPTION_PREFILL_PARAMS.viaExport
@@ -779,9 +784,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     {
                         dashboard_id: props.dashboardId,
                         prefilled: !!values.user?.email,
-                        via: SUBSCRIPTION_PREFILL_VIA_VALUES.includes(via)
-                            ? via
-                            : SUBSCRIPTION_PREFILL_PARAMS.viaNotification,
+                        via: PREFILL_VIA_VALUES.includes(via) ? via : SUBSCRIPTION_PREFILL_PARAMS.viaNotification,
                     }
                 )
             }

@@ -32,7 +32,7 @@ import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, DashboardPlacement } from '~/types'
 
 import { subscriptionsLogic } from 'products/subscriptions/frontend/components/Subscriptions/subscriptionsLogic'
-import { isFreeTierCreateAtLimit } from 'products/subscriptions/frontend/components/Subscriptions/views/EditSubscription'
+import { isFreeTierCreateAtLimit } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 import { subscriptionsList } from 'products/subscriptions/frontend/generated/api'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'

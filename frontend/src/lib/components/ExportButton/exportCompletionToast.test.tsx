@@ -16,11 +16,6 @@ jest.mock('./exporter', () => ({
 }))
 jest.mock('scenes/dashboard/dashboardExportNudgeLogic', () => ({
     resolveExportNudgeEligibility: jest.fn(async () => null),
-    // The real logic sits in an import cycle with exportsLogic, so resolve it on access rather than
-    // while this factory runs, when it is still undefined.
-    get dashboardExportNudgeLogic() {
-        return jest.requireActual('scenes/dashboard/dashboardExportNudgeLogic').dashboardExportNudgeLogic
-    },
 }))
 jest.mock('scenes/dashboard/DashboardExportNudgeToast', () => ({
     claimExportNudgeMessage: jest.fn(),
@@ -32,24 +27,17 @@ const NUDGE_CTA = 'Set up recurring updates'
 // staying inside the 5s a success toast is left on screen for.
 const SETTLE_MS = 6000
 
-// A nudged toast has to route both actions through the nudge's own row: leaving the way back to the
-// exports panel in ToastContent's slot as well renders it twice, on a second axis.
 function expectButtonRow(): void {
     const row = document.querySelector('.nudge-button-row')
     expect(row?.textContent).toEqual(`${NUDGE_CTA}View exports`)
     expect(screen.getAllByText('View exports')).toHaveLength(1)
 }
 
-// react-toastify and lemonToast are deliberately left unmocked: this suite exists because the
-// completion toast's final rendered state is the only place the regression below is visible.
 describe('export completion toast', () => {
     let logic: ReturnType<typeof exportsLogic.build>
 
     beforeEach(() => {
         jest.clearAllMocks()
-        // Mirrors the real nudge's shape: a headline supplied by whichever toast state is showing,
-        // the call to action underneath it, and the secondary action the nudge renders itself
-        // rather than leaving to ToastContent's button slot.
         jest.mocked(claimExportNudgeMessage).mockImplementation((candidate) =>
             candidate
                 ? (headline, secondaryAction) => (
@@ -85,19 +73,8 @@ describe('export completion toast', () => {
         jest.useRealTimers()
     })
 
-    it.each([
-        {
-            label: 'shows the nudge once the export lands, not the spinner it started with',
-            eligibility: (): Promise<any> => Promise.resolve({ dashboardId: 7, dashboardName: 'Weekly' }),
-            expected: NUDGE_CTA,
-        },
-        {
-            label: 'falls back to the plain message when the nudge check never resolves',
-            eligibility: (): Promise<any> => new Promise(() => {}),
-            expected: 'Export complete!',
-        },
-    ])('$label', async ({ eligibility, expected }) => {
-        jest.mocked(resolveExportNudgeEligibility).mockReturnValue(eligibility())
+    it('falls back to the plain message when the nudge check never resolves', async () => {
+        jest.mocked(resolveExportNudgeEligibility).mockReturnValue(new Promise(() => {}))
 
         render(<ToastContainer />)
         logic.actions.createExport({ exportData: { export_format: ExporterFormat.PNG, dashboard: 7 } })
@@ -105,7 +82,7 @@ describe('export completion toast', () => {
             await jest.advanceTimersByTimeAsync(SETTLE_MS)
         })
 
-        expect(screen.getByText(expected)).toBeTruthy()
+        expect(screen.getByText('Export complete!')).toBeTruthy()
         // The export finished, so leaving its spinner up strands the user on "Preparing export…".
         expect(screen.queryByText('Preparing export…')).toBeNull()
     })
@@ -142,8 +119,7 @@ describe('export completion toast', () => {
             await jest.advanceTimersByTimeAsync(SETTLE_MS)
         })
 
-        // react-toastify re-renders from the success config on settle, so a nudge that only lived
-        // in the pending render would disappear exactly when the user has reason to act on it.
+        // The nudge has to survive react-toastify re-rendering from the success config.
         expect(screen.getByText(NUDGE_CTA)).toBeTruthy()
         expect(screen.queryByText('Preparing export…')).toBeNull()
         expect(screen.getAllByText(NUDGE_CTA)).toHaveLength(1)

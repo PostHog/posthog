@@ -26,15 +26,9 @@ jest.mock('./exporter', () => ({
     ...jest.requireActual('./exporter'),
     downloadExportedAsset: jest.fn(),
 }))
-// The nudge's own eligibility rules are covered by dashboardExportNudgeLogic's tests; here only the
-// wiring matters — which exports ask for a nudge, and what the toast does with the answer.
+// The eligibility rules themselves are covered by dashboardExportNudgeLogic's tests.
 jest.mock('scenes/dashboard/dashboardExportNudgeLogic', () => ({
     resolveExportNudgeEligibility: jest.fn(async () => null),
-    // The real logic sits in an import cycle with this one, so resolve it on access rather than
-    // while this factory runs, when it is still undefined.
-    get dashboardExportNudgeLogic() {
-        return jest.requireActual('scenes/dashboard/dashboardExportNudgeLogic').dashboardExportNudgeLogic
-    },
 }))
 jest.mock('scenes/dashboard/DashboardExportNudgeToast', () => ({
     claimExportNudgeMessage: jest.fn(() => null),
@@ -257,9 +251,6 @@ describe('exportsLogic', () => {
             expect(lemonToast.info).not.toHaveBeenCalled()
             // Claimed once, though it is rendered into both of the toast's states.
             expect(claimExportNudgeMessage).toHaveBeenCalledTimes(1)
-            // A nudge asks for a decision, so it must outlive the usual few-second success toast.
-            // Its way back to the exports panel goes into the nudge's own button row rather than
-            // ToastContent's slot, so the two buttons end up on one line.
             const exportToastId = jest.mocked(lemonToast.promise).mock.calls[0][2]?.toastId
             expect(lemonToast.updateToSuccess).toHaveBeenCalledWith(
                 exportToastId,
