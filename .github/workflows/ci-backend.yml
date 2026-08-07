@@ -76,6 +76,8 @@ env:
 permissions:
     contents: read
     pull-requests: write
+    # Read the migrated-schema artifact from master runs (fetch-master-schema action).
+    actions: read
 
 jobs:
     # Job to decide if we should run backend ci
@@ -906,6 +908,10 @@ jobs:
                   restore-keys: |
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
 
+            - name: Fetch master schema dump on cache miss
+              if: ${{ github.event_name == 'pull_request' }}
+              uses: ./.github/actions/fetch-master-schema
+
             - name: Prime test_posthog from cached schema
               # Treat cache problems as misses; db:restore-test-db recreates the DB after failure.
               if: ${{ github.event_name == 'pull_request' }}
@@ -1345,6 +1351,8 @@ jobs:
         permissions:
             contents: read
             pull-requests: write
+            # Read the migrated-schema artifact from master runs (fetch-master-schema action).
+            actions: read
 
         name: Validate migrations
         runs-on: depot-ubuntu-24.04
@@ -1456,6 +1464,12 @@ jobs:
               with:
                   path: schema.sql.gz
                   key: ${{ steps.master-schema-key.outputs.key }}
+
+            - name: Fetch master schema dump on cache miss
+              # The "Run migrations up to master" step below applies any gap between
+              # the artifact's schema and master, so freshest-available is correct.
+              if: github.event_name != 'push'
+              uses: ./.github/actions/fetch-master-schema
 
             - name: Wait for Docker services
               env:
@@ -2757,6 +2771,10 @@ jobs:
                   key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key }}
                   restore-keys: |
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
+
+            - name: Fetch master schema dump on cache miss
+              if: ${{ github.event_name == 'pull_request' }}
+              uses: ./.github/actions/fetch-master-schema
 
             - name: Prime test_posthog from cached schema
               # Treat cache problems as misses; db:restore-test-db recreates the DB after failure.

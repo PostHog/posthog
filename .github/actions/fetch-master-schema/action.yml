@@ -1,0 +1,58 @@
+name: Fetch master schema dump
+description: >
+    Fill the schema dump file from ci-backend.yml's migrated-schema artifact when
+    the Actions cache restore missed. The repo's 10 GB LRU cache pool routinely
+    evicts the few-MB schema dumps, so the artifact (90-day retention, separate
+    storage) is the reliable source. The artifact is resolved only through
+    successful master push runs of ci-backend.yml, never the repo-wide artifact
+    list. Never fails - on any error the file stays absent and the caller's
+    prime step falls back to a full migrate. Needs actions:read on the token.
+inputs:
+    path:
+        description: Destination file for the gzipped schema dump
+        required: false
+        default: schema.sql.gz
+    token:
+        description: GitHub token with actions:read
+        required: false
+        default: ${{ github.token }}
+runs:
+    using: composite
+    steps:
+        - name: Fetch schema artifact on cache miss
+          shell: bash
+          env:
+              GH_TOKEN: ${{ inputs.token }}
+              DEST: ${{ inputs.path }}
+          run: |
+              if [ -f "$DEST" ]; then
+                  echo "schema dump already present (cache hit); skipping artifact fetch"
+                  exit 0
+              fi
+              # Paths-filtered master pushes can succeed without producing the
+              # artifact, hence the scan over recent runs.
+              RUN_IDS=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci-backend.yml/runs?branch=master&event=push&status=success&per_page=10" \
+                  --jq '.workflow_runs[].id' || true)
+              ARTIFACT_ID=""
+              for RUN_ID in $RUN_IDS; do
+                  ARTIFACT_ID=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/artifacts?name=migrated-schema" \
+                      --jq '[.artifacts[] | select(.expired | not)][0].id // empty' || true)
+                  if [ -n "$ARTIFACT_ID" ]; then
+                      echo "using migrated-schema artifact ${ARTIFACT_ID} from master run ${RUN_ID}"
+                      break
+                  fi
+              done
+              if [ -z "$ARTIFACT_ID" ]; then
+                  echo "::warning::no migrated-schema artifact in recent successful master ci-backend runs; falling back to full migrate"
+                  exit 0
+              fi
+              TMP_DIR=$(mktemp -d)
+              if ! { gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" > "${TMP_DIR}/migrated-schema.zip" \
+                  && unzip -o -d "$TMP_DIR" "${TMP_DIR}/migrated-schema.zip" schema.sql.gz \
+                  && gunzip -t "${TMP_DIR}/schema.sql.gz" \
+                  && mv "${TMP_DIR}/schema.sql.gz" "$DEST"; }; then
+                  echo "::warning::migrated-schema artifact ${ARTIFACT_ID} unusable; falling back to full migrate"
+                  rm -f "$DEST"
+              fi
+              rm -rf "$TMP_DIR"
+              exit 0

@@ -13,6 +13,8 @@ concurrency:
 permissions:
     contents: read
     pull-requests: read
+    # Read the migrated-schema artifact from master runs (fetch-master-schema action).
+    actions: read
 
 env:
     # Manual cache-bust knob. Keep in sync with SCHEMA_CACHE_EPOCH in ci-backend.yml, which saves these caches on master pushes.
@@ -393,6 +395,10 @@ jobs:
                   key: ${{ needs.changes.outputs.schema_migrations_key || needs.changes.outputs.schema_cache_key }}
                   restore-keys: |
                       ${{ needs.changes.outputs.schema_cache_key }}
+
+            - name: Fetch master schema dump on cache miss
+              if: ${{ github.event_name == 'pull_request' }}
+              uses: ./.github/actions/fetch-master-schema
 
             - name: Prime test_posthog and posthog from cached schema (PR)
               # Primes both test_posthog (used by pytest --reuse-db) and the prod-style
