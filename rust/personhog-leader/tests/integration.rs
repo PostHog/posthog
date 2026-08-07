@@ -138,6 +138,8 @@ async fn service_accepts_requests_after_coordination_warmup() {
                     .unwrap(),
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             },
             0,
         ))
@@ -225,6 +227,8 @@ async fn unowned_partition_returns_failed_precondition() {
                 set_properties: vec![],
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             },
             0,
         ))
@@ -315,6 +319,8 @@ async fn missing_partition_metadata_returns_invalid_argument() {
             set_properties: vec![],
             set_once_properties: vec![],
             unset_properties: vec![],
+            is_identified: None,
+            last_seen_at: None,
         })
         .await;
     let status = result.expect_err("write without x-partition must fail closed");
@@ -398,6 +404,8 @@ async fn mismatched_partition_metadata_returns_invalid_argument() {
                 set_properties: vec![],
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             },
             wrong_partition,
         ))
@@ -495,6 +503,8 @@ async fn writes_fenced_after_drain_reads_still_served() {
                 set_properties: serde_json::to_vec(&serde_json::json!({ "email": email })).unwrap(),
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             },
             0,
         )
@@ -635,6 +645,8 @@ async fn drain_fences_before_waiting_on_inflight() {
                 .unwrap(),
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             },
             0,
         ))
@@ -929,6 +941,8 @@ async fn update_produces_person_state_to_kafka() {
                     .unwrap(),
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             },
             routing_partition,
         ))
@@ -1043,6 +1057,8 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
                     .unwrap(),
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             },
             0,
         ))
@@ -1076,6 +1092,8 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
                     .unwrap(),
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             },
             0,
         ))
@@ -1162,6 +1180,8 @@ async fn e2e_update_produces_to_local_kafka() {
                     .unwrap(),
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             },
             0,
         ))
@@ -1405,6 +1425,8 @@ async fn update_triggers_pg_fallback_then_applies_changes() {
                 .unwrap(),
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             },
             partition,
         ))
@@ -1496,6 +1518,8 @@ async fn evicted_dirty_person_recovers_from_changelog() {
                     .unwrap(),
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             },
             routing_partition,
         ))
@@ -1596,6 +1620,8 @@ async fn dirty_person_with_failed_recovery_is_unavailable_not_stale() {
                     .unwrap(),
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             },
             routing_partition,
         ))
@@ -1711,6 +1737,8 @@ async fn writes_shed_when_dirty_index_is_full() {
         set_properties: serde_json::to_vec(&serde_json::json!({ "k": value })).unwrap(),
         set_once_properties: vec![],
         unset_properties: vec![],
+        is_identified: None,
+        last_seen_at: None,
     };
 
     // First person fills the index.
@@ -1801,6 +1829,8 @@ async fn recovery_fails_when_record_version_disagrees_with_the_mark() {
                     .unwrap(),
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             },
             routing_partition,
         ))
@@ -1911,6 +1941,8 @@ async fn recovery_reuses_the_partition_consumer_across_fetches() {
         set_properties: serde_json::to_vec(&serde_json::json!({ "who": value })).unwrap(),
         set_once_properties: vec![],
         unset_properties: vec![],
+        is_identified: None,
+        last_seen_at: None,
     };
     // A's record lands at offset 0, B's at offset 1.
     for (person_id, value) in [(person_a, "a"), (person_b, "b")] {
@@ -2135,6 +2167,8 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
                 .unwrap(),
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             },
             routing_partition,
         ))
@@ -2173,6 +2207,8 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
                 set_properties: serde_json::to_vec(&serde_json::json!({"name": "after"})).unwrap(),
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             },
             routing_partition,
         ))
@@ -2214,6 +2250,8 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
                     .unwrap(),
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             },
             oversized_partition,
         ))
@@ -2282,6 +2320,8 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
                 set_properties: serde_json::to_vec(&serde_json::json!({"name": "x"})).unwrap(),
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             },
             unremediable_partition,
         ))
@@ -2378,6 +2418,8 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
                 set_properties: oversized_update.clone(),
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             },
             routing_partition,
         ))
@@ -2393,6 +2435,8 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
                 set_properties: oversized_update,
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             },
             team2_partition,
         ))
@@ -2428,6 +2472,8 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
                 .unwrap(),
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             },
             routing_partition,
         ))
@@ -2474,6 +2520,8 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
                 .unwrap(),
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             },
             routing_partition,
         ))
@@ -2556,6 +2604,8 @@ async fn an_unresolved_version_is_never_reused() {
                     .unwrap(),
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             },
             0,
         ))
@@ -2624,6 +2674,8 @@ async fn a_fenced_write_that_bounces_does_not_hand_its_version_back() {
             set_properties: serde_json::to_vec(&serde_json::json!({"n": n})).unwrap(),
             set_once_properties: vec![],
             unset_properties: vec![],
+            is_identified: None,
+            last_seen_at: None,
         });
         request
             .metadata_mut()
@@ -2743,6 +2795,8 @@ async fn an_unknown_outcome_keeps_its_version(
             set_properties: serde_json::to_vec(&serde_json::json!({"n": n})).unwrap(),
             set_once_properties: vec![],
             unset_properties: vec![],
+            is_identified: None,
+            last_seen_at: None,
         });
         request
             .metadata_mut()
@@ -2779,5 +2833,183 @@ async fn an_unknown_outcome_keeps_its_version(
             personhog_leader::cache::CacheLookup::Found(_)
         ),
         "the entry must survive, or a pruned mark leaves the person unreadable"
+    );
+}
+
+/// The scalar fields carry merge semantics, not assignment: identification
+/// only ever ORs true (and counts as a change on its own — an $identify
+/// with no property diffs must still produce a record), while last-seen
+/// only ever advances and never earns a record by itself.
+#[tokio::test]
+async fn scalar_fields_merge_rather_than_assign() {
+    const HOUR_MS: i64 = 3_600_000;
+    let topic = format!("scalar_merge_{}", uuid::Uuid::new_v4().simple());
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
+    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let emitted_versions = Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000));
+
+    let service = PersonHogLeaderService::new(
+        Arc::clone(&cache),
+        kafka_producer.clone(),
+        topic.clone(),
+        None,
+        Arc::new(DashMap::new()),
+        Arc::new(InflightTracker::new()),
+        NUM_PARTITIONS,
+        Arc::new(DirtyIndex::new(1_000_000)),
+        test_recovery(KAFKA_BOOTSTRAP),
+        PropertySizeLimits::new(655360, 524288),
+        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        None,
+        None,
+        Arc::clone(&emitted_versions),
+    );
+
+    cache.create_partition(0);
+    seed_person(&cache, 0, test_cached_person());
+
+    let update = |set: serde_json::Value, identified: Option<bool>, seen: Option<i64>| {
+        let mut request = Request::new(UpdatePersonPropertiesRequest {
+            team_id: 1,
+            person_id: 42,
+            event_name: "$identify".to_string(),
+            set_properties: if set.is_null() {
+                vec![]
+            } else {
+                serde_json::to_vec(&set).unwrap()
+            },
+            set_once_properties: vec![],
+            unset_properties: vec![],
+            is_identified: identified,
+            last_seen_at: seen,
+        });
+        request
+            .metadata_mut()
+            .insert("x-partition", "0".parse().unwrap());
+        request
+    };
+
+    // A last-seen-only advance is a change of its own: ingestion's
+    // direct write path persists it, so this path must too. The leader
+    // floors to the hour, so a raw mid-hour timestamp stores the hour.
+    let result = service
+        .update_person_properties(update(serde_json::Value::Null, None, Some(HOUR_MS + 1_234)))
+        .await
+        .expect("last-seen-only must be accepted")
+        .into_inner();
+    assert!(result.updated, "a last-seen-only advance earns a record");
+    let person = result.person.unwrap();
+    assert_eq!(person.version, 2);
+    assert_eq!(
+        person.last_seen_at,
+        Some(HOUR_MS),
+        "stored at hour granularity"
+    );
+
+    // A second event inside the stored hour is a no-op: the flooring
+    // bounds record volume at one per person-hour regardless of the
+    // caller's precision.
+    let result = service
+        .update_person_properties(update(
+            serde_json::Value::Null,
+            None,
+            Some(HOUR_MS + 900_000),
+        ))
+        .await
+        .expect("a same-hour timestamp must be accepted")
+        .into_inner();
+    assert!(
+        !result.updated,
+        "a raw timestamp inside the stored hour must not produce a record"
+    );
+
+    // Identification is a change, and the newer last-seen merges in.
+    let result = service
+        .update_person_properties(update(
+            serde_json::Value::Null,
+            Some(true),
+            Some(5 * HOUR_MS),
+        ))
+        .await
+        .expect("identification must apply")
+        .into_inner();
+    assert!(result.updated, "the false→true transition earns a record");
+    let person = result.person.unwrap();
+    assert_eq!(person.version, 3);
+    assert!(person.is_identified);
+    assert_eq!(person.last_seen_at, Some(5 * HOUR_MS));
+
+    // OR semantics: false does not revert, and re-asserting true is not a
+    // change.
+    let result = service
+        .update_person_properties(update(serde_json::Value::Null, Some(false), None))
+        .await
+        .expect("a false is a no-op, not an error")
+        .into_inner();
+    assert!(
+        !result.updated,
+        "identification never reverts through this RPC"
+    );
+    assert!(result.person.unwrap().is_identified);
+    let result = service
+        .update_person_properties(update(serde_json::Value::Null, Some(true), None))
+        .await
+        .expect("re-asserting true is accepted")
+        .into_inner();
+    assert!(
+        !result.updated,
+        "an already-identified person has nothing to change"
+    );
+
+    // A non-advancing last-seen is not a change: only forward movement
+    // of the stored value earns a record.
+    let result = service
+        .update_person_properties(update(serde_json::Value::Null, None, Some(3 * HOUR_MS)))
+        .await
+        .expect("a stale last-seen is a no-op, not an error")
+        .into_inner();
+    assert!(
+        !result.updated,
+        "a last-seen at or below the stored value must not produce a record"
+    );
+
+    // Max-merge: an older last-seen cannot lower the stored one, and a
+    // property change carries the newest value forward.
+    let result = service
+        .update_person_properties(update(
+            serde_json::json!({"plan": "pro"}),
+            None,
+            Some(3 * HOUR_MS),
+        ))
+        .await
+        .expect("a property change with a stale last-seen must apply")
+        .into_inner();
+    assert!(result.updated);
+    let person = result.person.unwrap();
+    assert_eq!(person.version, 4);
+    assert_eq!(
+        person.last_seen_at,
+        Some(5 * HOUR_MS),
+        "a stale last-seen must not lower the stored value"
+    );
+
+    // A last-seen outside the writer's bindable range is discarded, not
+    // fatal: the update it rides on still lands.
+    let result = service
+        .update_person_properties(update(
+            serde_json::json!({"plan": "max"}),
+            None,
+            Some(i64::MAX),
+        ))
+        .await
+        .expect("an absurd last-seen must not fail the update it rides on")
+        .into_inner();
+    assert!(result.updated);
+    let person = result.person.unwrap();
+    assert_eq!(person.version, 5);
+    assert_eq!(
+        person.last_seen_at,
+        Some(5 * HOUR_MS),
+        "an out-of-range last-seen must be discarded, not stored"
     );
 }
