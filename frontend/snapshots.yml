@@ -4453,7 +4453,11 @@ snapshots:
     mcp-apps-experiments--list--light:
         hash: v1.k794b7964.40bd9bc7d43e74ed28706715dfec390a4250a4dc4a966a7580379c9a1a8fe0eb.gQANaHDKe6QOO3bq9F9w2itrbKemByDyISXPAUktMD4
     mcp-apps-experiments--results--light:
-        hash: v1.k794b7964.b9a97e7cfdfb1d45686e1cb673af92ec44b1a43a01aff8e7f9b6b1bcc5c28f55.mAtZ-_ue2F7MsuTxBE6cWlB15IeO-EtJul1jxkDCluU
+        hash: v1.k794b7964.2f3c6d29850f6767f05ec4a362ab9ae84d84def94f165a4cc7307545fb2621db.WVcM4x4J38Y4ES2E3KTeB7648EOBEB2gVlHPhkhAcuE
+    mcp-apps-experiments--results-fallback--light:
+        hash: v1.k794b7964.e5f8a1cb1d0c73834b3bf2484cd14dc9b988197b27eca2960f91bc8d4b657f4e.jYEA-aySKwzIefra2rGACPIGyZqDIp5JWORlKQSa50U
+    mcp-apps-experiments--results-legacy--light:
+        hash: v1.k794b7964.b90b8cd3c6338cf566c6e3f568d070c290f8440ebb88b94a59ea1748705f7cd9.Ui2V8hbeYFQd_5e6UO77oFGxemyHwgPR4TqhWInxT28
     mcp-apps-experiments--running--light:
         hash: v1.k794b7964.bace41ea6ab40cf1a59b52cc012efa30d43cb801876c9e5337c69358baa3d3b6.k6CFBF4vp0ooKcJu9O3sFqWJP_YgMoJHBDT-Hw-C_WM
     mcp-apps-feature-flags--boolean-flag--light:
