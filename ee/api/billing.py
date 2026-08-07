@@ -1,5 +1,4 @@
-from datetime import datetime
-from typing import Any, Optional, cast
+from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth.models import AbstractUser
@@ -159,12 +158,12 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         required_scopes=["llm_gateway:read"],
     )
     def period(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        billing_period = cast(tuple[datetime, datetime] | None, self._get_org_required().current_billing_period)
+        billing_period = self._get_org_required().current_billing_period
         return Response(
             BillingPeriodResponseSerializer(
                 {
-                    "current_period_start": billing_period[0] if billing_period else None,
-                    "current_period_end": billing_period[1] if billing_period else None,
+                    "current_period_start": billing_period.start if billing_period else None,
+                    "current_period_end": billing_period.end if billing_period else None,
                 }
             ).data
         )
