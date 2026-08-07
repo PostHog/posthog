@@ -41,6 +41,7 @@ from products.customer_analytics.backend.facade.contracts import (
     AccountRelationship,
     AccountRelationshipDefinition,
     AccountView,
+    CalendarSyncStatus,
     CustomerJourneyView,
     CustomerProfileConfigView,
     CustomPropertyDefinitionView,
@@ -378,6 +379,36 @@ class SupportTicketSerializer(DataclassSerializer):
         fields = ["id", "ticket_number", "status", "last_message_at", "last_message_text", "deep_link"]
 
 
+class CalendarSyncStatusSerializer(DataclassSerializer):
+    """Sync state of one connected calendar (read-only)."""
+
+    integration_id = serializers.IntegerField(read_only=True, help_text="Id of the google-calendar integration.")
+    last_synced_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the last sync run completed; null before the first sync."
+    )
+    is_syncing = serializers.BooleanField(read_only=True, help_text="Whether a sync run is currently in flight.")
+
+    class Meta:
+        dataclass = CalendarSyncStatus
+        ref_name = "CalendarSyncStatus"
+        fields = ["integration_id", "last_synced_at", "is_syncing"]
+
+
+class CalendarSyncTriggerSerializer(serializers.Serializer):
+    """Request body of the calendar sync-now trigger."""
+
+    integration_id = serializers.IntegerField(help_text="Id of the google-calendar integration to sync.")
+
+
+class CalendarSyncTriggerResponseSerializer(serializers.Serializer):
+    """Response of the calendar sync-now trigger."""
+
+    status = serializers.ChoiceField(
+        choices=[("started", "started"), ("already_running", "already_running")],
+        help_text="'started' (a sync run began) or 'already_running' (a sync for this calendar was already in flight, so this was a no-op).",
+    )
+
+
 class MeetingParticipantSerializer(DataclassSerializer):
     """One attendee of a synced calendar meeting (read-only)."""
 
@@ -390,11 +421,14 @@ class MeetingParticipantSerializer(DataclassSerializer):
         help_text="The attendee's RSVP: 'needs_action', 'accepted', 'declined', or 'tentative'.",
     )
     is_organizer = serializers.BooleanField(read_only=True, help_text="Whether this attendee organized the meeting.")
+    person_id = serializers.UUIDField(
+        read_only=True, allow_null=True, help_text="UUID of the PostHog person resolved for this attendee, if any."
+    )
 
     class Meta:
         dataclass = MeetingParticipantView
         ref_name = "MeetingParticipant"
-        fields = ["email", "display_name", "response_status", "is_organizer"]
+        fields = ["email", "display_name", "response_status", "is_organizer", "person_id"]
 
 
 class MeetingSerializer(DataclassSerializer):

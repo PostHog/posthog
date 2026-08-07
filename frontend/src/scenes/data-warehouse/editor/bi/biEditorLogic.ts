@@ -19,12 +19,14 @@ import {
     BIField,
     BIFilterOperator,
     BIQueryBuildResult,
+    BIQueryLimit,
     BIShelf,
     DEFAULT_BI_CONFIG,
     buildBIQuery,
     createDefaultDateFilter,
     defaultAggregationForField,
     isBIFieldCompatible,
+    normalizeBIConfig,
 } from './biEditorTypes'
 
 export interface BIEditorLogicProps {
@@ -297,6 +299,9 @@ export interface biEditorLogicActions {
         index: number
         value: string
     }
+    setLimit: (limit: BIQueryLimit) => {
+        limit: 100 | 1000 | 10000 | 50000
+    }
     setValueAggregation: (
         index: number,
         aggregation: BIAggregation
@@ -364,6 +369,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
         setValueAggregation: (index: number, aggregation: BIAggregation) => ({ index, aggregation }),
         setFilterOperator: (index: number, operator: BIFilterOperator) => ({ index, operator }),
         setFilterValue: (index: number, value: string) => ({ index, value }),
+        setLimit: (limit: BIQueryLimit) => ({ limit }),
         setFieldExpression: (shelf: BIShelf, index: number, expression: string) => ({ shelf, index, expression }),
         setFieldDateBucket: (shelf: BIShelf, index: number, dateBucket: BIDateBucket | null) => ({
             shelf,
@@ -411,7 +417,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
                 addBlankFieldToShelf: (config, { shelf, fieldId }) =>
                     config.source ? addFieldToConfig(config, blankField(config.source, fieldId), shelf) : config,
                 removeFieldFromShelf: (config, { shelf, index }) => removeFieldFromConfig(config, shelf, index),
-                setChartType: (config, { chartType }) => ({ ...config, chartType }),
+                setChartType: (config, { chartType }) => normalizeBIConfig({ ...config, chartType }),
                 setDataSource: (config, { source }) => setDataSourceInConfig(config, source),
                 setValueAggregation: (config, { index, aggregation }) => ({
                     ...config,
@@ -431,6 +437,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
                         filterIndex === index ? { ...filter, value } : filter
                     ),
                 }),
+                setLimit: (config, { limit }) => normalizeBIConfig({ ...config, limit }),
                 setFieldExpression: (config, { shelf, index, expression }) =>
                     setFieldExpressionInConfig(config, shelf, index, expression),
                 setFieldDateBucket: (config, { shelf, index, dateBucket }) =>
@@ -447,9 +454,10 @@ export const biEditorLogic = kea<biEditorLogicType>([
                         filterIndex === index ? { ...filter, customExpression } : filter
                     ),
                 }),
-                restoreState: (_, { state }) => state.config,
-                persistState: (_, { config }) => config,
-                updateTab: (_, { tab }) => tab.biEditorState?.config ?? freshBIConfig(),
+                restoreState: (_, { state }) => normalizeBIConfig(state.config),
+                persistState: (_, { config }) => normalizeBIConfig(config),
+                updateTab: (_, { tab }) =>
+                    tab.biEditorState ? normalizeBIConfig(tab.biEditorState.config) : freshBIConfig(),
                 resetConfig: freshBIConfig,
             },
         ],
@@ -527,6 +535,10 @@ export const biEditorLogic = kea<biEditorLogicType>([
             actions.persistState(values.editorView, values.config)
             actions.syncGeneratedQuery()
         },
+        setLimit: () => {
+            actions.persistState(values.editorView, values.config)
+            actions.syncGeneratedQuery()
+        },
         setFieldExpression: () => {
             actions.persistState(values.editorView, values.config)
             actions.syncGeneratedQuery()
@@ -570,10 +582,21 @@ export const biEditorLogic = kea<biEditorLogicType>([
 
             const editorLogic = sqlEditorLogic({ tabId: logicProps.tabId })
             const sourceQuery = editorLogic.values.sourceQuery
+            const generatedChartSettings = values.generatedQuery.node.chartSettings
             editorLogic.actions.setQueryInput(values.generatedQuery.query)
             editorLogic.actions.setSourceQuery({
                 ...sourceQuery,
                 ...values.generatedQuery.node,
+                chartSettings: generatedChartSettings
+                    ? {
+                          ...sourceQuery.chartSettings,
+                          ...generatedChartSettings,
+                          heatmap: {
+                              ...sourceQuery.chartSettings?.heatmap,
+                              ...generatedChartSettings.heatmap,
+                          },
+                      }
+                    : sourceQuery.chartSettings,
                 source: {
                     ...sourceQuery.source,
                     ...values.generatedQuery.node.source,
