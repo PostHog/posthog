@@ -73,6 +73,7 @@ describe("artifact preview webviews", () => {
         handlers.set(event, handler);
       }),
       session: {
+        enableNetworkEmulation: vi.fn(),
         setProxy: vi.fn().mockResolvedValue(undefined),
         setPermissionCheckHandler: permissionCheck,
         setPermissionRequestHandler: permissionRequest,
@@ -89,6 +90,9 @@ describe("artifact preview webviews", () => {
     expect(guest.setWebRTCIPHandlingPolicy).toHaveBeenCalledWith(
       "disable_non_proxied_udp",
     );
+    expect(guest.session.enableNetworkEmulation).toHaveBeenCalledWith({
+      offline: true,
+    });
     expect(guest.session.setProxy).toHaveBeenCalledWith(
       expect.objectContaining({ mode: "fixed_servers" }),
     );
@@ -184,6 +188,7 @@ describe("artifact preview webviews", () => {
       setWebRTCIPHandlingPolicy: vi.fn(),
       on: vi.fn(),
       session: {
+        enableNetworkEmulation: vi.fn(),
         setProxy: vi.fn().mockResolvedValue(undefined),
         setPermissionCheckHandler: vi.fn(),
         setPermissionRequestHandler: vi.fn(),

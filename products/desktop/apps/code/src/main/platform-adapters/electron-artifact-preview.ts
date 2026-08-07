@@ -55,6 +55,7 @@ export function lockDownArtifactPreview(guest: WebContents): void {
   });
 
   const guestSession = guest.session;
+  guestSession.enableNetworkEmulation({ offline: true });
   void guestSession
     .setProxy({
       mode: "fixed_servers",
