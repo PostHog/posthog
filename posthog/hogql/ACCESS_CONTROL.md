@@ -102,20 +102,26 @@ Denying `warehouse_objects` for a user filters every warehouse table and view ou
 
 ### Object-level: per-source, per-table, and per-view
 
-Specific sources, tables, and views can be restricted individually.
-There's UI for this in the SQL editor: open a table's or a source's "More" menu → "Access controls".
+A whole source can be restricted — Stripe, Zendesk, and so on — by setting object access on the `external_data_source` resource.
+Access can also be set on one specific table (`warehouse_table`) or view (`warehouse_view`).
+Both are in the SQL editor: open a table's or a source's "More" menu → "Access controls".
+
 A denied table or view is dropped from the schema entirely, and its name lands in `_denied_tables` so queries get "You don't have access to table" instead of "Unknown table".
 The deny checks are `_is_warehouse_table_denied` and `_is_warehouse_view_denied` in `posthog/hogql/database/database.py`.
 
 ### How a table's access level resolves
 
-`external_data_source` is its own access-control resource, and `warehouse_table` falls back to it (`RESOURCE_FALLBACK_MAP` in `posthog/rbac/user_access_control.py`).
-That's a different relationship from the `warehouse_objects` umbrella above: inheritance means the child has no rules of its own and just uses the parent's, while fallback means the child's own rules win and the parent's apply only when the child has none.
+A table can be part of a source, so rules can exist at both levels.
+`RESOURCE_FALLBACK_MAP` (`posthog/rbac/user_access_control.py`) resolves this by applying the most specific rule that exists:
 
-`get_user_access_level()` takes the first tier that has a rule, most specific first: this table → this source → all tables and views → all sources → the team default.
+1. This table
+2. Its source
+3. All tables and views (the `warehouse_objects` umbrella)
+4. All sources
+5. The team default
 
 So denying one source denies every table it syncs, but a rule on a specific table still beats it.
-Tables with no source (self-managed, S3, manually linked) skip the source tiers, and views never resolve through a source.
+Tables with no source (self-managed, S3, manually linked) skip tiers 2 and 4, and views never resolve through a source.
 
 The creator always keeps access: the object's `created_by` user resolves to the highest level regardless of explicit denies, ahead of every tier above.
 "Creator" here is the `created_by` on the object — for a view, whoever authored it; for a warehouse table, whoever created the row (for an externally synced source, the user who connected the source).
